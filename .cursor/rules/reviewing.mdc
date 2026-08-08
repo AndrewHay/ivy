@@ -1,0 +1,26 @@
+---
+alwaysApply: true
+---
+
+# Code Review Standards
+
+All gameplay code should be reviewed for:
+
+- gameplay correctness
+- edge cases
+- system interactions
+- potential exploits
+- maintainability
+
+Reviewers should prioritize:
+
+1. Bugs
+2. Logic errors
+3. Missing edge cases
+4. System stability
+
+Avoid nitpicking formatting unless it harms readability.
+
+## Verifying UI / gameplay flow changes
+
+Static review of a diff is not sufficient for changes touching multi-step UI or gameplay flows. Run the `run-ui-script` skill's canonical smoke test (`tools/ui_scripts/smoke.txt`) or a feature-specific script under `tools/ui_scripts/`, and read the resulting screenshots — don't rely on exit code alone. For a bug or feature specific to a different sequence of steps, write a throwaway `.txt` instruction script reproducing it rather than describing the repro steps only in prose.

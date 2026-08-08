@@ -1,0 +1,3 @@
+# Bootstrap smoke: load main scene, wait, capture
+WAIT 500
+SCREENSHOT boot.png

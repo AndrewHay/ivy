@@ -1,0 +1,25 @@
+---
+description: Use the shell tool's working_directory parameter instead of `cd &&` chaining
+alwaysApply: true
+---
+
+# Shell Working Directory
+
+When running a terminal command that needs to execute in a specific directory (e.g. the
+Godot project root for `res://`-relative commands like running GUT tests or the screenshot
+tool), set the shell tool's `working_directory` parameter to that path.
+
+Do **not** prefix the command with `cd /path && ...`.
+
+```bash
+# ❌ BAD
+cd /Users/andrewhay/github/ivy && /Applications/Godot.app/Contents/MacOS/Godot --headless ...
+
+# ✅ GOOD — working_directory: /Users/andrewhay/github/ivy
+/Applications/Godot.app/Contents/MacOS/Godot --headless ...
+```
+
+Exception: if a task genuinely requires chaining multiple commands across different
+directories in one call (e.g. `cd a && ./build.sh && cd ../b && ./deploy.sh`), `cd` is fine
+there — this rule only targets the common case of running a single command that just needs
+a different starting directory than the current one.

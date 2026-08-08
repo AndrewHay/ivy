@@ -1,0 +1,22 @@
+---
+alwaysApply: true
+---
+
+# Technical Index Lookup Rule
+
+Before reading game source files to understand the codebase, find files for a task, or learn the overall technical design:
+
+1. **Read `TECHNICAL_INDEX.md` first.** It contains a complete index of every file in the project with summaries, a system-to-file cross-reference, and the signal flow between systems.
+2. **Use the index to identify which specific files are relevant** to the current task.
+3. **Read only those files.** Do not blindly read every file in the repository.
+
+This applies whenever you need to:
+- Find which files implement a specific system or feature
+- Understand which files to modify for a change
+- Get an overview of the project architecture or technical design
+- Identify test files for a given system
+- Understand signal flow or system dependencies
+
+If the Technical Index does not contain enough information to identify the right files, then and only then should you explore the codebase more broadly.
+
+Also read `DESIGN.md` for game design intent and `IMPLEMENTATION.md` for detailed system contracts and API signatures when you need that level of detail.

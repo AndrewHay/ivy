@@ -1,0 +1,29 @@
+---
+description: Standardize GitHub issue handling for bugs across implementation, review, fix, and QA.
+alwaysApply: true
+---
+
+# GitHub Issue Workflow Rule
+
+Canonical tracker for gameplay bugs: `AndrewHay/ivy` issues (create the remote repo when ready).
+
+Required bug report fields:
+- Context and affected build/branch
+- Reproduction steps
+- Expected behavior
+- Actual behavior
+- Severity (blocker/high/medium/low)
+- Affected systems/files (if known)
+
+Lifecycle:
+1. QA or reviewer identifies issue and checks for duplicates.
+2. Open or update issue with full repro details.
+3. Gameplay Fixer links fix work to issue number.
+4. QA verifies fix against repro steps.
+5. Only after QA verification, close issue with verification notes.
+
+Rules:
+- Do not close bug issues without QA verification evidence.
+- If fix is partial, keep issue open and document remaining work.
+- If behavior differs from design, reference `DESIGN.md` decision points.
+- Keep issue comments factual, reproducible, and concise.

@@ -1,0 +1,29 @@
+---
+description: Enforce the multi-agent gameplay delivery pipeline and handoff quality.
+alwaysApply: true
+---
+
+# Agent Pipeline Rule
+
+Use this stage order for feature delivery unless the user explicitly overrides it:
+
+1. Game Director
+2. Systems Designer
+3. Gameplay Architect
+4. Gameplay Programmer
+5. Code Reviewer
+6. Gameplay Fixer
+7. QA Playtester
+
+Requirements:
+- Each stage must consume the previous stage's output before proceeding.
+- Each stage output must include: inputs used, produced artifacts, and next handoff.
+- Do not skip Code Reviewer before Gameplay Fixer.
+- Do not skip QA Playtester before declaring work complete.
+- If a stage finds blockers, send the work back to the earliest stage that can resolve the blocker.
+
+Handoff quality bar:
+- Concrete, testable statements over vague intent.
+- Include explicit non-goals to prevent scope creep.
+- Keep scope aligned to the current phase objectives.
+- Preserve core loop clarity and player feedback.
