@@ -92,7 +92,7 @@ implemented. Remove the marker as each file lands.
 
 | Path | Summary |
 |------|---------|
-| `src/metrics/coverage.gd` | **[planned]** `CoverageMetric` — surface-bucket occupancy in tower-cylindrical coordinates, opening exclusion, stem-bucket diagnostic, 12-sector asymmetry. Reads only `PlantData`. |
+| `src/metrics/coverage.gd` | `CoverageMetric` — surface-bucket occupancy in tower-cylindrical coordinates (SD-METRIC-1/2/3/5/6), opening exclusion, stem-bucket diagnostic, 12-sector asymmetry, sun/shade split by seed azimuth. Reads only `PlantData`. |
 | `src/metrics/blacklist.gd` | **[planned]** `BlacklistAssertions` — automatable artifact checks and the numeric auto-screens for banding and coplanar leaves. |
 | `src/metrics/run_hash.gd` | **[planned]** `RunHash` — canonical determinism fingerprint used by the AS-4 test and the harness. |
 | `src/ui/hud.tscn` / `hud.gd` | **[planned]** `Hud` — four anchor buttons, pause and three speeds, date/time readout, time-lapse indicator. |
@@ -118,7 +118,7 @@ implemented. Remove the marker as each file lands.
 | `test/test_time.gd` | **[planned]** Speed-change invariance, diel-gate mean preservation, day/night gate magnitudes. |
 | `test/test_leaf_placement.gd` | **[planned]** Nodes per metre rather than per tick, tip suppression, shade etiolation, atlas adjacency, offset ladder, size distribution. |
 | `test/test_determinism.gd` | **[planned]** Two identical runs produce identical tip count, bit-identical stem length, identical leaf count and run hash. |
-| `test/test_metric.gd` | **[planned]** Bucket mapping, opening exclusion, synthetic coverage and asymmetry. |
+| `test/test_metric.gd` | Bucket mapping round-trip, opening exclusion, synthetic 100% coverage, sun/shade split by seed azimuth, AS-1 coupling rule, 12-sector asymmetry, lip-reached, RNG independence. |
 | `test/test_blacklist.gd` | **[planned]** Each automatable artifact check fires on a synthetic violation and stays quiet on a clean plant. |
 
 ### Dev tooling

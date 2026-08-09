@@ -16,41 +16,78 @@ pwd && test "$(pwd)" = "/Users/andrewhay/github/ivy" || exit 1
 /Applications/Godot.app/Contents/MacOS/Godot \
   res://tools/run_ui_script.tscn \
   -- \
-  --script=/Users/andrewhay/github/ivy/tools/ui_scripts/smoke.txt \
-  --outdir=/tmp/ivy_ui_script/
+  --script=/Users/andrewhay/github/ivy/tools/ui_scripts/smoke.txt
 ```
 
-Set `block_until_ms` to at least `30000`.
+`--outdir` is optional and defaults to `res://.tmp/ui_scripts/`, which is gitignored. Do not point it
+at `/tmp/` — output belongs inside the project so runs need no extra permissions.
 
-After the run, read PNGs from `--outdir` and check the log for `FAILED` steps.
+Set `block_until_ms` to at least `30000`; a 30-game-day growth run takes ~13s plus Godot startup.
+
+After the run, read the PNGs from the output directory and check the log for `FAILED` steps.
+**Reading the screenshot is the point** — per `.cursor/rules/reviewing.mdc`, a zero exit code is not
+evidence that a gameplay or UI flow is correct.
 
 ## Instruction file format
 
-Plain `.txt`, one verb per line, `#` comments and blank lines ignored:
+Plain `.txt`, one verb per line, `#` comments and blank lines ignored.
 
-```text
-WAIT 500
-SCREENSHOT boot.png
-```
-
-## Verb reference (bootstrap)
+## Verb reference
 
 | Verb | Effect |
 |---|---|
 | `WAIT <ms>` | Wait N real-time milliseconds |
-| `SCREENSHOT [name.png]` | Capture a PNG into `--outdir` |
+| `SPEED <pause\|watch\|fast\|grow>` | Set the `SimClock` speed |
+| `ADVANCE_DAYS <n>` | Advance the simulation by `n` game-days (`n · 24` ticks) directly, independent of wall-clock time. Accepts fractions |
+| `TRACE <days>` | Advance one tick at a time, printing a per-tick state checksum (tick, tips, segments, length, tip-0 position/vigour/state). Diff two runs to find the first divergent tick |
+| `DUMP` | Print simulation state: day, tick, tip counts by state, segments, leaves, total stem length, and tip-0 detail |
+| `DUMP_LIGHT` | Print light-field probes at fixed points on each face |
+| `DUMP_METRICS [seed_azimuth_deg]` | Print the AS-1 coverage split (overall / sun-facing / shaded, with the eligible bucket counts), `LIP_REACHED`, and the AS-2 stem asymmetry |
+| `SET_PARAM <name> <value>` | Override one `IvyParams` field before the run. Use it for A/B comparisons such as `diel_gate_enabled false` |
+| `SCREENSHOT [name.png]` | Capture a PNG into the output directory |
 
-Add project-specific verbs (clicks, queue actions, etc.) as gameplay UI is implemented — mirror probot's `run_ui_script.gd` pattern.
+## Determinism: always pause, then advance
+
+At any running speed, `_process` also advances ticks from the real frame delta, so tick totals depend
+on wall-clock timing and the run is **not** reproducible (INV-7). Every measurement script must open
+with `SPEED pause` and drive time with `ADVANCE_DAYS`, which pins the run to exactly 24 ticks per
+game-day. This was defect W-034; the runner sets a `script_driven` flag so `main.gd` will not
+auto-start the clock.
+
+A correct run reproduces digit-for-digit. If two runs of the same script disagree at all, something
+has reintroduced non-determinism — treat it as a blocker, not noise.
+
+## Existing scripts
+
+| Script | Purpose |
+|---|---|
+| `smoke.txt` | Canonical smoke test — boot and capture. Run it after any scene or composition-root change |
+| `m1_growth.txt` | The M1 exit gate: 30 game-days, dumps at day 0/1/30, screenshot at midday |
+| `m1_light.txt` | Light-field probes per face |
+| `m1_trace.txt` | Per-tick checksums for determinism bisection |
+| `m2_metrics.txt` | The M2 acceptance run: dumps state and metrics at day 0/30/60/150. ~75s |
+| `as3b_gate_on.txt` / `as3b_nodiel.txt` | AS-3(b) pair — identical runs with the diel gate on and off, to check the gate is mean-preserving |
+| `as3b_day1_gate_on.txt` / `as3b_day1_nodiel.txt` | The same pair over day 0→1 only, where both runs provably share a starting state |
+| `as3c_dl_decay.txt` | AS-3(c) — `D_L` step response, to measure the implied `tau_L` |
+
+Write a throwaway `.txt` for a one-off repro rather than describing the steps in prose.
 
 ## Files involved
 
-- `tools/run_ui_script.gd` — runner script
+- `tools/run_ui_script.gd` — runner script and verb dispatch
 - `tools/run_ui_script.tscn` — scene hosting the runner
-- `tools/ui_scripts/smoke.txt` — canonical smoke test
+- `tools/ui_scripts/*.txt` — instruction files
+
+## Not yet implemented
+
+`CAMERA`, `SEED` and `ASSERT` are specified in work item W-027 but do not exist. Without `ASSERT` no
+script can fail a visual gate on its own, so results still need a human or agent to read them. Keep
+the verb table above in sync as verbs land.
 
 ## Healthy output
 
 ```
-[ui-script] script=...  outdir=/tmp/ivy_ui_script/  steps=2
-[ui-script]   saved /tmp/ivy_ui_script/01_boot.png size=(1920, 1080)
+[ui-script] script=...  outdir=res://.tmp/ui_scripts/  steps=8
+[ui-script]   DUMP day=30.0 tick=720 tips=114 live=67 ... segments=2295 leaves=1027 total_len=66.6237528464408
+[ui-script]   saved /Users/andrewhay/github/ivy/.tmp/ui_scripts/m1_exit.png size=(1920, 1080)
 ```

@@ -171,8 +171,8 @@ disappears from screen.
 |---|---|
 | SD-TIP-1 | **`tip_cap_soft = 96`, `tip_cap_hard = 160`.** The hard cap is the documented, never-exceeded number AS-5 requires. |
 | SD-TIP-2 | Below the soft cap: branching per §26, unmodified. |
-| SD-TIP-3 | Between soft and hard: branch probability is scaled by `q = clamp((N_hard − N)/(N_hard − N_soft), 0, 1)`, tapering smoothly to zero. No pop when the cap is approached. |
-| SD-TIP-4 | At the hard cap: a new branch may still be created, but only by **retiring** (→ DORMANT) the least-vigorous live tip, where `vigour = f_L · f_C · f_S` sampled at that tip. The swap happens only if the branching parent's vigour exceeds the retiree's by a factor of `1.25`, which prevents thrash. |
+| SD-TIP-3 | Between soft and hard, and at and above the hard cap, branch probability is scaled by a single continuous ramp that lands on a **positive floor** `branch_scale_floor` (not zero) rather than tapering to zero: `q = branch_scale_floor + (1 − branch_scale_floor) · clamp((N_hard − N)/(N_hard − N_soft), 0, 1)`. Hence `q = 1.0` for `N ≤ N_soft`, `q` falls linearly to `q = branch_scale_floor` at `N = N_hard`, and `q = branch_scale_floor` for all `N ≥ N_hard`. The function is continuous everywhere — the largest step between adjacent tip counts is `(1 − branch_scale_floor)/(N_hard − N_soft) ≈ 0.0153`, so there is **no pop when the cap is approached** (W-045). The floor is deliberately positive: a zero floor makes SD-TIP-4's swap structurally unreachable (that was the W-037 defect), and it is deliberately small so that churn at saturation stays a slow trickle. |
+| SD-TIP-4 | At and above the hard cap, `q` is held at `branch_scale_floor` (SD-TIP-3), so the per-segment branch draw still fires — at that reduced rate. When it fires, a new branch is created only by **retiring** (→ DORMANT) the least-vigorous live non-floating tip, where `vigour = f_L · f_C · f_S` sampled at that tip, and only if the branching parent's vigour exceeds the retiree's by a factor of `retire_margin` (1.25), which prevents thrash. **Intended steady state at saturation is a slow churn** — at most one retirement per *successful* branch, and successful branches are throttled to `branch_scale_floor` of the unthrottled rate — **not** the full-rate one-in-one-out churn that a floor of 1.0 would produce. Because SD-TIP-4 retires the least-vigorous (hence most-shaded) tip, keeping the floor low is what bounds shaded-tip retirement; `retire_margin` remains the designated lever for the AS-1 shaded-floor tension (see `DESIGN.md`), and `branch_scale_floor` is orthogonal to it (it sets *how often* a swap is attempted, not *which* tip is chosen). |
 | SD-TIP-5 | **Never retire a FLOATING tip.** Freezing a vine in mid-air reads as a broken floating stem and trips artifact-blacklist item 2. Floating tips are exempt until they reattach or die naturally at `max_float`. |
 | SD-TIP-6 | **Never retire a tip above `0.8 · H_tower` if fewer than 3 such tips exist.** This protects the silhouette-break behaviour AS-6 tests. |
 
@@ -321,13 +321,35 @@ Per-instance colour multiplied over the atlas albedo (MultiMesh instance colour)
 
 ### SD-LEAF-8 — Leaf density and the crowding field
 
-- **Leaves write crowding.** A node deposits `C += k_leaf · predicted_leaf_area / cell_area`, with
-  `k_leaf` tuned so a fully leafed cell saturates near `C = 1`. Stems deposit a smaller amount.
-  Crowding should mean "how much ivy is here", and leaves are most of the ivy. Per SD-PHYS-3 the
-  predicted area is computed **in physiology** so INV-1 is not violated by geometry writing back.
-- **Crowding suppresses leaves.** `P(place leaf at node) = clamp(1 − 0.55·C, 0.35, 1)`. The interior
-  of a dense mat does not stack four hidden layers of leaves. Pure win: fewer occluded instances,
-  fewer z-fight opportunities, no visual cost because those leaves were invisible.
+> **W-040 landed 2026-08-09. W-048's crowding tuning was applied, measured, and reverted the same
+> day.** Live defaults are back to `leaf_crowd_k = 0.5`, `leaf_crowd_suppress = 0.55`,
+> `leaf_crowd_floor = 0.35`. The reason is recorded as **W-050 and is a correction to this section's
+> earlier reasoning, not a tuning preference** — read it before touching these values.
+
+- **`C` is confined to `[0, 1]` by the implementation.** `Environment.deposit_crowding()` writes
+  through `SparseHashField.add_slot(..., lo = 0.0, hi = 1.0)`, which is a hard `clampf`. An earlier
+  revision of this section asserted the opposite — that the ceiling of 1 "was a tuning guideline, not
+  an invariant" — and W-048 was decided on that basis. It is an invariant. Two consequences follow.
+  `f_C = e^{−0.8C}` cannot fall below `e^{−0.8} ≈ 0.45`, so crowding cannot distinguish one leaf
+  layer from three; and `lambda_b`'s `pow(1 − C, branch_crowd_exponent)` is safe only because of the
+  clamp, so raising the ceiling requires changing that term in the same edit or branch probability
+  goes NaN.
+- **Leaves write crowding.** A node deposits `C += k_leaf · predicted_leaf_area / cell_area`
+  (`k_leaf = leaf_crowd_k = 0.5`). Stems deposit a smaller amount. Crowding should mean "how much ivy
+  is here", and leaves are most of the ivy. Per SD-PHYS-3 the predicted area is computed **in
+  physiology** so INV-1 is not violated by geometry writing back.
+- **`leaf_crowd_k` is a saturation-*rate* knob, not a suppression-*depth* knob.** Given the clamp,
+  raising it changes nothing in cells already at `C = 1` and only makes below-saturation cells reach
+  the ceiling sooner. On this tower the below-saturation cells are the shaded half. Measured: raising
+  it to 0.85 moved sun-facing coverage by 1.2 points (93.67 → 92.47, already clamped) while shaded
+  coverage fell 23 points (53.99 → 30.76), and bought only 4% of the volume overshoot. It is the
+  wrong lever for the AR-BUDGET problem and an actively dangerous one for AS-1's shaded floor.
+- **Crowding suppresses leaves.** `P(place leaf at node) = clamp(1 − leaf_crowd_suppress·C,
+  leaf_crowd_floor, 1)`, live at 0.55 / 0.35. At `C = 1` interior placement falls to 0.45. The
+  interior of a dense mat does not stack hidden layers of leaves. These two are genuinely
+  density-gated in the way this section originally claimed for all three — they act through `C`
+  rather than on it, so at low `C` they are near-inert and the sparse shaded half is spared. They
+  were not the cause of the W-048 regression and remain available as levers.
 
 ### SD-LEAF-9 — Budgets
 
@@ -514,6 +536,7 @@ All of these live in the same authoritative resource as the §30 defaults (INV-6
 | `max_segments_per_tick` | 8 | SD-PHYS-2 |
 | `branch_angle_min` / `_max` / `branch_offset` | 45° / 75° / 0.005 m | SD-GEO-6 |
 | `tip_cap_soft` / `tip_cap_hard` / `retire_margin` | 96 / 160 / 1.25 | SD-TIP |
+| `branch_scale_floor` | 0.02 | SD-TIP-3 (W-045) |
 | `stall_rate` / `stall_days` | 0.01 m/day / 3 | SD-TIP |
 | `internode_base` / `internode_shade_gain` / `internode_jitter` | 0.040 m / 0.9 / 0.25 | SD-LEAF-2 |
 | `leaf_tip_suppress` | 0.06 m | SD-LEAF-2 |
@@ -528,7 +551,8 @@ All of these live in the same authoritative resource as the §30 defaults (INV-6
 | `leaf_light_scale_base` / `_gain` | 0.80 / 0.30 | SD-LEAF-5 |
 | `leaf_size_sigma` | 0.16 | SD-LEAF-5 |
 | `leaf_healthy_base` / `_gain` | 0.25 / 0.65 | SD-LEAF-6 |
-| `leaf_crowd_suppress` / `_floor` | 0.55 / 0.35 | SD-LEAF-8 |
+| `leaf_crowd_k` | 0.5 | SD-LEAF-8 (W-036). Raised to 0.85 by W-048 and reverted — `C` is clamped to `[0, 1]`, so this is a saturation-rate knob that thins the sparse shaded half rather than the dense sunny one. See W-050 before changing. |
+| `leaf_crowd_suppress` / `_floor` | 0.55 / 0.35 | SD-LEAF-8. Thins hidden interior leaf layers; genuinely density-gated, so the sparse shaded half is spared. |
 | `leaf_cap` | 20000 | SD-LEAF-9 |
 | `stem_radius_base` / `stem_order_falloff` / `stem_tip_taper` | 0.006 m / 0.25 / 0.15 m | SD-STEM |
 | `ground_y_min` | 0.02 m | SD-GEO-4 |
@@ -1434,6 +1458,52 @@ retired by `SD-TIP-4`'s vigour rule, which the Director explicitly flagged.
 W-021 lands the coverage metric at M2 precisely so the choice is made from a measurement. The point
 of recording the arithmetic here is that the Programmer should recognise a 12 m² result as "the
 shaded floor will fail at M4" three milestones before it does.
+
+**2026-08-09 — the measurement arrived, and it is the reverse problem (W-048, Systems Designer).**
+The first reproduced day-150 run at defaults measured **42,795 segments (budget 12,000–20,000),
+1,257.9 m stem (budget 360–600 m), 18,488 leaves (budget 7,000–15,000, 92% of the 20,000 cap), and
+≈66 m² of leaf area (budget 20–35 m²)** — about 1.5 leaf-layers over every square metre of the 43 m²
+eligible wall. AS-1 passes (75.13 / 93.83 / 54.43 against 70 / 90 / 50) but by **volume, not
+placement**: the day-150 screenshot is a uniform green mat, the rubric-2 wallpaper failure. Note the
+three remedies above were written to address the *opposite* risk (AS-1 missed); two of them
+(`leaf_width_base` up, `leaf_crowd_suppress` down) push the wrong way here and are explicitly
+rejected. The decision:
+
+- **W-040 (stall rule) lands first.** SD-TIP's GROWING→DORMANT stall transition is unimplemented, so
+  trickle tips never retire and keep laying stem and spawning branches — a first-order cause of the
+  segment/stem overshoot (the tip census shows 937 tips ever created for a budget that implies
+  ~300–450). Tuning crowding around a sim with live zombie tips would bake a compensating
+  over-strong `leaf_crowd_k` that overcorrects the moment W-040 lands. Re-measure after W-040 before
+  finalising the crowding numbers.
+- **Then strengthen the density feedback, not the leaf size.** `leaf_crowd_k` 0.5→0.85 (brakes the
+  growth→branch loop, the AR-BUDGET ">25,000 = crowding not suppressing growth" diagnostic);
+  `leaf_crowd_suppress` 0.55→0.75 and `leaf_crowd_floor` 0.35→0.20 (stop stacking hidden interior
+  layers, density-gated so the sparse shaded half is spared). Held: `leaf_width_base = 0.075`
+  (raising it adds area — wrong direction), `retire_margin = 1.25` (the cap is barely engaged —
+  census peaks at 123 live, never near the 160 hard cap — so retirement is not the binding
+  constraint here, though `retire_margin` remains the DESIGN-designated shaded-floor lever if that
+  floor is threatened), `branch_rate` and `f_C`'s 0.8 held in reserve. Target operating point: the
+  mid-upper AR-BUDGET envelope (≈16–19k segments, ≈480–570 m, ≈8–11k leaves, ≈30–35 m²), deliberately
+  not the 12k floor, to preserve AS-1's thin margins. The budget numbers above are **unchanged** —
+  the budget was right; the simulation was wrong.
+
+**2026-08-09, later — both brakes were tried and neither worked; the crowding tuning was reverted
+(W-050, Code Reviewer).** W-040 landed and cost only ≈2% of the overshoot: a trickle tip emitting one
+0.03 m segment every three days still clears the 0.01 m/day stall threshold, so the tips the rule was
+aimed at mostly escape it. The crowding tuning was then applied and cost 4% of segments while
+breaking two AS-1 floors — **63.17 / 92.47 / 30.76 against 70 / 90 / 50** — and has been reverted to
+0.5 / 0.55 / 0.35. The reason is structural rather than a matter of degree: `C` is hard-clamped to
+`[0, 1]` (see SD-LEAF-8), so `leaf_crowd_k` cannot deepen suppression in the saturated sunny mat
+where the plant actually lives, and its only real effect is to push the sparse shaded half to full
+suppression sooner. **The clause above that reads "brakes the growth→branch loop" is therefore
+withdrawn** — `f_C` bottoms out at `e^{−0.8} ≈ 0.45` no matter what `k_leaf` is.
+
+What survives the two attempts is a sharper diagnosis. Stem length per tip is **on budget** at
+≈1.2 m; the plant is oversized because it creates **962 tips against the ~300–450 the budget
+implies**. Both levers tried act on leaf placement and tip retirement — neither touches tip
+*creation* — which is consistent with how little they bought. `branch_rate`, held in reserve above,
+is the untried lever and the one the measurement now points at. The 2× overshoot and the W-048
+re-decision stay open.
 
 ---
 

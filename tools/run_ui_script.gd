@@ -3,6 +3,7 @@ extends Node
 ## Minimal UI script runner for bootstrap. Extend verbs as Ivy gains interactive UI.
 
 const _MAIN_SCENE := "res://src/main/main.tscn"
+const _CoverageMetric = preload("res://src/metrics/coverage.gd")
 ## Output defaults inside the project so runs need no write access outside the
 ## workspace. `.tmp/` is gitignored.
 const _DEFAULT_OUTDIR := "res://.tmp/ui_scripts/"
@@ -85,6 +86,39 @@ func _ready() -> void:
 				sim.advance_ticks(ticks)
 			for _f in range(3):
 				await get_tree().process_frame
+		elif line.begins_with("SET_PARAM "):
+			# Live-edits IvyParams on the running Sim (W-027, AS-3b comparison, M3).
+			# Makes NO RNG draws — pure property assignment. Draw sequences diverge only
+			# because changed parameters (e.g. growth rate) shift when per-metre events
+			# fire; the verb itself introduces nothing random.
+			var sp_parts := line.split(" ", false)
+			if sp_parts.size() < 3:
+				printerr("[ui-script] FAILED step ", step, ": SET_PARAM requires <name> <value>")
+				get_tree().quit(1)
+				return
+			var sp_name: String = sp_parts[1]
+			var sp_value_str: String = sp_parts[2]
+			var sp_sim: Node = main.get_node("Sim")
+			var sp_params: IvyParams = sp_sim.get("params") as IvyParams
+			if sp_params == null:
+				printerr("[ui-script] FAILED step ", step, ": Sim.params is null")
+				get_tree().quit(1)
+				return
+			var sp_current: Variant = sp_params.get(sp_name)
+			if sp_current == null:
+				printerr("[ui-script] FAILED step ", step, ": unknown IvyParams field '", sp_name, "'")
+				get_tree().quit(1)
+				return
+			var sp_typed: Variant
+			match typeof(sp_current):
+				TYPE_BOOL:
+					sp_typed = sp_value_str.to_lower() == "true"
+				TYPE_INT:
+					sp_typed = int(sp_value_str)
+				_:
+					sp_typed = float(sp_value_str)
+			sp_params.set(sp_name, sp_typed)
+			print("[ui-script]   SET_PARAM ", sp_name, "=", sp_typed, " (was ", sp_current, ")")
 		elif line.begins_with("TRACE "):
 			# Per-tick state checksum. Diff two runs to find the first divergent tick
 			# instead of reasoning backwards from a wildly different end state.
@@ -100,6 +134,77 @@ func _ready() -> void:
 					" t0pos=%.9f,%.9f,%.9f" % [t0.position.x, t0.position.y, t0.position.z],
 					" t0vig=%.9f" % t0.vigour,
 					" t0state=", t0.state)
+		elif line.begins_with("DUMP_METRICS"):
+			# DUMP_METRICS [seed_azimuth_deg]
+			# Must be checked before DUMP (which begins_with("DUMP") would match DUMP_METRICS).
+			# Compute bucket-occupancy coverage (SD-METRIC-1/2/3/5/6), stem-length
+			# asymmetry (AS-2), and diel gate readouts (AS-3) at the current game day.
+			# seed_azimuth_deg defaults to 180.0 (south seed, which is the M1 default).
+			var dm_parts: PackedStringArray = line.split(" ", false)
+			var dm_seed_az: float = 180.0
+			if dm_parts.size() >= 2:
+				dm_seed_az = float(dm_parts[1])
+			var dm_sim: Node = main.get_node("Sim")
+			var dm_world: Node = main.get_node("World")
+			var dm_spec: TowerSpec = dm_world.get("tower_spec") as TowerSpec
+			if dm_spec == null:
+				printerr("[ui-script] FAILED step ", step, ": World.tower_spec is null")
+				get_tree().quit(1)
+				return
+			var dm_plant: PlantData = dm_sim.get("plant") as PlantData
+			var dm_metric: RefCounted = _CoverageMetric.new()
+			dm_metric.setup(dm_spec)
+			var dm_result: Dictionary = dm_metric.measure(dm_plant, dm_seed_az)
+			var dm_clock: SimClock = dm_sim.get("clock") as SimClock
+			var dm_day: float = dm_clock.game_day if dm_clock != null else 0.0
+			print("[ui-script]   DUMP_METRICS day=%.1f seed_az=%.1f" % [dm_day, dm_seed_az])
+			print("[ui-script]   COVERAGE overall=%.2f%% (target >=70%%)" % [dm_result.get("overall_pct", 0.0)])
+			print("[ui-script]   COVERAGE sun_half=%.2f%% (target >=90%%)" % [dm_result.get("sun_half_pct", 0.0)])
+			print("[ui-script]   COVERAGE shade_half=%.2f%% (target >=50%%)" % [dm_result.get("shade_half_pct", 0.0)])
+			print("[ui-script]   COVERAGE stem_bucket=%.2f%%" % [dm_result.get("stem_bucket_pct", 0.0)])
+			print("[ui-script]   COVERAGE eligible=%d  sun_elig=%d  shade_elig=%d" % [
+				dm_result.get("total_eligible_buckets", 0),
+				dm_result.get("sun_eligible_buckets", 0),
+				dm_result.get("shade_eligible_buckets", 0)])
+			print("[ui-script]   LIP_REACHED=%s" % [str(dm_result.get("lip_reached", false))])
+			# AS-2: stem-length asymmetry
+			print("[ui-script]   AS2 sun_stem=%.3f m  shade_stem=%.3f m  asymmetry=%.2f%% (day30 target >=20%%)" % [
+				dm_result.get("sun_stem_length", 0.0),
+				dm_result.get("shade_stem_length", 0.0),
+				dm_result.get("stem_asymmetry_pct", 0.0)])
+			# AS-2: 12-sector stem-length breakdown
+			var dm_sec_stem: PackedFloat32Array = dm_result.get("sector_stem_length", PackedFloat32Array())
+			var dm_sec_str: String = ""
+			for s in range(dm_sec_stem.size()):
+				dm_sec_str += "sec%d=%.2f " % [s, dm_sec_stem[s]]
+			print("[ui-script]   SECTORS_STEM ", dm_sec_str.strip_edges())
+			# AS-3(a): diel gate values at midnight and noon for the current date.
+			# midnight = start_hour + 18h into the game-day (since day starts at start_hour=6)
+			# noon = start_hour + 6h into the game-day
+			var dm_solar: Solar = dm_sim.get("solar") as Solar
+			var dm_params: IvyParams = dm_sim.get("params") as IvyParams
+			if dm_solar != null and dm_params != null:
+				var dm_day_int: int = int(floor(dm_day))
+				var dm_noon_day: float = float(dm_day_int) + (12.0 - dm_params.start_hour) / 24.0
+				var dm_midnight_day: float = float(dm_day_int) + (24.0 - dm_params.start_hour) / 24.0
+				var dm_gate_noon: float = dm_solar.diel_gate(dm_noon_day)
+				var dm_gate_midnight: float = dm_solar.diel_gate(dm_midnight_day)
+				print("[ui-script]   AS3a gate_noon=%.4f  gate_midnight=%.4f  ratio_midnight_to_noon=%.4f (target <=0.10)" % [
+					dm_gate_noon, dm_gate_midnight, dm_gate_midnight / maxf(dm_gate_noon, 1e-6)])
+				print("[ui-script]   AS3a midnight_vs_daily_mean=%.4f (target <=0.15; daily mean ~1.0 by INV-3a)" % [dm_gate_midnight])
+			var dm_total_len: float = dm_plant.total_length if dm_plant != null else 0.0
+			var dm_leaf_n: int = dm_plant.leaf_count() if dm_plant != null else 0
+			var dm_seg_n: int = dm_plant.segment_count() if dm_plant != null else 0
+			# Sum leaf_area[] for total projected leaf area in m².
+			var dm_leaf_area: float = 0.0
+			if dm_plant != null:
+				for _la in dm_plant.leaf_area:
+					dm_leaf_area += _la
+			var dm_wall_area: float = 43.0  # eligible wall m² (2520 buckets × 0.017 m²)
+			print("[ui-script]   TOTAL_STEM_LENGTH=%.6f m  leaves=%d  segments=%d" % [
+				dm_total_len, dm_leaf_n, dm_seg_n])
+			print("[ui-script]   LEAF_AREA=%.4f m²  layers=%.3f (÷%.0f m²)" % [
+				dm_leaf_area, dm_leaf_area / dm_wall_area, dm_wall_area])
 		elif line.begins_with("DUMP_LIGHT"):
 			var sim := main.get_node("Sim")
 			var env = sim.env
@@ -125,6 +230,23 @@ func _ready() -> void:
 				" north=", "%.2f" % env.mean_p_bar_facing(Conv.NORTH),
 				" -> D_L south=", "%.2f" % (env.mean_p_bar_facing(Conv.SOUTH) * IvyEnvironment.DL_SCALE),
 				" north=", "%.2f" % (env.mean_p_bar_facing(Conv.NORTH) * IvyEnvironment.DL_SCALE))
+			# AS-3(c): print EWMA time-constant diagnostics so the scripted run can report tau_L.
+			# alpha = exp(-dt_sim / tau_L); tau_L_implied = -dt_sim / ln(alpha).
+			var dl_params: IvyParams = sim.get("params") as IvyParams
+			if dl_params != null:
+				var dl_dt := dl_params.sim_tick
+				var dl_alpha := dl_params.light_ewma_alpha(dl_dt)
+				var dl_tau := -dl_dt / log(dl_alpha) if dl_alpha > 0.0 and dl_alpha < 1.0 else dl_params.light_memory
+				# Step-response preview (analytical, no simulation advance):
+				# after 72 ticks (3 game-days) of zero input from D_L=1.0, value = alpha^72 = exp(-1).
+				var dl_step_ratio := pow(dl_alpha, 72)
+				var dl_south: float = env.sample_D_L(Vector3(0.0, 1.75, 2.0), 0, 0)
+				print("[ui-script]   AS3c EWMA alpha=%.6f  tau_L_implied=%.4f days (target %.1f)" % [
+					dl_alpha, dl_tau, dl_params.light_memory])
+				print("[ui-script]   AS3c step_response: after 72 ticks zero-input, D_L_remaining/D_L_0=%.4f (target exp(-1)=%.4f)" % [
+					dl_step_ratio, exp(-1.0)])
+				print("[ui-script]   AS3c south_probe D_L=%.3f; after 3-day zero-input would be %.3f (%.1f%% of original)" % [
+					dl_south, dl_south * dl_step_ratio, dl_step_ratio * 100.0])
 		elif line.begins_with("DUMP"):
 			var sim := main.get_node("Sim")
 			var plant = sim.plant

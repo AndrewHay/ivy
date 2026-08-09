@@ -2,6 +2,7 @@ extends GutTest
 
 const IvyParams = preload("res://src/params/ivy_params.gd")
 const SimClock = preload("res://src/core/sim_clock.gd")
+const Solar = preload("res://src/env/solar.gd")
 var _params: IvyParams
 var _clock: SimClock
 
@@ -59,3 +60,96 @@ func test_speed_mapping() -> void:
 			_clock.advance_ticks(n)
 		ticks += n
 	assert_eq(_clock.tick_index, 24)
+
+
+# ---------------------------------------------------------------------------
+# AS-3(b): diel gate mean-preservation (INV-3a, SD-TIME-8b)
+# ---------------------------------------------------------------------------
+
+func test_diel_gate_mean_is_unity_over_24_ticks() -> void:
+	## SD-TIME-8b: dividing by g_ref makes ĝ mean-preserving — mean(ĝ) = 1.0 over the
+	## 24 hourly simulation ticks of one game-day (±2% tolerance).
+	## This is the mathematical guarantee underlying AS-3(b): total daily elongation
+	## with the gate on equals total daily elongation with the gate off, because the
+	## gate multiplier averages to 1 over the full day.
+	var solar := Solar.new(_params)
+	var sum := 0.0
+	for i in 24:
+		var game_day := float(i) / 24.0   # ticks 0..23 sample hours 0..23
+		sum += solar.diel_gate(game_day)
+	var mean := sum / 24.0
+	assert_almost_eq(mean, 1.0, 0.02,
+		"diel gate must be mean-preserving over 24 ticks (INV-3a, SD-TIME-8b)")
+
+
+func test_diel_gate_noon_above_one_midnight_below_one() -> void:
+	## SD-TIME-8c: ĝ ≈ 2.1 at solar noon, ≈ 0.11 at night (offset from start_hour=6
+	## by 6 h for noon, by 18 h for midnight).
+	var solar := Solar.new(_params)
+	var noon_day := 6.0 / 24.0   # start_hour=6, noon is 6 h in = game_day 0.25
+	var midnight_day := 18.0 / 24.0  # midnight is 18 h in = game_day 0.75
+	var g_noon := solar.diel_gate(noon_day)
+	var g_midnight := solar.diel_gate(midnight_day)
+	assert_gt(g_noon, 1.5, "gate at noon must be well above 1.0 (SD-TIME-8c: ≈2.1)")
+	assert_lt(g_midnight, 0.20, "gate at midnight must be near zero (SD-TIME-8c: ≈0.11)")
+
+
+func test_diel_gate_is_deterministic_no_rng() -> void:
+	## The gate is pure mathematics of solar angles and params — no RNG draws.
+	## Confirmed by calling it twice: identical inputs must produce identical outputs.
+	## This is the key property that makes the gate-disabled comparison valid:
+	## setting diel_gate_enabled=false introduces zero new RNG calls, so neither run
+	## has any extra draws relative to the other. Draw sequences diverge only because
+	## different growth magnitudes change WHEN per-metre events (branching, leaves)
+	## fire during the day, not because of any randomness in the gate itself.
+	var solar := Solar.new(_params)
+	var v1 := solar.diel_gate(0.3)
+	var v2 := solar.diel_gate(0.3)
+	assert_almost_eq(v1, v2, 1e-9,
+		"diel_gate must be deterministic (no RNG dependency — SD-RNG-4 analogue)")
+
+
+# ---------------------------------------------------------------------------
+# AS-3(c): D_L EWMA time constant (SD-ENV-8, τ_L = 3 game-days)
+# ---------------------------------------------------------------------------
+
+func test_dl_ewma_time_constant_is_three_days() -> void:
+	## SD-ENV-8: light memory applies one EWMA step per tick with
+	## α = exp(−dt_sim / τ_L), τ_L = light_memory = 3 game-days.
+	## AS-3(c) clause: after 72 ticks (3 game-days × 24 ticks/day) of zero input,
+	## D_L must decay to exp(−1) ≈ 0.3679 of its initial value.
+	## Tolerance ±0.5% (the exact closed-form solution, not an approximation).
+	var dt := _params.sim_tick        # = 1/24 game-day
+	var alpha := _params.light_ewma_alpha(dt)
+	# Verify alpha is the correct value for tau_L = 3
+	var expected_alpha := exp(-dt / _params.light_memory)
+	assert_almost_eq(alpha, expected_alpha, 1e-9,
+		"light_ewma_alpha must equal exp(-dt/tau_L)")
+	# Simulate 72 EWMA steps with zero driving input (step-down from 1.0 to 0.0).
+	var dl := 1.0
+	for _i in range(72):
+		dl = alpha * dl  # + (1.0 - alpha) * 0.0
+	# After exactly 3 time constants, the value should be exp(−1).
+	assert_almost_eq(dl, exp(-1.0), 0.005,
+		"D_L after 72 zero-input EWMA steps must equal exp(-1) (tau_L=3 game-days, AS-3c)")
+
+
+func test_dl_ewma_alpha_uses_light_memory_param() -> void:
+	## Changing light_memory must change the EWMA decay rate.
+	## This confirms the parameter is wired into the formula (INV-6).
+	var p_fast := IvyParams.new()
+	p_fast.light_memory = 1.0
+	var alpha_fast := p_fast.light_ewma_alpha(p_fast.sim_tick)
+	var alpha_default := _params.light_ewma_alpha(_params.sim_tick)
+	assert_lt(alpha_fast, alpha_default,
+		"shorter light_memory must give smaller alpha (faster decay)")
+
+
+func test_dl_ewma_one_tick_does_not_snap_instantly() -> void:
+	## After one tick from initial state 1.0 with zero input, D_L must still be
+	## close to 1.0 (≥0.95), because τ_L = 3 days ≫ dt = 1/24 day.
+	## This confirms the lag — D_L cannot jump immediately to the new light level.
+	var alpha := _params.light_ewma_alpha(_params.sim_tick)
+	var dl_after_one_tick := alpha * 1.0  # single EWMA step with zero input
+	assert_gte(dl_after_one_tick, 0.95,
+		"D_L must lag instantaneous light — one tick must change it by <5% (tau_L=3 >> dt)")

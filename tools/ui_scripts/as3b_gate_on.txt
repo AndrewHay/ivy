@@ -1,0 +1,21 @@
+# AS-3(b) measurement: gate-ENABLED run.
+#
+# Records TOTAL_STEM_LENGTH at days 29 and 30 so that single-day elongation
+# can be computed: elongation_on = L30 - L29.
+#
+# Compare the delta with as3b_nodiel.txt.  Target: within ±5% of gate-off run.
+#
+# Day 29→30 is chosen because the plant is well-established (many tips) and
+# has reached a quasi-steady growth rate, making the mean-preservation test
+# more informative than day 0→1.
+
+SPEED pause
+ADVANCE_DAYS 29
+DUMP_METRICS 180
+# ^^^ Record TOTAL_STEM_LENGTH as L29_gate_on
+
+ADVANCE_DAYS 1
+DUMP_METRICS 180
+# ^^^ Record TOTAL_STEM_LENGTH as L30_gate_on
+# Elongation_gate_on = L30_gate_on - L29_gate_on
+SCREENSHOT as3b_day30_gate_on.png

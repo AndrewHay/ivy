@@ -1,0 +1,27 @@
+# AS-3(c): D_L time-constant measurement.
+#
+# Clause (c): accumulated D_L lags a step change in instantaneous light with a
+# ~3-game-day time constant (τ_L = light_memory = 3 game-days, SD-ENV-8).
+#
+# This script reports:
+#   1. The EWMA alpha and implied τ_L (should match params.light_memory).
+#   2. A step-response preview: the fraction of D_L remaining after 72 zero-input
+#      ticks (= 3 game-days), which must equal exp(-1) ≈ 0.368.
+#   3. D_L at the south probe (reference value).
+#
+# The step-response ratio is computed analytically (alpha^72) — it does not
+# advance the simulation, so no plant state is perturbed.
+#
+# Combine with the unit test test_dl_ewma_time_constant_is_three_days in
+# test_time.gd, which validates the same math with a direct 72-step simulation.
+
+SPEED pause
+DUMP_LIGHT
+# ^^^ Prints AS3c EWMA alpha, tau_L_implied, step-response ratio, south D_L.
+SCREENSHOT as3c_day0.png
+
+ADVANCE_DAYS 30
+DUMP_LIGHT
+# ^^^ Same diagnostics at day 30: tau_L and step-response ratio must be unchanged
+#     (they depend only on params, not on plant state).
+SCREENSHOT as3c_day30.png

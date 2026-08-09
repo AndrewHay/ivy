@@ -74,9 +74,16 @@ extends Resource
 @export var tip_cap_soft: int = 96
 @export var tip_cap_hard: int = 160
 @export var retire_margin: float = 1.25
+## SD-TIP-3 (W-045): floor for branch_probability_scale — keeps SD-TIP-4 retirement swap
+## reachable at saturation while eliminating the 64× discontinuity at the hard cap.
+@export var branch_scale_floor: float = 0.02
 @export var stall_rate: float = 0.01
 @export var stall_days: int = 3
 @export var tip_cap_m1: int = 64
+## SD-TIP-6 (W-038): fraction of tower height above which tips are protected from
+## retirement when the silhouette count is below silhouette_min_tips.
+@export var silhouette_height_frac: float = 0.8
+@export var silhouette_min_tips: int = 3
 
 @export_group("Leaf")
 @export var internode_base: float = 0.040
@@ -105,8 +112,11 @@ extends Resource
 @export var leaf_healthy_gain: float = 0.65
 @export var leaf_crowd_suppress: float = 0.55
 @export var leaf_crowd_floor: float = 0.35
-## SD-LEAF-8: deposit scale so that a fully leafed cell (≈2 leaf nodes at default internode
-## and cell sizes) saturates C near 1.0. Deposit per node = k * leaf_area / cell_area.
+## SD-LEAF-8: deposit scale for the crowding channel. Deposit per node = k * leaf_area / cell_area.
+## W-048 raised this to 0.85 and it was reverted: `deposit_crowding` clamps C to [0, 1], so a
+## higher k cannot deepen suppression where the plant is already dense, it only makes sparse
+## regions saturate sooner. On this tower that is the shaded half, and raising it cost 23 points
+## of shaded coverage for 4% of the volume overshoot. See W-050 before changing.
 @export var leaf_crowd_k: float = 0.5
 @export var leaf_cap: int = 20000
 
@@ -146,6 +156,7 @@ func content_hash() -> String:
 		"vis_cell", "svf_rays", "bake_ray_length", "bake_ray_offset",
 		"contact_distance", "max_segments_per_tick", "branch_angle_min", "branch_angle_max",
 		"branch_offset", "ground_y_min", "tip_cap_soft", "tip_cap_hard", "retire_margin",
+		"branch_scale_floor", "silhouette_height_frac", "silhouette_min_tips",
 		"stall_rate", "stall_days", "tip_cap_m1", "internode_base", "internode_shade_gain",
 		"internode_jitter", "leaf_tip_suppress", "phyllotaxy_divergence", "phyllotaxy_flatten",
 		"leaf_out_of_plane", "leaf_photo_cant", "droop_base", "droop_shade_gain",

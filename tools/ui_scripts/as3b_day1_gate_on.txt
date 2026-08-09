@@ -1,0 +1,25 @@
+# AS-3(b) isolation: first-game-day elongation, gate ENABLED.
+#
+# The day-29→30 comparison in as3b_gate_on.txt / as3b_nodiel.txt cannot separate
+# two different effects, because by day 29 the two runs have grown into different
+# plants (60.357 m vs 58.688 m of stem).  A larger plant elongates more per day
+# regardless of the gate, so part of that 9.1% gap is accumulated size, not the
+# gate's per-day behaviour.
+#
+# Day 0→1 is the only interval where both runs start from a byte-identical state:
+# one seed tip, an identical warmed light field, an identical RNG stream.  Any
+# difference here is the gate alone.
+#
+# Read with as3b_day1_nodiel.txt.  If day 0→1 matches within ±5% but day 29→30
+# does not, the gate is instantaneously mean-preserving and the divergence is a
+# compounding non-linearity downstream (per-metre branch thresholds crossed at
+# different times), which is a different defect with a different remedy.
+
+SPEED pause
+DUMP
+ADVANCE_DAYS 1
+DUMP
+ADVANCE_DAYS 1
+DUMP
+ADVANCE_DAYS 1
+DUMP

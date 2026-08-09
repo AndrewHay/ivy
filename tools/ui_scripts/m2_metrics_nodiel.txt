@@ -1,0 +1,34 @@
+# AS-3(b): gate-DISABLED run for the mean-preservation comparison.
+#
+# Run alongside m2_metrics.txt.  Compare TOTAL_STEM_LENGTH at each checkpoint.
+# If the gate is mean-preserving (INV-3a), total stem length must be within ±5%
+# of the corresponding checkpoint in the gate-enabled run.
+#
+# Determinism note: SET_PARAM makes no RNG draws — it is a pure property
+# assignment on IvyParams.  The gate logic (solar.diel_gate) is also pure math
+# with no RNG dependency.  The draw sequences of this run and m2_metrics.txt
+# will diverge over time because different growth magnitudes change WHEN
+# per-metre events (branching, leaf placement) fire within each day, but neither
+# run has any extra draws relative to the other.  The ±5% tolerance on total
+# elongation accounts for this timing divergence.
+#
+# Both scripts start from the same initial state: same seed (12345 south anchor),
+# same env warm-up (light_warmup_days=12, field at steady state).
+
+SET_PARAM diel_gate_enabled false
+SPEED pause
+DUMP
+ADVANCE_DAYS 30
+DUMP
+DUMP_METRICS 180
+SCREENSHOT m2_nodiel_day30.png
+
+ADVANCE_DAYS 30
+DUMP
+DUMP_METRICS 180
+SCREENSHOT m2_nodiel_day60.png
+
+ADVANCE_DAYS 90
+DUMP
+DUMP_METRICS 180
+SCREENSHOT m2_nodiel_day150.png

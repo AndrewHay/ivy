@@ -78,6 +78,7 @@ const _DEFAULTS := {
 	"leaf_healthy_gain": 0.65,
 	"leaf_crowd_suppress": 0.55,
 	"leaf_crowd_floor": 0.35,
+	"leaf_crowd_k": 0.5,
 	"leaf_cap": 20000,
 	"stem_radius_base": 0.006,
 	"stem_order_falloff": 0.25,

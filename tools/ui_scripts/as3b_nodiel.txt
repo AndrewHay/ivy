@@ -1,0 +1,24 @@
+# AS-3(b) measurement: gate-DISABLED run.
+#
+# Records TOTAL_STEM_LENGTH at days 29 and 30 so that single-day elongation
+# can be computed: elongation_off = L30 - L29.
+#
+# Compare the delta with as3b_gate_on.txt.  Target: ±5% between the two runs.
+#
+# SET_PARAM is called before any ADVANCE_DAYS so both runs start from the same
+# initial state.  The gate code (solar.diel_gate) is pure math — no RNG calls —
+# so toggling it does not perturb the stream.  Draw sequences diverge later as
+# different growth magnitudes shift the timing of per-metre events, but the ±5%
+# tolerance on total daily elongation accounts for this.
+
+SET_PARAM diel_gate_enabled false
+SPEED pause
+ADVANCE_DAYS 29
+DUMP_METRICS 180
+# ^^^ Record TOTAL_STEM_LENGTH as L29_gate_off
+
+ADVANCE_DAYS 1
+DUMP_METRICS 180
+# ^^^ Record TOTAL_STEM_LENGTH as L30_gate_off
+# Elongation_gate_off = L30_gate_off - L29_gate_off
+SCREENSHOT as3b_day30_nodiel.png

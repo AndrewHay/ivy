@@ -1,0 +1,19 @@
+# AS-3(b) isolation: first-game-day elongation, gate DISABLED.
+#
+# Pair to as3b_day1_gate_on.txt.  SET_PARAM runs before any ADVANCE_DAYS so both
+# runs begin from an identical state; the gate is pure arithmetic and consumes no
+# RNG draw, so the streams are aligned at tick 0.
+#
+# Compare day-by-day elongation against the gate-on run.  Divergence that only
+# appears after the first day or two points at compounding downstream of the
+# gate rather than at the gate itself.
+
+SET_PARAM diel_gate_enabled false
+SPEED pause
+DUMP
+ADVANCE_DAYS 1
+DUMP
+ADVANCE_DAYS 1
+DUMP
+ADVANCE_DAYS 1
+DUMP

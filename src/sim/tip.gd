@@ -23,6 +23,12 @@ var pending_branch: bool = false
 var leaf_side_sign: float = 1.0
 var vigour: float = 1.0
 
+## SD-TIP stall rule (W-040): track per-day elongation without any RNG draws.
+## stall_day_last = -1 means "not yet initialised".
+var stall_day_shoot: float = 0.0
+var stall_day_last: int = -1
+var stall_consecutive_days: int = 0
+
 
 func is_live() -> bool:
 	return state == State.GROWING or state == State.FLOATING or state == State.SEEDED
