@@ -3,6 +3,14 @@ extends GutTest
 const IvyParams = preload("res://src/params/ivy_params.gd")
 const SimClock = preload("res://src/core/sim_clock.gd")
 const Solar = preload("res://src/env/solar.gd")
+const Physiology = preload("res://src/sim/physiology.gd")
+const SimContext = preload("res://src/sim/sim_context.gd")
+const PlantData = preload("res://src/sim/plant_data.gd")
+const Tip = preload("res://src/sim/tip.gd")
+const IvyEnvironment = preload("res://src/env/environment.gd")
+const SurfaceQuery = preload("res://src/world/surface_query.gd")
+const TowerSpec = preload("res://src/world/tower_spec.gd")
+const TowerSdf = preload("res://src/world/tower_sdf.gd")
 var _params: IvyParams
 var _clock: SimClock
 
@@ -10,6 +18,16 @@ var _clock: SimClock
 func before_each() -> void:
 	_params = IvyParams.new()
 	_clock = SimClock.new(_params)
+
+
+## Real environment over a null-physics SurfaceQuery (no raycasts, open-sky bake).
+## Mirrors the helper in test_leaf_placement.gd.
+func _make_env_ctx(params: IvyParams, plant: PlantData) -> SimContext:
+	var surface := SurfaceQuery.new()
+	surface.setup(null, null, TowerSdf.new(TowerSpec.new()), PackedByteArray(), params)
+	var env := IvyEnvironment.new()
+	env.build(params, surface)
+	return SimContext.new(params, env, surface, plant, null, null)
 
 
 func test_fixed_tick_at_all_speeds() -> void:
@@ -68,18 +86,61 @@ func test_speed_mapping() -> void:
 
 func test_diel_gate_mean_is_unity_over_24_ticks() -> void:
 	## SD-TIME-8b: dividing by g_ref makes ĝ mean-preserving — mean(ĝ) = 1.0 over the
-	## 24 hourly simulation ticks of one game-day (±2% tolerance).
-	## This is the mathematical guarantee underlying AS-3(b): total daily elongation
+	## 24 hourly simulation ticks of one game-day.
+	## This is the primary guarantee behind AS-3(b) as ratified: total daily elongation
 	## with the gate on equals total daily elongation with the gate off, because the
 	## gate multiplier averages to 1 over the full day.
+	##
+	## The tolerance is 1e-6, not a loose epsilon, because g_ref is the mean of g over
+	## these very same 24 hours — so the result is exactly 1 by construction and any
+	## slack here is slack in AS-3(b) itself. At the previous ±0.02 this assertion
+	## would have passed a gate 1.9% off mean-preservation, which is the silent budget
+	## drift AS-3(b) exists to catch (W-053).
 	var solar := Solar.new(_params)
 	var sum := 0.0
 	for i in 24:
 		var game_day := float(i) / 24.0   # ticks 0..23 sample hours 0..23
 		sum += solar.diel_gate(game_day)
 	var mean := sum / 24.0
-	assert_almost_eq(mean, 1.0, 0.02,
+	assert_almost_eq(mean, 1.0, 1e-6,
 		"diel gate must be mean-preserving over 24 ticks (INV-3a, SD-TIME-8b)")
+
+
+func test_diel_gate_scales_growth_rate_proportionally() -> void:
+	## INV-3a: the gate acts on growth *magnitude* only. Doubling ĝ must exactly double
+	## the growth rate — if the gate ever leaked into a saturating or directional term,
+	## the response would stop being proportional.
+	var params := IvyParams.new()
+	var plant := PlantData.new()
+	var ctx := _make_env_ctx(params, plant)
+	var tip := Tip.new()
+	tip.id = 0
+	tip.state = Tip.State.GROWING
+	tip.position = Vector3(0.0, 1.0, 2.0)
+	tip.last_contact_normal = Vector3(0.0, 0.0, 1.0)
+
+	var r_one := Physiology.growth_rate(tip, 1.0, ctx)
+	var r_two := Physiology.growth_rate(tip, 2.0, ctx)
+	assert_gt(r_one, 0.0, "growth rate must be positive for a lit growing tip")
+	assert_almost_eq(r_two, r_one * 2.0, r_one * 1e-9,
+		"growth rate must scale linearly with the diel gate (INV-3a magnitude-only)")
+
+
+func test_diel_gate_never_reaches_direction_code() -> void:
+	## INV-3a: "must never appear in any directional term." The gate is computed in
+	## `sim_root` and handed only to `Physiology.accumulate_budget`, which multiplies a
+	## scalar rate. `growth_step.gd` owns the direction sum, so a reference to the gate
+	## appearing there is the specific regression this guards — the assertion listed in
+	## the SD-TIME test surface but never implemented until W-053.
+	var offenders: PackedStringArray = []
+	for path in ["res://src/sim/growth_step.gd", "res://src/sim/tip_manager.gd"]:
+		var text := FileAccess.get_file_as_string(path)
+		assert_false(text.is_empty(), str("could not read ", path))
+		for needle in ["diel_gate", "g_hat"]:
+			if text.contains(needle):
+				offenders.append(str(path, " references '", needle, "'"))
+	assert_eq(offenders.size(), 0, str(
+		"the diel gate must not reach direction-computing code (INV-3a): ", offenders))
 
 
 func test_diel_gate_noon_above_one_midnight_below_one() -> void:

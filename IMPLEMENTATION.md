@@ -95,6 +95,104 @@ r      = r_max · f_L · f_M · f_C · f_S · ĝ(t)
 | SD-TIME-8c | Resulting behaviour: `ĝ ≈ 2.1` at solar noon, `ĝ ≈ 0.11` at night. Growth at night is ~5% of the noon rate — "near zero" for AS-3, without a discontinuity and without ever fully stopping (a hard zero makes the debug rate readout look broken rather than nocturnal). |
 | SD-TIME-8d | Branching is per **metre grown** (§26) and so is leaf node placement (SD-LEAF-2), so neither is affected by the gate. INV-4 holds. |
 | SD-TIME-8e | **Requires Director ratification** — it is a change to a spec equation in service of a `DESIGN.md` requirement. Documented fallback if rejected: drop the gate, and reword AS-3 to test that *instantaneous light `P` and the render* go to zero at night while growth continues. That fallback is materially worse for the target experience ("Oh, it's actually growing" is much stronger when growth visibly pulses with the sun), which is why the gate is the recommendation. |
+| SD-TIME-8f | **AS-3(b) instrument — 2026-08-09 restatement (ratified SD-OPEN-7).** The W-049 cumulative plant-level comparison is **withdrawn as a test instrument**: with branching enabled it measures the simulation's Lyapunov (trajectory) divergence, not the gate, and is unsatisfiable at large N by construction. Mean-preservation is re-pinned on (1) the unit invariant `mean(ĝ) = 1` over the 24 tick-hours — exact by construction — and (2) a near-linear (`branch_rate = 0`) applied elongation comparison at ±2%. Full ratified wording, rationale, unit-coverage change, and the general-lesson audit of AS-2/AS-4/AS-5 are in the block below and in `DESIGN.md` AS-3(b). |
+
+### SD-TIME-8f detail — AS-3(b) restatement (ratified 2026-08-09, SD-OPEN-7)
+
+Second instrument failure for this criterion (first was W-049). W-049 removed the discretisation-noise
+confound (single-day deltas → cumulative totals) but left the deeper one untouched: a gated and a
+gate-disabled run are the same plant only at tick 0, and thereafter diverge. Branching is the
+exponential amplifier — every branch adds a tip that grows and branches — so any sub-millimetre timing
+difference compounds. The ratified cumulative test therefore measures divergence, not the gate: the
+day-29 gap is 0.39% with branching off but 11% with it on, and it reversed sign (gated *ahead* at
+W-049, gated *behind* now) under unrelated leaf-crowding parameter changes, which a systematic bias in
+a mean-preserving multiplier cannot do and trajectory divergence does routinely. **As ratified, AS-3(b)
+is unsatisfiable at large N for any nonlinear growth model, however correct the gate.**
+
+**Proposed AS-3(b) wording (verbatim, for Director ratification into `DESIGN.md`):**
+
+> **AS-3(b).** The diel gate is mean-preserving: it changes *when* growth occurs within a game-day,
+> never the daily total budget AS-1 depends on (INV-3a). This is verified in two places, neither of
+> which compares two divergent long runs:
+>
+> 1. **Unit invariant (primary).** Over the 24 simulation-tick hours of one game-day, the diel gate
+>    multiplier ĝ has arithmetic mean 1 to within 1×10⁻⁶, sampled at exactly the 24 tick-hours the
+>    simulation applies it on. Exact by construction (ĝ = g / g_ref, with g_ref the mean of g over
+>    those same 24 hours), so it pins the property at its source. Asserted by
+>    `test_time.gd::test_diel_gate_mean_is_unity_over_24_ticks`.
+> 2. **Applied near-linear check (backstop).** With branching disabled in both runs
+>    (`SET_PARAM branch_rate 0.0`), cumulative stem elongation from game-day 0 through game-day 29
+>    with the diel gate enabled is within **±2%** of an otherwise identical run with
+>    `diel_gate_enabled = false`, comparing `TOTAL_STEM_LENGTH` from `DUMP_METRICS`
+>    (scripts `qa_as3b_nobranch_on.txt` / `qa_as3b_nobranch_off.txt`). Branching is disabled because it
+>    is the exponential amplifier that turns sub-millimetre per-tick timing differences into an 11%
+>    cumulative gap by day 29 — a measure of the simulation's trajectory divergence, not of the gate.
+>    In the near-linear single-strand regime the divergence is bounded (measured 0.39% at day 29), so a
+>    real change to the daily budget shows through directly.
+>
+> The branching-enabled cumulative comparison ratified under W-049 is withdrawn as a test instrument:
+> for any nonlinear growth model it exceeds any fixed tolerance at some horizon N regardless of gate
+> correctness. Single-day deltas remain excluded (W-049).
+
+**Regression coverage — what fails, and how.**
+
+- *A gate that scales the daily budget by a constant ≠ 1* (missing/incorrect `g_ref`, e.g. total
+  growth halved): fails the unit invariant immediately (mean 0.5, not 1 — currently masked by a loose
+  ±0.02 tolerance; see below) and fails the near-linear check (~50% cumulative gap). Caught.
+- *A gate applied to a directional term instead of to magnitude* (an INV-3a violation): **not caught
+  by AS-3(b)** and cannot be — with magnitude un-gated the daily elongation total is unchanged, so no
+  elongation comparison can see it. It is caught by **AS-3(a)** (night growth *rate* would not fall to
+  ≤15% of the daily mean / ≤10% of noon) and by the INV-3a rule that ĝ never enter a directional term.
+  AS-3(b) is the budget/mean-preservation guard only; this division of labour is stated so the Director
+  can ratify AS-3(b) without over-claiming.
+
+**Unit coverage — needs one strengthening.** `test_diel_gate_mean_is_unity_over_24_ticks` currently
+asserts `mean ≈ 1.0 ± 0.02`. Since the mean is exactly 1 by construction over the tick grid, ±0.02
+would pass a gate that is 1.9% off mean-preservation — precisely the small budget drift AS-3(b) exists
+to protect AS-1 against. **Tighten the tolerance from `0.02` to `1e-6`** (the only change; the sample
+grid is already the 24 applied tick-hours). The aspirational "gate value never reaches any directional
+term" assertion listed in this document's test surface is **not implemented** in `test_time.gd`
+(a W-042-class gap); the directional guarantee currently rests on AS-3(a) plus code review of INV-3a,
+which is adequate but should be tracked.
+
+**Executability.** Uses only `SET_PARAM`, `ADVANCE_DAYS`, `DUMP_METRICS` — all present; the two
+`qa_as3b_nobranch_*` scripts are committed. The verdict is reached by comparing the two dumped
+`TOTAL_STEM_LENGTH` values; determinism (INV-7) makes the fixed default south seed reproducible, so no
+`SEED` verb is needed. **Not gated on W-027.** (Auto-failing the comparison *inside* a single script
+would want `ASSERT`, which W-027 still owes, but the criterion as written is executable and its verdict
+is reproducible today.)
+
+**Coverage lost by retiring the branched comparison.** None that was real. The branched run never tested
+mean-preservation — it tested divergence. The one thing a plant-level run adds over the pure unit
+invariant is confirmation that mean-preservation survives the physiology *application* path (the per-tick
+`max_segments_per_tick = 8` clip, the `B ≥ h` budget gate, the `f_S`/`f_C` stack under a 2.1× noon
+multiplier); the near-linear backstop provides exactly that in the measurable regime. A budget leak that
+manifests only at multi-tip saturation is unmeasurable by any clean two-run comparison and is backstopped
+by AS-1 itself.
+
+**General lesson — this is a class defect, not an AS-3(b) quirk.** *Any acceptance criterion that
+requires two runs differing in some input to stay within a tight tolerance of each other is measuring
+Lyapunov divergence as much as the property under test, and is unsatisfiable at large horizon for any
+nonlinear growth model.* Such a criterion must instead: (a) run in a near-linear regime where divergence
+is bounded; (b) measure over a short pre-amplification window; (c) rest on a unit-level invariant true by
+construction; or (d) be framed as an inequality-with-margin, not an equality-within-tolerance. Audit of
+the other acceptance signals in `DESIGN.md`:
+
+- **AS-4 (determinism) — immune, conditionally.** It compares two runs that differ in *nothing* and
+  demands *bit-identical* tip counts and total stem length. Lyapunov divergence needs an initial input
+  difference to amplify; AS-4 has none, and INV-7 guarantees bit-identity. **Guardrail: AS-4 must keep
+  demanding exact equality.** The moment it is relaxed to a tolerance (e.g. to absorb cross-platform
+  float differences) it becomes a Lyapunov meter and inherits this exact defect. Flag now.
+- **AS-5 (performance) — immune.** Single-run absolute thresholds (fps, wall-clock, tip cap); no
+  cross-run trajectory comparison.
+- **AS-2 (light asymmetry) — mostly immune, one low-severity watch.** The sun-vs-shaded asymmetry is a
+  run measured *against itself* (a structural property, not a two-run comparison) and rests on a large
+  steady-state field bias (south D_L 26 vs north 2.5), not a delicate cancellation. The
+  sun-seed-vs-shade-seed clause ("≥20% less total stem") *is* a two-run comparison of different plants,
+  but it is an **inequality with margin**, not a tight equality — it wants the runs *far apart*, so
+  divergence noise helps rather than hurts. Only risk: a run whose true gap sits right on the 20%
+  threshold could be flipped by a few percent of divergence noise. Currently comfortable, so no action;
+  recorded so it is not rediscovered during M4 scoring.
 
 ---
 
@@ -607,6 +705,7 @@ the sky. Expected: AS-6, rubric criterion 1.
 | SD-OPEN-3 | Confirm the three real-ivy-on-brick reference photographs before M4 rubric scoring begins. | Game Director | **RESOLVED 2026-08-09 — specified as W-024.** Three purpose-chosen slots in `assets/reference/ivy/`, **Public Domain or CC0 only** (CC-BY, CC-BY-SA, Unsplash and Pexels all excluded). Still gates M4 exit until filled. |
 | SD-OPEN-4 | Add `alpha_fill` per leaf id to `leaf_atlas.json` (offline alpha-coverage measurement). | Architect | **RESOLVED 2026-08-09.** Measured from the alpha channel and committed, along with a `tier` field (H/W) per SD-LEAF-6. Values 0.607–0.675. |
 | SD-OPEN-5 | Whether `LeafSet029`'s Scattering map warrants a custom leaf shader in M4, or the constant transmittance tint is sufficient. Deferred: cannot be judged before leaves are on screen. | Architect at M4 | No |
+| SD-OPEN-7 | **AS-3(b) instrument, second restatement (W-052).** The W-049 cumulative plant-level test is unsatisfiable at large N by construction — with branching on it measures Lyapunov divergence, not the gate (day-29 gap 0.39% with `branch_rate = 0` vs 11% with branching; the gap also reversed sign under unrelated parameter changes). Proposed replacement (SD-TIME-8f): retire the branched comparison; rest AS-3(b) on the unit invariant `mean(ĝ) = 1` (strengthen `test_time.gd` tolerance 0.02 → 1e-6) plus a near-linear `branch_rate = 0` applied check at ±2% (measured 0.39% at day 29, ≈5× margin). Directional-misapplication regressions are explicitly delegated to AS-3(a) + INV-3a. Also flags a class defect: AS-4 is immune only while it demands bit-identity; AS-2's shade-seed clause is a low-severity watch. **AS-3 and INV-3a are Director-owned — this needs Director ratification into `DESIGN.md`, same route as W-049.** | Game Director | **RESOLVED 2026-08-09 — ratified.** AS-3(b) reworded in `DESIGN.md`; W-049 branched comparison withdrawn; AS-4 guardrail written into AS-4; acceptance-signal audit accepted. Unit tolerance 0.02 → 1e-6 and INV-3a directional-term test tracked as W-053 (Gameplay Fixer). M2 gate declared done — see `DESIGN.md` ratification log. |
 | SD-OPEN-6 | **The AR-BUDGET segment/stem/leaf-area envelope conflicts with AS-1's 50% shaded floor at measured placement efficiency.** The shaded 180° is sparse and volume-limited; it needs ≈60 m² of leaf area (2× the 20–35 m² budget) merely to reach 53.99% (+3.99). Every uniform volume brake (`branch_rate`, the caps, the stall rule) halves the shaded coverage before it reaches the envelope — `branch_rate` is additionally inert until ≈1.0 because the SD-TIP-3 taper is a homeostat, then it collapses the shaded half first (see AR-BUDGET). AR-BUDGET is labelled "sanity targets, not requirements," but its 20–35 m² / 360–600 m / 12–20k-segment lines were back-derived from AR-RISK-4's assumption that ~27 m² *reasonably distributed* meets 70/90/50, and the real distribution is far more uneven. **Two options for the Director, neither decidable at this stage:** (a) re-derive the AR-BUDGET leaf-area/stem/segment lines upward to whatever is actually compatible with holding 70/90/50 (an architectural number — the AS-1 floors themselves are **not** to be touched); or (b) hold the budget and require the shaded floor to be met by *better placement* (M4 leaf-quality / distribution work — e.g. crowding-gradient steering off the saturated sunny mat, W-015), not by more volume. The rubric-2 green-mat half of W-048 is already handled separately by the density-gated SD-LEAF-8 leaf levers and does **not** need this decision. | Game Director | **RESOLVED 2026-08-09 — split ruling.** (a) AR-BUDGET re-derived upward to bracket the measured day-150 pass state; see § AR-BUDGET. (b) Placement-efficiency improvement deferred to M4 via W-015/W-030. AS-1 floors unchanged. M2 gate: envelope no longer blocks; green mat fixed by pending SD-LEAF-8 levers before M2 close. See `DESIGN.md` ratification log. |
 
 ---

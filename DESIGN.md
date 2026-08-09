@@ -203,8 +203,8 @@ silhouette against the sky.
 |---|---|
 | AS-1 | **Coverage, and it must be uneven.** From a single sun-facing seed at 150 game-days, default parameters, unattended: **≥70% of the eligible outer wall overall**, **≥90% on the sun-facing 180°**, and **≥50% on the shaded 180°**, with the top lip reached. Measured by the leaf-area bucket metric (`SD-METRIC`). The two halves exist so that a uniform mediocre mat cannot pass — that is the wallpaper failure mode rubric criterion 2 is there to catch, and a single overall number does not catch it. The shaded floor exists so that "asymmetry" cannot degenerate into a bald side, which would fail G1. |
 | AS-2 | **Light asymmetry, and it must arrive early.** With the seed at the sun-facing base, sun-facing-vs-shaded total stem length asymmetry reaches **≥20% by game-day 30**, **≥40% by game-day 60**, and remains **≥30% at day 150**. The same run seeded on the shaded side produces **≥20% less total stem length**. The early targets matter more than the late one: the causal belief we are trying to install either forms in the first minute or it does not form. Late compression is expected and acceptable — the sunny side saturates and its crowding penalty bites while the shaded side is still uncrowded, so the cumulative ratio narrows. |
-| AS-3 | **Day/night drives growth.** In a debug readout: (a) growth rate at solar midnight is ≤15% of the daily-mean rate and ≤10% of the solar-noon rate, rising through the morning; (b) **cumulative** total stem elongation from game-day 0 through game-day N, for any N ≥ 1, is within ±5% of the same seed and duration with the diel gate disabled, confirming the gate is mean-preserving per INV-3a and that AS-1's day budget is untouched — single-day deltas are not the test instrument, because per-metre branch and node events are discrete and a day's budget concentrated around noon shifts *when* thresholds fire, not *how much* total growth occurs; (c) accumulated light `D_L` lags a step change in instantaneous light with the expected ~3-game-day time constant. Clause (b) is the one that protects AS-1 — without it a gate that quietly halves total growth would pass (a) and (c) and fail AS-1 much later, when the cause is expensive to find. |
-| AS-4 | **Determinism.** Two runs with identical seed, environment, and duration produce identical tip counts and total stem length, and visually identical canonical screenshots. |
+| AS-3 | **Day/night drives growth.** In a debug readout: (a) growth rate at solar midnight is ≤15% of the daily-mean rate and ≤10% of the solar-noon rate, rising through the morning; (b) the diel gate is mean-preserving: it changes *when* growth occurs within a game-day, never the daily total budget AS-1 depends on (INV-3a). Verified in two places, neither comparing two divergent long runs: **(b.1) Unit invariant (primary).** Over the 24 simulation-tick hours of one game-day, the diel gate multiplier ĝ has arithmetic mean 1 to within 1×10⁻⁶, sampled at exactly the 24 tick-hours the simulation applies it on. Exact by construction (ĝ = g / g_ref, with g_ref the mean of g over those same 24 hours). Asserted by `test_time.gd::test_diel_gate_mean_is_unity_over_24_ticks`. **(b.2) Applied near-linear check (backstop).** With branching disabled in both runs (`SET_PARAM branch_rate 0.0`), cumulative stem elongation from game-day 0 through game-day 29 with the diel gate enabled is within **±2%** of an otherwise identical run with `diel_gate_enabled = false`, comparing `TOTAL_STEM_LENGTH` from `DUMP_METRICS` (scripts `qa_as3b_nobranch_on.txt` / `qa_as3b_nobranch_off.txt`). Branching is disabled because it is the exponential amplifier that turns sub-millimetre per-tick timing differences into an 11% cumulative gap by day 29 — a measure of trajectory divergence, not of the gate. The branching-enabled cumulative comparison ratified under W-049 is withdrawn as a test instrument: for any nonlinear growth model it exceeds any fixed tolerance at some horizon N regardless of gate correctness. Single-day deltas remain excluded (W-049). Clause (b) is the budget/mean-preservation guard only; a gate wrongly applied to a directional term is not caught here (daily elongation total unchanged) and is instead caught by (a) and the INV-3a rule that ĝ never enter a directional term; (c) accumulated light `D_L` lags a step change in instantaneous light with the expected ~3-game-day time constant. Clause (b) is the one that protects AS-1 — without it a gate that quietly halves total growth would pass (a) and (c) and fail AS-1 much later, when the cause is expensive to find. |
+| AS-4 | **Determinism.** Two runs with identical seed, environment, and duration produce identical tip counts and total stem length, and visually identical canonical screenshots. **Standing rule:** AS-4 must always demand bit-identical outputs. It must never be relaxed to a tolerance — a tolerance would turn it into a Lyapunov divergence meter and inherit the class defect that invalidated the W-049 AS-3(b) instrument. |
 | AS-5 | **Performance.** ≥60 fps on the dev machine with the tower fully covered at default parameters. A full-coverage run at grow speed completes in ≤3 minutes wall-clock. The live tip cap is documented and never exceeded. |
 | AS-6 | **Silhouette break.** At full coverage, tips have grown over the top lip and sag downward, visibly breaking the tower's outline against the sky in the ground-level camera. This is the "not a texture" test. |
 
@@ -456,12 +456,53 @@ scoring remains M4.
 **Lowering AS-1's floors was not considered** — the analysis does not argue for it and the floors
 exist precisely to catch the failure mode we are seeing.
 
-**2026-08-09 — W-049, AS-3(b) instrument: ratified.** The Systems Designer's evidence is accepted.
-The diel gate is mean-preserving: cumulative stem length differs by 0.028% at day 1, 0.052% at day 3,
-and 2.84% at day 29 between gated and ungated runs from an identical starting state. The single-day
-day 29→30 delta of 9.05% fails only because the two runs are different plants by then and discrete
-per-metre events make any one day's delta noisy (−9.98% to +6.75% over consecutive days). AS-3(b)
-reworded above to test cumulative elongation; do not tune the gate to satisfy the old wording.
+**2026-08-09 — W-049, AS-3(b) instrument: ratified (superseded by SD-OPEN-7 below).** The Systems
+Designer's evidence is accepted. The diel gate is mean-preserving: cumulative stem length differs by
+0.028% at day 1, 0.052% at day 3, and 2.84% at day 29 between gated and ungated runs from an
+identical starting state. The single-day day 29→30 delta of 9.05% fails only because the two runs are
+different plants by then and discrete per-metre events make any one day's delta noisy (−9.98% to
++6.75% over consecutive days). AS-3(b) was reworded to test branched cumulative elongation; that
+instrument failed again immediately (W-052) — see SD-OPEN-7.
+
+**2026-08-09 — SD-OPEN-7 / W-052, AS-3(b) instrument (second restatement): ratified.** W-049 removed
+discretisation noise but not the deeper confound: gated and gate-disabled runs are the same plant only
+at tick 0, and branching amplifies any timing difference exponentially. The ratified branched
+cumulative comparison therefore measured Lyapunov divergence, not the gate — evidenced by the day-29
+gap (0.39% with `branch_rate = 0` vs 11% with branching enabled), and by the gap reversing sign
+(gated ahead at W-049, gated behind after unrelated leaf-crowding changes), which a mean-preserving
+multiplier cannot do. **AS-3(b) reworded** per `IMPLEMENTATION.md` § SD-TIME-8f: primary unit
+invariant `mean(ĝ) = 1` over 24 tick-hours to 1×10⁻⁶; near-linear applied backstop at ±2% with
+branching disabled at game-day 29. W-049 branched comparison withdrawn. Do not tune the gate to
+satisfy either superseded instrument.
+
+*Division of labour accepted:* AS-3(b) guards the daily growth budget only. A gate applied to a
+directional term instead of magnitude (an INV-3a violation) is not caught by AS-3(b) and cannot be —
+with magnitude un-gated the daily elongation total is unchanged. It is caught by AS-3(a) (night growth
+rate would not fall to ≤15% of daily mean / ≤10% of noon) and by the INV-3a rule that ĝ never enter a
+directional term. The aspirational "gate value never reaches any directional term" unit assertion listed
+in `IMPLEMENTATION.md`'s test surface is **not implemented** — tracked as **W-053**, adequate for M2
+via AS-3(a) plus code review of the single call site, but must land before M3 tuning work.
+
+*Unit-test tolerance:* `test_diel_gate_mean_is_unity_over_24_ticks` must tighten from ±0.02 to
+1×10⁻⁶ — **Gameplay Fixer, W-053**. The current ±0.02 would pass a gate 1.9% off
+mean-preservation, which is precisely the silent budget drift AS-3(b) exists to catch.
+
+*Acceptance-signal audit accepted:* AS-4 is immune only while it demands bit-identity (guardrail
+written into AS-4 above); AS-5 is immune (single-run thresholds); AS-2's sun-seed-vs-shade-seed clause
+is a low-severity watch near the 20% inequality margin — no action now. **General lesson recorded:**
+any criterion requiring two runs differing in some input to stay within a tight tolerance is measuring
+Lyapunov divergence as much as the property under test, and is unsatisfiable at large horizon for any
+nonlinear growth model.
+
+*Risk to watch:* a budget leak that manifests only at multi-tip saturation is unmeasurable by any clean
+two-run comparison and is backstopped by AS-1 itself — acceptable trade for M2.
+
+**M2 gate: DONE.** AS-2 passes all three checkpoints; AS-3(a)/(b)/(c) pass under ratified
+instruments (QA evidence: (a) midnight/noon 5.52%, midnight/mean 11.40%; (b) unit mean = 1, near-linear
+backstop 0.39% at day 29; (c) `tau_L_implied = 3.0000`); determinism reproduces digit-for-digit;
+stall rule and AS-6 silhouette verified. Leaves reading as fine speckling rather than overlapping
+foliage is **M4 placement/art work** (W-015, W-030, W-046) — agree with QA milestone attribution; not
+an M2 blocker. Shaded AS-1 margin (+0.62 pts above the 50% floor) remains an M4 tension to watch.
 
 ---
 
