@@ -57,6 +57,17 @@ auto-start the clock.
 A correct run reproduces digit-for-digit. If two runs of the same script disagree at all, something
 has reintroduced non-determinism — treat it as a blocker, not noise.
 
+## Screenshots: check the time of day before you believe one
+
+`start_hour` is 6.0 and `day_of_year` is fixed at 105, so **`ADVANCE_DAYS` by a whole number of days
+always lands at 06:00**, with the sun a few degrees above the horizon. The plant reads as a uniform
+dark mass in that light: no leaf shapes, no exposed wall, no legible sun/shade asymmetry. Two Fixer
+cycles drew opposite visual conclusions from that same frame and neither was supportable (W-051).
+
+Advance a further `0.25` days before `SCREENSHOT` to reach local noon, and `0.75` after it if you
+need later checkpoints to stay on whole-day tick counts — `m2_metrics.txt` shows the pattern. Metric
+dumps are unaffected by the offset; they read the plant and the field, not pixels.
+
 ## Existing scripts
 
 | Script | Purpose |

@@ -110,8 +110,8 @@ extends Resource
 @export var leaf_size_sigma: float = 0.16
 @export var leaf_healthy_base: float = 0.25
 @export var leaf_healthy_gain: float = 0.65
-@export var leaf_crowd_suppress: float = 0.55
-@export var leaf_crowd_floor: float = 0.35
+@export var leaf_crowd_suppress: float = 0.70
+@export var leaf_crowd_floor: float = 0.30
 ## SD-LEAF-8: deposit scale for the crowding channel. Deposit per node = k * leaf_area / cell_area.
 ## W-048 raised this to 0.85 and it was reverted: `deposit_crowding` clamps C to [0, 1], so a
 ## higher k cannot deepen suppression where the plant is already dense, it only makes sparse

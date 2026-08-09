@@ -203,7 +203,7 @@ silhouette against the sky.
 |---|---|
 | AS-1 | **Coverage, and it must be uneven.** From a single sun-facing seed at 150 game-days, default parameters, unattended: **≥70% of the eligible outer wall overall**, **≥90% on the sun-facing 180°**, and **≥50% on the shaded 180°**, with the top lip reached. Measured by the leaf-area bucket metric (`SD-METRIC`). The two halves exist so that a uniform mediocre mat cannot pass — that is the wallpaper failure mode rubric criterion 2 is there to catch, and a single overall number does not catch it. The shaded floor exists so that "asymmetry" cannot degenerate into a bald side, which would fail G1. |
 | AS-2 | **Light asymmetry, and it must arrive early.** With the seed at the sun-facing base, sun-facing-vs-shaded total stem length asymmetry reaches **≥20% by game-day 30**, **≥40% by game-day 60**, and remains **≥30% at day 150**. The same run seeded on the shaded side produces **≥20% less total stem length**. The early targets matter more than the late one: the causal belief we are trying to install either forms in the first minute or it does not form. Late compression is expected and acceptable — the sunny side saturates and its crowding penalty bites while the shaded side is still uncrowded, so the cumulative ratio narrows. |
-| AS-3 | **Day/night drives growth.** In a debug readout: (a) growth rate at solar midnight is ≤15% of the daily-mean rate and ≤10% of the solar-noon rate, rising through the morning; (b) total elongation over any whole game-day is within ±5% of the same run with the diel gate disabled, confirming the gate is mean-preserving per INV-3a and that AS-1's day budget is untouched; (c) accumulated light `D_L` lags a step change in instantaneous light with the expected ~3-game-day time constant. Clause (b) is the one that protects AS-1 — without it a gate that quietly halves total growth would pass (a) and (c) and fail AS-1 much later, when the cause is expensive to find. |
+| AS-3 | **Day/night drives growth.** In a debug readout: (a) growth rate at solar midnight is ≤15% of the daily-mean rate and ≤10% of the solar-noon rate, rising through the morning; (b) **cumulative** total stem elongation from game-day 0 through game-day N, for any N ≥ 1, is within ±5% of the same seed and duration with the diel gate disabled, confirming the gate is mean-preserving per INV-3a and that AS-1's day budget is untouched — single-day deltas are not the test instrument, because per-metre branch and node events are discrete and a day's budget concentrated around noon shifts *when* thresholds fire, not *how much* total growth occurs; (c) accumulated light `D_L` lags a step change in instantaneous light with the expected ~3-game-day time constant. Clause (b) is the one that protects AS-1 — without it a gate that quietly halves total growth would pass (a) and (c) and fail AS-1 much later, when the cause is expensive to find. |
 | AS-4 | **Determinism.** Two runs with identical seed, environment, and duration produce identical tip counts and total stem length, and visually identical canonical screenshots. |
 | AS-5 | **Performance.** ≥60 fps on the dev machine with the tower fully covered at default parameters. A full-coverage run at grow speed completes in ≤3 minutes wall-clock. The live tip cap is documented and never exceeded. |
 | AS-6 | **Silhouette break.** At full coverage, tips have grown over the top lip and sag downward, visibly breaking the tower's outline against the sky in the ground-level camera. This is the "not a texture" test. |
@@ -421,6 +421,47 @@ crowding saturation on the sunny side is expected to compress the cumulative rat
 against. Three-slot set defined above, chosen to exercise specific rubric criteria rather than to look
 good, restricted to Public Domain or CC0 from Wikimedia Commons, with an explicit no-license-relaxation
 fallback. Director-owned, tracked as W-024, gates M4 exit only.
+
+**2026-08-09 — SD-OPEN-6, AR-BUDGET vs the 50% shaded floor: split ruling.** The Systems Designer's
+escalation was correct — the original 20–35 m² / 360–600 m / 12–20k-segment lines were back-derived
+from the assumption that ~27 m² *reasonably distributed* meets 70/90/50, and the measured plant is far
+more uneven: the shaded 180° is sparse and volume-limited, needs ≈60 m² of leaf area merely to reach
+53.99%, and every uniform volume brake (`branch_rate`, caps, stall rule, `leaf_crowd_k`) cuts that
+half first because the SD-TIP-3 taper is a homeostat. **AS-1's 70/90/50 floors are unchanged** — the
+budget was wrong for this distribution, not the plant for the budget.
+
+Two concerns, two timelines:
+
+1. **Volume envelope (architectural sanity) — re-derived now (option a).** The binding constraints
+   are AS-1 (floors), AS-5 (performance), and the rubric — not the old envelope. New sanity targets
+   live in `IMPLEMENTATION.md` § AR-BUDGET, bracketing the measured day-150 pass state (40,952
+   segments / 1,202 m / ≈60 m² leaf area / 962 tips ever created). The old ">25,000 segments = crowding
+   not suppressing growth" diagnostic is withdrawn — crowding is hard-clamped to [0, 1] and cannot
+   deepen suppression where the plant is already saturated (W-050). Red flags now target runaway
+   turnover and redundant sunny-side layering, not segment count alone.
+
+2. **Placement efficiency (rubric criterion 2) — deferred to M4 (option b, tracked).** Meeting the
+   shaded floor with less total volume requires better placement, not more brakes — crowding-gradient
+   steering, leaf-quality work, and related M4 iteration under **W-015** and **W-030**. That is the
+   correct long-term fix for the wallpaper symptom; it is not an M2 task.
+
+**M2 gate:** AS-1 passing by volume does **not** block M2 — AS-1 is an M4 signal. The envelope
+conflict no longer blocks M2 after this re-derivation. **The green mat does block M2 close:** the
+pending density-gated leaf levers (`leaf_crowd_suppress` 0.55→0.70, `leaf_crowd_floor` 0.35→0.30,
+SD-LEAF-8) must land via the Gameplay Fixer and be verified before M2 is declared done — not because
+rubric-2 is an M2 metric, but because leaf-density feedback is part of "environment live" and the
+uniform wallpaper state means that feedback is not yet doing its job on the sunny mat. Full rubric-2
+scoring remains M4.
+
+**Lowering AS-1's floors was not considered** — the analysis does not argue for it and the floors
+exist precisely to catch the failure mode we are seeing.
+
+**2026-08-09 — W-049, AS-3(b) instrument: ratified.** The Systems Designer's evidence is accepted.
+The diel gate is mean-preserving: cumulative stem length differs by 0.028% at day 1, 0.052% at day 3,
+and 2.84% at day 29 between gated and ungated runs from an identical starting state. The single-day
+day 29→30 delta of 9.05% fails only because the two runs are different plants by then and discrete
+per-metre events make any one day's delta noisy (−9.98% to +6.75% over consecutive days). AS-3(b)
+reworded above to test cumulative elongation; do not tune the gate to satisfy the old wording.
 
 ---
 

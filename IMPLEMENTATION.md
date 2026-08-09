@@ -351,6 +351,21 @@ Per-instance colour multiplied over the atlas albedo (MultiMesh instance colour)
   rather than on it, so at low `C` they are near-inert and the sparse shaded half is spared. They
   were not the cause of the W-048 regression and remain available as levers.
 
+> **W-048 re-decision, 2026-08-09 (Systems Designer, informed by W-050). Landed 2026-08-09 (Gameplay
+> Fixer).** The rubric-2 "green mat" is a *sun-side leaf-density* problem (sunny 180° at 93.67% with
+> ~1.5 redundant leaf layers; ≈60 m² of leaf area on 43 m² of wall), and the correct lever is the
+> density-gated pair here, **not** `leaf_crowd_k` (held at 0.5) and **not** any volume brake
+> (`branch_rate`/caps — see AR-BUDGET for why the SD-TIP-3 taper's homeostat makes those collapse the
+> shaded floor first). **Applied values:** `leaf_crowd_suppress` **0.55 → 0.70**,
+> `leaf_crowd_floor` **0.35 → 0.30**. Effect: at `C = 1`, `P = clamp(1 − 0.70·C, 0.30, 1)`
+> falls 0.45 → 0.30 (thins the redundant sunny layers); at `C ≈ 0.1` (shaded), `P ≈ 0.93`, essentially
+> unchanged. Measured (2026-08-09, two back-to-back runs, digit-for-digit): day-150 AS-1 = 74.58 / 96.23
+> / 50.62 — all floors pass. ⚠️ **Shaded floor 50.62% is 0.62 points above the 50% floor.**
+> Segment count increased to 43,743 (from 40,952) as predicted — thinner leaf deposit eases `f_C` and
+> `λ_b`. AS-2 asymmetry 51.53% — essentially unchanged. INV-7 intact. **The `C ∈ [0,1]` clamp stays**
+> (removing it requires a coordinated edit to `f_C` and `λ_b`'s `(1 − C)` term); crowding is a
+> saturation-rate lever only — recorded here so it is not re-tried as a suppression-depth lever.
+
 ### SD-LEAF-9 — Budgets
 
 Expected 7,000–12,000 leaves at full coverage (≈0.0035 m² each; the arithmetic behind AS-1 is in
@@ -552,7 +567,7 @@ All of these live in the same authoritative resource as the §30 defaults (INV-6
 | `leaf_size_sigma` | 0.16 | SD-LEAF-5 |
 | `leaf_healthy_base` / `_gain` | 0.25 / 0.65 | SD-LEAF-6 |
 | `leaf_crowd_k` | 0.5 | SD-LEAF-8 (W-036). Raised to 0.85 by W-048 and reverted — `C` is clamped to `[0, 1]`, so this is a saturation-rate knob that thins the sparse shaded half rather than the dense sunny one. See W-050 before changing. |
-| `leaf_crowd_suppress` / `_floor` | 0.55 / 0.35 | SD-LEAF-8. Thins hidden interior leaf layers; genuinely density-gated, so the sparse shaded half is spared. |
+| `leaf_crowd_suppress` / `_floor` | 0.70 / 0.30 | SD-LEAF-8. Thins hidden interior leaf layers; genuinely density-gated, so the sparse shaded half is spared. Changed 0.55→0.70 / 0.35→0.30 per SD-OPEN-6 Director ruling (2026-08-09); landed Gameplay Fixer 2026-08-09. |
 | `leaf_cap` | 20000 | SD-LEAF-9 |
 | `stem_radius_base` / `stem_order_falloff` / `stem_tip_taper` | 0.006 m / 0.25 / 0.15 m | SD-STEM |
 | `ground_y_min` | 0.02 m | SD-GEO-4 |
@@ -592,6 +607,7 @@ the sky. Expected: AS-6, rubric criterion 1.
 | SD-OPEN-3 | Confirm the three real-ivy-on-brick reference photographs before M4 rubric scoring begins. | Game Director | **RESOLVED 2026-08-09 — specified as W-024.** Three purpose-chosen slots in `assets/reference/ivy/`, **Public Domain or CC0 only** (CC-BY, CC-BY-SA, Unsplash and Pexels all excluded). Still gates M4 exit until filled. |
 | SD-OPEN-4 | Add `alpha_fill` per leaf id to `leaf_atlas.json` (offline alpha-coverage measurement). | Architect | **RESOLVED 2026-08-09.** Measured from the alpha channel and committed, along with a `tier` field (H/W) per SD-LEAF-6. Values 0.607–0.675. |
 | SD-OPEN-5 | Whether `LeafSet029`'s Scattering map warrants a custom leaf shader in M4, or the constant transmittance tint is sufficient. Deferred: cannot be judged before leaves are on screen. | Architect at M4 | No |
+| SD-OPEN-6 | **The AR-BUDGET segment/stem/leaf-area envelope conflicts with AS-1's 50% shaded floor at measured placement efficiency.** The shaded 180° is sparse and volume-limited; it needs ≈60 m² of leaf area (2× the 20–35 m² budget) merely to reach 53.99% (+3.99). Every uniform volume brake (`branch_rate`, the caps, the stall rule) halves the shaded coverage before it reaches the envelope — `branch_rate` is additionally inert until ≈1.0 because the SD-TIP-3 taper is a homeostat, then it collapses the shaded half first (see AR-BUDGET). AR-BUDGET is labelled "sanity targets, not requirements," but its 20–35 m² / 360–600 m / 12–20k-segment lines were back-derived from AR-RISK-4's assumption that ~27 m² *reasonably distributed* meets 70/90/50, and the real distribution is far more uneven. **Two options for the Director, neither decidable at this stage:** (a) re-derive the AR-BUDGET leaf-area/stem/segment lines upward to whatever is actually compatible with holding 70/90/50 (an architectural number — the AS-1 floors themselves are **not** to be touched); or (b) hold the budget and require the shaded floor to be met by *better placement* (M4 leaf-quality / distribution work — e.g. crowding-gradient steering off the saturated sunny mat, W-015), not by more volume. The rubric-2 green-mat half of W-048 is already handled separately by the density-gated SD-LEAF-8 leaf levers and does **not** need this decision. | Game Director | **RESOLVED 2026-08-09 — split ruling.** (a) AR-BUDGET re-derived upward to bracket the measured day-150 pass state; see § AR-BUDGET. (b) Placement-efficiency improvement deferred to M4 via W-015/W-030. AS-1 floors unchanged. M2 gate: envelope no longer blocks; green mat fixed by pending SD-LEAF-8 levers before M2 close. See `DESIGN.md` ratification log. |
 
 ---
 
@@ -1437,10 +1453,11 @@ These are derived from the SD-* parameters and are given so the Programmer can t
 |---|---:|---|
 | Segments per tick per tip, at noon | `r_max·ĝ·dt / h = 0.12 · 2.1 / 24 / 0.03 = 0.35` | `max_segments_per_tick = 8` should **never** fire under defaults. If it does, `r` is wrong by >20×. |
 | Live tips | ≤ 160 (hard cap), typically 96–160 | If tips sit at the cap from day 20, `f_C` or the SD-TIP-3 taper is not working. |
-| Total segments | 12,000–20,000 | Above ~25,000 means crowding is not suppressing growth. |
-| Total stem length | 360–600 m | Consistent with SD-LEAF-9's 7,000–12,000 leaves at ~25 leaves/m. |
-| Leaves | 7,000–15,000 (cap 20,000) | Hitting `leaf_cap` before day 120 means `leaf_crowd_suppress` is too weak. |
-| Leaf area laid down | ~20–35 m² against ~43 m² of eligible wall | See the risk below. |
+| Total segments | 35,000–45,000 | Above ~55,000 while live tips remain well below the soft cap suggests runaway tip turnover accumulating immutable volume — investigate the homeostat and stall rule, not crowding alone (crowding cannot suppress beyond `C = 1`; see SD-LEAF-8). |
+| Total stem length | 1,000–1,400 m | Above ~1,600 m under the same conditions — same diagnostic as segments. |
+| Leaves | 15,000–20,000 (cap 20,000) | Hitting `leaf_cap` before day 120 means `leaf_crowd_suppress` is too weak. |
+| Leaf area laid down | 55–70 m² against ~43 m² of eligible wall | Above ~75 m² with sun-facing coverage still >95% confirms redundant sunny-side layering (rubric criterion 2) — address with density-gated leaf levers, not volume brakes. |
+| Tips ever created | 850–1,050 | Above ~1,200 suggests branching turnover is runaway without a binding constraint. |
 | Bake time at load | < 1.5 s | Above 3 s, move to the AR-FIELD-6 disk cache. |
 | Field memory | ~3.8 MB (`P(cell,hour)`) + ~1 MB channels | |
 
@@ -1504,6 +1521,46 @@ implies**. Both levers tried act on leaf placement and tip retirement — neithe
 *creation* — which is consistent with how little they bought. `branch_rate`, held in reserve above,
 is the untried lever and the one the measurement now points at. The 2× overshoot and the W-048
 re-decision stay open.
+
+**2026-08-09, W-048 re-decision (Systems Designer, informed by W-050).** `branch_rate` was examined
+and **rejected** as the volume brake, for a structural reason that also disposes of the caps and the
+stall rule as brakes. **The SD-TIP-3 taper is a homeostat.** In quasi-steady state tips-created/day =
+tips-removed/day, and the taper `q` self-adjusts to hold (branch-pressure · `q`) ≈ removal, so the
+live population and the turnover — hence the accumulated volume — are pinned by the *removal* rate,
+**independent of `branch_rate`**, for as long as `q < 1`. Measured `q ≈ 0.586` at 100–123 live tips,
+so there is headroom: lowering `branch_rate` from 1.7 merely lets `q` climb toward 1 and changes
+almost nothing until `branch_rate ≈ 1.7 · 0.586 ≈ 1.0`, where `q` saturates at 1 and the population
+finally falls below the soft cap. But below that threshold the first tips that fail to replace
+themselves are the lowest-`λ_b` tips (`λ_b = branch_rate · f_l^{1.3} · (1 − C)^{1.5}`) — the
+shaded/crowded ones — so `branch_rate` is inert until a threshold and then **collapses the shaded
+half first**. Lowering the caps has the same endpoint (any uniform volume cut halves the volume-limited
+shaded coverage), because the shaded 180° is sparse/unsaturated and sits at 53.99% (+3.99) while
+carrying ≈60 m² of leaf area — **2× this table's own 20–35 m² line — merely to clear the 50% floor.**
+
+Two conclusions follow. **(1)** The rubric-2 green mat is a separable *sun-side leaf-density* problem
+and is fixed with the density-gated leaf levers (SD-LEAF-8: `leaf_crowd_suppress` 0.55→0.70,
+`leaf_crowd_floor` 0.35→0.30, landed 2026-08-09), which spare the shaded half. **(2)** The segment/stem/tip
+lines cannot be brought into this envelope without breaching the 50% shaded floor, so **the envelope
+and the floor are in genuine conflict at the plant's measured placement efficiency — escalated to the
+Director as SD-OPEN-6.** This table is explicitly "sanity targets, not requirements": the binding
+constraints are AS-1 (floors), AS-5 (performance — peak 123 live tips, the 160 hard cap never
+approached), and the rubric. The earlier "the budget was right; the simulation was wrong" verdict is
+now half-overturned: per-tip stem (≈1.2 m) is on budget and live-tip count (100–123) is inside the
+"96–160" line above; only tips-*ever-created* (≈962) and total accumulated leaf/stem overshoot. The
+20–35 m² / 360–600 m lines were back-derived from AR-RISK-4's assumption that ~27 m² *reasonably
+distributed* meets 70/90/50; the real distribution is far more uneven, so those lines are an
+architectural number to be re-derived by the Director, not quietly relaxed here.
+
+**2026-08-09 — Director ruling on SD-OPEN-6 (supersedes the escalation above).** The envelope is
+re-derived in the table header: 35–45k segments, 1,000–1,400 m stem, 55–70 m² leaf area, 850–1,050
+tips ever created — bracketing the measured day-150 pass state (40,952 / 1,202 m / ≈60 m² / 962 tips)
+at current placement efficiency with AS-1 at 74.83 / 93.67 / 53.99. The old ">25,000 = crowding not
+suppressing" diagnostic is withdrawn (W-050: crowding saturates at `C = 1` and cannot distinguish one
+layer from three). Placement-efficiency improvement — meeting the shaded floor with less total volume
+— is deferred to M4 via W-015/W-030, not pursued through volume brakes that collapse the shaded half.
+The SD-LEAF-8 density-gated levers (0.70 / 0.30) landed 2026-08-09 (W-048 visual half); they address
+the sunny-side rubric-2 symptom. Measured day-150: 74.58 / 96.23 / 50.62 — all floors pass.
+⚠️ Shaded floor margin is 0.62 points. See `DESIGN.md` ratification log.
 
 ---
 
@@ -1647,7 +1704,7 @@ optimized.
 | AR-RISK-1 | **Coordinate conventions (the Systems Designer's own top risk).** A sign error in `S` or a flipped tangent basis produces a plausible-looking plant that fails AS-2 for reasons no screenshot reveals. | `Conv` is the only place a basis or world axis is constructed (SD-CONV-7); `test_conv.gd` lands in Stage 0.2, before any geometry exists; AR-TOWER-3's SDF cross-check catches inverted faces independently of the winding code. |
 | AR-RISK-2 | **GDScript throughput.** ~640 segment events/s at Grow speed, each with 8 trilinear reads (64 dictionary lookups) plus a raycast. | Bake reduces the per-tick environment update to a table lookup (SD-ENV-6); SoA `Packed*Array` storage throughout; field reads are the profiling target, and `SparseHashField` is a leaf class that can be rewritten as a GDExtension without touching a single caller. |
 | AR-RISK-3 | **Stem mesh append.** A naive rebuild is an instant AS-5 failure at 15,000 segments. | Chunked append bounded at 128 segments/chunk (AR-RENDER-1), with `mesh_surface_update_vertex_region` held in reserve. |
-| AR-RISK-4 | **Leaf area may not reach the ratified AS-1 bar, especially the 50% shaded floor** (see AR-BUDGET). The vigour-based tip cap actively works against that floor. | All remedies are `IvyParams` edits. W-021 lands the metric at M2, reporting both halves separately, so this is measured three milestones before M4 scoring rather than discovered during it. |
+| AR-RISK-4 | **Leaf area may not reach the ratified AS-1 bar, especially the 50% shaded floor** (see AR-BUDGET). The vigour-based tip cap actively works against that floor. **Realised in the reverse, 2026-08-09 (W-048):** the shaded half is volume-limited and needs ≈60 m² of leaf area — 2× the old 20–35 m² budget — merely to reach 53.99%, so the risk is not "too little leaf" but that *reducing* volume to the old budget breaks the floor. **Resolved 2026-08-09 (SD-OPEN-6):** AR-BUDGET re-derived upward; placement-efficiency work deferred to M4 (W-015/W-030); sunny-side rubric-2 symptom addressed by SD-LEAF-8 levers (landed 2026-08-09). AS-1 floors unchanged. | All remedies are `IvyParams` edits. W-021 lands the metric at M2, reporting both halves separately. Volume brakes (`branch_rate`, caps, `leaf_crowd_k`) are rejected — they collapse the shaded half first. The density-gated leaf levers (SD-LEAF-8) spare the shaded half and address rubric-2 on the sunny mat. |
 | AR-RISK-5 | **Bake time on re-seed.** SD-EDGE-11 re-seeds keep the light field, so the bake does not re-run — but a `TowerSpec` change does. | Bake is coarse (AR-FIELD-6) and `TowerSpec` changes are a dev-only action. |
 | AR-RISK-6 | **`leaves_growing` overflow** under future tuning. | AR-AMBIG-10 force-freeze policy plus an assertion. |
 | AR-RISK-7 | **Determinism erosion.** Any `randf()` added later in a `_process` body silently breaks INV-7, AS-4, and SD-TIME-3, and the failure appears as an unreproducible screenshot weeks later. | `test_rng.gd` source scan; `RunHash` in every harness output; per-tip draw-count assertion in `test_determinism.gd`. |

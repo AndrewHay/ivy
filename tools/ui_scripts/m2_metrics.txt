@@ -12,19 +12,34 @@
 #   ≥20% stem asymmetry at day 30 / ≥40% at day 60 / ≥30% at day 150
 # AS-3(a): midnight gate ≤15% daily mean, ≤10% noon rate  (any day)
 
+# Screenshots are taken six game-hours past each checkpoint, at local noon.
+# `start_hour` is 6.0 and `day_of_year` is fixed at 105, so a whole number of
+# days always lands at 06:00 with the sun a few degrees above the horizon —
+# useless for judging leaf legibility, sun/shade asymmetry or exposed wall. The
+# metric dumps stay on exact whole-day tick counts, and each +0.25 is paired
+# with a +0.75 so every checkpoint lands on the same tick as before: 720, 1440,
+# 3600. Metrics are unaffected by the offset regardless; they read the plant and
+# the field, not pixels.
+
 SPEED pause
 DUMP
+
 ADVANCE_DAYS 30
 DUMP
 DUMP_METRICS 180
+ADVANCE_DAYS 0.25
 SCREENSHOT m2_day30.png
+ADVANCE_DAYS 0.75
 
-ADVANCE_DAYS 30
+ADVANCE_DAYS 29
 DUMP
 DUMP_METRICS 180
+ADVANCE_DAYS 0.25
 SCREENSHOT m2_day60.png
+ADVANCE_DAYS 0.75
 
-ADVANCE_DAYS 90
+ADVANCE_DAYS 89
 DUMP
 DUMP_METRICS 180
+ADVANCE_DAYS 0.25
 SCREENSHOT m2_day150.png
