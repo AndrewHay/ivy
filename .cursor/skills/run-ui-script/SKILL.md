@@ -80,6 +80,10 @@ dumps are unaffected by the offset; they read the plant and the field, not pixel
 | `as3b_gate_on.txt` / `as3b_nodiel.txt` | AS-3(b) pair — identical runs with the diel gate on and off, to check the gate is mean-preserving |
 | `as3b_day1_gate_on.txt` / `as3b_day1_nodiel.txt` | The same pair over day 0→1 only, where both runs provably share a starting state |
 | `as3c_dl_decay.txt` | AS-3(c) — `D_L` step response, to measure the implied `tau_L` |
+| `qa_as3b_nobranch_on.txt` / `_off.txt` | The gate pair with `branch_rate = 0`. Branching amplifies any timing difference exponentially, so this near-linear regime is what actually isolates the gate: 0.39% at day 29, against 11% with branching on (W-052) |
+| `qa_stall_dormant.txt` | W-040 — midday frames across the band where dormant tips rise from 28 to 128, to confirm no vine pops or vanishes (INV-2) |
+| `qa_silhouette_lip.txt` | AS-6 / W-038 — midday frames at lip-reach and saturation |
+| `qa_playtest_watch.txt` | Interactive watch-speed session. Wall-clock driven, so **not** for metric determinism |
 
 Write a throwaway `.txt` for a one-off repro rather than describing the steps in prose.
 

@@ -1,0 +1,13 @@
+# QA interactive playtest: watch-speed growth with day/night readability.
+# Uses wall-clock time at WATCH speed; not for metric determinism.
+# Captures noon-ish frames during an observed grow session.
+
+SPEED watch
+WAIT 8000
+SCREENSHOT qa_watch_t0.png
+WAIT 12000
+SCREENSHOT qa_watch_t12s.png
+WAIT 12000
+SCREENSHOT qa_watch_t24s.png
+SPEED pause
+DUMP

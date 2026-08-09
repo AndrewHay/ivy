@@ -1,0 +1,32 @@
+# QA W-040: verify dormant tip retirement does not pop or delete geometry.
+# Capture midday frames while tips transition to DORMANT (day 60–150 band
+# where dormant count rises from 28 to 128 per m2_metrics baseline).
+
+SPEED pause
+ADVANCE_DAYS 59
+ADVANCE_DAYS 0.25
+SCREENSHOT qa_stall_day59.png
+ADVANCE_DAYS 0.75
+
+ADVANCE_DAYS 1
+DUMP
+ADVANCE_DAYS 0.25
+SCREENSHOT qa_stall_day60.png
+ADVANCE_DAYS 0.75
+
+ADVANCE_DAYS 30
+DUMP
+ADVANCE_DAYS 0.25
+SCREENSHOT qa_stall_day90.png
+ADVANCE_DAYS 0.75
+
+ADVANCE_DAYS 30
+DUMP
+ADVANCE_DAYS 0.25
+SCREENSHOT qa_stall_day120.png
+ADVANCE_DAYS 0.75
+
+ADVANCE_DAYS 30
+DUMP
+ADVANCE_DAYS 0.25
+SCREENSHOT qa_stall_day150.png

@@ -1,0 +1,14 @@
+# AS-3(b) diagnostic, gate OFF, branching disabled.
+# Pairs with qa_as3b_nobranch_on.txt — see that file for the rationale.
+
+SET_PARAM branch_rate 0.0
+SET_PARAM diel_gate_enabled false
+SPEED pause
+ADVANCE_DAYS 1
+DUMP
+ADVANCE_DAYS 2
+DUMP
+ADVANCE_DAYS 26
+DUMP
+ADVANCE_DAYS 1
+DUMP

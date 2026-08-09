@@ -1,0 +1,14 @@
+# QA W-038 / AS-6: silhouette break — vines crest the top lip and drape.
+# M1 camera only (W-002); ground-level judgement per DESIGN.md.
+# Midday screenshots at lip-reach (day 60) and saturation (day 150).
+
+SPEED pause
+ADVANCE_DAYS 59
+ADVANCE_DAYS 0.25
+SCREENSHOT qa_lip_day60.png
+ADVANCE_DAYS 0.75
+
+ADVANCE_DAYS 90
+DUMP
+ADVANCE_DAYS 0.25
+SCREENSHOT qa_lip_day150.png

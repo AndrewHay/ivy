@@ -1,0 +1,20 @@
+# AS-3(b) diagnostic, gate ON, branching disabled.
+#
+# Pairs with qa_as3b_nobranch_off.txt. Branching is the compounding amplifier in
+# this system: every branch event adds a tip that itself grows and branches, so
+# any timing difference between two runs is amplified exponentially. With
+# branch_rate = 0 the plant is a single tip and the system is close to linear,
+# so cumulative stem length becomes a fair test of whether the diel gate is
+# mean-preserving rather than a measure of how far two diverging plants have
+# drifted apart.
+
+SET_PARAM branch_rate 0.0
+SPEED pause
+ADVANCE_DAYS 1
+DUMP
+ADVANCE_DAYS 2
+DUMP
+ADVANCE_DAYS 26
+DUMP
+ADVANCE_DAYS 1
+DUMP
