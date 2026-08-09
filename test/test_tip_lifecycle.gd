@@ -54,6 +54,16 @@ func test_midway_between_soft_and_hard_scale_is_half() -> void:
 	assert_almost_eq(q, expected, 1e-4)
 
 
+func test_branch_scale_at_hard_cap_is_full_for_sd_tip4() -> void:
+	# SD-TIP-4: at the hard cap the taper scale is 1.0 so growth_step's branch draw
+	# can fire (it was 0.0 before W-037, silencing the retirement swap).
+	var params := IvyParams.new()
+	var mgr := TipManager.new()
+	_fill_manager_with_growing_tips(mgr, params.tip_cap_hard)
+	assert_almost_eq(mgr.branch_probability_scale(params), 1.0, 1e-6,
+		"branch scale must be 1.0 at the hard cap for SD-TIP-4 swap to be attempted")
+
+
 func test_can_branch_true_below_hard_cap() -> void:
 	var params := IvyParams.new()
 	var mgr := TipManager.new()
@@ -62,18 +72,28 @@ func test_can_branch_true_below_hard_cap() -> void:
 	assert_true(mgr.can_branch(params), "can_branch must be true one below the hard cap")
 
 
-func test_can_branch_false_at_hard_cap() -> void:
+func test_can_branch_true_at_hard_cap() -> void:
+	# SD-TIP-4: at the hard cap the gate must stay open so growth_step can call
+	# queue_branch and attempt the retirement swap. The swap gates success; this
+	# function must not block the attempt. (Before W-037 this returned false, making
+	# the SD-TIP-4 swap structurally unreachable.)
 	var params := IvyParams.new()
 	var mgr := TipManager.new()
 	_fill_manager_with_growing_tips(mgr, params.tip_cap_hard)
-	assert_false(mgr.can_branch(params), "can_branch must be false at the hard cap")
+	assert_true(mgr.can_branch(params), "can_branch must be true at the hard cap for SD-TIP-4 to be reachable")
 
 
 func test_queue_branch_at_hard_cap_retires_weak_tip() -> void:
-	# SD-TIP-4: a branch may be created at the hard cap by retiring a weaker tip.
+	# SD-TIP-4: full production path — can_branch must be true at the cap (this assertion
+	# would have FAILED before W-037, because can_branch returned false and growth_step
+	# never called queue_branch at the hard cap), then queue_branch must retire a weak tip.
 	var params := IvyParams.new()
 	var mgr := TipManager.new()
 	_fill_manager_with_growing_tips(mgr, params.tip_cap_hard, 0.1)  # 160 weak tips
+
+	# Production-path gate: growth_step only calls queue_branch when can_branch() is true.
+	# This assertion pins the fix — it would have failed before W-037.
+	assert_true(mgr.can_branch(params), "can_branch must be true at hard cap (production gate must be open)")
 
 	var parent := _make_parent(params.tip_cap_hard, 1.0)  # much stronger than retirees
 	mgr.tips.append(parent)

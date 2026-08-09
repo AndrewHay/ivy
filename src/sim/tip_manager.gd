@@ -106,20 +106,23 @@ func apply_lifecycle(ctx: SimContext) -> void:
 
 
 ## SD-TIP-3: taper q that scales branch probability smoothly from 1.0 at the soft cap
-## down to 0.0 at the hard cap. Below soft: returns 1.0. At/above hard: returns 0.0.
+## down to 0.0 as the hard cap is approached. Below soft: returns 1.0.
+## SD-TIP-4: at the hard cap itself returns 1.0 (full probability) so growth_step's branch
+## draw can fire and pass to queue_branch, which gates the swap via the vigour margin.
 func branch_probability_scale(params: IvyParams) -> float:
 	var n := live_count()
 	if n < params.tip_cap_soft:
 		return 1.0
 	if n >= params.tip_cap_hard:
-		return 0.0
+		return 1.0  # SD-TIP-4: retirement swap; full rate; queue_branch gates on vigour margin
 	return clampf(
 		float(params.tip_cap_hard - n) / float(params.tip_cap_hard - params.tip_cap_soft),
 		0.0, 1.0
 	)
 
 
-## SD-TIP-2: below the hard cap, normal (or tapered) branching is permitted.
-## SD-TIP-4 retirement is handled inside queue_branch and is not gated here.
-func can_branch(params: IvyParams) -> bool:
-	return live_count() < params.tip_cap_hard
+## SD-TIP-2/4: always allow the branch attempt; queue_branch handles all internal gating.
+## Below hard cap: normal (or tapered) branching per SD-TIP-2/3.
+## At hard cap: SD-TIP-4 retirement swap inside queue_branch; never block the attempt here.
+func can_branch(_params: IvyParams) -> bool:
+	return true

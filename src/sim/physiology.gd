@@ -78,3 +78,12 @@ static func deposit_stem_crowding(tip: Tip, ctx: SimContext) -> void:
 	var d_l := ctx.env.sample_D_L(tip.position, tip.id, tip.segment_count)
 	var amount := 0.02 * f_L(d_l, ctx.params)
 	ctx.env.deposit_crowding(tip.position, amount)
+
+
+## SD-LEAF-8 / SD-PHYS-3: deposit crowding proportional to predicted leaf area.
+## Called from LeafPlacer so that physiology remains the sole writer to the crowding
+## channel (INV-1). Deposit = k_leaf * leaf_area / cell_area.
+static func deposit_leaf_crowding(position: Vector3, leaf_area: float, ctx: SimContext) -> void:
+	var cell_area := ctx.params.field_cell * ctx.params.field_cell
+	var amount := ctx.params.leaf_crowd_k * leaf_area / cell_area
+	ctx.env.deposit_crowding(position, amount)

@@ -25,6 +25,15 @@ static func advance(tip: Tip, ctx: SimContext, seg_a: Vector3, seg_b: Vector3, f
 	var node_pos := seg_a.lerp(seg_b, t)
 	tip.distance_since_node = 0.0
 	tip.node_count += 1
+	# SD-LEAF-8: suppress placement in dense regions. Hash-based (SD-RNG-4): no stream draw
+	# is consumed, so draw order is unchanged and determinism is preserved (INV-7).
+	# Suppression channel 42 is distinct from field-jitter channels (0–14) and internode (99).
+	if ctx.env != null:
+		var c_at_node := ctx.env.sample_crowding(node_pos, tip.id, tip.node_count)
+		var p_place := clampf(1.0 - params.leaf_crowd_suppress * c_at_node, params.leaf_crowd_floor, 1.0)
+		var suppress_u := Hash64.unit_float(tip.id, tip.node_count, 42)
+		if suppress_u >= p_place:
+			return
 	var atlas := AtlasScript.new()
 	var leaf_id := "a"
 	var aspect := atlas.aspect_for(leaf_id)
@@ -51,4 +60,8 @@ static func advance(tip: Tip, ctx: SimContext, seg_a: Vector3, seg_b: Vector3, f
 	var xform := Transform3D(Basis(x_axis * width, y_axis * height, z_axis), node_pos)
 	var rect := atlas.rect_for(leaf_id)
 	var alpha_fill := atlas.alpha_fill_for(leaf_id)
-	ctx.plant.append_leaf(xform, Color.WHITE, rect, tip.id, tip.shoot_length, alpha_fill * width * height)
+	var predicted_area := alpha_fill * width * height
+	# SD-LEAF-8 / SD-PHYS-3: physiology deposits crowding for this leaf node (INV-1: sole writer).
+	if ctx.env != null:
+		Physiology.deposit_leaf_crowding(node_pos, predicted_area, ctx)
+	ctx.plant.append_leaf(xform, Color.WHITE, rect, tip.id, tip.shoot_length, predicted_area)

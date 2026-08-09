@@ -105,6 +105,9 @@ extends Resource
 @export var leaf_healthy_gain: float = 0.65
 @export var leaf_crowd_suppress: float = 0.55
 @export var leaf_crowd_floor: float = 0.35
+## SD-LEAF-8: deposit scale so that a fully leafed cell (≈2 leaf nodes at default internode
+## and cell sizes) saturates C near 1.0. Deposit per node = k * leaf_area / cell_area.
+@export var leaf_crowd_k: float = 0.5
 @export var leaf_cap: int = 20000
 
 @export_group("Stem")
@@ -150,7 +153,7 @@ func content_hash() -> String:
 		"leaf_offset_step", "leaf_offset_ladder", "leaf_width_base", "leaf_order_falloff",
 		"leaf_expand_distance", "leaf_light_scale_base", "leaf_light_scale_gain", "leaf_size_sigma",
 		"leaf_healthy_base", "leaf_healthy_gain", "leaf_crowd_suppress", "leaf_crowd_floor",
-		"leaf_cap", "stem_radius_base", "stem_order_falloff", "stem_tip_taper",
+		"leaf_crowd_k", "leaf_cap", "stem_radius_base", "stem_order_falloff", "stem_tip_taper",
 		"diel_gate_enabled", "dev_build",
 	]
 	var parts: PackedStringArray = []
