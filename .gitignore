@@ -4,3 +4,9 @@
 
 # Third-party addons (install locally via zip or AssetLib)
 /addons/gut/
+
+# Downloaded asset archives — see assets/CREDITS.md for URLs
+/assets/_zips/
+
+# Dev tool output (screenshots, UI-script captures)
+/.tmp/

@@ -1,0 +1,27 @@
+{
+  "atlas": "LeafSet017_Leaves_RGBA.png",
+  "source": "ambientCG LeafSet017 (CC0)",
+  "species": "Hedera helix (English ivy)",
+  "size_px": [2048, 2048],
+  "notes": [
+    "rect_uv is [x, y, width, height] in normalized UV, origin top-left.",
+    "petiole_uv is the stem attachment point in each leaf's LOCAL rect space,",
+    "where [0.5, 1.0] is bottom-centre. Leaf cards should be anchored here so",
+    "the leaf pivots about the point where it meets the vine.",
+    "aspect is width/height; keep it to avoid stretching the leaf card.",
+    "alpha_fill is the fraction of the rect that is opaque, measured as the mean of",
+    "the alpha channel over the rect. Actual leaf area = alpha_fill * width * height.",
+    "Required by the coverage metric (IMPLEMENTATION.md SD-METRIC-3).",
+    "tier groups leaves by condition: H = healthy (larger, saturated, clean),",
+    "W = weathered (smaller, paler, mottled, damaged edges). See SD-LEAF-6."
+  ],
+  "petiole_uv": [0.5, 1.0],
+  "leaves": [
+    { "id": "a", "tier": "H", "rect_px": [103, 33, 676, 636],    "rect_uv": [0.050293, 0.016113, 0.330078, 0.310547], "aspect": 1.063, "alpha_fill": 0.641 },
+    { "id": "b", "tier": "W", "rect_px": [1271, 109, 517, 539],  "rect_uv": [0.620605, 0.053223, 0.252441, 0.263184], "aspect": 0.959, "alpha_fill": 0.607 },
+    { "id": "c", "tier": "H", "rect_px": [130, 756, 700, 633],   "rect_uv": [0.063477, 0.369141, 0.341797, 0.309082], "aspect": 1.106, "alpha_fill": 0.617 },
+    { "id": "d", "tier": "W", "rect_px": [1283, 809, 580, 496],  "rect_uv": [0.626465, 0.395020, 0.283203, 0.242188], "aspect": 1.169, "alpha_fill": 0.613 },
+    { "id": "e", "tier": "H", "rect_px": [92, 1420, 790, 603],   "rect_uv": [0.044922, 0.693359, 0.385742, 0.294434], "aspect": 1.310, "alpha_fill": 0.675 },
+    { "id": "f", "tier": "W", "rect_px": [1211, 1415, 630, 586], "rect_uv": [0.591309, 0.690918, 0.307617, 0.286133], "aspect": 1.075, "alpha_fill": 0.647 }
+  ]
+}

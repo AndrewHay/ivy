@@ -1,0 +1,9 @@
+[gd_resource type="ShaderMaterial" load_steps=3 format=3]
+
+[ext_resource type="Shader" path="res://src/render/shaders/leaf.gdshader" id="1"]
+[ext_resource type="Texture2D" path="res://assets/plants/ivy/LeafSet017/LeafSet017_Leaves_RGBA.png" id="2"]
+
+[resource]
+render_priority = 0
+shader = ExtResource("1")
+shader_parameter/albedo_tex = ExtResource("2")

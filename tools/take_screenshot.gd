@@ -3,16 +3,23 @@ extends Node
 ## Dev tool: loads the main scene, waits for frames, captures the viewport, writes PNG.
 ##
 ## Run with:
-##   godot res://tools/take_screenshot.tscn -- --out=/tmp/ivy.png
+##   godot res://tools/take_screenshot.tscn -- --out=res://.tmp/screenshots/shot.png
+##
+## Defaults inside the project so runs need no write access outside the
+## workspace. `.tmp/` is gitignored.
 
 const _MAIN_SCENE := "res://src/main/main.tscn"
-const _DEFAULT_OUT := "/tmp/ivy_debug.png"
+const _DEFAULT_OUT := "res://.tmp/screenshots/ivy_debug.png"
 const _DEFAULT_SETTLE := 30
 
 
 func _ready() -> void:
 	var args := _parse_args()
-	var out_path: String = args.get("out", _DEFAULT_OUT)
+	# globalize_path resolves res:// and passes absolute paths through unchanged.
+	var out_path: String = ProjectSettings.globalize_path(
+		args.get("out", _DEFAULT_OUT)
+	)
+	DirAccess.make_dir_recursive_absolute(out_path.get_base_dir())
 	var settle_frames: int = int(args.get("settle_frames", _DEFAULT_SETTLE))
 
 	print("[screenshot] out=", out_path, "  settle=", settle_frames)

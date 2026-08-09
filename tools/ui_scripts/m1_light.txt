@@ -1,0 +1,3 @@
+# Measure the baked light field against the SD-ENV-10 regression target.
+SPEED pause
+DUMP_LIGHT

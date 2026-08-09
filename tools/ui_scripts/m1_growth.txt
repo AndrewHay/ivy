@@ -1,0 +1,17 @@
+# M1 exit gate — grow 30 game-days and capture.
+#
+# Paused, not `grow`: at any running speed `_process` also advances ticks from the
+# real frame delta, so the total tick count depends on wall-clock timing and the run
+# is not reproducible (INV-7). ADVANCE_DAYS drives ticks directly, so pausing leaves
+# exactly 24 ticks per game-day and nothing else.
+SPEED pause
+DUMP
+ADVANCE_DAYS 1
+DUMP
+ADVANCE_DAYS 29
+DUMP
+# The 30-day measurement is taken above. Day 30.0 is 06:00 (start_hour), which lights
+# the tower at a raking angle; advance to midday so the capture shows the growth
+# rather than the shadow.
+ADVANCE_DAYS 0.25
+SCREENSHOT m1_exit.png

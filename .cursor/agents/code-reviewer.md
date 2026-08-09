@@ -1,6 +1,6 @@
 ---
 name: code-reviewer
-model: claude-opus-4-7
+model: claude-sonnet-4-6
 description: Reviews gameplay code for bugs, regressions, edge cases, and maintainability.
 readonly: true
 is_background: true

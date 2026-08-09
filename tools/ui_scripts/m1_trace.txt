@@ -1,0 +1,3 @@
+# Per-tick trace for cross-run determinism bisection.
+SPEED pause
+TRACE 3
