@@ -14,7 +14,11 @@ extends Resource
 @export var window_depth: float = 0.12
 @export var window_sill: float = 1.60
 @export var ring_segments: int = 96
-@export var brick_uv_metres: float = 1.00
+# Physical patch size of the brick material in metres (width × height).
+# Bricks094: dimensionX=180 cm, dimensionY=90 cm (ambientcg.com/api/v2/full_json?id=Bricks094).
+# Horizontal UV repeats are derived from .x; vertical scale from .y.
+# Update this when swapping to a different material to avoid aspect distortion.
+@export var brick_physical_size: Vector2 = Vector2(1.80, 0.90)
 
 
 func radius_inner() -> float:

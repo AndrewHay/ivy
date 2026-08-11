@@ -79,4 +79,6 @@ static func step_tip(tip: Tip, ctx: SimContext) -> void:
 			var branch_pos := x_new + branch_dir * params.branch_offset
 			ctx.tips.queue_branch(tip, branch_pos, branch_dir, tip.last_contact_normal, tip.branch_index, params)
 			tip.branch_index += 1
-	LeafPlacer.advance(tip, ctx, seg_a, x_new, f_l, basis)
+	# l_dir is the bounded accumulated-light gradient (SD-LEAF-4 rule 5, SD-RNG-6).
+	# It must come from accumulated light, never the instantaneous sun (INV-3a).
+	LeafPlacer.advance(tip, ctx, seg_a, x_new, f_l, basis, l_dir)

@@ -29,6 +29,12 @@ var stall_day_shoot: float = 0.0
 var stall_day_last: int = -1
 var stall_consecutive_days: int = 0
 
+## SD-LEAF-6 adjacency rule (W-060): track the atlas ids of the two most recently
+## placed nodes on this stem so tier selection can avoid consecutive repetition.
+## Empty string means "no leaf placed yet on this stem".
+var last_leaf_id: String = ""
+var prev_leaf_id: String = ""
+
 
 func is_live() -> bool:
 	return state == State.GROWING or state == State.FLOATING or state == State.SEEDED

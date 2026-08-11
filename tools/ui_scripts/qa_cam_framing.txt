@@ -1,0 +1,23 @@
+# Camera framing check — bare tower, no plant, so it runs in seconds.
+#
+# Purpose: verify each canonical camera actually frames the tower. Framing is a
+# property of the transform and the tower, not of the ivy, so there is no reason
+# to spend 110 s growing a plant to check it.
+#
+# Advance 0.25 game-days only, to reach local noon (start_hour = 6).
+SPEED pause
+ADVANCE_DAYS 0.25
+
+CAMERA sun
+SCREENSHOT frame_sun.png
+
+CAMERA shade
+SCREENSHOT frame_shade.png
+
+CAMERA top
+SCREENSHOT frame_top.png
+
+CAMERA silhouette
+SCREENSHOT frame_silhouette.png
+
+CAMERA sun

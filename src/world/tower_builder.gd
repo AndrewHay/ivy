@@ -88,6 +88,16 @@ static func _add_wall_quad(
 	a0: float, a1: float, y0: float, y1: float, mat_id: int
 ) -> void:
 	var r := spec.radius_outer
+	# Cylindrical UV: U wraps the circumference, V runs up the height.
+	# Each axis uses the material's real-world physical dimension independently
+	# (AR-TOWER-1). The horizontal repeat count is rounded to an integer so U
+	# at a=TAU is a whole number and the wrap seam is invisible.
+	# Bricks094: 1.80 m wide × 0.90 m tall → roundi(TAU*2.0/1.8)=7 repeats.
+	var int_repeats := float(roundi(TAU * r / spec.brick_physical_size.x))
+	var u0 := (a0 / TAU) * int_repeats
+	var u1 := (a1 / TAU) * int_repeats
+	var v0 := y0 / spec.brick_physical_size.y
+	var v1 := y1 / spec.brick_physical_size.y
 	var p00 := Vector3(r * sin(a0), y0, -r * cos(a0))
 	var p01 := Vector3(r * sin(a0), y1, -r * cos(a0))
 	var p10 := Vector3(r * sin(a1), y0, -r * cos(a1))
@@ -98,8 +108,10 @@ static func _add_wall_quad(
 	# and the right-hand rule then points the other way (SD-CONV-3).
 	var am := (a0 + a1) * 0.5
 	var n := Vector3(sin(am), 0.0, -cos(am)).normalized()
-	_add_tri(st, face_material, p00, p10, p11, n, mat_id)
-	_add_tri(st, face_material, p00, p11, p01, n, mat_id)
+	_add_tri(st, face_material, p00, p10, p11,
+		Vector2(u0, v0), Vector2(u1, v0), Vector2(u1, v1), n, mat_id)
+	_add_tri(st, face_material, p00, p11, p01,
+		Vector2(u0, v0), Vector2(u1, v1), Vector2(u0, v1), n, mat_id)
 
 
 static func _build_lip(st: SurfaceTool, face_material: PackedByteArray, spec: TowerSpec) -> void:
@@ -108,6 +120,14 @@ static func _build_lip(st: SurfaceTool, face_material: PackedByteArray, spec: To
 	var r1 := spec.lip_radius()
 	var y0 := spec.height
 	var y1 := spec.height + spec.lip_thickness
+	# Lip UV: U follows the same integer-rounded azimuth repeat count as the wall
+	# so the brick pattern is consistent at the crown.  V treats the horizontal
+	# annulus as a continuation of the wall face: inner edge (r0) picks up where
+	# the wall top ends (v = height / brick_physical_size.y) and V increases
+	# radially outward as if the brick surface wraps over the top (AR-TOWER-1).
+	var int_repeats := float(roundi(TAU * r0 / spec.brick_physical_size.x))
+	var v_inner := y0 / spec.brick_physical_size.y
+	var v_outer := (y0 + spec.lip_overhang) / spec.brick_physical_size.y
 	for ring in range(segs):
 		var a0 := TAU * float(ring) / float(segs)
 		var a1 := TAU * float(ring + 1) / float(segs)
@@ -115,18 +135,32 @@ static func _build_lip(st: SurfaceTool, face_material: PackedByteArray, spec: To
 		var p11 := Vector3(r0 * sin(a1), y1, -r0 * cos(a1))
 		var q00 := Vector3(r1 * sin(a0), y1, -r1 * cos(a0))
 		var q10 := Vector3(r1 * sin(a1), y1, -r1 * cos(a1))
+		var u0 := (a0 / TAU) * int_repeats
+		var u1 := (a1 / TAU) * int_repeats
 		var n_top := ConvScript.UP
-		_add_tri(st, face_material, q00, q10, p11, n_top, MaterialRegistry.BRICK_LIP)
-		_add_tri(st, face_material, q00, p11, p01, n_top, MaterialRegistry.BRICK_LIP)
+		_add_tri(st, face_material, q00, q10, p11,
+			Vector2(u0, v_outer), Vector2(u1, v_outer), Vector2(u1, v_inner),
+			n_top, MaterialRegistry.BRICK_LIP)
+		_add_tri(st, face_material, q00, p11, p01,
+			Vector2(u0, v_outer), Vector2(u1, v_inner), Vector2(u0, v_inner),
+			n_top, MaterialRegistry.BRICK_LIP)
 
 
 static func _add_tri(
 	st: SurfaceTool, face_material: PackedByteArray,
-	a: Vector3, b: Vector3, c: Vector3, n: Vector3, mat_id: int
+	a: Vector3, b: Vector3, c: Vector3,
+	uv_a: Vector2, uv_b: Vector2, uv_c: Vector2,
+	n: Vector3, mat_id: int
 ) -> void:
-	for p in [a, b, c]:
-		st.set_normal(n)
-		st.add_vertex(p)
+	st.set_normal(n)
+	st.set_uv(uv_a)
+	st.add_vertex(a)
+	st.set_normal(n)
+	st.set_uv(uv_b)
+	st.add_vertex(b)
+	st.set_normal(n)
+	st.set_uv(uv_c)
+	st.add_vertex(c)
 	face_material.append(mat_id)
 
 

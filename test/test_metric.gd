@@ -9,23 +9,31 @@
 ##   - 12-sector asymmetry reports correctly on a one-sided synthetic plant
 ##   - Stem-bucket occupancy is reported alongside leaf coverage (SD-METRIC-5)
 ##   - CoverageMetric is a read-only observer — it consumes no RNG draws
+##   - W-076 AR-METRIC-1 amendment: ref_area = alpha_fill("a")·width²/aspect("a"), id-independent;
+##     AS-1 is bit-identical across s_light-gain changes AND tier-probability changes.
 extends GutTest
 
 const CoverageMetric = preload("res://src/metrics/coverage.gd")
 const TowerSpec = preload("res://src/world/tower_spec.gd")
 const PlantData = preload("res://src/sim/plant_data.gd")
+const IvyParams = preload("res://src/params/ivy_params.gd")
+const LeafPlacer = preload("res://src/sim/leaf_placer.gd")
+const Tip = preload("res://src/sim/tip.gd")
+const SimContext = preload("res://src/sim/sim_context.gd")
+const LeafAtlas = preload("res://src/render/leaf_atlas.gd")
 
 
 func _make_metric() -> CoverageMetric:
 	var m := CoverageMetric.new()
-	m.setup(TowerSpec.new())
+	m.setup(TowerSpec.new(), IvyParams.new())
 	return m
 
 
 ## Append a synthetic leaf at a known (azimuth_bin, height_bin) with outward normal
-## facing the cylinder wall, and a given projected area.  The n_leaf = outward radial
-## normal so |dot(n_leaf, n_bucket)| = 1, making the weight exactly `area`.
-func _add_leaf_at_bin(plant: PlantData, az_bin: int, h_bin: int, area: float) -> void:
+## facing the cylinder wall.  n_leaf = outward radial normal so |dot(n_leaf, n_bucket)| = 1.
+## CoverageMetric now weights every leaf by _ref_area (not by the stored area), so
+## `area` here only affects PlantData.leaf_area (rendered), not coverage outcome.
+func _add_leaf_at_bin(plant: PlantData, az_bin: int, h_bin: int, area: float = 0.006) -> void:
 	var az_rad := deg_to_rad(float(az_bin) * 5.0 + 2.5)
 	var y := float(h_bin) * 0.10 + 0.05
 	var nx := sin(az_rad)
@@ -36,7 +44,24 @@ func _add_leaf_at_bin(plant: PlantData, az_bin: int, h_bin: int, area: float) ->
 	# basis.x = circumferential (tangent), basis.y = up
 	var tangent := Vector3(cos(az_rad), 0.0, sin(az_rad))
 	var xform := Transform3D(Basis(tangent, Vector3.UP, n), pos)
-	plant.append_leaf(xform, Color.WHITE, Vector4(0.0, 0.0, 0.0, 0.0), 0, 0.0, area)
+	plant.append_leaf(xform, Color.WHITE, Vector4(0.0, 0.0, 0.0, 0.0), 0, 0.0, area, 0.0)
+
+
+## Variant of _add_leaf_at_bin that tags each leaf with a specific atlas rect (leaf_custom) and
+## the real rendered area for that variant.  Used by test_w076_ref_area_is_fixed_and_correct so
+## that the six plants differ in both stored leaf_area AND leaf_custom, making a mutation to
+## weight-by-leaf_area detectable by the bit-identity assertions.
+func _add_leaf_at_bin_with_variant(plant: PlantData, az_bin: int, h_bin: int,
+		area: float, rect: Vector4) -> void:
+	var az_rad := deg_to_rad(float(az_bin) * 5.0 + 2.5)
+	var y := float(h_bin) * 0.10 + 0.05
+	var nx := sin(az_rad)
+	var nz := -cos(az_rad)
+	var pos := Vector3(nx * 2.0, y, nz * 2.0)
+	var n := Vector3(nx, 0.0, nz)
+	var tangent := Vector3(cos(az_rad), 0.0, sin(az_rad))
+	var xform := Transform3D(Basis(tangent, Vector3.UP, n), pos)
+	plant.append_leaf(xform, Color.WHITE, rect, 0, 0.0, area, 0.0)
 
 
 ## Add a stem segment with both endpoints at a given azimuth angle and height.
@@ -176,18 +201,20 @@ func test_empty_plant_is_zero_percent() -> void:
 
 
 func test_synthetic_saturated_mat_is_100_pct() -> void:
-	# Fill every eligible bucket with area well above the 50%-bucket threshold.
+	# Enough face-on leaves per bucket so accumulated weight exceeds the 50%-threshold.
+	# With ref_area < bucket_area * 0.5, several leaves per bucket are required.
 	var spec := TowerSpec.new()
+	var params := IvyParams.new()
 	var m := CoverageMetric.new()
-	m.setup(spec)
+	m.setup(spec, params)
+	var bucket_area := 2.0 * PI * spec.radius_outer / float(CoverageMetric.AZIMUTH_BINS) \
+		* CoverageMetric.HEIGHT_BIN_SIZE
+	var leaves_per_bucket := int(ceil(bucket_area * 0.5 / m._ref_area)) + 1
 	var plant := PlantData.new()
-	var threshold_area := 2.0 * PI * spec.radius_outer / CoverageMetric.AZIMUTH_BINS \
-		* CoverageMetric.HEIGHT_BIN_SIZE * 0.5
-	# Add one leaf per bucket with area = threshold * 1.5 (comfortably above threshold)
-	var large_area := threshold_area * 1.5
 	for az_bin in range(CoverageMetric.AZIMUTH_BINS):
 		for h_bin in range(CoverageMetric.HEIGHT_BINS):
-			_add_leaf_at_bin(plant, az_bin, h_bin, large_area)
+			for _k in range(leaves_per_bucket):
+				_add_leaf_at_bin(plant, az_bin, h_bin)
 	var result := m.measure(plant, 180.0)
 	assert_almost_eq(result["overall_pct"], 100.0, 0.001,
 		"fully-covered plant must report 100% overall")
@@ -197,30 +224,42 @@ func test_synthetic_saturated_mat_is_100_pct() -> void:
 		"fully-covered plant must report 100% shade half")
 
 
-func test_below_threshold_area_is_not_counted() -> void:
-	# A leaf whose weighted area is just under 50% of bucket area must not cover the bucket.
+func test_edge_on_leaf_does_not_cover_bucket() -> void:
+	# A leaf whose face normal is perpendicular to the bucket wall (dot_abs = 0)
+	# contributes zero projected area → weight = ref_area * 0 = 0 → not covered.
+	# This tests SD-METRIC-3's projection: only leaves facing the wall count.
 	var spec := TowerSpec.new()
+	var params := IvyParams.new()
 	var m := CoverageMetric.new()
-	m.setup(spec)
+	m.setup(spec, params)
 	var plant := PlantData.new()
-	var bucket_area := 2.0 * PI * spec.radius_outer / CoverageMetric.AZIMUTH_BINS \
-		* CoverageMetric.HEIGHT_BIN_SIZE
-	_add_leaf_at_bin(plant, 36, 10, bucket_area * 0.49)  # just under threshold
+	# Bucket at az_bin=36 (south, 180°): bucket normal = (0, 0, 1).
+	# Leaf with normal = (1, 0, 0) (east): dot((1,0,0),(0,0,1)) = 0 → no coverage.
+	var y := float(10) * 0.10 + 0.05
+	var pos := Vector3(0.0, y, 2.0)  # south wall
+	var n_edge_on := Vector3(1.0, 0.0, 0.0)  # east-facing (edge-on to south bucket)
+	var xform := Transform3D(Basis(Vector3.FORWARD, Vector3.UP, n_edge_on), pos)
+	plant.append_leaf(xform, Color.WHITE, Vector4.ZERO, 0, 0.0, 0.006, 0.0)
 	var result := m.measure(plant, 180.0)
 	assert_almost_eq(result["overall_pct"], 0.0, 0.001,
-		"sub-threshold leaf must not cover the bucket")
+		"edge-on leaf (dot_abs=0) must not cover its bucket (SD-METRIC-3 projection)")
 
 
-func test_above_threshold_area_is_counted() -> void:
+func test_face_on_leaves_cover_bucket() -> void:
+	# Enough face-on leaves per bucket accumulate ref_area * N >= threshold → covered.
 	var spec := TowerSpec.new()
+	var params := IvyParams.new()
 	var m := CoverageMetric.new()
-	m.setup(spec)
-	var plant := PlantData.new()
-	var bucket_area := 2.0 * PI * spec.radius_outer / CoverageMetric.AZIMUTH_BINS \
+	m.setup(spec, params)
+	var bucket_area := 2.0 * PI * spec.radius_outer / float(CoverageMetric.AZIMUTH_BINS) \
 		* CoverageMetric.HEIGHT_BIN_SIZE
-	_add_leaf_at_bin(plant, 36, 10, bucket_area * 0.51)  # just above threshold
+	var leaves_needed := int(ceil(bucket_area * 0.5 / m._ref_area)) + 1
+	var plant := PlantData.new()
+	for _k in range(leaves_needed):
+		_add_leaf_at_bin(plant, 36, 10)  # south, face-on
 	var result := m.measure(plant, 180.0)
-	assert_gt(result["overall_pct"], 0.0, "above-threshold leaf must cover the bucket")
+	assert_gt(result["overall_pct"], 0.0,
+		"%d face-on leaves must cover their bucket" % leaves_needed)
 
 
 # ---------------------------------------------------------------------------
@@ -228,13 +267,16 @@ func test_above_threshold_area_is_counted() -> void:
 # ---------------------------------------------------------------------------
 
 func test_south_bucket_is_in_sun_half_when_seed_is_south() -> void:
-	var m := _make_metric()
 	var spec := TowerSpec.new()
-	var plant := PlantData.new()
-	# Place a leaf at south (az_bin 36), seed at south (180°) → in sun half
-	var bucket_area := 2.0 * PI * spec.radius_outer / CoverageMetric.AZIMUTH_BINS \
+	var m := CoverageMetric.new()
+	m.setup(spec, IvyParams.new())
+	var bucket_area := 2.0 * PI * spec.radius_outer / float(CoverageMetric.AZIMUTH_BINS) \
 		* CoverageMetric.HEIGHT_BIN_SIZE
-	_add_leaf_at_bin(plant, 36, 10, bucket_area * 2.0)
+	var leaves_needed := int(ceil(bucket_area * 0.5 / m._ref_area)) + 1
+	var plant := PlantData.new()
+	# Place enough leaves at south (az_bin 36), seed at south (180°) → in sun half
+	for _k in range(leaves_needed):
+		_add_leaf_at_bin(plant, 36, 10)
 	var result := m.measure(plant, 180.0)
 	assert_gt(result["sun_half_pct"], 0.0,
 		"south leaf must be counted in sun half when seed_azimuth=180°")
@@ -243,13 +285,16 @@ func test_south_bucket_is_in_sun_half_when_seed_is_south() -> void:
 
 
 func test_south_bucket_is_in_shade_half_when_seed_is_north() -> void:
-	var m := _make_metric()
 	var spec := TowerSpec.new()
-	var plant := PlantData.new()
-	# Place a leaf at south (az_bin 36), seed at NORTH (0°) → south is shade half
-	var bucket_area := 2.0 * PI * spec.radius_outer / CoverageMetric.AZIMUTH_BINS \
+	var m := CoverageMetric.new()
+	m.setup(spec, IvyParams.new())
+	var bucket_area := 2.0 * PI * spec.radius_outer / float(CoverageMetric.AZIMUTH_BINS) \
 		* CoverageMetric.HEIGHT_BIN_SIZE
-	_add_leaf_at_bin(plant, 36, 10, bucket_area * 2.0)
+	var leaves_needed := int(ceil(bucket_area * 0.5 / m._ref_area)) + 1
+	var plant := PlantData.new()
+	# Place enough leaves at south (az_bin 36), seed at NORTH (0°) → south is shade half
+	for _k in range(leaves_needed):
+		_add_leaf_at_bin(plant, 36, 10)
 	var result := m.measure(plant, 0.0)   # seed at north
 	assert_almost_eq(result["sun_half_pct"], 0.0, 0.001,
 		"south leaf must NOT appear in sun half when seed_azimuth=0°")
@@ -398,3 +443,200 @@ func test_coverage_metric_does_not_use_environment_or_rng() -> void:
 	var r2 := m.measure(plant, 180.0)
 	assert_almost_eq(r1["overall_pct"], r2["overall_pct"], 1e-6,
 		"identical calls must return identical results (no RNG state)")
+
+
+# ---------------------------------------------------------------------------
+# W-076 / AR-METRIC-1 amendment: fixed ref_area independent of leaf_id/tier/s_light
+# ---------------------------------------------------------------------------
+
+## Helper: build a SimContext with no env and a fresh plant.
+func _metric_ctx(params: IvyParams, plant: PlantData) -> SimContext:
+	return SimContext.new(params, null, null, plant, null, null)
+
+
+## Helper: place leaves via LeafPlacer across all az/h bins with a given IvyParams.
+func _fill_bins_with_placer(params: IvyParams, spec: TowerSpec, f_l: float) -> PlantData:
+	var plant := PlantData.new()
+	var ctx := _metric_ctx(params, plant)
+	for az_bin in range(CoverageMetric.AZIMUTH_BINS):
+		for h_bin in range(0, 10):
+			var tip := Tip.new()
+			tip.id = az_bin * 100 + h_bin
+			tip.last_contact_normal = Vector3(0.0, 0.0, 1.0)
+			tip.state = Tip.State.GROWING
+			tip.vigour = 1.0
+			tip.leaf_side_sign = 1.0
+			tip.shoot_length = params.leaf_tip_suppress + 1.0
+			var u := Hash64.unit_float(tip.id, 0, 99)
+			var internode := params.internode_base \
+				* (1.0 + params.internode_shade_gain * (1.0 - f_l)) \
+				* (1.0 + params.internode_jitter * (2.0 * u - 1.0))
+			tip.distance_since_node = internode + 0.001
+			var az_rad := deg_to_rad(float(az_bin) * 5.0 + 2.5)
+			var y := float(h_bin) * 0.10 + 0.05
+			var nx := sin(az_rad)
+			var nz := -cos(az_rad)
+			var seg_a := Vector3(nx * 1.9, y, nz * 1.9)
+			var seg_b := Vector3(nx * 2.0, y + 0.01, nz * 2.0)
+			tip.last_contact_normal = Vector3(nx, 0.0, nz)
+			LeafPlacer.advance(tip, ctx, seg_a, seg_b, f_l, Basis.IDENTITY)
+	return plant
+
+
+## W-076 test 1 — ref_area is correct and id-independent (AR-METRIC-1 amendment).
+## Asserts _ref_area = alpha_fill("a") · leaf_width_base² / aspect("a").
+## Each plant uses a genuinely different variant: leaf_custom carries that variant's atlas rect
+## and leaf_area carries that variant's real rendered area (alpha_fill[id]·w²/aspect[id]).
+## Because the six variants have different alpha_fill/aspect values, their rendered areas differ,
+## so a mutation that weights coverage by leaf_area[i] instead of _ref_area would produce
+## different per-variant coverage totals and break the bit-identity assertions below.
+func test_w076_ref_area_is_fixed_and_correct() -> void:
+	var params := IvyParams.new()
+	var spec := TowerSpec.new()
+	var m := CoverageMetric.new()
+	m.setup(spec, params)
+	var atlas := LeafAtlas.new()
+	var expected_ref := atlas.alpha_fill_for("a") * params.leaf_width_base \
+		* params.leaf_width_base / atlas.aspect_for("a")
+	assert_almost_eq(m._ref_area, expected_ref, 1e-9,
+		"_ref_area must equal alpha_fill('a')·leaf_width_base²/aspect('a') (AR-METRIC-1)")
+
+	var bucket_area := 2.0 * PI * spec.radius_outer / float(CoverageMetric.AZIMUTH_BINS) \
+		* CoverageMetric.HEIGHT_BIN_SIZE
+	# Exactly ceil(threshold / _ref_area) — no safety margin.
+	# With _ref_area, all variants cover: 4 × 0.002548 = 0.010192 > threshold 0.008727.
+	# With mutation leaf_area[i], variant "e" (area 0.002177) falls below:
+	#   4 × 0.002177 = 0.008708 < 0.008727 → not covered → test goes RED.
+	var leaves_needed := int(ceil(bucket_area * 0.5 / m._ref_area))
+
+	var leaf_ids := ["a", "b", "c", "d", "e", "f"]
+	var pcts: Array = []
+	for leaf_id: String in leaf_ids:
+		var area_for_id := atlas.alpha_fill_for(leaf_id) * params.leaf_width_base \
+			* params.leaf_width_base / atlas.aspect_for(leaf_id)
+		var rect := atlas.rect_for(leaf_id)
+		var plant := PlantData.new()
+		for _j in range(leaves_needed):
+			_add_leaf_at_bin_with_variant(plant, 36, 10, area_for_id, rect)
+		assert_gt(plant.leaf_count(), 0,
+			"plant must be non-empty for leaf_id '%s'" % leaf_id)
+		var result := m.measure(plant, 180.0)
+		assert_gt(result["overall_pct"], 0.0,
+			"%d face-on leaves must cover their bucket (leaf_id '%s', AR-METRIC-1)" % [
+				leaves_needed, leaf_id])
+		pcts.append(result["overall_pct"])
+
+	# All 6 variants must give bit-identical coverage (metric ignores variant).
+	# Assertion is unconditional: if any pct is missing the loop above would have already failed.
+	for i in range(1, pcts.size()):
+		assert_almost_eq(pcts[i], pcts[0], 1e-9,
+			"coverage for variant '%s' must be bit-identical to 'a' (id-independence)" % leaf_ids[i])
+
+	# The six-variant comparison above only detects a weight-by-leaf_area regression while some
+	# variant's real area happens to straddle the occupancy threshold — currently variant "e",
+	# by 0.2%. Coverage is all-or-nothing per bucket, so a small change to radius_outer,
+	# HEIGHT_BIN_SIZE or leaf_width_base would put every variant on the same side of the
+	# threshold, and the regression would pass unnoticed with the test still green.
+	#
+	# These two plants remove that dependence: identical placement, stored leaf_area absurd in
+	# opposite directions. Coverage must not move, because it weights by _ref_area. A metric
+	# reading leaf_area would report 0% for the first and full coverage for the second, which no
+	# geometry constant can disguise.
+	var extreme_pcts: Array = []
+	for stored_area in [0.0, 100.0]:
+		var plant := PlantData.new()
+		for _j in range(leaves_needed):
+			_add_leaf_at_bin_with_variant(plant, 36, 10, stored_area, atlas.rect_for("a"))
+		assert_gt(plant.leaf_count(), 0, "extreme-area plant must be non-empty")
+		extreme_pcts.append(m.measure(plant, 180.0)["overall_pct"])
+
+	assert_almost_eq(extreme_pcts[0], extreme_pcts[1], 1e-9,
+		"stored leaf_area must not affect coverage (0 m² vs 100 m² per leaf, AR-METRIC-1)")
+	assert_almost_eq(extreme_pcts[0], pcts[0], 1e-9,
+		"leaves with zero stored leaf_area must still cover, since coverage uses _ref_area")
+
+
+## W-076 test 2 — Presentation invariance: s_light gain (AR-METRIC-1 amendment).
+## Three plants with leaf_light_scale_gain=0/default/2× — same placement, different rendered sizes.
+## Canonical AS-1 must be bit-identical; leaf_area (rendered) must differ.
+func test_w076_canonical_coverage_invariant_to_presentation_gain() -> void:
+	var spec := TowerSpec.new()
+
+	var gains := [0.0, 0.30, 0.60]
+	var shade_pcts: Array = []
+	var first_rendered_areas: Array = []
+
+	for gain: float in gains:
+		var params := IvyParams.new()
+		params.leaf_light_scale_gain = gain
+		var metric := CoverageMetric.new()
+		metric.setup(spec, params)
+		var plant := _fill_bins_with_placer(params, spec, 0.5)
+		assert_gt(plant.leaf_count(), 0,
+			"plant must be non-empty for leaf_light_scale_gain=%.2f" % gain)
+		var result := metric.measure(plant, 180.0)
+		shade_pcts.append(result["shade_half_pct"])
+		first_rendered_areas.append(plant.leaf_area[0])
+
+	assert_almost_eq(shade_pcts[0], shade_pcts[1], 1e-9,
+		"canonical shade_half_pct must be bit-identical at gain=0 vs default (W-076 s_light invariance)")
+	assert_almost_eq(shade_pcts[1], shade_pcts[2], 1e-9,
+		"canonical shade_half_pct must be bit-identical at gain=default vs 2× (W-076 s_light invariance)")
+	# Unconditional: _fill_bins_with_placer non-emptiness already asserted above.
+	assert_ne(first_rendered_areas[0], first_rendered_areas[2],
+		"rendered leaf_area must differ between gain=0 and gain=2× (render path active)")
+
+
+## W-076 test 3 — Tier-probability invariance (the durable guard, AR-METRIC-1 amendment).
+## Positive control: aggregate healthy-tier fraction must differ materially between
+## leaf_healthy_gain=0 and leaf_healthy_gain=1.0.  At f_L=0.5:
+##   healthy_prob(gain=0)   = leaf_healthy_base ≈ 0.25  → ~25% H leaves
+##   healthy_prob(gain=1.0) = leaf_healthy_base + 0.5  → ~75% H leaves
+## The ~50pp shift must appear as ≥30pp in the aggregate fraction (positive control).
+## Invariance claim: canonical AS-1 must still be bit-identical despite that tier-mix shift,
+## because _ref_area is the same constant for all variants (AR-METRIC-1 amendment).
+## Guard: if leaf_healthy_gain is ever unwired, both healthy fractions equal leaf_healthy_base,
+## the positive-control assertion fails, and the test immediately goes red (INV-7).
+func test_w076_tier_probability_invariance() -> void:
+	var spec := TowerSpec.new()
+	var atlas := LeafAtlas.new()
+
+	var healthy_gains := [0.0, 0.65, 1.0]
+	var shade_pcts: Array = []
+	var healthy_fracs: Array = []  # aggregate H-tier leaf fraction per gain setting
+
+	for hg: float in healthy_gains:
+		var params := IvyParams.new()
+		params.leaf_healthy_gain = hg
+		var metric := CoverageMetric.new()
+		metric.setup(spec, params)
+		var plant := _fill_bins_with_placer(params, spec, 0.5)
+		assert_gt(plant.leaf_count(), 0,
+			"plant must be non-empty for leaf_healthy_gain=%.2f" % hg)
+		var result := metric.measure(plant, 180.0)
+		shade_pcts.append(result["shade_half_pct"])
+
+		# Compute aggregate H-tier fraction: recover each leaf's id via id_for_rect,
+		# count H leaves.  Runs on the full plant so statistical noise is small.
+		var h_count := 0
+		var total := plant.leaf_count()
+		for i in range(total):
+			var r := Vector4(
+				plant.leaf_custom[i * 4 + 0], plant.leaf_custom[i * 4 + 1],
+				plant.leaf_custom[i * 4 + 2], plant.leaf_custom[i * 4 + 3])
+			var lid := atlas.id_for_rect(r)
+			if lid != "" and atlas.tier_for(lid) == "H":
+				h_count += 1
+		healthy_fracs.append(float(h_count) / float(total))
+
+	# Positive control (unconditional): the tier mix must have shifted materially.
+	# If leaf_healthy_gain is unwired this delta collapses to ~0 and the test goes red.
+	assert_gt(healthy_fracs[2] - healthy_fracs[0], 0.30,
+		"H-tier fraction must differ by > 30pp between gain=0 (%.2f) and gain=1.0 (%.2f)" % [
+			healthy_fracs[0], healthy_fracs[2]])
+
+	# Invariance claim (unconditional): bit-identical coverage despite different tier mix.
+	assert_almost_eq(shade_pcts[0], shade_pcts[1], 1e-9,
+		"canonical AS-1 must be bit-identical at leaf_healthy_gain=0 vs default (W-076 tier invariance)")
+	assert_almost_eq(shade_pcts[1], shade_pcts[2], 1e-9,
+		"canonical AS-1 must be bit-identical at leaf_healthy_gain=default vs 1.0 (W-076 tier invariance)")

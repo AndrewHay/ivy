@@ -1,0 +1,40 @@
+# M2.5 canonical four-camera capture script (LG-3, W-002, W-061).
+#
+# LG-3 requirement: this script must produce byte-identical output on two
+# consecutive runs.  Run it twice and diff the PNGs to verify.
+#
+# Capture time: day 150 + 0.25 game-days = local noon (start_hour=6, noon=12).
+# Captures at noon per W-051: dawn (06:00) makes the plant an unreadable dark mass.
+#
+# Camera order matches CameraRig child indices (AR-SCENE-3):
+#   0 = CamSun        — sun-facing (south) elevation
+#   1 = CamShade      — shade-facing (north) elevation
+#   2 = CamTop        — 45° from above (south aspect)
+#   3 = CamSilhouette — ground-level silhouette (low south angle)
+
+SPEED pause
+ADVANCE_DAYS 150
+# Offset to local noon: start_hour=6, so 0.25 game-days from any whole-day lands at noon.
+ADVANCE_DAYS 0.25
+
+# Capture all four canonical angles.
+CAMERA sun
+SCREENSHOT m25_cam_sun.png
+
+CAMERA shade
+SCREENSHOT m25_cam_shade.png
+
+CAMERA top
+SCREENSHOT m25_cam_top.png
+
+CAMERA silhouette
+SCREENSHOT m25_cam_silhouette.png
+
+# Restore default camera so follow-up scripts start at the expected view.
+CAMERA sun
+
+# LG-2 metric: measure sun/shade leaf tint and tier separation at this state.
+DUMP_LEAF_COLOUR 180
+
+# AS-1 coverage numbers (for the AS-1 knife-edge investigation).
+DUMP_METRICS 180

@@ -1,0 +1,7 @@
+# LG-2 metric measurement at exactly day 150.0 (for calibration report).
+# No noon offset so we get the same state as the AS-1 calibration run.
+SPEED pause
+ADVANCE_DAYS 150
+DUMP
+DUMP_LEAF_COLOUR 180
+DUMP_METRICS 180

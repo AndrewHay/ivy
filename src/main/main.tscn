@@ -1,4 +1,4 @@
-[gd_scene load_steps=12 format=3 uid="uid://8lhbed2h12ph"]
+[gd_scene load_steps=17 format=3 uid="uid://8lhbed2h12ph"]
 
 [ext_resource type="Script" uid="uid://bjvp2g014gqul" path="res://src/main/main.gd" id="1"]
 [ext_resource type="Script" uid="uid://dhq7o4g8cnv6l" path="res://src/world/world.gd" id="2"]
@@ -8,6 +8,24 @@
 [ext_resource type="Script" uid="uid://cl1vowtty63iw" path="res://src/render/stem_mesh.gd" id="6"]
 [ext_resource type="Script" uid="uid://6y3uqaekpoyl" path="res://src/render/leaf_renderer.gd" id="7"]
 [ext_resource type="Script" uid="uid://d28hetmh5scyg" path="res://src/world/sky_sun.gd" id="8"]
+[ext_resource type="Script" uid="uid://bke588qp0n7dd" path="res://src/world/debug_camera.gd" id="9"]
+[ext_resource type="Script" path="res://src/world/camera_rig.gd" id="10"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
+sky_top_color = Color(0.18, 0.39, 0.65, 1)
+sky_horizon_color = Color(0.62, 0.78, 0.92, 1)
+ground_bottom_color = Color(0.08, 0.09, 0.06, 1)
+ground_horizon_color = Color(0.3, 0.33, 0.25, 1)
+sun_angle_max = 2.0
+
+[sub_resource type="Sky" id="Sky_main"]
+sky_material = SubResource("ProceduralSkyMaterial_sky")
+
+[sub_resource type="Environment" id="Environment_sky"]
+background_mode = 2
+sky = SubResource("Sky_main")
+ambient_light_source = 3
+ambient_light_energy = 0.8
 
 [sub_resource type="PlaneMesh" id="PlaneMesh_ground"]
 size = Vector2(24, 24)
@@ -35,12 +53,26 @@ light_energy = 1.2
 shadow_enabled = true
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="World/SkySun"]
+environment = SubResource("Environment_sky")
 
 [node name="CameraRig" type="Node3D" parent="World"]
+script = ExtResource("10")
 
 [node name="CamSun" type="Camera3D" parent="World/CameraRig"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 8)
 current = true
+
+[node name="CamShade" type="Camera3D" parent="World/CameraRig"]
+transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 0, 2, -8)
+
+[node name="CamTop" type="Camera3D" parent="World/CameraRig"]
+transform = Transform3D(1, 0, 0, 0, 0.70711, 0.70711, 0, -0.70711, 0.70711, 0, 7.407, 5.657)
+
+[node name="CamSilhouette" type="Camera3D" parent="World/CameraRig"]
+transform = Transform3D(1, 0, 0, 0, 0.97014, -0.24254, 0, 0.24254, 0.97014, 0, 0.5, 8)
+
+[node name="DebugCamera" type="Camera3D" parent="World"]
+script = ExtResource("9")
 
 [node name="Ground" type="StaticBody3D" parent="World"]
 collision_layer = 2

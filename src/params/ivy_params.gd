@@ -110,6 +110,10 @@ extends Resource
 @export var leaf_size_sigma: float = 0.16
 @export var leaf_healthy_base: float = 0.25
 @export var leaf_healthy_gain: float = 0.65
+## SD-LEAF-7 sun/shade tint (W-060). Interpolated by f_L; kept deliberately modest
+## so the plant reads as one species in two light conditions (SD-LEAF-7 constraint).
+@export var leaf_shade_tint: Color = Color(0.78, 0.86, 0.74)
+@export var leaf_sun_tint: Color = Color(1.06, 1.04, 0.86)
 @export var leaf_crowd_suppress: float = 0.70
 @export var leaf_crowd_floor: float = 0.30
 ## SD-LEAF-8: deposit scale for the crowding channel. Deposit per node = k * leaf_area / cell_area.
@@ -163,7 +167,8 @@ func content_hash() -> String:
 		"leaf_jitter_tilt", "leaf_jitter_roll", "leaf_jitter_yaw", "leaf_offset_base",
 		"leaf_offset_step", "leaf_offset_ladder", "leaf_width_base", "leaf_order_falloff",
 		"leaf_expand_distance", "leaf_light_scale_base", "leaf_light_scale_gain", "leaf_size_sigma",
-		"leaf_healthy_base", "leaf_healthy_gain", "leaf_crowd_suppress", "leaf_crowd_floor",
+		"leaf_healthy_base", "leaf_healthy_gain", "leaf_shade_tint", "leaf_sun_tint",
+		"leaf_crowd_suppress", "leaf_crowd_floor",
 		"leaf_crowd_k", "leaf_cap", "stem_radius_base", "stem_order_falloff", "stem_tip_taper",
 		"diel_gate_enabled", "dev_build",
 	]
@@ -181,5 +186,8 @@ func _format_value(v: Variant) -> String:
 			return "%.9f" % v
 		TYPE_BOOL:
 			return "true" if v else "false"
+		TYPE_COLOR:
+			var c: Color = v
+			return "%.6f,%.6f,%.6f,%.6f" % [c.r, c.g, c.b, c.a]
 		_:
 			return str(v)

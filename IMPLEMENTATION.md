@@ -66,7 +66,7 @@ clock changes with speed.**
 | SD-TIME-1 | **The simulation tick is fixed at `dt_sim = 1/24 game-day` (one game-hour), at every speed.** Speed changes only how many ticks are executed per real second. Nothing about the plant depends on wall-clock time or frame rate. This is the mechanism by which INV-4 and INV-7 hold; it is not an optimization and may not be traded away. |
 | SD-TIME-2 | Speeds: **Pause** (0) · **Watch ×1** = 60 s wall-clock per game-day (0.4 ticks/s) · **Fast ×10** = 6 s/day (4 ticks/s) · **Grow ×50** = 1.2 s/day (20 ticks/s). Grow speed reaches 150 game-days in 180 s, satisfying AS-5's 3-minute budget by construction. |
 | SD-TIME-3 | Changing speed mid-run, or pausing, **must not change the result**. Directly testable: a run held at Watch for 20 days then Grow to day 60 must produce byte-identical tip count and total stem length to a run held at Grow throughout. This is a required test, not a nice-to-have. |
-| SD-TIME-4 | **Render-sun blending.** At Grow speed the sun would traverse the sky in 1.2 s, which strobes. The *rendered* `DirectionalLight3D` and sky are driven by `S_render = slerp(S_dayavg, S(t), b)` where `b = smoothstep(10 s, 30 s, T_day_wallclock)` and `S_dayavg` is the irradiance-weighted mean sun direction for the fixed date. `b = 1` at Watch (instantaneous, real day/night), `b = 0` at Fast and Grow (steady daily-average lighting). Sky exposure and ambient blend the same way. **The light field is never blended — it always uses `S(t)` at tick resolution.** The plant's inputs are untouched; only the picture changes. |
+| SD-TIME-4 | **Render-sun blending.** At Grow speed the sun would traverse the sky in 1.2 s, which strobes. The *rendered* `DirectionalLight3D` and sky are driven by `S_render = slerp(S_dayavg, S(t), b)` where `b = smoothstep(10 s, 30 s, T_day_wallclock)` and `S_dayavg` is the irradiance-weighted mean sun direction for the fixed date. `b = 1` at Watch (instantaneous, real day/night), `b = 0` at Fast and Grow (steady daily-average lighting). Sky exposure and ambient blend the same way. **The light field is never blended — it always uses `S(t)` at tick resolution.** The plant's inputs are untouched; only the picture changes. **W-059 implementation (2026-08-10):** `sky_sun.gd::update()` sets `Environment.background_energy_multiplier = background_energy_for(lit)` and `ambient_light_energy = ambient_energy_for(lit)` on the same frame as the light direction, where `lit = smoothstep(0, TWILIGHT_SIN, s_render.y)` — so sky and ambient track the same rendered sun scalar. `light_color` also tracks `light_color_for(s_render.y)` (warm orange at low elevation → near-white at noon). These three writes are the "sky exposure and ambient" path the rule specifies. Colours: `ProceduralSkyMaterial` (deep blue zenith / pale horizon / dark ground); sun disc rendered automatically by Godot 4 at the `DirectionalLight3D` position. |
 | SD-TIME-5 | When `b < 1`, the time-control UI shows a "time-lapse — average daylight" indicator, so the player is never misled into thinking day/night stopped. |
 | SD-TIME-6 | Fixed epoch: **latitude 51.5° N, longitude 0°, timezone UTC, day-of-year 105 (15 April)**. Chosen because at this declination sunrise/sunset sit close to due east/west, which maximizes the cleanliness of the north/south asymmetry AS-2 depends on, and day length (~13.5 h) is generous enough for growth. Runs start at **06:00 local**, so the first thing the player sees is dawn. |
 | SD-TIME-7 | **Light-field warm-up.** Every run (and every re-seed) advances the environment alone for `light_warmup_days = 12` game-days (4·τ_L) with no tips, so `D_L` is converged before growth begins. Without this, the sun-side and shade-side comparison runs of AS-2 start from different field states and the comparison is not fair. Warm-up costs nothing — it is a field-only loop. |
@@ -298,6 +298,39 @@ Observed atlas content, which the rules below depend on:
 | **H — healthy** | `a`, `c`, `e` | larger, more saturated, cleaner, classic palmate silhouette |
 | **W — weathered** | `b`, `d`, `f` | smaller, paler and greyer, mottled, damaged edges |
 
+### SD-LEAF-f_L — The light term at leaf placement (pinned, added 2026-08-10, M2.5 SD-OPEN-8)
+
+`f_L` used by SD-LEAF-5 (`s_light`), SD-LEAF-6 (tier), SD-LEAF-7 (tint) and the SD-LEAF-4 rule-5
+cant is exactly the value `GrowthStep.step_tip` already computes for the current segment and passes
+into `LeafPlacer.advance(...)`:
+
+```
+f_L = Physiology.f_L(env.sample_D_L(seg_start, tip.id, tip.segment_count))
+    = min(1, (D_L / (D_L + light_K)) / (reference_DLI / (reference_DLI + light_K)))
+      light_K = 3,  reference_DLI = 12
+```
+
+- **Field:** accumulated light `D_L` (τ_L = 3-day EWMA), **never** the instantaneous sun (INV-3).
+- **Sample point:** the **segment start** (`seg_a`, the tip position before the step), reused for the
+  node placed anywhere within that ≤3 cm segment. **Do not re-sample at the interpolated `node_pos`** —
+  it changes determinism for no visible benefit (`D_L` varies negligibly over 3 cm).
+- **Range:** `f_L ∈ [0, 1]`, saturating to 1.0 at `D_L ≥ 12`. At the measured day-150 south-seed run,
+  sun `D_L ≈ 23.8 → f_L = 1.0` (clamped); shade `D_L ≈ 4.3 → f_L ≈ 0.736`.
+- **Surface `f_L` ≠ leaf-weighted `f_L` (pinned 2026-08-11, SD-OPEN-10).** The `f_L ≈ 0.736` figure is a
+  *surface / representative-cell* value for the shaded hemisphere. It is **not** the mean `f_L` experienced
+  by the leaves that actually exist there. Growth rate scales with `f_L`, so leaf area piles up in the lit
+  cells and is nearly absent in the deep-shade cells; area-weighting the survivors samples mostly the lit
+  end. Measured on the canonical run (inverting the SD-LEAF-7 tint, which is exactly linear in `f_L`), the
+  **leaf-area-weighted** shade-hemisphere mean is `f̄_L ≈ 0.95`, not 0.736 — see SD-METRIC-7g. Any per-leaf
+  or plant-averaged quantity (tint, tier, `s_light`, droop) must use the leaf-weighted value; only
+  environmental/tip quantities (growth ratio, SD-ENV-10) use the surface value.
+- **Correction to earlier design text (W-048 divergence discipline).** SD-LEAF-2 ("at `f_L = 0.57`")
+  and the SD-LEAF-6 "0.62 in deep shade" line assumed a deeper shade than the south-seed shaded
+  *hemisphere* actually reaches (`D_L ≈ 4.3 → f_L ≈ 0.74`, not 0.57). The real sun/shade separation is
+  therefore **compressed** relative to those texts, and that is the root cause of the LG-2 threshold
+  miscalibration (see SD-METRIC-7 and SD-OPEN-9). The older figures are left in prose where they read
+  as illustrative; the binding value at leaf placement is the formula above.
+
 ### SD-LEAF-1 — The card
 
 A leaf is a **3×3 vertex patch (9 verts, 8 tris)**, not a flat quad, cupped 8–12° along its long
@@ -351,9 +384,18 @@ Constructed in world space, Godot Y-up (SD-CONV):
    SD-LEAF-3 azimuth. The `+0.35 · n_wall` pushes the leaf off the wall so the mat has thickness.
 4. The leaf's local up (blade tip, opposite the petiole) points along `p`; its face normal starts at
    `n_wall`.
-5. **Phototropic cant:** `n_leaf = normalize(n_wall + 0.45 · L̂)` where `L̂` is the §16 bounded light
-   direction. Leaves on the sunny side visibly turn toward the mean light. Third free legibility
-   channel for G2.
+5. **Phototropic cant** *(the one SD-LEAF-4 rule in M2.5 scope — SD-OPEN-8; wired 2026-08-10 W-060):*
+   `n_leaf = normalize(n_wall + leaf_photo_cant · L̂)`, `leaf_photo_cant = 0.45`. Leaves on the sunny
+   side visibly turn toward the mean light. Third free legibility channel for G2.
+   **Pin (added 2026-08-10):** `L̂` is the §16 bounded accumulated-light gradient already computed in
+   `GrowthStep.step_tip` as `l_dir = grad_L / (‖grad_L‖ + light_gradient_scale)`; passed into
+   `LeafPlacer.advance(...)` as a 7th parameter (default `Vector3.ZERO` for backwards compat).
+   **It must come from accumulated light, never the instantaneous sun vector: a leaf orientation is a
+   directional term, so sourcing the cant from the current sun would violate INV-3a.** Where the
+   gradient vanishes (uniform patch, SD-EDGE-12) `L̂ = 0` and the leaf lies flat on `n_wall` —
+   acceptable. `leaf_photo_cant` is currently a dead param to be wired. The card basis is
+   re-orthonormalised about the new `n_leaf`, preserving the petiole/up direction (`p`); the rule-8
+   offset ladder then applies along this `n_leaf`.
 6. **Droop:** rotate about the petiole axis toward world down by `12° + 18° · (1 − f_L)`. Every leaf
    droops a little — that is what stops the mat looking like roof shingles — and shaded leaves hang
    more.
@@ -378,6 +420,19 @@ blade height = w / atlas_aspect[leaf_id]             (never stretch the photogra
 | `s_light = 0.80 + 0.30 · f_L` | sampled at node creation, frozen | 1.10 in full sun, 0.97 in shade. |
 | `s_var = clamp(exp(0.16·z), 0.75, 1.35)` | `z` deterministic standard normal | CV ≈ 0.16, comfortably inside the ≤0.35 bound the blacklist auto-check enforces. |
 
+**M2.5 scope (SD-OPEN-8; wired 2026-08-10 W-060): `s_light` only.** For M2.5 the size model collapses to
+`w = leaf_width_base · s_light` with `s_order = s_age = s_var = 1.0` (all deferred to M4).
+`s_light = leaf_light_scale_base + leaf_light_scale_gain · f_L = 0.80 + 0.30·f_L` → **1.10 in sun,
+≈1.085 at the true leaf-weighted shade `f̄_L ≈ 0.95`** (SD-METRIC-7i; the earlier "≈1.02 at `f_L ≈ 0.74`"
+and table "0.97 at `f_L ≈ 0.57`" both used surface/point `f_L`, wrong for a leaf-averaged quantity — the
+surviving shade leaves are barely smaller than sun leaves, so size is *not* a legibility signal). The
+rendered width changes, but the crowding deposit uses the canonical base area (leaf "a", no s_light
+factor) to preserve simulation bit-identity (W-060), and **AS-1 coverage must divide `s_light` out
+entirely — SD-METRIC-7j**. `height = width / atlas_aspect[id]` (never stretch the
+photograph). `leaf_light_scale_base` / `_gain` are among the currently-dead params to be wired; **no
+default change is needed** — `s_light` is the *secondary* legibility signal (±10%, kept deliberately
+small), so it is not asked to carry LG-2 on its own.
+
 `s_age` means a leaf's scale animates after creation. **This does not violate INV-2** — INV-2 forbids
 *environmental* changes from rewriting existing geometry; a leaf finishing its own expansion is
 intrinsic growth. Practically: only leaves within 0.12 m of a live tip are in the mutable buffer;
@@ -401,6 +456,39 @@ photographic variation into the primary causation signal, at zero cost.
 same stem; redraw once if violated. This is the preventative guard against artifact-blacklist item 7
 (visible repetition).
 
+**Implementation pin (added 2026-08-10, M2.5 SD-OPEN-8; wired 2026-08-10 W-060) — this is the primary causation signal, specified to the letter.**
+
+- **Corrected expected values (W-048 divergence discipline; re-corrected 2026-08-11, SD-METRIC-7i).**
+  `P(healthy) = leaf_healthy_base + leaf_healthy_gain · f_L = 0.25 + 0.65·f_L`. On the sun hemisphere
+  `f_L = 1.0 → 0.90`. The shade figure depends on **which** `f_L`: the *surface* mean 0.736 gives ≈0.73,
+  but the **leaf-weighted** shade mean is `f̄_L ≈ 0.95` (SD-METRIC-7g), giving ≈0.87 — and the *hemisphere
+  healthy-fraction delta the LG-2b metric actually sees is only ≈0.04, not the ≈0.15 assumed here.* The
+  tier mapping is correct; the hemisphere-delta gate built on the surface `f_L` is not (SD-METRIC-7g–h).
+  **No default change is required** — the fix is the metric, not the mapping.
+- **Guardrail:** require `leaf_healthy_base + leaf_healthy_gain ≤ 1.0` (currently 0.90). Above 1.0,
+  `P(healthy) > 1` on the sunny clamp and the tier draw silently degenerates to "always healthy" — an
+  invisible way to erase the shaded weathering. Assert at parameter load.
+- **`LeafAtlas` accessor gap (does not exist today).** Add `LeafAtlas.tier_for(id) -> String` (returns
+  the `"H"` / `"W"` already in `leaf_atlas.json`) and `LeafAtlas.ids_in_tier(tier) -> PackedStringArray`
+  returning the **fixed** atlas order `H = ["a","c","e"]`, `W = ["b","d","f"]`. Both LG-2b and the
+  placer need these.
+- **Draws are hash-based, not stream draws (INV-7).** Consistent with the shipped `LeafPlacer`
+  (internode = channel 99, suppression = channel 42) and SD-RNG-4/SD-RNG-6, the tier and variant draws
+  use `Hash64.unit_float(tip.id, tip.node_count, channel)` — **not** the per-tip RNG stream. This is the
+  amended reality (see the SD-RNG-6 note and the AR-SIM-6 / AR-OVER-2 corrections); INV-7 has regressed
+  twice, and hashed leaf draws are what stop a change to the leaf model from desyncing stem growth.
+  **Channels: tier = 43, variant = 44, variant-redraw = 45.** Node draw order:
+  internode(99) → suppression(42) → tier(43) → variant(44) → [redraw(45) only if adjacency fires].
+- **Tier first, then variant; adjacency never changes the tier.** `u_tier = unit_float(id, node, 43)`;
+  healthy iff `u_tier < P(healthy)`. `i = clampi(floor(unit_float(id, node, 44) · 3), 0, 2)`;
+  `chosen = ids_in_tier(tier)[i]`. The adjacency forbidden set is the atlas ids of the previous two
+  leaves on **this** stem (`tip.last_leaf_id`, `tip.prev_leaf_id`, both stored on `Tip`). If
+  `chosen ∈ forbidden`: redraw once, `i' = clampi(floor(unit_float(id, node, 45) · 3), 0, 2)`; if the
+  redraw is still forbidden, take the **first id in `ids_in_tier(tier)` order that is not forbidden**
+  (always exists — 3 ids, at most 2 forbidden), a deterministic terminating fallback. Because the tier
+  is fixed before adjacency runs, adjacency can never leak into the LG-2b causation signal. The first
+  two nodes of a stem simply have a smaller forbidden set.
+
 **`LeafSet029` is not used in Phase 1.** Its autumn-tinted leaves are an explicit Phase 1 non-goal
 and must not be smuggled in as "variation". It stays in the repo for Phase 2; its Scattering map is
 the reference for the transmittance term.
@@ -416,6 +504,22 @@ Per-instance colour multiplied over the atlas albedo (MultiMesh instance colour)
 - **Per-leaf value jitter:** `× (1 + 0.07·z)`, deterministic.
 - **Age lightening:** `× lerp((1.10, 1.08, 0.92), (1,1,1), s_age)`. Real ivy tips are visibly paler;
   another free front-reading cue.
+
+**M2.5 scope (added 2026-08-10, SD-OPEN-8; wired 2026-08-10 W-060).** *Required:* the **light tint**
+`color = lerp(leaf_shade_tint, leaf_sun_tint, f_L)`, written as the MultiMesh **instance colour**
+(replaces the flat `Color.WHITE`; `leaf_renderer.gd` already reads `plant.leaf_color` into
+`set_instance_color`, so no renderer change was needed). *Deferred to M4:*
+the per-leaf **value jitter** and **age lightening** — value jitter only adds per-leaf variance (noise)
+to LG-2, and age lightening needs the deferred SD-LEAF-5 `s_age` model. If value jitter is later added
+it must be **hash-based** (reserve channel 46) to preserve determinism, and it is mean-neutral so it
+must not be relied on for the separation. *Parameterised (INV-6):*
+`leaf_shade_tint = Color(0.78, 0.86, 0.74)` and `leaf_sun_tint = Color(1.06, 1.04, 0.86)` added to
+`IvyParams` as `@export var Color` with Color-aware `_format_value` in `content_hash()`.
+
+> **Colour-channel warning (see SD-METRIC-7d).** The sun/shade separation this tint produces lives in
+> **value/brightness** (`g`: 1.04 sun vs 0.86 shade), *not* in hue — `leaf_sun_tint` is deliberately
+> *warmer* (`r` 1.06 vs 0.78). A green-**minus**-red metric is therefore backwards and would rank the
+> shade side "greener". LG-2 measures the absolute green channel for this reason; do not "improve" it.
 
 ### SD-LEAF-8 — Leaf density and the crowding field
 
@@ -526,6 +630,201 @@ the time-lapse indicator (SD-TIME-5). Nothing else. The dev overlay (W-013) is a
 | SD-METRIC-5 | **Stem-bucket occupancy** (bucket contains ≥1 segment) is reported alongside as a diagnostic, and is the M1/M2 stand-in before leaf quality exists. |
 | SD-METRIC-6 | Secondary metric for AS-2: total stem length and leaf count per 30° azimuth sector (12 sectors). |
 
+### SD-METRIC-7 — LG-2 sun/shade leaf-colour separation contract  *(added 2026-08-10, M2.5 SD-OPEN-8)*
+
+Specifies the `DESIGN.md` LG-2 gate to implementable rigour, matching the SD-METRIC discipline above.
+The ratified wording — *mean per-leaf instance `Color.g`, sun-facing 180° minus shaded 180° ≥ 0.06,
+from the instance colours `LeafPlacer` writes* — fixes the **shape**; the Director stated `Color.g` was
+indicative, not binding, and handed the measurement contract to this stage (SD-OPEN-8). The corrections
+below (threshold, and splitting off a tier check) touch **Director-owned acceptance numbers** and are
+escalated as **SD-OPEN-9**. **Ratified by the Director 2026-08-10 (W-063): LG-2a ≥ 0.03 and LG-2b
+≥ 0.08 are now the binding gate, and the ≥0.06 bar is withdrawn.** The figures below are therefore
+current, not provisional-pending-approval; the calibration protocol in `DESIGN.md` sets the final
+locked numbers at `0.6 ×` measured, with floors of 0.02 (LG-2a) and 0.05 (LG-2b).
+
+Like `CoverageMetric`, the LG-2 metric is a **read-only observer**: it consumes no RNG, reads no
+environment field, and writes nothing; two calls on the same `PlantData` return identical numbers, and
+it is asserted **bit-identical across two runs** (SD-RNG-5 / AS-4). It runs headless from
+`PlantData` alone (instance colours in `leaf_color`, atlas rect in `leaf_custom`, petiole position and
+face normal in `leaf_xform`, area in `leaf_area`).
+
+| ID | Rule |
+|---|---|
+| SD-METRIC-7a | **Sample = eligible wall leaves only.** A leaf is in the sample iff its petiole origin (`leaf_xform` translation) maps to an **eligible** bucket of the SD-METRIC-1 grid — outer wall, height ∈ [0, 3.5 m), and **not** masked by the SD-METRIC-2 door/window exclusion. This **reuses the SD-METRIC-2 opening mask verbatim** (`CoverageMetric._eligible`), so LG-2 measures the same surface AS-1 and LG-1 read and cannot be gamed by leaves inside recesses, over the top lip, or on hanging runners (all excluded). |
+| SD-METRIC-7b | **Hemispheres reuse the AS-2 split — no second convention.** Sun-facing = `CoverageMetric._in_sun_half(leaf_azimuth, seed_azimuth_deg)` (within 90° of the seed azimuth; 180° for the south seed). "Sun side" therefore means exactly what it means in AS-1/AS-2. |
+| SD-METRIC-7c | **Weighting = raw leaf area, not one-leaf-one-vote.** Each leaf contributes with weight `leaf_area[i]` (= `alpha_fill[id]·w·h`). A dense mat of tiny weathered leaves must not out-vote the large runners the eye reads. **Deliberately unlike SD-METRIC-3, there is no `\|dot(n_leaf, n_bucket)\|` projection factor:** colour separation should weight by the leaf *material* present on each side, and dropping the projection also decouples LG-2 from the SD-LEAF-4 phototropic cant (which tilts sunny leaves' normals and would otherwise down-weight the greener side). The unweighted count-mean delta is reported alongside as a diagnostic and must share the sign. |
+| SD-METRIC-7d | **Channel = instance `Color.g` (absolute), not green-minus-red or hue/saturation.** The SD-LEAF-7 tint carries its sun/shade signal in **value/brightness** (`sun_tint.g = 1.04` vs `shade_tint.g = 0.86`), not in hue — `sun_tint` is *warmer* (`r` 1.06 vs 0.78), so `g − r` is backwards (−0.02 sun vs +0.08 shade → it would call the shade side greener) and hue/saturation mislead for the same reason. `Color.g` is the correct robust channel **for this tint model**; changing it to a chroma difference inverts the gate. |
+| SD-METRIC-7e — **LG-2a (tint)** | **Sun minus shade area-weighted mean instance `Color.g` ≥ 0.03** (recommended; supersedes the ratified 0.06 pending SD-OPEN-9). Removing SD-LEAF-7 drives it to 0 → fails, preserving the Director's "removing SD-LEAF-7 must fail" intent. |
+| SD-METRIC-7f — **LG-2b (tier)** | **Sun minus shade healthy-tier area fraction ≥ 0.08.** Recover each leaf's atlas id from `leaf_custom` (rect xywh) → `LeafAtlas.tier_for(id)`; per hemisphere, healthy fraction = Σ`leaf_area` over healthy leaves / Σ`leaf_area` over all sampled leaves. This is the **automatable guard on SD-LEAF-6, the Director's designated *primary* causation signal**, which LG-2-as-ratified left entirely to the human LG-1. Needs no new offline data. Removing SD-LEAF-6 (fixed tier) drives it to 0 → fails. |
+
+**Why 0.06 is the wrong number, and why 0.03.** At the measured day-150 south-seed split (SD-LEAF-f_L),
+sun `f_L = 1.0` and shade-hemisphere mean `f_L ≈ 0.74`, and instance
+`Color.g = leaf_shade_tint.g + (leaf_sun_tint.g − leaf_shade_tint.g)·f_L = 0.86 + 0.18·f_L`. The
+hemisphere delta is `0.18 · Δf_L`; with `Δf_L ≈ 0.23` (sun mean ≈0.97, shade mean ≈0.74) that is
+**Δg ≈ 0.041** (plausible range 0.040–0.054). **The ratified 0.06 sits above the value the intended
+full implementation produces — the correct build *fails* the gate.** That is the mirror image of the
+W-053 / W-058 "check that cannot fail": a check that cannot *pass*. Widening the tint to clear 0.06
+honestly would need a green spread ≈0.4 (vs 0.18), which the SD-LEAF-7 "never looks like two species"
+constraint forbids — so the fix is the **gate number, not the model** (retuning a parameter to clear a
+gate is the W-048 trap). 0.03 clears the expected ≈0.041 by ≈1.4× — not by a hair, not by a mile — and
+collapses to 0 without SD-LEAF-7.
+
+**Mandatory one-time calibration before LG-2a is locked.** The 0.041 figure is modelled, not measured,
+and depends on the true hemisphere-mean `f_L` (which older design text over-estimated as shade
+`f_L ≈ 0.57`). Before M2.5 closes, measure the actual area-weighted `Δg` and healthy-area-fraction `Δ`
+from a real day-150 run (W-061 `DUMP_LEAF_COLOUR`), then set:
+`LG-2a threshold = clamp(round_to_0.005(0.6 · measured Δg), 0.02, +∞)` and
+`LG-2b threshold ≈ 0.6 · measured healthy-fraction Δ`. **If measured `Δg < 0.035`, do not push the
+threshold toward noise — escalate to widen the tint gain within the two-species bound instead**
+(W-053/W-058 discipline). Both thresholds must sit meaningfully below the measured value and above the
+run-to-run floor (which is zero: the metric is deterministic).
+
+**Determinism.** Consumes no RNG and no field; instance colours are a pure function of `f_L` (the leaf
+tint path takes no stream draw — SD-RNG-6). Assert equality across two runs (SD-RNG-5).
+
+### SD-METRIC-7g — Survivorship invalidates the hemisphere-delta LG-2 (SD-OPEN-10, added 2026-08-11)
+
+*Recommendation for Director ratification. Touches the ratified LG-2a/LG-2b thresholds and the AS-1
+shaded floor basis — arithmetic shown; `DESIGN.md` numbers are not edited here.*
+
+**The measured miss.** Canonical serial run, day 150.25, south seed, local noon, all four W-060 rules wired:
+`LG-2a Δg = 0.00834` (threshold 0.030, FAIL); `LG-2b Δ = 0.0423` (threshold 0.080, FAIL). The SD-OPEN-9
+prediction was `Δg ≈ 0.041–0.048` and `Δtier ≈ 0.17`. Measured is ≈1/5 and ≈1/4 of that. **This is not
+noise and not a bug in SD-LEAF-6/7 — those rules do exactly what they are specified to do. It is the
+metric measuring the wrong thing.**
+
+**Confirmed by inversion (the tint is exactly linear in `f_L`, so area-weighted mean g inverts to
+area-weighted mean `f_L`):**
+
+| Quantity | Value | Implied leaf-weighted `f̄_L` |
+|---|---|---|
+| `sun_g` = 1.03974 | `(1.03974 − 0.86)/0.18` | **0.9986** |
+| `shade_g` = 1.03140 | `(1.03140 − 0.86)/0.18` | **0.9522** |
+| `sun_frac` = 0.8944 (tier) | `(0.8944 − 0.25)/0.65` | 0.9914 |
+| `shade_frac` = 0.8521 (tier) | `(0.8521 − 0.25)/0.65` | 0.9263 |
+
+`Δf̄_L = 0.9986 − 0.9522 = 0.0464` → predicted `Δg = 0.18 × 0.0464 = 0.00835` — reproduces the measured
+0.00834 to five figures. SD-OPEN-9 assumed shade `f_L = 0.736`, i.e. `Δf_L = 0.264` → `Δg = 0.0475`,
+`Δtier = 0.65 × 0.264 = 0.172`. Reality collapsed `Δf_L` from 0.264 to 0.046 (5.7×), and `Δg`/`Δtier`
+with it. (The tier delta shrinks a little less — 4.1× — because the Bernoulli tier draw adds scatter on
+top of the mean; the tint carries no such scatter.) **The survivorship diagnosis is confirmed in full.**
+
+**Mechanism.** The shaded 180° holds only 15.2 m² of leaf against the sun side's 48.2 m² (24%), and
+covers 50% of its wall against 96% (AS-1). Two compounding effects push the *leaf-weighted* shade `f̄_L`
+up to ≈0.95:
+1. **Length-biased sampling.** Cell leaf area rises steeply with cell `f_L` (growth ∝ `f_L`), so
+   `Σ(area·f_L)/Σ(area)` is dominated by the brightest cells; the deep-shade cells contribute almost no
+   weight *precisely because they are dark*. The metric samples only the places where leaves managed to
+   grow.
+2. **Hemisphere geometry.** The 180° shaded half is centred on north; it swallows the NE/NW flanks
+   (azimuth ≈ 45°/315°) which get real morning/evening sun and hold most of the shade-half's leaf area,
+   while the genuinely dark due-north cells are nearly bare.
+
+**The causation in this simulation is expressed primarily as *absence of leaves* (density, coverage,
+count, stem length) and only secondarily as the *appearance of the leaves that exist*.** LG-2 as ratified
+measures the secondary signal, and measures it via a leaf-area average that is structurally diluted by
+the primary one. AS-1 (96.15% vs 50.27%), AS-2 (51.31% stem asymmetry), and the shade-vs-sun screenshot
+pair already capture the primary signal robustly; LG-1 reads it comfortably. **The plant's response to
+light is legible; the tint/tier metric is simply not where that legibility lives.**
+
+**Recalibration cannot rescue it** (confirmed): the `DESIGN.md` protocol locks each threshold to
+`0.6 × measured` with floors 0.02 (LG-2a) / 0.05 (LG-2b). `0.6 × 0.00834 = 0.005 → floor 0.02 binds`;
+`0.6 × 0.0423 = 0.025 → floor 0.05 binds`. **Both floors bind and both gates still fail.** The floors
+were written assuming `Δg ≈ 0.04` and `Δtier ≈ 0.15`, both of which came from the wrong (surface) `f_L`.
+The entire hemisphere-delta apparatus rests on an invalidated premise; this is a design decision, not
+arithmetic.
+
+### SD-METRIC-7h — Recommended redefinition of LG-2 (recommendation for Director ratification)
+
+The two jobs SD-OPEN-9's LG-2 tried to make one metric do are separable, and each should go to the
+instrument that can carry it honestly:
+
+**(1) The sun≠shade *causation* gate → already carried by AS-1 + AS-2 + LG-1. Do not add a third,
+diluted copy.** These measure presence, which is where the causation actually lives, and they pass with
+wide margins. This is the property worth gating and it is already gated.
+
+**(2) The SD-LEAF-6/7 *regression guard* (the Director's reason for wanting an automatable LG-2 at all:
+avoid the LG-1-only "cannot fail automatically" trap) → keep it, but move it off the survivorship-poisoned
+hemisphere average and condition it on the light each leaf actually saw.** Two forms, in preference order:
+
+- **LG-2′ preferred — deterministic mechanism assertions (unit level, `test_leaf_colour_metric.gd` /
+  `test_leaf_placement.gd`).** Assert the *rules*, not the emergent plant:
+  - SD-LEAF-7: instance `Color.g(f_L=0) = 0.86` and `Color.g(f_L=1) = 1.04` (span 0.18 ± ε), monotone in
+    between. Reverting tint to `Color.WHITE` → span 0 → RED.
+  - SD-LEAF-6: over N synthetic draws, healthy-tier fraction ≈ `0.25 + 0.65·f_L` at `f_L ∈ {0.4, 1.0}`
+    within sampling tolerance (≈0.51 vs ≈0.90). Fixing the tier → flat fraction → RED.
+  These are survivorship-immune (they condition on `f_L`, not on which survivors exist), deterministic,
+  and fail on removal — exactly the Director's intent, at the level where the signal is undiluted. This is
+  the same discipline as the D-5 blacklist guards.
+- **LG-2′ whole-plant integration backstop (catches "rule computes correctly but isn't wired into the
+  shipped MultiMesh").** On the canonical run, over eligible sampled leaves, rank by the `f_L` each leaf
+  experienced (recover `f_L = (g − 0.86)/0.18` from the tint, or read a per-leaf `f_L` if plumbed) and
+  require the **top-vs-bottom-decile-by-light** healthy-tier area fraction and mean `Color.g` to separate
+  by a calibrated margin. This conditions on the light the leaf saw rather than on hemisphere, so it is
+  not washed out by the flank geometry; it still collapses to 0 if either rule is removed. **Threshold to
+  be set by one serial measurement of the decile split — request pending (see below); do not guess it.**
+
+**What LG-2′ certifies, in player terms:** *"a leaf that grew in more light is rendered greener/brighter
+and is more often healthy than a leaf that grew in less light."* That is the true per-leaf causation
+claim. The *whole-side* claim ("the sun side looks greener") is **not** honestly true at the hemisphere
+level here — survivorship makes the surviving shade leaves nearly as green as the sun leaves — and LG-2
+should stop asserting it. The side reads different because it is **balder**, and that is AS-1's job.
+
+**Recommendation to the Director:** withdraw the LG-2a ≥ 0.03 and LG-2b ≥ 0.08 *hemisphere-delta*
+thresholds (both unreachable, both resting on the invalidated surface `f_L`); replace with LG-2′ as above;
+name AS-1 + AS-2 as the automatable causation backstop and LG-1 as the human causation gate. **The leaf
+appearance rules (tint span, tier mapping) are correct and must not change** — SD-METRIC-7's own note
+already forbids widening the tint (two-species / G2 constraint), and the honest conclusion here is that
+only the measurement was wrong.
+
+### SD-METRIC-7i — Re-audit of leaf-weighted vs surface `f_L` dependencies (SD-OPEN-10)
+
+The SD-OPEN-9 stale-`f_L` audit concluded "no other acceptance number affected." That conclusion still
+holds, but its *reasoning* was unsafe: it trusted `f_L ≈ 0.736` as the shaded value, and 0.736 is itself
+wrong for anything **leaf-weighted** (true ≈0.95). Re-audited by explicit dependency:
+
+| Number / contract | Depends on | Correct value | Verdict |
+|---|---|---|---|
+| **LG-2a / LG-2b (hemisphere delta)** | leaf-weighted `f̄_L` | 0.95, not 0.736 | **Broken — this defect. Redefine (SD-METRIC-7h).** |
+| SD-LEAF-5 `s_light` illustrative "≈1.02 in shade" | leaf-weighted `f̄_L` | `0.80+0.30·0.95 = 1.085`, not 1.02 | Cosmetic figure only; **no acceptance number**. Corrected note below. |
+| SD-LEAF-4 droop "18°·(1−f_L)" illustrative | leaf-weighted `f̄_L` | shade ≈12.9°, barely above sun's 12° | Cosmetic; **no acceptance number**. Confirms droop is not a legibility signal. |
+| SD-ENV-10 north-wall `f_L ≈ 0.57`; growth ratio 1.76× | **surface / tip** `f_L` | unchanged | **Stands** — surface value, correctly used. |
+| AS-2 stem asymmetry (measured 51.31%) | measured, not predicted | n/a | **Stands** — direct measurement, no `f_L` assumption. |
+| AS-1 coverage floors | placement + **canonical** leaf footprint | see SD-METRIC-7j | Perturbed by `s_light` presentation coupling, not by `f_L` mis-estimate — separate issue. |
+| Growth rate `r`, `p_b`, vigour | **tip** `f_L` (field sample) | unchanged | **Stands** — environmental, not leaf-averaged. |
+
+**Rule for the future:** an acceptance number is at risk from this error **iff it averages a light-derived
+property over the leaves/plant that exist.** Only the two LG-2 hemisphere deltas did. Everything driven by
+the *tip/surface* field, or measured directly, is unaffected. The `s_light`/droop illustrative figures in
+SD-LEAF-5/6/7 should read `f̄_L ≈ 0.95` (leaf-weighted) where they currently cite ≈0.74; they change no
+default and gate nothing, but leaving 0.74 in place would re-seed exactly this confusion.
+
+### SD-METRIC-7j — `s_light` must not sit inside the AS-1 coverage metric (recommendation for ratification)
+
+`CoverageMetric` weights each leaf by `leaf_area[i] = alpha_fill[id]·w·h`, and `w = leaf_width_base·s_light`
+with `s_light = 0.80 + 0.30·f_L` (SD-LEAF-5). So a **presentation** parameter (light-driven leaf sizing,
+explicitly the *secondary* ±10% flourish — "the dominant legibility signal is density and count, not
+size") now moves an **acceptance measurement**: AS-1 shaded fell from **50.62%** (pre-W-060, placement
+basis, the value the ≥50% floor was ratified against) to **50.265957%** now — margin cut to **+0.27 pt**
+above a hard floor, with the simulation bit-identical. Placement did not change; only rendered area did.
+
+**Ruling: light-driven leaf sizing does not belong in an area-based coverage acceptance metric.** AS-1
+certifies *structural occupancy* (where leaves are × their canonical footprint); coupling it to a cosmetic
+knob means any future tweak to `leaf_light_scale_gain` silently moves a hard-floor gate and a rendering
+change masquerades as a simulation regression. Recommend `CoverageMetric` attribute each leaf its
+**light-independent canonical footprint** — i.e. divide the `s_light` factor out of the area used for
+occupancy (`area_cov = leaf_area[i] / s_light[i]²`, or store a canonical area / `s_light` per leaf for the
+metric to read). This restores AS-1 to the **placement-only basis the 50% floor was ratified against**
+(pre-W-060 ≈ 50.62%) and makes the gate presentation-independent. `s_light` stays in the render; it leaves
+the metric.
+
+**On "is +0.27 pt acceptable?"** As an absolute it passes, but +0.27 pt is not an acceptable *margin* when
+a cosmetic parameter is what moved it — it is a latent false-regression. The fix is decoupling, not
+accepting the number. After decoupling, the margin returns to the ~+0.62 pt *structural* value the Director
+already logged as "an M4 tension to watch" (2026-08-10 SD-OPEN-8 log). That structural thinness is a real
+but separate simulation-robustness question and stays an M4 watch item; it should not be conflated with, or
+papered over by, the presentation coupling.
+
 ### Proposed refinement to AS-1 and AS-2 — ~~requires Director ratification~~ SUPERSEDED
 
 > **SUPERSEDED 2026-08-09. Do not implement the numbers in this subsection.** The Director ratified
@@ -574,11 +873,12 @@ Phase 1 has: tuning the simulator to pass its own metrics.
 
 | ID | Rule |
 |---|---|
-| SD-RNG-1 | Each tip owns an RNG stream. Streams are advanced **only by events** — segment creation, node creation, branch draw, leaf attribute draws — and never by frames or ticks. Any per-frame random call anywhere in the simulation is a defect. This is the actual mechanism behind INV-4 and INV-7. |
+| SD-RNG-1 | Each tip owns an RNG stream. Streams are advanced **only by events** — the correlated-random update (`rand_unit_vector`), the branch draw, and the branch-angle draw — and never by frames or ticks. Any per-frame random call anywhere in the simulation is a defect. This is the actual mechanism behind INV-4 and INV-7. *(Amended 2026-08-10: "node creation / leaf attribute draws" were originally listed here; the shipped `LeafPlacer` uses **hashed** draws instead — see SD-RNG-6 — so they do not advance the stream.)* |
 | SD-RNG-2 | A branch's stream is `hash(parent_seed, branch_index)`, so a variable tip count cannot perturb sibling streams. |
 | SD-RNG-3 | Draw order within a segment is fixed and documented: correlated-random update → adhesion → gradients → collision → branch draw → node/leaf draws. Reordering changes results. |
 | SD-RNG-4 | Field sample jitter (SD-ENV-4) is hashed, not drawn from a stream, so it cannot desync anything. |
 | SD-RNG-5 | AS-4 determinism is verified as: identical tip count, identical total stem length to the bit, and identical leaf count — plus identical canonical screenshots. SD-TIME-3 extends this across speed changes. |
+| SD-RNG-6 | **Leaf attribute draws are hashed, not streamed** *(added 2026-08-10; documents shipped behaviour)*. Every stochastic leaf attribute in `LeafPlacer` is drawn via `Hash64.unit_float(tip.id, tip.node_count, channel)` (per SD-RNG-4), **not** from the per-tip RNG stream, so the leaf model can change without desyncing stem growth — the direct protection of INV-7, which has regressed twice. **Reserved channels:** field jitter `0–14`, suppression `42`, tier `43`, variant `44`, variant-redraw `45`, (reserved value-jitter `46`), internode `99`. **Node draw order:** internode(99) → suppression(42) → tier(43) → variant(44) → redraw(45, only on adjacency conflict). Reordering or reusing a channel changes every plant; new leaf attributes must claim a new channel. |
 
 ---
 
@@ -663,7 +963,8 @@ All of these live in the same authoritative resource as the §30 defaults (INV-6
 | `leaf_expand_distance` | 0.12 m | SD-LEAF-5 |
 | `leaf_light_scale_base` / `_gain` | 0.80 / 0.30 | SD-LEAF-5 |
 | `leaf_size_sigma` | 0.16 | SD-LEAF-5 |
-| `leaf_healthy_base` / `_gain` | 0.25 / 0.65 | SD-LEAF-6 |
+| `leaf_healthy_base` / `_gain` | 0.25 / 0.65 | SD-LEAF-6. Guardrail: `base + gain ≤ 1.0` (else `P(healthy) > 1` on the sunny clamp → tier draw silently always-healthy). |
+| `leaf_shade_tint` / `leaf_sun_tint` | `Color(0.78, 0.86, 0.74)` / `Color(1.06, 1.04, 0.86)` | SD-LEAF-7 (M2.5, **wired 2026-08-10 W-060**). Added to `IvyParams` as `@export var` with Color type; present in `content_hash()`. |
 | `leaf_crowd_k` | 0.5 | SD-LEAF-8 (W-036). Raised to 0.85 by W-048 and reverted — `C` is clamped to `[0, 1]`, so this is a saturation-rate knob that thins the sparse shaded half rather than the dense sunny one. See W-050 before changing. |
 | `leaf_crowd_suppress` / `_floor` | 0.70 / 0.30 | SD-LEAF-8. Thins hidden interior leaf layers; genuinely density-gated, so the sparse shaded half is spared. Changed 0.55→0.70 / 0.35→0.30 per SD-OPEN-6 Director ruling (2026-08-09); landed Gameplay Fixer 2026-08-09. |
 | `leaf_cap` | 20000 | SD-LEAF-9 |
@@ -706,6 +1007,8 @@ the sky. Expected: AS-6, rubric criterion 1.
 | SD-OPEN-4 | Add `alpha_fill` per leaf id to `leaf_atlas.json` (offline alpha-coverage measurement). | Architect | **RESOLVED 2026-08-09.** Measured from the alpha channel and committed, along with a `tier` field (H/W) per SD-LEAF-6. Values 0.607–0.675. |
 | SD-OPEN-5 | Whether `LeafSet029`'s Scattering map warrants a custom leaf shader in M4, or the constant transmittance tint is sufficient. Deferred: cannot be judged before leaves are on screen. | Architect at M4 | No |
 | SD-OPEN-7 | **AS-3(b) instrument, second restatement (W-052).** The W-049 cumulative plant-level test is unsatisfiable at large N by construction — with branching on it measures Lyapunov divergence, not the gate (day-29 gap 0.39% with `branch_rate = 0` vs 11% with branching; the gap also reversed sign under unrelated parameter changes). Proposed replacement (SD-TIME-8f): retire the branched comparison; rest AS-3(b) on the unit invariant `mean(ĝ) = 1` (strengthen `test_time.gd` tolerance 0.02 → 1e-6) plus a near-linear `branch_rate = 0` applied check at ±2% (measured 0.39% at day 29, ≈5× margin). Directional-misapplication regressions are explicitly delegated to AS-3(a) + INV-3a. Also flags a class defect: AS-4 is immune only while it demands bit-identity; AS-2's shade-seed clause is a low-severity watch. **AS-3 and INV-3a are Director-owned — this needs Director ratification into `DESIGN.md`, same route as W-049.** | Game Director | **RESOLVED 2026-08-09 — ratified.** AS-3(b) reworded in `DESIGN.md`; W-049 branched comparison withdrawn; AS-4 guardrail written into AS-4; acceptance-signal audit accepted. Unit tolerance 0.02 → 1e-6 and INV-3a directional-term test tracked as W-053 (Gameplay Fixer). M2 gate declared done — see `DESIGN.md` ratification log. |
+| SD-OPEN-9 | **LG-2 as ratified is miscalibrated and under-covers the primary signal (escalated 2026-08-10).** (1) At the real day-150 `f_L` split the SD-LEAF-7 tint yields only ≈0.041 mean green delta, so the ratified **≥0.06 cannot be met by the intended full implementation** — a check that cannot *pass*, the W-053/W-058 defect inverted. (2) LG-2 measures only the instance tint (SD-LEAF-7, the *secondary* signal), leaving **SD-LEAF-6 — the Director's designated *primary* causation signal — with no automatable guard** (only human LG-1). Systems Designer specifies the full contract in **SD-METRIC-7** and recommends: lower **LG-2a to ≥0.03** area-weighted instance-green (one-time calibrated, floor 0.02; widen tint if measured `Δg < 0.035`), and add **LG-2b ≥0.08** healthy-tier area-fraction delta. Both are **Director-owned acceptance numbers** (`DESIGN.md` is their only authoritative home) → needs ratification, same route as SD-OPEN-2. **Root cause:** the shaded *hemisphere* of a south seed reaches only `f_L ≈ 0.74` (`D_L ≈ 4.3`), not the ≈0.57 the design texts assumed, so both the tint and tier separations are compressed. | Game Director | **RESOLVED 2026-08-10 (W-063) — ratified in full.** The Director accepted all four points: LG-2a ≥ 0.03 with the calibration protocol, LG-2b ≥ 0.08 added to guard SD-LEAF-6, widening the tint rejected (clearing 0.06 honestly needs a green spread ≈0.26–0.4 against the current 0.18, which reads as two species rather than one plant in two light conditions), and no other ratified acceptance number was affected — the ≈0.57 figure remains **correct** for the deep-shade north-wall point of SD-ENV-10 and was only wrong when applied to the shaded *hemisphere* mean. |
+| SD-OPEN-10 | **The ratified LG-2a/LG-2b hemisphere-delta gate is measuring the wrong thing — survivorship, not miscalibration (escalated 2026-08-11).** Canonical day-150.25 south-seed run measures `Δg = 0.00834` (thr 0.03) and `Δtier = 0.0423` (thr 0.08), both FAIL, ≈1/5 and ≈1/4 of the SD-OPEN-9 prediction. Root cause **confirmed by tint inversion**: the *leaf-area-weighted* shade-hemisphere `f̄_L ≈ 0.95`, not the surface `0.736` SD-OPEN-9 assumed — growth ∝ `f_L` concentrates surviving leaves in the lit cells, and the 180° split folds the sunlit NE/NW flanks into the "shade" half. Causation here lives in **absence of leaves** (AS-1 96% vs 50%, AS-2 51%), not in the tint of surviving leaves. Recalibration cannot rescue it: `0.6×` measured lands under both floors (0.02 / 0.05). **Recommendations (SD-METRIC-7g–j):** (1) withdraw both hemisphere-delta thresholds; name AS-1+AS-2 the automatable causation backstop and LG-1 the human gate; (2) re-home the SD-LEAF-6/7 regression guard to deterministic mechanism assertions conditioned on per-leaf `f_L` (+ a top/bottom-decile-by-light integration backstop), threshold pending one serial decile measurement; (3) leaf appearance rules unchanged (tint span/tier mapping are correct; widening tint stays rejected); (4) decouple `s_light` from `CoverageMetric` so a presentation knob stops moving the AS-1 shaded floor (50.62%→50.27%, +0.27 pt). All touch Director-owned numbers → ratification, same route as SD-OPEN-9. | Game Director | **OPEN — awaiting ratification.** |
 | SD-OPEN-6 | **The AR-BUDGET segment/stem/leaf-area envelope conflicts with AS-1's 50% shaded floor at measured placement efficiency.** The shaded 180° is sparse and volume-limited; it needs ≈60 m² of leaf area (2× the 20–35 m² budget) merely to reach 53.99% (+3.99). Every uniform volume brake (`branch_rate`, the caps, the stall rule) halves the shaded coverage before it reaches the envelope — `branch_rate` is additionally inert until ≈1.0 because the SD-TIP-3 taper is a homeostat, then it collapses the shaded half first (see AR-BUDGET). AR-BUDGET is labelled "sanity targets, not requirements," but its 20–35 m² / 360–600 m / 12–20k-segment lines were back-derived from AR-RISK-4's assumption that ~27 m² *reasonably distributed* meets 70/90/50, and the real distribution is far more uneven. **Two options for the Director, neither decidable at this stage:** (a) re-derive the AR-BUDGET leaf-area/stem/segment lines upward to whatever is actually compatible with holding 70/90/50 (an architectural number — the AS-1 floors themselves are **not** to be touched); or (b) hold the budget and require the shaded floor to be met by *better placement* (M4 leaf-quality / distribution work — e.g. crowding-gradient steering off the saturated sunny mat, W-015), not by more volume. The rubric-2 green-mat half of W-048 is already handled separately by the density-gated SD-LEAF-8 leaf levers and does **not** need this decision. | Game Director | **RESOLVED 2026-08-09 — split ruling.** (a) AR-BUDGET re-derived upward to bracket the measured day-150 pass state; see § AR-BUDGET. (b) Placement-efficiency improvement deferred to M4 via W-015/W-030. AS-1 floors unchanged. M2 gate: envelope no longer blocks; green mat fixed by pending SD-LEAF-8 levers before M2 close. See `DESIGN.md` ratification log. |
 
 ---
@@ -796,10 +1099,13 @@ the *only* permitted directions; a reverse reference is a defect, not a style is
 
 ### AR-OVER-2 — Leaf transforms are simulation output, not render output
 
-Every leaf attribute in SD-LEAF (position, basis, size, atlas id, colour) is produced by draws from
-the per-tip RNG stream (SD-RNG-1 explicitly lists "leaf attribute draws"). Therefore **`LeafPlacer`
-lives in the simulation layer and emits fully-resolved leaf instances into `PlantData`**;
-`LeafRenderer` only copies them into a `MultiMesh` buffer.
+Every leaf attribute in SD-LEAF (position, basis, size, atlas id, colour) is produced deterministically
+in the simulation layer — the stochastic ones via **hashed** draws (`Hash64.unit_float(tip.id,
+node_count, channel)`, SD-RNG-4/SD-RNG-6), **not** per-tip stream draws. *(Amended 2026-08-10: an
+earlier version of this note, and SD-RNG-1, claimed leaf attributes came from the stream; the shipped
+`LeafPlacer` is hash-based, and keeping it so is what stops a change to the leaf model from desyncing
+stem growth — INV-7.)* Therefore **`LeafPlacer` lives in the simulation layer and emits fully-resolved
+leaf instances into `PlantData`**; `LeafRenderer` only copies them into a `MultiMesh` buffer.
 
 Two consequences that matter: leaf placement is unit-testable with no rendering device (so it runs
 under `--headless` in GUT), and `CoverageMetric` (SD-METRIC-3) can compute projected leaf area from
@@ -842,11 +1148,13 @@ Main                        (Node3D, src/main/main.gd)                   composi
 │   ├── SkySun              (Node3D, src/world/sky_sun.gd)
 │   │   ├── Sun             (DirectionalLight3D)  forward == −S  (SD-CONV-9)
 │   │   └── WorldEnvironment (Environment + ProceduralSkyMaterial, ambient source = Sky)
-│   └── CameraRig           (Node3D, src/world/camera_rig.gd)
-│       ├── CamSun          (Camera3D)  sun-facing elevation,   +Z side, y≈1.8, looking −Z
-│       ├── CamShade        (Camera3D)  shade-facing elevation, −Z side, y≈1.8, looking +Z
-│       ├── CamAerial       (Camera3D)  45° from above, azimuth 135°
-│       └── CamSilhouette   (Camera3D)  ground level y≈0.35, looking up at the lip against sky
+│   ├── CameraRig           (Node3D, src/world/camera_rig.gd)      canonical fixtures (AS-4)
+│   │   ├── CamSun          (Camera3D)  sun-facing elevation,   +Z side, y≈1.8, looking −Z
+│   │   ├── CamShade        (Camera3D)  shade-facing elevation, −Z side, y≈1.8, looking +Z
+│   │   ├── CamAerial       (Camera3D)  45° from above, azimuth 135°
+│   │   └── CamSilhouette   (Camera3D)  ground level y≈0.35, looking up at the lip against sky
+│   └── DebugCamera         (Camera3D, src/world/debug_camera.gd)  current=false; orbit/zoom, AR-DBGCAM
+│                                                                  never captured by AS-4 (excluded)
 ├── Sim                     (Node, src/sim/sim_root.gd)                  no transform, no 3D
 ├── PlantRender             (Node3D, src/render/plant_render.gd)
 │   ├── StemChunks          (Node3D)   N frozen MeshInstance3D chunks, appended
@@ -859,7 +1167,7 @@ Main                        (Node3D, src/main/main.gd)                   composi
 
 | ID | Rule |
 |---|---|
-| AR-SCENE-3 | **Cameras are authored transforms in `world.tscn` and are never written at runtime.** `CameraRig.select(index)` only toggles `current`. AS-4 requires pixel-comparable canonical screenshots across runs; a camera whose transform is computed from `TowerSpec` would move the instant the tower is retuned and silently invalidate every prior screenshot. The four transforms are frozen at M2 and treated as committed test fixtures. |
+| AR-SCENE-3 | **The four canonical cameras (`CameraRig/Cam*`) are authored transforms and are never written at runtime; `CameraRig.select(index)` only toggles `current`.** AS-4 requires pixel-comparable canonical screenshots across runs; a canonical camera whose transform is computed from `TowerSpec` would move the instant the tower is retuned and silently invalidate every prior screenshot. The four transforms are frozen at M2 and treated as committed test fixtures. **What this rule protects is precisely the transforms of cameras that AS-4 (and any automated screenshot tool) can capture — not the act of rendering in general.** A **debug camera is therefore admissible**, and its transform may be written freely at runtime, **iff it can never be a camera an automated run captures**. That is guaranteed by two structural conditions, both required (AR-DBGCAM): (1) it is authored `current = false` and only ever becomes `current` — or has its transform written — from inside an input handler, and no headless/scripted/GUT run injects input events; and (2) it lives *outside* `CameraRig`, so the set of "four authored transforms" this rule freezes is literally unchanged. A camera meeting both conditions is explicitly excluded from AS-4's comparison set. Any camera that does **not** meet both remains bound by the first sentence: authored, immutable, never written at runtime. |
 | AR-SCENE-4 | Physics layers: **1 = SURFACE** (tower only), **2 = GROUND**. `SurfaceQuery` masks layer 1 exclusively. This is SD-GEO-4's "separate physics layer the simulator never queries" made structural — the ground is not merely `A_m = 0`, it is unreachable by any simulator query. |
 | AR-SCENE-5 | `Sim` is a plain `Node`, deliberately not a `Node3D`. The simulation has no transform and must never acquire one; all simulation coordinates are world-space (SD-CONV-8). |
 | AR-SCENE-6 | `Main` owns the single `IvyParams` instance and passes it to `World`, `Sim`, `PlantRender`, and `UI`. Nothing else may `load()` the parameter resource (INV-6). |
@@ -878,6 +1186,40 @@ Main                        (Node3D, src/main/main.gd)                   composi
 `get_viewport().get_texture()` returns null. The existing skills already reflect this — GUT runs
 headless, screenshots do not. Tests that need `DirectionalLight3D.global_basis` (SD-CONV-9) work
 fine headless because that is scene-graph state, not render state.
+
+---
+
+## AR-DBGCAM — Interactive debug camera (developer affordance)
+
+**System goal in implementation terms.** When a developer presses Play in the editor, let them
+mouse-wheel to zoom and click-drag to orbit the view around the tower, so the *shaded* half of the
+tower — which no screenshot has ever shown, because `CamSun` sits due south at the seeded, sunlit
+face — becomes inspectable. This is a look-at-the-thing convenience, **not** a gameplay mechanic and
+**not** a player-facing feature. It has no acceptance signal and touches no invariant. It exists to
+serve `DESIGN.md`'s "visible causation" property from the developer's side — you cannot judge the
+sun/shade asymmetry you cannot see.
+
+**This is not a camera framework.** One `Camera3D`, one script, three state floats (`yaw`, `pitch`,
+`radius`), one `_unhandled_input`. No input-map actions, no config resource, no easing/inertia, no
+settings UI, no separate pivot node, no free-fly mode. If the Programmer feels the pull toward any of
+those, that is scope creep and should bounce back to this stage.
+
+**Zoom must be bound to three input sources, not one (W-058).** On macOS a trackpad two-finger
+scroll is delivered as `InputEventPanGesture` and **never** as an `InputEventMouseButton` wheel
+event, so a wheel-only handler is silently dead on a MacBook — which is how this shipped. Bind
+wheel (external mouse), pan gesture (trackpad), and `↑`/`W` / `↓`/`S` keys (works everywhere, and
+the fallback when a platform surprises us again). Keyboard repeat is handled by accepting `echo`
+events inside `_unhandled_input` rather than integrating in `_process`, because a `_process`
+transform write would forfeit the AR-DBGCAM-5 guarantee — smoothness is not worth that trade.
+
+| ID | Rule |
+|---|---|
+| AR-DBGCAM-1 | **Node, file, class.** Node path `Main/World/DebugCamera`, type `Camera3D`, authored **`current = false`**. Script `src/world/debug_camera.gd`, `class_name DebugCamera`. It is a **sibling of `CameraRig`, deliberately not a child** — so `CameraRig` stays the pure set of four immutable AS-4 fixtures and the "four authored transforms" AR-SCENE-3 freezes is literally unchanged. This is also the project's **first input-handling code**; the precedent it sets is: input lives on the node that owns the affordance, handled in `_unhandled_input` (not `_input`, so UI/HUD can consume events first at M3), and no global input-map actions are introduced for a dev-only tool. |
+| AR-DBGCAM-2 | **`CamSun` stays default-`current`; the debug camera is opt-in.** Nothing selects a camera when you press Play, so the authored `CamSun.current = true` is what renders — the correct, sunlit, canonical framing. `DebugCamera` makes itself `current` only on the **first** interactive input (a wheel or drag event, and only when not `script_driven`). To avoid a view jump on that first activation, `DebugCamera` seeds `yaw/pitch/radius` at `_ready` from `CamSun`'s authored transform relative to the pivot (from `(0, 2, 8)` this is `radius ≈ 8.01 m`, `pitch ≈ 1.8°`, `yaw = 0°` — all inside the AR-DBGCAM-4 bounds), so activation is seamless. Making the debug camera default-`current` was rejected: it would make every automated capture render the debug view and break AS-4/AS-6 outright. |
+| AR-DBGCAM-3 | **Pivot = tower mid-height on the tower axis: `Vector3(0, TowerSpec.height * 0.5, 0)` = `(0, 1.75, 0)`.** The tower occupies `y ∈ [0, H]` (lip at ≈ `H`) and is centred on the world origin, so mid-height is also the bounding-box centre for the cylinder — the two candidates coincide, and mid-height is the simpler expression of it. It is chosen over the **base** (`y = 0`) because the sun/shade asymmetry and the seed-to-lip climb run the *full* height: centring vertically keeps the base seed and the top lip roughly equidistant so orbiting does not drift the subject out of frame, whereas a base pivot tilts the whole tower into the top of the frame and centres empty ground. Derive it from the injected `TowerSpec`, never hardcode `1.75`. |
+| AR-DBGCAM-4 | **Bounds, all derived from `TowerSpec` (`radius_outer = 2.0`, `height = 3.5`).** Radius clamp `[min_radius, max_radius]` with `min_radius = radius_outer + 1.0 = 3.0 m` (a 1 m standoff so the camera and its near plane never enter the wall) and `max_radius = (height + 2·radius_outer)·1.6 = 12.0 m` (whole tower plus ground context still framed; beyond this the 3.5 m tower is a speck). Pitch clamp `[-5°, +85°]`: the upper bound stops short of the `+90°` `look_at`-up-vector singularity (the pole flip); the lower bound is set so that even at `max_radius` the camera stays above ground — `cam_y = pivot.y + radius·sin(pitch)`, and at `r = 12, pitch = -5°` that is `1.75 − 12·0.0872 = 0.70 m > 0`. Yaw is unbounded (wraps 360° — that is the orbit). Feel constants are the Programmer's latitude *within* these clamps: suggest a **multiplicative** wheel step (`radius *= 0.9` / `/= 0.9` per notch, uniform zoom feel across the range) and a fixed pixels→degrees drag sensitivity; the clamp numbers above are not negotiable, the sensitivities are. |
+| AR-DBGCAM-5 | **Scripted-run isolation — two independent guarantees.** *(a, load-bearing):* `DebugCamera` writes `current` **and** its transform **only** inside `_unhandled_input`, in response to real `InputEventMouseButton` (wheel) / `InputEventMouseMotion` (drag) events. No automated runner injects such events — `take_screenshot.gd`, `run_ui_script.gd`, and GUT all drive the scene programmatically — so in every automated run `CamSun` stays `current` and no debug transform is ever written. Note `take_screenshot.gd` does **not** set `script_driven`, so guarantee (a) is the one that protects the screenshot path. *(b, defence-in-depth for the UI-script path):* `Main` passes `script_driven` into `DebugCamera` (inject at setup, or read from the owner), and when it is true `DebugCamera` calls `set_process_unhandled_input(false)` in `_ready`, killing the input path entirely. **What a Code Reviewer must check:** (1) grep `debug_camera.gd` — the only writes to `current`, `transform`/`global_transform`/`position`/`look_at` occur inside `_unhandled_input`; the `_ready` seed writes only the private `yaw/pitch/radius` floats, never `current`; (2) the scene authors `DebugCamera.current = false`; (3) `set_process_unhandled_input(false)` fires under `script_driven`; (4) run `tools/ui_scripts/smoke.txt` and confirm the resulting screenshot still frames `CamSun` and is byte-identical to the pre-change capture — the proof that the debug camera was never captured. |
+| AR-DBGCAM-6 | **Test surface — honest split.** *Testable headless (GUT):* factor the transform math into a **pure** helper (e.g. `DebugCamera.solve(pivot, yaw, pitch, radius) -> Transform3D` plus `clamp_radius`/`clamp_pitch`). Test 1: feed out-of-range radius and pitch, assert they clamp into `[3.0, 12.0]` and `[-5°, 85°]`. Test 2: over the four corners of the bounds box (`{min,max} radius × {min,max} pitch`) assert the solved camera `y > 0` (never underground) and its distance from the tower axis `> radius_outer` (never inside the wall). **Regression each catches:** someone widening a clamp constant so the camera can pass through the wall or drop below ground, or reaching the `+90°` pole. Test 3 (the determinism guard): instantiate `DebugCamera` with `script_driven = true`, deliver a synthetic `InputEventMouseButton`, and assert `current` is still `false` and the transform is unchanged — catches removal of the `script_driven` gate, which is the one regression that would corrupt AS-4. *Genuinely not testable without a human at a real mouse in an editor Play session:* that dragging feels like orbiting and the wheel zooms the expected direction, that first-activation produces no visible jump, that the framing and sensitivity are pleasant. Headless has neither a rendering device nor a pointing device. **Do not** write a "simulated drag moves the camera" GUT test that would still pass with the handler stubbed — that is the could-not-fail test trap this project has hit before (W-053). The positive interactive check is the developer pressing Play; the automated `smoke.txt` check (AR-DBGCAM-5) is the *negative* one and is the correct scripted surface here — a `run-ui-script` scenario cannot drive this affordance, and adding a verb that could would defeat the isolation. |
 
 ---
 
@@ -901,6 +1243,7 @@ reference these types directly.
 | `src/world/seed_anchors.gd` | `SeedAnchors` | SD-AGENCY-1/2/3 derivation and cache. |
 | `src/world/sky_sun.gd` | `SkySun` | Drives `DirectionalLight3D` + procedural sky from `Solar`, applies the SD-TIME-4 render blend. |
 | `src/world/camera_rig.gd` | `CameraRig` | `select(index_or_name)`; never writes transforms. |
+| `src/world/debug_camera.gd` | `DebugCamera : Camera3D` | Developer-only orbit/zoom camera (AR-DBGCAM). Authored `current = false`; writes `current`/transform only from `_unhandled_input`; disabled under `script_driven`. Excluded from AS-4 by AR-SCENE-3. |
 
 ### Core
 
@@ -997,7 +1340,7 @@ from it, so they cannot drift.
 | `door_azimuth` / `_width` / `_height` | 180° (**north, −Z**) / 0.90 m / 2.00 m | |
 | `window_azimuth` / `_size` / `_depth` / `_sill` | 90° (**east, +X**) / 0.60 m / 0.12 m / 1.60 m | recess, not a hole |
 | `ring_segments` | 96 | 13 cm facets at R = 2 m; below this R-4 faceting is visible |
-| `brick_uv_metres` | 1.00 m | tile size; circumference tiling is rounded to an integer to kill the seam |
+| `brick_physical_size` | `Vector2(1.80, 0.90)` m | physical patch size of the brick material (width × height). Bricks094: 180 cm × 90 cm (source: `ambientcg.com/api/v2/full_json?id=Bricks094`). Horizontal UV repeat count = `roundi(TAU·r / .x)` (rounded to an integer so the circumference seam disappears); vertical scale = `y / .y` (no rounding — the wall does not wrap). **Must be updated when swapping materials** — each axis is derived separately so a square-texture substitute cannot silently reintroduce aspect distortion. |
 
 **The doorway is deliberately placed on the north face.** It is not decoration: it makes the N seed
 anchor exercise SD-AGENCY-2's deterministic azimuth search and SD-EDGE-1 on every single run, and it
@@ -1286,12 +1629,15 @@ g. clock.tick_index += 1
                               physiology.deposit_stem_crowding(...)
 5. branch draw                p_b = 1 − e^{−λ_b·h}, scaled by the SD-TIP-3 cap taper  [1 draw]
                               on success: queue branch; angle draw 45°–75°             [1 draw]
-6. node / leaf draws          leaf_placer.advance(tip, segment)                        [0..6 draws]
+6. node / leaf draws          leaf_placer.advance(tip, segment, f_L, l_dir)  [0 stream draws — hashed]
 ```
 
-Documented draw counts matter: `RngStream.normal_std()` consumes **two** uniforms (Box–Muller), so
-SD-LEAF-5's `s_var` and SD-LEAF-7's value jitter each advance the stream by 2. Changing that
-implementation changes every plant. It is pinned here.
+The branch draws in step 5 are therefore the **last** stream draws in a segment. Step 6 takes **no**
+stream draw: all leaf attributes are hashed on `(tip.id, node_count, channel)` (SD-RNG-6), so the leaf
+model can change without shifting stem growth. *(Amended 2026-08-10: this block previously showed
+"[0..6 draws]" for step 6 and claimed `s_var` / value-jitter advanced the stream by 2 via
+`normal_std()`; the shipped `LeafPlacer` is hash-based and those M2.5-deferred attributes, if added,
+also use hashed channels — see SD-RNG-6.)*
 
 ### AR-SIM-7 — `PlantData` is append-only structure-of-arrays
 
@@ -1501,7 +1847,8 @@ script.
 
 | Verb | Effect |
 |---|---|
-| `CAMERA <sun\|shade\|aerial\|silhouette>` | `CameraRig.select()` |
+| `CAMERA <sun\|shade\|top\|silhouette\|index>` | `CameraRig.select()` — matches by name (case-insensitive) or 0-based index. **Landed W-002.** |
+| `DUMP_LEAF_COLOUR [seed_az_deg]` | `LeafColourMetric.measure()` — LG-2a/b. **Landed W-061.** |
 | `SEED <n\|e\|s\|w>` | Re-seed at that anchor (SD-EDGE-11 semantics: reset plant + crowding, keep and re-warm the light field) |
 | `SPEED <pause\|watch\|fast\|grow>` | `SimClock.speed` |
 | `ADVANCE_DAYS <float>` | **Deterministic**: `clock.advance_ticks(round(days·24))`, no wall-clock dependence |
@@ -1540,6 +1887,200 @@ ratified day-30 and day-60 latency targets.
 `PlantData`. Leaves straddling a bucket boundary are attributed wholly to one bucket; at 0.17 × 0.10 m
 buckets and ~0.075 m leaves this is a small, unbiased, and stable approximation, and it costs one
 multiply per leaf instead of a polygon clip.
+
+### AR-METRIC-1 — Coverage attributes a light-independent canonical footprint (W-076, resolves SD-METRIC-7j)
+
+`CoverageMetric` must not weight occupancy by *rendered* leaf area. Rendered width carries the SD-LEAF-5
+`s_light = 0.80 + 0.30·f_L` factor (which enters area as `s_light²` because `h = w/aspect`), so a pure
+presentation knob moves a hard-floor acceptance number: AS-1 shaded read **50.62%** pre-W-060 and
+**50.265957%** after the leaf work, with leaf placement bit-identical (SD-METRIC-7j). That is a category
+error — any future tweak to `leaf_light_scale_gain` would silently move the AS-1 floor, and a rendering
+change would masquerade as a simulation regression.
+
+**Ruling — store a canonical footprint per leaf and have the metric read it; do *not* divide `s_light`
+out at measurement time.** `LeafPlacer` writes a new `PlantData.leaf_area_canonical` alongside
+`leaf_area`, defined as the leaf's footprint with `s_light` neutralised (`s_light ≡ 1`) but every
+*structural* size term retained:
+
+```
+leaf_area_canonical = alpha_fill[id] · leaf_width_base² / aspect[id]
+```
+
+At M2.5 this equals `leaf_area / s_light²` exactly (the two SD-METRIC-7j routes coincide, because
+`s_light` is the only size term currently wired). `CoverageMetric.measure()` reads `leaf_area_canonical`
+for the occupancy accumulator; `leaf_area` (rendered, includes `s_light`) is retained unchanged for any
+true-rendered-area consumer, and **`s_light` stays in the render** (leaf_xform width, `LeafRenderer`) so
+the visible size variation LG-1 was just signed off on is preserved.
+
+**Why store, not divide.** Division-at-measurement forces the read-only metric to know the size model —
+which factor to divide and its exponent — duplicating SD-LEAF-5 knowledge inside an observer (against
+AR-METRIC / SD-METRIC-4). More importantly it is the wrong *contract* for M4: when the deferred
+`s_order`, `s_age`, `s_var` terms land (SD-LEAF-5), *some* may legitimately belong in structural coverage
+while `s_light` does not. A stored canonical footprint localises the "structural vs cosmetic" size
+classification to the one site that owns the size model (`LeafPlacer`); adding an M4 term is a single
+decision there — put it in `leaf_area_canonical` or not — and the metric never changes. A metric-side
+divisor would instead have to be extended for every new cosmetic term, re-creating the very coupling this
+removes. This also mirrors the existing SD-LEAF-8 crowding deposit, which already computes a canonical
+(no-`s_light`) area at placement (`LeafPlacer.advance`).
+
+**What the metric should read afterwards.** AS-1 returns to the pre-W-060 placement-only basis — shaded
+**≈ 50.62%** (overall and sun-facing rise correspondingly), restoring the ~**+0.62 pt structural margin**
+the ≥50% floor was ratified against. The residual structural thinness of that margin stays an M4 watch
+item (SD-METRIC-7j); it is not this change's concern.
+
+**How a reviewer tells the change *worked* rather than merely *moved the number*** (add to
+`test_metric.gd` / `test_leaf_placement.gd`):
+1. **Definition equivalence.** For every leaf, `leaf_area_canonical[i] ≈ leaf_area[i] / s_light[i]²` and
+   `≈ alpha_fill[id]·leaf_width_base²/aspect[id]`, to float tolerance. Proves the stored value truly
+   excludes `s_light` and is not an arbitrary rescale that happens to land near 50.62.
+2. **Presentation invariance (decisive).** Over the *same* canonical `PlantData`, run the metric with
+   `leaf_light_scale_gain` at 0, default, and 2× default; canonical-basis AS-1 (all three floors) must be
+   **bit-identical** across all three, while rendered-area AS-1 moves. A change that merely re-tuned to
+   hit 50.62 would still move under a gain change; true decoupling does not. This is precisely the
+   invariance the original coupling failed.
+3. **Baseline value.** Canonical shaded AS-1 lands at the logged pre-W-060 ≈ 50.62%, not merely ≥ 50.
+
+**Bit-identity.** A metric-side read swap plus one appended per-leaf `PackedFloat32Array` computed from
+already-known `(id, params)`; no `Hash64` call, no RNG stream draw, no change to draw order. Day-150.25
+stays **43,870 segments / 18,390 leaves / 1288.816543 m** (INV-7 untouched).
+
+#### AR-METRIC-1 amendment — fixed *reference* footprint, not per-variant canonical (2026-08-11, post-implementation)
+
+**Why the original was wrong.** Implemented as specified, the per-variant canonical footprint moved AS-1
+shaded to **47.34%** (from 50.27% rendered), *away* from the ≥50% floor and short of the predicted
+≈50.62%. The Programmer's diagnosis (phototropic cant "reduces projected canonical area") is **rejected**:
+`alpha_fill[id]·leaf_width_base²/aspect[id]` contains no orientation term, so the cant cannot touch it.
+The real cause is that the footprint, though light-independent, is still **variant-dependent**, and
+SD-LEAF-6 tier/variant selection is a hashed art-shuffle (channels 43/44/45) — *presentation, exactly as
+`s_light` is*. Per-variant canonical areas (`alpha_fill/aspect · leaf_width_base²`): `a`=0.60301,
+`b`=0.63295, `c`=0.55787, `d`=0.52438, `e`=0.51527, `f`=0.60186; six-variant mean = **94.9% of leaf `a`**,
+healthy `{a,c,e}` mean = **92.7% of `a`**. Pre-W-060 **every leaf was variant `a`** with no `s_light`, so
+the ratified 50.62% was measured against a *fixed leaf-`a`* footprint. My canonical footprint reintroduced
+the same category error one level up: a future tier-probability tweak or atlas swap would silently move the
+floor. Two effects stacked in 50.27 → 47.34: the intended removal of the `s_light²` inflation, and this
+unintended per-variant deficit.
+
+**Ruling (1) — variant choice is PRESENTATION; coverage attributes every eligible leaf a single fixed
+reference footprint.** `CoverageMetric.setup()` computes once:
+
+```
+ref_area = alpha_fill("a") · leaf_width_base² / aspect("a")
+```
+
+and weights every leaf by `ref_area · |dot(n_leaf, n_bucket)|`. Occupancy becomes a pure function of
+*where leaves are*, independent of art selection, `s_light`, and every present or future size term. The
+per-leaf `leaf_area_canonical` array introduced by the first W-076 pass is now dead — a constant needs no
+per-leaf storage — and should be **removed** (revert that `append_leaf` param); `leaf_area` (rendered) and
+`leaf_light` are retained.
+
+*The counterargument, ruled on:* a weathered leaf genuinely has a different shape, and fixing the footprint
+makes AS-1 a placement/count-based structural measure rather than a rendered-material measure. That is
+**correct for AS-1** — it is a *structural occupancy* gate and was ratified against a fixed footprint; true
+rendered coverage is a different quantity, still available in `leaf_area`. Precedent: the SD-LEAF-8 crowding
+deposit already uses the fixed leaf-`a` canonical area for exactly this stability reason ("leaf appearance
+is presentation; leaf placement is simulation"). Leaf `a` is chosen over an art-neutral geometric constant
+because it *definitionally reproduces the ratified basis*; full atlas-independence would re-base the number
+and require re-ratification, which is out of scope.
+
+**The boundary this draws (and the cant, ruled on).** Neutralise presentation terms that set a leaf's
+canonical **size** (`s_light`, variant/tier, future size terms). Do **not** neutralise the SD-METRIC-3
+orientation projection: projected-area-onto-wall is a genuine *occlusion* fact — a leaf edge-on to the wall
+really does cover less wall — so it stays structural and ratified (AR-AMBIG-6 unchanged). The phototropic
+cant (`leaf_photo_cant = 0.45`) therefore still influences coverage through the projection, but this is
+**not** the shaded miss and must not be used to chase it: `l_dir → 0` on the shaded side (weak gradient),
+so the cant tilts *sunny* leaves (up to ≈24°, ≤~9% projection loss) and barely touches shaded leaves — it
+depresses the **non-binding 96% sun side**, not the binding shaded floor. It is flagged as a separately
+decidable coupling; the Programmer should **report `n_wall`-vs-`n_leaf` coverage as a diagnostic** so the
+cant's contribution is visible, and any change to the projection is deferred to its own decision (with
+Director awareness, since it touches the ratified SD-METRIC-3 basis) if `leaf_photo_cant` is ever retuned
+or the sun-side number becomes load-bearing.
+
+**Ruling (2) — add the tier-probability invariance test (the durable guard).** Companion to the
+`s_light`-gain invariance test:
+- **Unit:** `CoverageMetric`'s per-leaf occupancy weight is `ref_area` regardless of `leaf_id`.
+- **Integration (decisive):** two sim runs with `leaf_healthy_gain` at default vs 0 (and 2×) produce
+  **bit-identical** canonical-basis AS-1. Valid because the tier draw is hashed (SD-RNG-6, no stream
+  draw): changing the probability changes *which photograph renders* but leaves placement and the RNG
+  stream bit-identical (only rendered `leaf_area` / `leaf_color` differ; the crowding deposit uses fixed
+  leaf-`a`, so the field is unaffected). This closes the whole class — no cosmetic size/art knob can move
+  AS-1 again.
+
+**What AS-1 should read, and what counts as evidence the definition is right (not tuned).** The fixed
+reference footprint recovers only the *variant* deficit; the shaded hemisphere is weathered-heavy (lower
+`f_L` → lower healthy-tier probability) and its weathered variants already average ~97% of leaf `a`, so
+expect shaded to rise from 47.34% to roughly **~48.5–49.5%** — **likely still below 50%**. Reaching 50.62%
+is **not** the correctness criterion and must not be steered toward. Correctness is established by:
+(i) **definition** — every leaf weighted by the same `ref_area`, and `ref_area` equals
+`alpha_fill("a")·leaf_width_base²/aspect("a")`; (ii) **both invariance tests pass** (`s_light`-gain *and*
+tier-probability); (iii) **the decomposition adds up** — rendered 50.27 → remove `s_light²` → remove
+variant → fixed leaf-`a`, with the `n_wall`/`n_leaf` diagnostic isolating any sun-side cant residual.
+**If the clean structural shaded number is < 50%, that is the honest outcome** — the plant was leaning on
+cosmetic size inflation (`s_light` + larger-than-`a` variants) to clear the floor, exactly the false margin
+SD-METRIC-7j warned of — and it **escalates to the Director**, who decides between softening the mechanism
+(per the AS-1 coupling rule in `DESIGN.md`) and revisiting the floor. Do **not** adjust anything to clear
+the bar; that is the trap the LG-2 withdrawal came out of.
+
+**Bit-identity.** Metric-side change plus removal of a computed array; no `Hash64`, no RNG stream draw, no
+change to draw order. Day-150.25 stays **43,870 / 18,390 / 1288.816543 m** (INV-7 untouched).
+
+### AR-METRIC-2 — Per-leaf experienced-light provenance for LG-2′ layer (b) (W-075, instruments SD-METRIC-7h)
+
+LG-2′ layer (b) ranks eligible sampled leaves by the light each leaf actually experienced and requires
+**top-vs-bottom-decile-by-light** separation in healthy-tier area fraction and mean `Color.g`. Its job is
+to catch a rule that is correct in isolation (proven by layer (a)'s deterministic assertions) yet not
+wired to vary with experienced light across the shipped plant. The **provenance of the ranking key**
+decides what the backstop can detect.
+
+**Ruling — plumb a per-leaf `leaf_light` as the authoritative ranking key, and *additionally* cross-check
+it against the colour-recovered value; do not rank by recovery alone.**
+
+- **Plumb (authoritative).** `LeafPlacer` writes `PlantData.leaf_light = f_l`, the accumulated-light
+  `f_L` already passed into `advance()` and already consumed by `s_light` / tier / tint. Layer (b) sorts
+  by `leaf_light`, a quantity independent of the tint under test.
+- **Cross-check (assertion).** Layer (b) also computes recovered `f_L' = (Color.g − 0.86) / 0.18` and
+  asserts `|f_L' − leaf_light|` stays within ε over sampled leaves. This turns recovery's circularity
+  into a *positive* verification that the shipped tint actually encodes the experienced light.
+
+**Failure modes this instrument CAN catch:**
+- **Tint not varying with experienced light** (wired to a constant, to a wrong quantity, or reading a
+  different channel): ranked by true `leaf_light`, the decile `Color.g` fails to separate → RED.
+  *Recovery-alone cannot catch this:* it ranks by the very tint it then measures, so the g-separation is
+  tautological and a self-consistent broken tint passes — the exact W-053 / W-058 "test that cannot fail"
+  pattern this project has already shipped twice.
+- **Tier not varying with experienced light** (fixed tier): ranked by true `leaf_light`, the decile
+  healthy-fraction fails to separate → RED.
+- **Tint present but mis-encoding light** (gain/offset drift so recovered `f_L' ≠` true light while still
+  monotone): the decile separation might still pass, but the cross-check residual fires → RED.
+- **Rule computes correctly (layer (a) green) but is not applied to real leaves across the light range** —
+  exactly the wiring gap layer (b) exists to catch → RED.
+
+**Failure modes it CANNOT catch (out of scope, owned elsewhere):**
+- A **wrong *simulation* `f_L`** fed identically to both the tint and to `leaf_light`: the two agree with
+  each other and still separate cleanly, so the backstop passes. This is a light-field / INV-3a defect,
+  guarded by the field/accumulated-light tests, AS-1/AS-2, and LG-1 — not by a colour backstop.
+- **Divergence between `PlantData.leaf_color` and the on-GPU MultiMesh instance colour.** The metric reads
+  `PlantData` (SD-METRIC-7), so a renderer-only corruption downstream of `leaf_color` is a render test's
+  concern, not layer (b)'s.
+
+**Write site and determinism (SD-RNG-6 / W-064 constraint).** The write is one line in
+`LeafPlacer.advance` → `PlantData.append_leaf`: append the **already-computed** `f_l` argument to a new
+`leaf_light` SoA array. This consumes **no RNG stream draw and no new hash channel** — `f_l` is an
+existing input threaded in by `GrowthStep`, not a fresh draw — so `LeafPlacer` stays hash-only /
+zero-stream-draw, INV-7 holds, and day-150.25 stays bit-identical. Append-only, no removal path
+(AR-SIM-7).
+
+**Instrument only — threshold deferred to W-077 (do not guess; Director process guardrail).** Over
+eligible sampled leaves (SD-METRIC-7a eligibility, SD-METRIC-7b hemisphere convention), sort ascending by
+`leaf_light`, take the bottom decile and top decile **by leaf count** (bottom/top 10% of leaves by
+experienced light), and within each decile compute the **area-weighted** mean `Color.g` and healthy-tier
+area fraction, weighting by **rendered `leaf_area`** (SD-METRIC-7c — LG-2′ is an *appearance/material*
+guard, so it weights by the real leaf material present, **not** by AR-METRIC-1's structural `ref_area`;
+the two metrics have different purposes and must not share an area basis). Report `decile_delta_g`,
+`decile_delta_healthy_frac`, the two decile `leaf_light` boundaries, per-decile leaf counts and areas, and
+the max cross-check residual. The pass predicate is left **unset (report-only)** until W-077's serial
+probe measures the split and the Director locks the threshold at the ratified `0.6×`-with-floor
+discipline; W-077 may also confirm count-decile vs area-decile basis (instrument default: count-deciles,
+area-weighted within-decile statistics).
 
 ---
 
@@ -1825,7 +2366,11 @@ following, and should push back to this stage if a task seems to require them:
 - Any abstraction over "buildings" or "species". Phase 1 ships one tower and one plant;
   `TowerSpec` + `MaterialRegistry` are the seams Phase 2 will widen.
 - An event bus, a service locator, or autoload singletons (AR-OVER-3).
-- Camera controls, camera animation, or any runtime camera transform write (AR-SCENE-3).
+- Camera controls, camera animation, or any runtime transform write on a **canonical** camera
+  (AR-SCENE-3). The sole exception is the `DebugCamera` orbit/zoom affordance (AR-DBGCAM), which is
+  outside `CameraRig`, never captured by an automated run, and excluded from AS-4 — see AR-SCENE-3
+  for the two conditions that make it admissible. Do not generalise it into a camera framework, and
+  do not let it absorb the three still-owed canonical cameras (those stay in W-002).
 - Editor plugins or custom inspector UI. The dev overlay is in-game and reflection-driven.
 - Re-tuning any `SD-PARAM` or §30 default. Tuning starts at M2 with a measurement, per the
   Director's sequencing rule.

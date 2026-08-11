@@ -1,0 +1,32 @@
+# LG-4 day/night check: does the rendered sun track simulated time?
+# start_hour is 6.0, so day fraction f maps to hour 6 + 24f.
+#
+# Baseline BEFORE W-059 (no Environment resource, flat grey background):
+#   06:00 ≈ 0.2587  12:00 ≈ 0.3454  18:00 ≈ 0.2596  midnight ≈ 0.2035
+#   Midnight sat at 60% of noon brightness — clearly broken.
+#
+# Baseline AFTER W-059 (ProceduralSkyMaterial + sky-sourced ambient, W-059):
+#   06:00 ≈ 0.3634  12:00 ≈ 0.4546  18:00 ≈ 0.3641  midnight ≈ 0.0336
+#   Noon-to-midnight spread: 0.421 (was 0.142). Midnight is 7.4% of noon (was 58.9%).
+#   Night reads as night; sky blue visible at all daytime frames; long shadows at dawn/dusk.
+#
+# LG-4 re-verify 2026-08-11, after the leaf-legibility work and the force_draw capture path:
+#   06:00 = 0.3469  12:00 = 0.4463  18:00 = 0.3476  midnight = 0.0298
+#   All four mutually distinct; midnight is 6.7% of noon. Slightly darker than the W-059
+#   baseline across every frame, consistent with the sky and tint edits that followed it —
+#   the day/night relationship is what this script guards, not absolute exposure.
+#
+# SCREENSHOT renders synchronously via RenderingServer.force_draw() (W-067, then W-071 after
+# awaiting frame_post_draw was found to hang whenever macOS stopped presenting the window).
+# No WAIT is needed before a capture. The four frames must be mutually distinct, and 06:00
+# must differ from 18:00: equal elevation gives equal brightness, so it is the east/west
+# difference that proves the sun moves rather than merely dimming. Identical captures now
+# mean a real regression, never a stale read.
+SPEED pause
+SCREENSHOT t_0600.png
+ADVANCE_DAYS 0.25
+SCREENSHOT t_1200.png
+ADVANCE_DAYS 0.25
+SCREENSHOT t_1800.png
+ADVANCE_DAYS 0.25
+SCREENSHOT t_0000_midnight.png

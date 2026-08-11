@@ -1,6 +1,6 @@
 # Ivy — Game Design Document
 
-Last updated: 2026-08-09
+Last updated: 2026-08-10
 
 ---
 
@@ -201,10 +201,10 @@ silhouette against the sky.
 
 | ID | Signal |
 |---|---|
-| AS-1 | **Coverage, and it must be uneven.** From a single sun-facing seed at 150 game-days, default parameters, unattended: **≥70% of the eligible outer wall overall**, **≥90% on the sun-facing 180°**, and **≥50% on the shaded 180°**, with the top lip reached. Measured by the leaf-area bucket metric (`SD-METRIC`). The two halves exist so that a uniform mediocre mat cannot pass — that is the wallpaper failure mode rubric criterion 2 is there to catch, and a single overall number does not catch it. The shaded floor exists so that "asymmetry" cannot degenerate into a bald side, which would fail G1. |
+| AS-1 | **Coverage, and it must be uneven.** From a single sun-facing seed at 150 game-days, default parameters, unattended: **≥70% of the eligible outer wall overall**, **≥90% on the sun-facing 180°**, and **≥50% on the shaded 180°**, with the top lip reached. Measured by the leaf-area bucket metric (`SD-METRIC`) on a **placement-only canonical footprint** — SD-LEAF-5 `s_light` divided out of leaf area (`SD-METRIC-7j`); AS-1 certifies structural occupancy, not rendered size. The two halves exist so that a uniform mediocre mat cannot pass — that is the wallpaper failure mode rubric criterion 2 is there to catch, and a single overall number does not catch it. The shaded floor exists so that "asymmetry" cannot degenerate into a bald side, which would fail G1. |
 | AS-2 | **Light asymmetry, and it must arrive early.** With the seed at the sun-facing base, sun-facing-vs-shaded total stem length asymmetry reaches **≥20% by game-day 30**, **≥40% by game-day 60**, and remains **≥30% at day 150**. The same run seeded on the shaded side produces **≥20% less total stem length**. The early targets matter more than the late one: the causal belief we are trying to install either forms in the first minute or it does not form. Late compression is expected and acceptable — the sunny side saturates and its crowding penalty bites while the shaded side is still uncrowded, so the cumulative ratio narrows. |
 | AS-3 | **Day/night drives growth.** In a debug readout: (a) growth rate at solar midnight is ≤15% of the daily-mean rate and ≤10% of the solar-noon rate, rising through the morning; (b) the diel gate is mean-preserving: it changes *when* growth occurs within a game-day, never the daily total budget AS-1 depends on (INV-3a). Verified in two places, neither comparing two divergent long runs: **(b.1) Unit invariant (primary).** Over the 24 simulation-tick hours of one game-day, the diel gate multiplier ĝ has arithmetic mean 1 to within 1×10⁻⁶, sampled at exactly the 24 tick-hours the simulation applies it on. Exact by construction (ĝ = g / g_ref, with g_ref the mean of g over those same 24 hours). Asserted by `test_time.gd::test_diel_gate_mean_is_unity_over_24_ticks`. **(b.2) Applied near-linear check (backstop).** With branching disabled in both runs (`SET_PARAM branch_rate 0.0`), cumulative stem elongation from game-day 0 through game-day 29 with the diel gate enabled is within **±2%** of an otherwise identical run with `diel_gate_enabled = false`, comparing `TOTAL_STEM_LENGTH` from `DUMP_METRICS` (scripts `qa_as3b_nobranch_on.txt` / `qa_as3b_nobranch_off.txt`). Branching is disabled because it is the exponential amplifier that turns sub-millimetre per-tick timing differences into an 11% cumulative gap by day 29 — a measure of trajectory divergence, not of the gate. The branching-enabled cumulative comparison ratified under W-049 is withdrawn as a test instrument: for any nonlinear growth model it exceeds any fixed tolerance at some horizon N regardless of gate correctness. Single-day deltas remain excluded (W-049). Clause (b) is the budget/mean-preservation guard only; a gate wrongly applied to a directional term is not caught here (daily elongation total unchanged) and is instead caught by (a) and the INV-3a rule that ĝ never enter a directional term; (c) accumulated light `D_L` lags a step change in instantaneous light with the expected ~3-game-day time constant. Clause (b) is the one that protects AS-1 — without it a gate that quietly halves total growth would pass (a) and (c) and fail AS-1 much later, when the cause is expensive to find. |
-| AS-4 | **Determinism.** Two runs with identical seed, environment, and duration produce identical tip counts and total stem length, and visually identical canonical screenshots. **Standing rule:** AS-4 must always demand bit-identical outputs. It must never be relaxed to a tolerance — a tolerance would turn it into a Lyapunov divergence meter and inherit the class defect that invalidated the W-049 AS-3(b) instrument. |
+| AS-4 | **Determinism.** Two consecutive serial runs with identical seed, environment, and duration on the dev machine produce: **(simulation — exact, no tolerance)** identical tip counts, segment count, leaf count, total stem length, and every automatable metric field to **six decimal places** (INV-7 scope); **(canonical screenshots — tolerance)** the four PNGs from `tools/ui_scripts/qa_m25_canonical.txt` satisfy the **LG-3 image-stability half** — ≤**0.05%** of pixels with any RGB channel delta >**1/255**, **and** RGB RMSE ≤**1×10⁻⁴** — pairwise on the same script and `force_draw` capture path. **Standing rule (simulation):** AS-4 must never relax exact-match requirements on any simulation output listed above. Any tolerance on tip counts, segment/leaf counts, stem length, or dumped metrics would turn AS-4 into a Lyapunov divergence meter and inherit the class defect that invalidated the W-049 AS-3(b) instrument — this rule is unchanged and binding. **Standing rule (rasterisation):** bit-exact PNG equality is explicitly not required and must not be demanded; GPU floating-point non-determinism on alpha-cutout edges is not simulation divergence and is bounded only by the LG-3 image-stability tolerances (hardened via W-081 before M4 exit). **M4 adds no separate pixel ceiling** — presentation drift at M4 is additionally guarded by the artifact blacklist and director rubric. |
 | AS-5 | **Performance.** ≥60 fps on the dev machine with the tower fully covered at default parameters. A full-coverage run at grow speed completes in ≤3 minutes wall-clock. The live tip cap is documented and never exceeded. |
 | AS-6 | **Silhouette break.** At full coverage, tips have grown over the top lip and sag downward, visibly breaking the tower's outline against the sky in the ground-level camera. This is the "not a texture" test. |
 
@@ -282,8 +282,15 @@ matching the existing convention.
 that slot with a written descriptive criterion in the rubric — never to relax the license.** Stated
 explicitly so that the licensing rule cannot lapse quietly under deadline pressure at M4.
 
-Owner: Game Director. Tracked as **W-024**. Gates M4 exit only; M4 may not be scored before the set is
-committed.
+Owner: Game Director. Tracked as **W-024**. Gates **M4 rubric scoring only** — not M2.5. See the
+W-024 unblocking plan in `work-items/WORK_ITEMS.md`.
+
+**Unblocking plan (Director, 2026-08-10).** The owner commits three files to
+`assets/reference/ivy/` (`slot1_mat_edge.jpg`, `slot2_leaf_detail.jpg`, `slot3_silhouette.jpg`) and
+records each in `assets/CREDITS.md`. Wikimedia Commons is the source; search terms and slot
+requirements are specified in W-024. M2.5's legibility gate (LG-1/LG-2′) does **not** depend on these
+photographs — they exist so M4 rubric scoring has a stable comparative baseline, not so causation
+becomes visible.
 
 ---
 
@@ -295,12 +302,106 @@ the project's largest risk.
 | Milestone | Content | Exit condition |
 |---|---|---|
 | **M1 — Ugly end-to-end** | Tower scene, constant-light stub environment, minimal physiology, growth geometry, crude stem mesh, crude leaves. | Recognizably ivy-shaped growth is on the tower and visible in a screenshot. Ugly is fine. |
-| **M2 — Environment live** | Solar position, day/night, sparse hash light field, accumulated light, sky-view factor, crowding, branching, tip lifecycle. | AS-2 and AS-3 pass. |
-| **M3 — Agency and tuning** | Seed anchors, time controls, debug overlay with all §30 parameters live and field visualization. | A parameter change can be seen on screen without a restart. |
-| **M4 — Looks good** | Leaf art and placement quality, stem mesh quality, iteration against the rubric. | Artifact blacklist clean, rubric ≥5/6, AS-1/4/5/6 pass. |
+| **M2 — Environment live** | Solar position, day/night, sparse hash light field, accumulated light, sky-view factor, crowding, branching, tip lifecycle. | AS-2 and AS-3 pass. **DONE.** |
+| **M2.5 — Visible causation** | Environment presentation (sky, tower surfacing, four canonical cameras) plus the minimum leaf rules that make sun/shade asymmetry readable on the plant. | LG-1, LG-2′, LG-3, and LG-4 pass (below). AS-1 and AS-2 re-verified as automatable causation backstops. |
+| **M3 — Agency and tuning** | Seed anchors, time controls, dev overlay with all §30 parameters live and field visualization. | A parameter change can be seen on screen without a restart. **Blocked on M2.5.** |
+| **M4 — Looks good** | Remaining leaf and stem polish, full SD-LEAF/SD-STEM, iteration against the rubric. | Artifact blacklist clean, rubric ≥5/6 (requires W-024), AS-1/4/5/6 pass. |
 
 **No parameter tuning, no field-precision work, and no leaf-art polish happens before M1 is on
 screen.** The goal of M1 is to discover what is actually hard, as early and as cheaply as possible.
+
+### Why M2.5 precedes M3
+
+M2 closes the simulation question. Phase 1's load-bearing property is **visible causation** (G2), and
+that question is still open: the measured day-150 split (96.23% sun / 50.62% shade coverage; stem
+length 973.6 m vs 311.4 m) is real but was invisible in every canonical screenshot until the debug
+camera arrived, because `CamSun` never showed the shaded half and the presentation layer — flat
+white leaves on an untextured tower under a null sky — does not surface what the simulator already
+knows.
+
+M3's core offer is choosing where to plant. That choice is meaningless until a viewer can *see* that
+one side of the tower differs from the other. Shipping seed anchors and a dev overlay first would
+produce a playable thing whose central belief — "it went that way because of the sun" — still cannot
+form from looking. That inverts Phase 1's stated build order: the right-hand loop half (*wait → read
+the result*) must become readable before the left-hand half (*change it*) earns its keep.
+
+The counter-argument — agency sooner, polish is endless — is real but secondary here. M3's time
+controls and field overlay also help iteration, and a thin M3 slice (pause/play/speed only, deferring
+W-013's full overlay) could run parallel to M2.5 leaf work without blocking it. **Seed anchors (W-012)
+and rubric-scored polish stay gated on M2.5**, because re-seeding is the impulse we are trying to
+install and it requires visible asymmetry first.
+
+### M2.5 exit gate — visible causation
+
+M2.5 closes when an unprompted viewer can tell which side gets more sun by looking at the ivy, and
+when the environment itself is present enough to read day/night. This gate is deliberately narrower
+than M4: no rubric score, no performance budget, no reference photographs.
+
+**Prerequisites (already met at M2, re-verified if M2.5 leaf work changes presentation):**
+
+- **AS-1** — coverage asymmetry (≥70% / ≥90% / ≥50%) on the placement-only metric basis
+  (`SD-METRIC-7j`). Restated here as the automatable backstop for *structural* sun/shade causation
+  (density and baldness); the canonical run reads 96.15% sun-facing vs 50.27% shaded.
+- **AS-2** — light asymmetry in stem length reaches ≥20% by day 30 and ≥40% by day 60 on the default
+  south seed (51.31% at day 150 on the canonical run). Restated here because LG-1 is about *reading*
+  asymmetry the metrics already prove.
+- **AS-3(a)** — growth rate at solar midnight ≤15% of daily mean. M2.5 adds the requirement that
+  day/night is *visible* (sky and sun energy), not only simulated.
+
+**Automatable signals (new — must be able to fail):**
+
+| ID | Signal |
+|---|---|
+| LG-2′ | **SD-LEAF-6/7 regression guard** (replaces withdrawn LG-2a/LG-2b hemisphere deltas — see SD-OPEN-10). Two layers, both must pass: **(a) Deterministic mechanism assertions** — SD-LEAF-7: instance `Color.g` span **0.18**, monotone in `f_L`, endpoints at `f_L = 0` and `f_L = 1`; reverting tint to `Color.WHITE` → span 0. SD-LEAF-6: healthy-tier fraction tracks **`0.25 + 0.65·f_L`**; fixing the tier → flat fraction. Unit-level, survivorship-immune. **(b) Whole-plant integration backstop** — on the canonical day-150 south-seed run, over eligible sampled leaves ranked by the `f_L` each leaf experienced: top-decile vs bottom-decile separation in healthy-tier area fraction and mean `Color.g` must exceed a threshold **set by one serial measurement (W-077; do not guess)**. Both layers collapse to zero if the corresponding rule is removed or unwired. Contract: `IMPLEMENTATION.md` SD-METRIC-7h. |
+| LG-3 | **Four canonical cameras exist, are fixed, and give a reproducible visual baseline.** All four transforms authored in `main.tscn`, each pinned to **local noon** (game-hour 12) when captured. `tools/ui_scripts/qa_m25_canonical.txt` captures all four without moving any camera at runtime. **Simulation determinism (exact, INV-7 scope):** two consecutive serial runs of that script on the dev machine with default seed and parameters produce identical segment count, leaf count, total stem length, and every `DUMP_LEAF_COLOUR` / `DUMP_METRICS` field to **six decimal places** — this half is not relaxed. **Image stability (tolerance):** comparing run A to run B, each of the four PNGs (`m25_cam_sun.png`, `m25_cam_shade.png`, `m25_cam_top.png`, `m25_cam_silhouette.png`) must satisfy **both**: (i) at most **0.05%** of pixels differ in any RGB channel by more than **1/255**; **and** (ii) RGB RMSE ≤ **1×10⁻⁴**. Bit-exact PNG equality is explicitly **not** required (shared with AS-4 image-stability half — SD-OPEN-12). Thresholds are **provisional** until W-081 hardening. Closes the W-002 remainder. |
+| LG-4 | **Sky and tower surfacing present.** `WorldEnvironment.environment` is non-null (procedural sky live — AR-SCENE-2). Tower wall shows repeating brick detail at ≥1 texel/cm equivalent (AR-TOWER-1 / W-046). Verified by human on the sun-facing elevation screenshot; fails if the wall is still a smooth gradient. |
+
+**Human signal (must be able to fail):**
+
+| ID | Signal |
+|---|---|
+| LG-1 | **Unprompted causation read.** Show a reviewer the sun-facing and shade-facing canonical elevation pair (day 150, south seed, noon) with **no simulation numbers, no field overlay, no explanation of the light model**. Pass only if the reviewer (a) correctly identifies the sun-facing side, **and** (b) cites at least one **plant-side** visible difference (greener/denser/healthier vs paler/sparser/weaker — not sky colour or brick alone). Fail if sides look the same, if identification is wrong, or if the difference is attributed only to exposed wall area. QA records pass/fail and reviewer quotes in the work item. |
+
+**How the gates divide labour.** Whole-side causation — *"this side of the tower got more sun"* — is
+guarded by **AS-1 + AS-2** (automatable, structural) and **LG-1** (human, reads the screenshot).
+Per-leaf appearance causation — *"a leaf grown in more light is greener and more often healthy"* — is
+guarded by **LG-2′**. LG-1 without LG-2′ repeats the W-053 trap for SD-LEAF-6/7 (subjective-only
+regression guard). LG-2′ without LG-1 passes mechanism checks while failing to install the player
+belief. All four LG signals are required. The withdrawn hemisphere-delta LG-2a/LG-2b gates asserted a
+*whole-side greenness* claim that survivorship makes dishonest at the 180° average; the sun side reads
+different because it is **balder**, which is AS-1's job, not a tint delta.
+
+**Explicit non-goals for M2.5** (defer to M4 unless needed to pass LG-1):
+
+- SD-LEAF-1 cup geometry (9-vertex card) — depth/pretty, not causation
+- SD-LEAF-5 full size model (`s_order`, `s_age`, `s_var`) — rubric 2 and 5, not G2
+- SD-LEAF-4 full jitter/droop stack — anti-repeat and depth
+- SD-LEAF-3 phyllotaxy flattening beyond what M1 already ships
+- SD-STEM taper and Catmull-Rom smoothing
+- `LeavesStatic` MultiMesh split (AR-RENDER-3) — performance path, AS-5
+- Placement-efficiency / crowding-gradient steering (W-015 deferred scope)
+- Director rubric scoring and W-024 reference photographs
+- AS-1, AS-4, AS-5, AS-6 (remain M4 gates)
+
+**Required leaf rules for M2.5** (see W-060): SD-LEAF-6 (atlas health tiers), SD-LEAF-7 (sun/shade
+tint), SD-LEAF-5 **`s_light` factor only**, SD-LEAF-4 **rule 5 phototropic cant only**. SD-LEAF-8
+already landed at M2.
+
+### M4 exit gate — looks good (unchanged scope, clarified boundary)
+
+M4 begins after M2.5 and M3. It adds polish and the full acceptance suite:
+
+- **Artifact blacklist** — zero occurrences across the four canonical angles
+- **Director visual rubric** — ≥5 of 6 criteria on the four canonical screenshots, scored against
+  the W-024 reference set (M4 may not be rubric-scored before W-024 lands)
+- **AS-1** — coverage floors (≥70% / ≥90% / ≥50%) — already passing by volume; re-verify after M4
+  leaf polish
+- **AS-4** — exact simulation determinism plus LG-3 image-stability tolerances on canonical screenshots (SD-OPEN-12)
+- **AS-5** — ≥60 fps at full coverage; 150-day grow run ≤3 min wall-clock; tip cap never exceeded
+- **AS-6** — silhouette break at ground-level camera
+
+AS-2 and AS-3 remain M2 properties; M4 does not re-open them unless a change regresses them. AS-5 is
+explicitly **not** an M2.5 requirement — legibility precedes performance optimization.
 
 ---
 
@@ -504,19 +605,312 @@ stall rule and AS-6 silhouette verified. Leaves reading as fine speckling rather
 foliage is **M4 placement/art work** (W-015, W-030, W-046) — agree with QA milestone attribution; not
 an M2 blocker. Shaded AS-1 margin (+0.62 pts above the 50% floor) remains an M4 tension to watch.
 
+**2026-08-10 — SD-OPEN-8, M2.5 sequencing and legibility gate: ratified.** M2 closes the simulation
+question; Phase 1's legibility question remains open because the presentation layer does not surface
+what the simulator already proves. **M2.5 — Visible causation** inserted between M2 and M3; M3 seed
+anchors blocked until LG-1/LG-2 pass. Rationale: visible causation is the load-bearing property
+(G2); choosing a seed anchor is meaningless until sun/shade asymmetry is readable on the plant.
+Counter-argument (agency sooner) accepted for time controls only — W-012 and rubric-scored polish
+stay gated. M2.5 exit: LG-1 (human unprompted causation read), LG-2′ (SD-LEAF-6/7 regression
+guard — see SD-OPEN-10), LG-3 (four canonical cameras), LG-4 (sky + brick UV); AS-1 and AS-2
+re-verified as automatable causation backstops. Required leaf rules: SD-LEAF-6, SD-LEAF-7, SD-LEAF-5 `s_light` only, SD-LEAF-4
+phototropic cant only. Deferred to M4: SD-LEAF-1 cup, SD-LEAF-5 full model, SD-LEAF-4 jitter/droop,
+SD-STEM polish, AR-RENDER-3 static/growing split. **Disagreement with owner framing recorded:**
+SD-LEAF-6 is not merely "variety/pretty" — `IMPLEMENTATION.md` specifies it as the primary
+causation signal (healthy tier probability scales with `f_L`). SD-LEAF-5's `s_light` is secondary
+(±10%; "dominant legibility signal is density and count, not size"). W-024 gates M4 rubric only, not
+M2.5; unblocking plan in W-024 row. Tracked: W-059 (sky), W-060 (legibility leaf minimum), W-061
+(LG-2 metric + canonical script).
+
+**2026-08-10 — SD-OPEN-9 / W-063, LG-2 threshold miscalibration: ratified.** The Systems Designer's
+arithmetic is accepted in full. On a day-150 south-seed run the shaded *hemisphere* reaches
+`D_L ≈ 4.3 → f_L ≈ 0.736`, not the ≈0.57 that earlier SD-LEAF prose assumed (that figure is correct
+for the *north wall* / deep-shade point in SD-ENV-10, `D_L ≈ 2.5`, but not for the south-seed
+shaded half). With SD-LEAF-7 `Color.g = 0.86 + 0.18·f_L`, the honest sun−shade tint separation is
+**≈0.041–0.047**, below the SD-OPEN-8 figure of ≥0.06 — a gate a correct build *fails*, the inverse of
+the W-053/W-058 could-not-fail trap. **≥0.06 withdrawn.** LG-2 split into two required automatable
+checks:
+
+- **LG-2a (SD-LEAF-7 tint):** area-weighted mean instance `Color.g`, sun-facing 180° minus shaded
+  180° **≥0.03** provisional; one-time calibration locks to `0.6 ×` measured Δg, floor 0.02. If
+  measured Δg < 0.035, widen tint gain within the two-species bound — do not lower the threshold toward
+  noise.
+- **LG-2b (SD-LEAF-6 tier):** sun−shade healthy-tier area-fraction delta **≥0.08** provisional;
+  one-time calibration locks to `0.6 ×` measured Δ, floor 0.05. Modelled Δ ≈0.15 (≈1.9× margin).
+
+**Widening the tint rejected.** Clearing 0.06 honestly would need a green spread ≈0.4 against the
+current 0.18 — the plant would read as two species, violating the SD-LEAF-7 constraint and G2
+("one plant in two light conditions"). The fix is the gate number, not the model.
+
+**On calibration vs circularity:** adjusting acceptance thresholds to match measured honest physics
+is not the W-048 trap (retuning simulation parameters to satisfy an arbitrary bar). The gate remains
+meaningful because removing SD-LEAF-7 or SD-LEAF-6 drives both metrics to zero, and the 0.6× rule
+preserves headroom below the measured signal. Calibration converts model-derived provisional numbers
+into empirical anchors; it does not make the check tautological.
+
+**Stale `f_L` audit:** no other ratified acceptance number in this document depended on the wrong
+hemisphere assumption. SD-ENV-10 north-wall `f_L ≈ 0.57` stands. SD-LEAF-2 internode and SD-LEAF-5
+`s_light` examples citing `f_L = 0.57` are deep-shade illustrations, not south-seed hemisphere means
+— corrected in `IMPLEMENTATION.md` SD-LEAF-f_L; no parameter default changes required. W-063
+closed; W-061 unblocked.
+
+**2026-08-11 — SD-OPEN-10, LG-2 hemisphere-delta withdrawal and LG-2′: ratified.** The Systems
+Designer's survivorship diagnosis is accepted in full. Canonical day-150.25 south-seed run measured
+`LG-2a Δg = 0.00834` (threshold 0.03) and `LG-2b Δ = 0.0423` (threshold 0.08), both FAIL — not
+because SD-LEAF-6/7 are wrong but because the metric averaged over the leaves that *survived*, and
+survivorship concentrates shade-hemisphere leaf area in the lit cells (`f̄_L ≈ 0.95`, not the surface
+0.736 SD-OPEN-9 assumed). Tint inversion reproduces the measured Δg to five figures (predicted
+0.00835). Recalibration cannot rescue: `0.6 ×` measured lands under both floors. **LG-2a ≥ 0.03 and
+LG-2b ≥ 0.08 withdrawn.** The honest per-leaf claim — *a leaf grown in more light is greener and more
+often healthy* — stands; the dishonest whole-side claim — *the sun hemisphere looks greener* — does
+not, because the shade side reads different primarily because it is **balder** (AS-1: 96.15% vs
+50.27%; AS-2: 51.31% stem asymmetry; LG-1 reads this comfortably).
+
+**Ratified replacements:**
+
+- **LG-2′** — two-layer SD-LEAF-6/7 regression guard (SD-METRIC-7h): (a) deterministic mechanism
+  assertions at unit level (tint span 0.18 monotone; tier fraction `0.25 + 0.65·f_L`; both collapse
+  to zero on rule removal); (b) whole-plant top-vs-bottom-decile-by-light integration backstop,
+  threshold **pending one serial measurement (W-073)** — do not guess.
+- **Causation backstop naming** — whole-side causation: **AS-1 + AS-2** (automatable, structural) +
+  **LG-1** (human). Per-leaf appearance: **LG-2′**. Tint widening stays rejected (two-species /
+  G2). No leaf parameter changes.
+- **AS-1 metric basis** — `CoverageMetric` divides SD-LEAF-5 `s_light` out of leaf area
+  (`SD-METRIC-7j`); floor values (70/90/50) unchanged. Pre-W-060 shaded read 50.62% on the
+  placement-only basis; after decoupling the structural margin returns to **≈+0.6 pt above the 50%
+  floor** — remains an **M4 tension to watch**, separate from the presentation coupling that briefly
+  cut margin to +0.27 pt.
+- **M2.5 exit** — still LG-1 through LG-4 with LG-2 replaced by LG-2′; AS-1 and AS-2 re-verified.
+
+**Rejected alternatives (Systems Designer reasoning accepted):** ±60° sector narrowing (does not
+remove survivorship dilution; reintroduces a banned second angular convention); full retirement of
+automatable SD-LEAF-6/7 guard (LG-1-only trap); surface-area weighting in the colour metric (folds
+coverage into tint, breaking remove-the-rule → zero semantics).
+
+**Process guardrail (ratified):** any new acceptance threshold derived analytically from a model must
+be **measured once on a throwaway serial probe run before ratification**, not locked from arithmetic
+alone. AS-3(b) (W-049) and LG-2 (SD-OPEN-9/10) both failed this way. Overhead is one serial run per
+candidate threshold — cheap against a second withdrawal.
+
+*Risk to watch:* LG-2′ decile threshold (W-077) must be set with the same probe discipline; a guessed
+number would repeat the error.
+
+*Acceptance signals for QA:* LG-2′ layer (a) passes in unit suite; layer (b) passes after W-077
+threshold locked; AS-1 on placement-only basis ≥ 50% shaded with ≈+0.6 pt structural margin; LG-1
+reviewer identifies sun side and cites plant-side density/sparsity difference; canonical shade
+elevation shows unmistakable north-wall baldness vs south-wall mat.
+
+**Inputs used:** SD-METRIC-7g–7j and SD-OPEN-10 in `IMPLEMENTATION.md`; canonical day-150.25 serial
+measurements; SD-OPEN-9 ratification (2026-08-10); shade-facing canonical screenshot review.
+
+**Artifacts produced:** LG-2′ ratified; LG-2a/LG-2b withdrawn; AS-1 metric-basis ruling;
+SD-OPEN-10 ratification log entry; M2.5 milestone row updated.
+
+---
+
+**2026-08-11 — LG-1: PASSED (owner sign-off).** Judged on the matched day-150 canonical pair,
+`CamSun` and `CamShade` at local noon on the south-seed run, with no numbers, no field overlay and
+no explanation of the light model, per the LG-1 protocol. The pair is a true mirror after W-072 —
+same height, same distance, yawed 180° — so the only difference presented to the eye is the plant.
+Verdict: the sun-facing side is identifiable unprompted.
+
+This matters more than a checkbox, because LG-1 is now carrying weight it was not originally
+expected to carry. The plan had two automatable colour gates (LG-2a/LG-2b) standing alongside it;
+both were withdrawn the same day for measuring a survivorship-diluted signal. LG-1 plus the
+structural AS-1/AS-2 pair is therefore the *whole* of the causation evidence, with LG-2′ demoted to
+a per-rule regression guard rather than a causation measurement. The gate passing on the first
+honest look is the strongest single piece of evidence that Phase 1's premise — growth legibly
+caused by the environment — holds.
+
+**Consequences.** M3 seed anchors (W-012) unblock: choosing where to plant is only a meaningful
+decision once a player can see that one side of the tower is better than another, which was the
+stated reason for the block. LG-1's pass also depends on `s_light` and the phototropic cant
+remaining in the render path, so both are now protected by a shipped human gate and must not be
+reverted to satisfy a metric — a live concern, since reverting the cant was proposed as a remedy
+for the AS-1 shortfall the same day and would have traded confirmed visual quality for an
+acceptance number.
+
+**Owner note, deferred not dismissed (W-080).** The weathered tier reads as reddish speckle
+scattered fairly evenly, closer to autumn or disease than to weathering. It did not impede the
+causation read, so it does not gate M2.5, and it is deferred to the M4 visual pass. Recorded here
+because the plausible causes are design-level rather than art-level: `P(healthy) = 0.25 + 0.65·f_L`
+leaves even fully sunlit growth 10% weathered and gives the distribution no spatial or temporal
+structure, whereas real weathering concentrates in old, shaded and stressed tissue. The deferred
+`s_age` / `s_order` terms are the natural home for that, since leaf age is precisely the missing
+signal.
+
+**2026-08-11 — SD-OPEN-11, LG-3 byte-identical withdrawal and restatement: ratified.** W-073
+evidence accepted in full. Two serial canonical runs produced identical simulation state (43,870
+segments / 18,390 leaves / 1288.816543 m; every dumped metric equal to six decimal places) and
+three of four captures byte-identical, but `m25_cam_silhouette.png` differed on **600 of
+2,073,600 pixels (0.029%)**, max per-channel delta **1/255**, RMSE **4.2×10⁻⁶** — 1-LSB shading
+noise on leaf alpha-cutout edges against bright sky, not a simulation determinism failure. INV-7
+covers the plant reproducing itself; portable bit-exact GPU rasterisation is not a property the
+engine guarantees and was never what LG-3's stated purpose — a stable canonical visual baseline for
+comparing runs — actually required.
+
+**Ratified restatement:** LG-3 splits into two conjunctive halves (see milestone table row):
+
+1. **Simulation determinism (exact)** — segment/leaf/length counts and full metric dump match to six
+   decimal places across two consecutive serial runs. Same standard as INV-7; unchanged from what
+   already passed in W-073.
+2. **Image stability (tolerance)** — per-PNG pairwise comparison on the four canonical captures:
+   ≤**0.05%** of pixels with any RGB channel delta >**1/255**, **and** RGB RMSE ≤**1×10⁻⁴**.
+   Shared with AS-4 image-stability half (SD-OPEN-12); bit-exact PNG equality is not required.
+
+**Threshold honesty (one sample):** the only probe is the single W-073 pair on one dev-machine GPU.
+That is **not** enough to claim permanent calibration across drivers or machines. It **is** enough
+to set a **provisional** ceiling with deliberate headroom above the observed noise floor — not at
+the measured 0.029%, which would be a tolerance chosen only because today's run happened to pass
+it. Observed 0.029% → ceiling **0.05%** (~1.7× headroom, ~1,038 pixels at 1920×1080). Observed
+max delta 1/255 → retain **1/255** as the per-pixel ceiling (anything larger is real shading
+change, not FP noise). Observed RMSE 4.2×10⁻⁶ → ceiling **1×10⁻⁴** (~24× headroom). **Confirmation
+required before hardening:** three additional serial run pairs on the dev machine (tracked as
+**W-081**); if any PNG exceeds **50%** of a provisional ceiling on any metric, escalate to Director
+before M2.5 exit. Cross-machine portability is explicitly out of scope.
+
+**What the tolerance must not permit (gate still has teeth):**
+
+- **Camera transform drift** (W-069 class) — reframes the entire tower; tens of thousands to
+  hundreds of thousands of pixels shift, far above 0.05%.
+- **Viewport resolution or MSAA change** — essentially all pixels differ.
+- **Renderer / material / sky / tower-surfacing regression** — global or regional colour shifts
+  blow RMSE past 1×10⁻⁴ even when per-pixel deltas stay at 1 LSB.
+- **Missing or misplaced geometry** — a single canonical-scale leaf against sky is ~100–500 solid
+  pixels with channel deltas ≫ 1/255; two–three such errors approach the 0.05% cap with large
+  deltas and fail the RMSE bound.
+- **Simulation-affecting presentation bugs** that the dump would catch are already covered by the
+  exact half; the image half catches presentation-only failures the dump cannot see.
+
+**Image comparison retained:** the metric dump does not observe camera aim, framing, resolution,
+lighting presentation, or material wiring. LG-3's unique value is guarding the four canonical views
+as a fixed comparative baseline — exactly what M4 rubric scoring and the artifact blacklist will
+need. Drop the image half and LG-3 collapses to INV-7 plus a camera-existence check W-002 already
+proved.
+
+**Capture path (`caffeinate` / `force_draw`):** subsumed, not a separate blocker. W-071's
+`RenderingServer.force_draw()` path is the authoritative capture mechanism — it removes OS
+presentation as a variable and is what LG-3 verification must use. W-070 `caffeinate` remains
+recommended so long day-150 runs do not lose the process to display sleep, but it is not part of
+the gate definition. The earlier byte-identical pass under `frame_post_draw` + `caffeinate` (W-069)
+neither validates nor invalidates the restated gate; an intermittent bit-exact requirement was the
+defect, not the capture path change.
+
+**Rejected alternatives:** (a) keep byte-identical and re-run until pass — teaches flakiness,
+conflates GPU noise with regressions; (b) drop the image half entirely — loses camera/renderer
+regression detection LG-3 exists to provide; (c) set tolerance at measured 0.029% — indistinguishable
+from cherry-picking the one number that was measured.
+
+*Risk to watch:* provisional ceilings could still be too loose for a subtle presentation regression
+that moves many edge pixels by exactly 1 LSB — unlikely for structural changes, possible for a
+global dithering or MSAA change. W-081 confirmation is the backstop.
+
+*Acceptance signals for QA:* two consecutive serial runs of `qa_m25_canonical.txt` via
+`force_draw` capture; simulation half exact (counts + dump to 6 dp); all four PNGs within
+0.05% / 1/255 / 1×10⁻⁴; W-081 three-pair confirmation logged before treating thresholds as
+non-provisional.
+
+**Inputs used:** W-073 measurement; W-069/W-071 capture-path history; SD-OPEN-10 process
+guardrail; INV-7 and AS-4 boundary.
+
+**Artifacts produced:** LG-3 row restated in this document; SD-OPEN-11 ratification log entry.
+
+**Next handoff: Systems Designer** — document the dual-run comparison contract in
+`IMPLEMENTATION.md` (simulation exact-match rules, per-PNG tolerance algorithm, output layout for
+run A vs run B). **Gameplay Programmer** — implement comparison tooling per that contract (W-082).
+
+**2026-08-11 — SD-OPEN-12, AS-4 split and standing-rule sharpening: ratified.** Owner escalation
+accepted: leaving AS-4's screenshot clause bit-identical after SD-OPEN-11 would guarantee a third
+withdrawal-after-implementation-contact — this time with the failure already measured (W-073:
+`m25_cam_silhouette.png`, 600 pixels / 0.029% / 1/255 / RMSE 4.2×10⁻⁶, simulation identical to
+six decimal places). The Lyapunov-divergence rationale for the anti-tolerance standing rule is
+**correct for simulation outputs and must stay binding there**; it does **not** transfer to GPU
+rasterisation, where the simulation state is already bit-identical, noise does not amplify with run
+length, and the origin is entirely outside the iterated system (driver, shader compiler, tile
+scheduling, FMA choices).
+
+**Ratified restatement:** AS-4 splits into the same two halves as LG-3 (see acceptance-signals
+table row):
+
+1. **Simulation determinism (exact)** — tip/segment/leaf counts, total stem length, and full metric
+   dump to six decimal places. No tolerance. Standing rule preserved and sharpened to name exactly
+   which outputs it covers.
+2. **Image stability (tolerance)** — four canonical PNGs under the **LG-3 image-stability half**,
+   same numbers, same instrument, same capture path. AS-4 does **not** define a separate or tighter
+   pixel ceiling.
+
+**Why AS-4 does not need bit-identical screenshots that LG-3 also lacks:** at M4, presentation
+quality is guarded by the **artifact blacklist** and **director rubric** (human, reference-photograph
+scored). AS-4's unique M4 role is re-verifying that polish did not break **simulation** reproducibility
+or the **pairwise-stable visual baseline** LG-3 established — not demanding a property the GPU cannot
+provide. A tolerance on pixels cannot mask simulation divergence because the simulation half already
+asserts exact equality; the two halves are conjunctive.
+
+**Numbers decision:** AS-4 **reuses LG-3's tolerances by reference**, not a separate table. One
+instrument, one ceiling, hardened once via W-081. M4 adds blacklist + rubric for qualitative drift;
+tighter pixel bounds without a fresh measurement would repeat the guardrail violation SD-OPEN-10
+exists to prevent. **M4 exit requires W-081 complete** (thresholds no longer provisional) **and** a
+fresh serial pair on the M4 build (W-083) reporting the same metrics — if any PNG exceeds 50% of the
+hardened ceiling, escalate before AS-4 pass.
+
+**Platform-impossibility audit (2026-08-11, post SD-OPEN-11):**
+
+| Item | Verdict |
+|---|---|
+| **INV-7** | **Clean.** Simulation plant only; digit-for-digit at day 150. |
+| **G5** (stable iteration baseline) | **Clean.** Satisfied by exact simulation + tolerant image stability, not bit-exact PNGs. |
+| **AS-1** | **Clean** for this class. Single-run floors; W-078 is metric-basis, not platform. Floors untouched. |
+| **AS-2** | **Clean.** Single-run checkpoints + cross-seed inequality; Lyapunov-adjacent clause already scoped and ratified under SD-OPEN-7. |
+| **AS-3** | **Clean.** Unit invariant primary; branching-disabled backstop only; branching-enabled cumulative withdrawn (W-049 class). |
+| **AS-5** | **Clean.** Single-run performance floors (fps, wall-clock); inherent run-to-run variance is expected and not claimed reproducible. |
+| **AS-6** | **Clean.** Human "visibly breaking" judgment; no pixel reproducibility asserted. |
+| **LG-2′** | **Clean** for this class. Survivorship class audited SD-OPEN-10; decile threshold pending W-077 measurement. |
+| **LG-3 / LG-4** | **Clean** post SD-OPEN-11/12. |
+| **Artifact blacklist** | **Clean.** Human zero-occurrence inspection, not byte identity. |
+| **Director rubric** | **Clean.** Human ≥5/6 scoring against reference photographs. |
+| **AS-4** | **Fixed** by this entry. Was the only remaining ratified bit-identical screenshot requirement. |
+| **SD-TIME-3** (`IMPLEMENTATION.md`) | **Clean.** Byte-identical tip count and stem length after speed change — simulation outputs only. |
+
+**Rejected alternatives:** (a) keep AS-4 bit-identical and discover failure at M4; (b) drop AS-4's
+screenshot clause entirely — loses re-verification after M4 polish that blacklist/rubric do not
+automate (camera drift, resolution change, renderer regression with identical metrics); (c) set a
+tighter AS-4-only pixel ceiling without measurement.
+
+*Risk to watch:* M4 leaf polish adds alpha-cutout edge area; noise fraction may rise on the
+silhouette camera. W-083 re-probe on the M4 build is the backstop — not a separate tolerance table.
+
+*Acceptance signals for QA:* AS-4 pass = simulation half exact + four PNGs within hardened LG-3
+tolerances on a fresh M4 serial pair (W-083); W-081 logged before M4 exit.
+
+**Inputs used:** SD-OPEN-11 / W-073; owner Lyapunov-boundary argument; SD-OPEN-10 process
+guardrail.
+
+**Artifacts produced:** AS-4 row restated; LG-3 row cross-reference corrected; M4 exit bullet
+updated; SD-OPEN-12 ratification log entry.
+
+**Next handoff: Systems Designer** — extend `IMPLEMENTATION.md` dual-run comparison contract to
+name AS-4 explicitly; document that LG-3 and AS-4 share one image-stability instrument and that
+W-081 hardens thresholds for both. **Gameplay Programmer** — W-082/W-083 tooling covers LG-3 and
+AS-4 without duplicate comparators.
+
 ---
 
 ## Handoff
 
-The Systems Designer stage is complete (`IMPLEMENTATION.md`, sections `SD-*`, 2026-08-08), and the
-three items it escalated are ratified above.
+**Next stage: Gameplay Programmer** — implement LG-2′ mechanism assertions and `CoverageMetric`
+`s_light` decoupling per SD-METRIC-7h/7j; LG-2′ decile backstop threshold blocked on W-077 serial
+measurement. Systems Designer to mark SD-OPEN-10 resolved in `IMPLEMENTATION.md`.
 
-**Next stage: Gameplay Architect.**
+**Inputs used:** SD-METRIC-7g–7j and SD-OPEN-10 in `IMPLEMENTATION.md`; canonical day-150.25 serial
+measurements; SD-OPEN-9 ratification (2026-08-10); shade-facing canonical screenshot review.
 
-Inputs to carry forward: this document (authoritative for vision, invariants INV-1–INV-10 and INV-3a,
-and the acceptance numbers), `IMPLEMENTATION.md` (authoritative for system contracts where the spec is
-silent), and `ivy_simulator_v0.1.md` (authoritative for equations). The Phase 1 work item queue is in
-`work-items/WORK_ITEMS.md` (W-002 through W-024).
+**Artifacts produced:** LG-2′ ratified in this document; LG-2a/LG-2b withdrawn; AS-1 metric-basis
+ruling; SD-OPEN-10 ratification log entry; M2.5 milestone row updated.
+
+**Inputs to carry forward:** this document (authoritative for vision, invariants INV-1–INV-10 and
+INV-3a, and the acceptance numbers), `IMPLEMENTATION.md` (authoritative for system contracts where
+the spec is silent), and `ivy_simulator_v0.1.md` (authoritative for equations). The Phase 1 work item
+queue is in `work-items/WORK_ITEMS.md`.
 
 Authority order when they disagree: `DESIGN.md` invariants override everything, then
 `ivy_simulator_v0.1.md` for equations, then `IMPLEMENTATION.md`. `SD-TIME-8` is the one sanctioned

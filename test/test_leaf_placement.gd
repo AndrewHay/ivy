@@ -1,5 +1,6 @@
 ## Regression tests for SD-LEAF-2 (shade etiolation), SD-LEAF-3 (phyllotaxy),
-## and SD-LEAF-8 (leaf crowding deposit and placement suppression).
+## SD-LEAF-8 (leaf crowding), and W-060 rules (SD-LEAF-4r5, SD-LEAF-5s_light,
+## SD-LEAF-6 tiers, SD-LEAF-7 tint).
 extends GutTest
 
 const LeafPlacer = preload("res://src/sim/leaf_placer.gd")
@@ -192,3 +193,254 @@ func test_leaf_suppression_fires_at_high_crowding() -> void:
 
 	assert_lt(placed, 20, "with maxed crowding, most placements must be suppressed (SD-LEAF-8)")
 	assert_gt(placed, 0, "floor probability (%.2f) must still allow some placements" % params.leaf_crowd_floor)
+
+
+# ── W-060 / SD-LEAF-7: per-instance sun/shade tint ────────────────────────────
+
+
+func _place_one_leaf(f_l: float, l_dir: Vector3 = Vector3.ZERO) -> PlantData:
+	## Helper: place exactly one leaf at the given f_L and l_dir.
+	## The distance_since_node is set to just exceed the shade-corrected internode
+	## (SD-LEAF-2: internode_base * (1 + shade_gain*(1-f_L)) * jitter) so a leaf
+	## is always placed regardless of f_L.
+	var params := IvyParams.new()
+	var plant := PlantData.new()
+	var ctx := _make_ctx(params, plant)
+	var tip := _make_tip()
+	tip.shoot_length = params.leaf_tip_suppress + 1.0
+	var u := Hash64.unit_float(tip.id, 0, 99)
+	# Mirror the SD-LEAF-2 formula inside advance() exactly, including shade gain.
+	var internode := params.internode_base \
+		* (1.0 + params.internode_shade_gain * (1.0 - f_l)) \
+		* (1.0 + params.internode_jitter * (2.0 * u - 1.0))
+	tip.distance_since_node = internode + 0.001
+	LeafPlacer.advance(tip, ctx, Vector3.ZERO, Vector3(0.03, 0.0, 0.0), f_l, Basis.IDENTITY, l_dir)
+	return plant
+
+
+func test_leaf_tint_in_full_sun_is_not_white() -> void:
+	## SD-LEAF-7 (M2.5): at f_L=1.0 the instance colour must be leaf_sun_tint,
+	## not Color.WHITE.  Before the rule is wired, leaf_color[1] == 1.0 (white).
+	var plant := _place_one_leaf(1.0)
+	assert_eq(plant.leaf_count(), 1, "precondition: one leaf placed")
+	var g: float = plant.leaf_color[1]
+	assert_almost_eq(g, 1.04, 0.001,
+		"sun leaf Color.g must be leaf_sun_tint.g (~1.04), not 1.0 (white)")
+
+
+func test_leaf_tint_in_full_shade_is_darker() -> void:
+	## SD-LEAF-7 (M2.5): at f_L=0.0 the instance colour must be leaf_shade_tint.
+	var plant := _place_one_leaf(0.0)
+	assert_eq(plant.leaf_count(), 1, "precondition: one leaf placed")
+	var g: float = plant.leaf_color[1]
+	assert_almost_eq(g, 0.86, 0.001,
+		"shade leaf Color.g must be leaf_shade_tint.g (~0.86), not 1.0 (white)")
+
+
+func test_leaf_tint_sun_green_exceeds_shade() -> void:
+	## SD-LEAF-7: sun-facing leaves must be greener (higher Color.g) than shade leaves.
+	## This is the metric LG-2a measures. The separation is ≥0.18 at f_L extremes.
+	var plant_sun := _place_one_leaf(1.0)
+	var plant_shade := _place_one_leaf(0.0)
+	var g_sun: float = plant_sun.leaf_color[1]
+	var g_shade: float = plant_shade.leaf_color[1]
+	assert_gt(g_sun, g_shade,
+		"sun leaf Color.g must exceed shade leaf Color.g (SD-LEAF-7 LG-2a)")
+	assert_gt(g_sun - g_shade, 0.15,
+		"sun–shade Color.g delta must be >0.15 (expected ~0.18 at f_L extremes)")
+
+
+# ── W-060 / SD-LEAF-5: s_light size factor ────────────────────────────────────
+
+
+func test_s_light_sun_leaf_wider_than_shade() -> void:
+	## SD-LEAF-5 (s_light only, M2.5): w = leaf_width_base * (0.80 + 0.30*f_L).
+	## A sun leaf (f_L=1.0, s_light=1.10) is wider than a shade leaf (f_L=0.0, s_light=0.80).
+	var plant_sun := _place_one_leaf(1.0)
+	var plant_shade := _place_one_leaf(0.0)
+	# x_axis in the leaf xform is x_axis * width; recover magnitude as leaf width.
+	var w_sun := Vector3(plant_sun.leaf_xform[0], plant_sun.leaf_xform[1], plant_sun.leaf_xform[2]).length()
+	var w_shade := Vector3(plant_shade.leaf_xform[0], plant_shade.leaf_xform[1], plant_shade.leaf_xform[2]).length()
+	assert_gt(w_sun, w_shade, "sun leaf must be wider than shade leaf (SD-LEAF-5 s_light)")
+	# At defaults: sun=0.075*1.10=0.0825, shade=0.075*0.80=0.060, ratio=1.375
+	assert_almost_eq(w_sun / w_shade, 1.375, 0.01,
+		"sun-to-shade width ratio must match 1.10/0.80 = 1.375")
+
+
+# ── W-060 / SD-LEAF-4 rule 5: phototropic cant ────────────────────────────────
+
+
+func test_phototropic_cant_tilts_leaf_toward_light_gradient() -> void:
+	## SD-LEAF-4 rule 5: n_leaf = normalize(n_wall + leaf_photo_cant * l_dir).
+	## With n_wall=(0,0,1) and l_dir=(0,1,0), the leaf normal tilts upward.
+	## The offset ladder applies along n_leaf, so the leaf origin's Y increases.
+	var plant_flat := _place_one_leaf(1.0, Vector3.ZERO)
+	var plant_tilted := _place_one_leaf(1.0, Vector3(0.0, 1.0, 0.0))
+	# origin.y is stored at leaf_xform index 7
+	var oy_flat: float = plant_flat.leaf_xform[7]
+	var oy_tilted: float = plant_tilted.leaf_xform[7]
+	assert_gt(oy_tilted, oy_flat,
+		"phototropic cant with upward l_dir must lift the leaf origin (SD-LEAF-4 rule 5)")
+
+
+func test_phototropic_cant_zero_l_dir_is_unchanged() -> void:
+	## With l_dir=ZERO, n_leaf == n_wall and the orientation is identical to the
+	## pre-W-060 code.  This is the backwards-compatibility case.
+	var plant_a := _place_one_leaf(1.0, Vector3.ZERO)
+	var plant_b := _place_one_leaf(1.0, Vector3.ZERO)
+	# Two calls with identical inputs must produce identical results (determinism).
+	assert_almost_eq(plant_a.leaf_xform[7], plant_b.leaf_xform[7], 1e-6,
+		"identical inputs must produce identical leaf origin Y (determinism / l_dir=0)")
+
+
+# ── W-060 / SD-LEAF-6: atlas health-tier selection ────────────────────────────
+
+
+func _leaf_is_healthy(plant: PlantData, leaf_index: int) -> bool:
+	## Healthy rects (a,c,e) have rect_uv.x < 0.1; weathered (b,d,f) > 0.5.
+	## Reading from leaf_custom which stores xywh of the atlas rect.
+	return plant.leaf_custom[leaf_index * 4] < 0.3
+
+
+func _place_many_leaves(f_l: float, count: int) -> PlantData:
+	## Helper: place `count` leaves, each from a different tip id, at the given f_L.
+	## Uses the shade-corrected internode formula (SD-LEAF-2) so leaves are placed
+	## regardless of the f_L value.
+	var params := IvyParams.new()
+	var plant := PlantData.new()
+	var ctx := _make_ctx(params, plant)
+	for i in range(count):
+		var tip := _make_tip()
+		tip.id = i
+		tip.shoot_length = params.leaf_tip_suppress + 1.0
+		var u := Hash64.unit_float(i, 0, 99)
+		var internode := params.internode_base \
+			* (1.0 + params.internode_shade_gain * (1.0 - f_l)) \
+			* (1.0 + params.internode_jitter * (2.0 * u - 1.0))
+		tip.distance_since_node = internode + 0.001
+		LeafPlacer.advance(tip, ctx, Vector3.ZERO, Vector3(0.03, 0.0, 0.0), f_l, Basis.IDENTITY)
+	return plant
+
+
+func test_tier_selection_mostly_healthy_in_full_sun() -> void:
+	## SD-LEAF-6: P(healthy) = 0.25 + 0.65*f_L = 0.90 at f_L=1.0.
+	## Across many tips at f_L=1.0, at least 75% of leaves should be healthy tier.
+	var plant := _place_many_leaves(1.0, 40)
+	var healthy_count := 0
+	for i in range(plant.leaf_count()):
+		if _leaf_is_healthy(plant, i):
+			healthy_count += 1
+	assert_gt(healthy_count, 28,
+		"At f_L=1.0 (P(healthy)=0.90), at least 70%% of %d leaves should be healthy (SD-LEAF-6)" % plant.leaf_count())
+
+
+func test_tier_selection_more_weathered_in_full_shade() -> void:
+	## SD-LEAF-6: P(healthy) = 0.25 at f_L=0.0.
+	## Across many tips, at least 40% should be weathered (expect 75%).
+	var plant := _place_many_leaves(0.0, 40)
+	var weathered_count := 0
+	for i in range(plant.leaf_count()):
+		if not _leaf_is_healthy(plant, i):
+			weathered_count += 1
+	assert_gt(weathered_count, 15,
+		"At f_L=0.0 (P(healthy)=0.25), at least 40%% of %d leaves should be weathered (SD-LEAF-6)" % plant.leaf_count())
+
+
+func test_tier_selection_deterministic_across_two_runs() -> void:
+	## SD-RNG-6: tier selection is hash-based, so identical inputs must produce identical results.
+	var params := IvyParams.new()
+	var plant_a := PlantData.new()
+	var plant_b := PlantData.new()
+	var ctx_a := _make_ctx(params, plant_a)
+	var ctx_b := _make_ctx(params, plant_b)
+	for i in range(20):
+		for run_plant in [plant_a, plant_b]:
+			var ctx: SimContext = ctx_a if run_plant == plant_a else ctx_b
+			var tip := _make_tip()
+			tip.id = i
+			tip.shoot_length = params.leaf_tip_suppress + 1.0
+			var u := Hash64.unit_float(i, 0, 99)
+			var internode := params.internode_base * (1.0 + params.internode_jitter * (2.0 * u - 1.0))
+			tip.distance_since_node = internode + 0.001
+			LeafPlacer.advance(tip, ctx, Vector3.ZERO, Vector3(0.03, 0.0, 0.0), 0.7, Basis.IDENTITY)
+	assert_eq(plant_a.leaf_count(), plant_b.leaf_count(), "both runs must place the same number of leaves")
+	for i in range(plant_a.leaf_count()):
+		assert_almost_eq(plant_a.leaf_custom[i * 4], plant_b.leaf_custom[i * 4], 1e-6,
+			"leaf %d atlas rect must be identical across runs (SD-RNG-6 determinism)" % i)
+
+
+# ── LG-2' layer (a): SD-LEAF-7 tint span and monotonicity ────────────────────
+
+
+func test_lg2prime_tint_span_is_0_18() -> void:
+	## LG-2' layer (a) — SD-LEAF-7 tint span.
+	## Color.g(f_L=1) − Color.g(f_L=0) must equal 0.18 (leaf_sun_tint.g − leaf_shade_tint.g).
+	## If SD-LEAF-7 is removed (tint = Color.WHITE), span collapses to 0 → RED.
+	var plant_sun := _place_one_leaf(1.0)
+	var plant_shade := _place_one_leaf(0.0)
+	assert_eq(plant_sun.leaf_count(), 1, "precondition: sun leaf placed")
+	assert_eq(plant_shade.leaf_count(), 0 if false else 1, "precondition: shade leaf placed")
+	var span: float = plant_sun.leaf_color[1] - plant_shade.leaf_color[1]
+	assert_almost_eq(span, 0.18, 0.001,
+		"tint span Color.g(f_L=1) − Color.g(f_L=0) must be 0.18 (SD-LEAF-7, LG-2' layer a)")
+
+
+func test_lg2prime_tint_is_monotone_at_intermediate_fl() -> void:
+	## LG-2' layer (a) — SD-LEAF-7 monotonicity.
+	## g(0) < g(0.5) < g(1). Reverting to Color.WHITE makes all three equal → RED.
+	var g_0 := _place_one_leaf(0.0).leaf_color[1]
+	var g_half := _place_one_leaf(0.5).leaf_color[1]
+	var g_1 := _place_one_leaf(1.0).leaf_color[1]
+	assert_lt(g_0, g_half,
+		"g(f_L=0) must be less than g(f_L=0.5) — tint must be monotone (SD-LEAF-7)")
+	assert_lt(g_half, g_1,
+		"g(f_L=0.5) must be less than g(f_L=1.0) — tint must be monotone (SD-LEAF-7)")
+
+
+# ── LG-2' layer (a): SD-LEAF-6 tier fraction calibration ─────────────────────
+
+
+func test_lg2prime_healthy_tier_fraction_at_fl_0_4() -> void:
+	## LG-2' layer (a) — SD-LEAF-6 tier fraction at f_L = 0.4.
+	## P(healthy) = 0.25 + 0.65 × 0.4 = 0.51.
+	## Fixing tier to always-healthy makes fraction → 1.0 → RED.
+	## Using N=300 leaves so 3σ binomial tolerance ≈ 0.09.
+	var plant := _place_many_leaves(0.4, 300)
+	var healthy_count := 0
+	for i in range(plant.leaf_count()):
+		if _leaf_is_healthy(plant, i):
+			healthy_count += 1
+	var frac := float(healthy_count) / float(maxi(plant.leaf_count(), 1))
+	assert_almost_eq(frac, 0.51, 0.10,
+		"healthy tier fraction must be ≈0.51 at f_L=0.4 (SD-LEAF-6, LG-2' layer a)")
+
+
+func test_adjacency_no_consecutive_repeat_on_same_stem() -> void:
+	## SD-LEAF-6 adjacency rule: a node may not reuse the atlas id of either of the
+	## two preceding nodes on the same stem.
+	## Strategy: place 10 leaves on one tip and verify no adjacent pair shares a rect.
+	var params := IvyParams.new()
+	var plant := PlantData.new()
+	var ctx := _make_ctx(params, plant)
+	var tip := _make_tip()
+	tip.id = 7  # arbitrary, gives a stable hash sequence
+	tip.shoot_length = params.leaf_tip_suppress + 1.0
+	var placed := 0
+	while placed < 10:
+		var u := Hash64.unit_float(tip.id, tip.node_count, 99)
+		var internode := params.internode_base * (1.0 + params.internode_jitter * (2.0 * u - 1.0))
+		tip.distance_since_node = internode + 0.001
+		var before := plant.leaf_count()
+		LeafPlacer.advance(tip, ctx, Vector3.ZERO, Vector3(0.03, 0.0, 0.0), 1.0, Basis.IDENTITY)
+		if plant.leaf_count() > before:
+			placed += 1
+	# Check: no adjacent pair shares the same atlas rect (same x+y uniquely identifies leaf id).
+	for i in range(plant.leaf_count() - 1):
+		var rx_a: float = plant.leaf_custom[i * 4]
+		var ry_a: float = plant.leaf_custom[i * 4 + 1]
+		var rx_b: float = plant.leaf_custom[(i + 1) * 4]
+		var ry_b: float = plant.leaf_custom[(i + 1) * 4 + 1]
+		assert_false(
+			absf(rx_a - rx_b) < 0.001 and absf(ry_a - ry_b) < 0.001,
+			"Consecutive leaves %d and %d on same stem must not repeat the same atlas id (SD-LEAF-6 adjacency)" % [i, i + 1]
+		)

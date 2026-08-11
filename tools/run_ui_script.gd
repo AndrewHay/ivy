@@ -4,9 +4,61 @@ extends Node
 
 const _MAIN_SCENE := "res://src/main/main.tscn"
 const _CoverageMetric = preload("res://src/metrics/coverage.gd")
+const _LeafColourMetric = preload("res://src/metrics/leaf_colour_metric.gd")
 ## Output defaults inside the project so runs need no write access outside the
 ## workspace. `.tmp/` is gitignored.
 const _DEFAULT_OUTDIR := "res://.tmp/ui_scripts/"
+## How long a capture waits for a real presented frame before giving up.
+const _PRESENT_TIMEOUT_MS := 4000
+
+
+## Renders a frame that reflects current state, so the next capture is not stale.
+##
+## Capturing must not read the viewport on `process_frame`, which fires *before*
+## rendering and so can save a frame from before the change under test (W-067).
+## Awaiting `RenderingServer.frame_post_draw` fixes that but introduces a worse
+## failure: macOS stops presenting windows that are occluded, unfocused or on
+## another Space, so the signal may never arrive. Runs were observed alive for
+## over 30 minutes having written one PNG, and closing the window by hand was the
+## only way to end them.
+##
+## `force_draw()` sidesteps the OS entirely by drawing synchronously — it returns
+## only once the frame is rendered, whether or not the window is visible. That
+## makes captures depend on the simulation state alone, which is what LG-3's
+## byte-identical requirement needs.
+##
+## The bounded fallback covers the case where `force_draw` is unavailable or
+## refuses; it never blocks indefinitely, and the caller fails loudly rather than
+## saving a frame it cannot vouch for.
+func _present_fresh_frame() -> bool:
+	if RenderingServer.has_method("force_draw"):
+		RenderingServer.force_draw(false)
+		return true
+
+	# Boxed so the lambda can mutate it; GDScript lambdas capture locals by value.
+	var drawn := [false]
+	var on_draw := func() -> void: drawn[0] = true
+	RenderingServer.frame_post_draw.connect(on_draw, CONNECT_ONE_SHOT)
+	var deadline := Time.get_ticks_msec() + _PRESENT_TIMEOUT_MS
+	while not drawn[0] and Time.get_ticks_msec() < deadline:
+		await get_tree().process_frame
+	if RenderingServer.frame_post_draw.is_connected(on_draw):
+		RenderingServer.frame_post_draw.disconnect(on_draw)
+	return drawn[0]
+
+
+## Brings the run's window forward so a human can watch a scripted run.
+##
+## Cosmetic only since `_present_fresh_frame` no longer depends on the window
+## being visible. Deliberately not always-on-top: that would steal focus from
+## whatever the user is doing for the whole run.
+func _keep_window_presenting() -> void:
+	var w := get_window()
+	if w == null:
+		return
+	if w.mode == Window.MODE_MINIMIZED:
+		w.mode = Window.MODE_WINDOWED
+	DisplayServer.window_move_to_foreground()
 
 
 func _ready() -> void:
@@ -32,6 +84,8 @@ func _ready() -> void:
 	# Set before entering the tree so `_ready` sees it and never starts the clock.
 	scene_root.set("script_driven", true)
 	add_child(scene_root)
+
+	_keep_window_presenting()
 
 	for _i in range(30):
 		await get_tree().process_frame
@@ -86,6 +140,31 @@ func _ready() -> void:
 				sim.advance_ticks(ticks)
 			for _f in range(3):
 				await get_tree().process_frame
+		elif line.begins_with("CAMERA "):
+			# Select one of the four canonical cameras by name or index (W-002, W-027).
+			# Names: sun=0, shade=1, top=2, silhouette=3.
+			# AR-SCENE-3: CameraRig.select() only toggles `current`; transforms are never written.
+			var cam_name := line.substr(7).strip_edges().to_lower()
+			var cam_rig := main.get_node_or_null("World/CameraRig")
+			if cam_rig == null or not cam_rig.has_method("select"):
+				printerr("[ui-script] FAILED step ", step, ": World/CameraRig has no select() method")
+				get_tree().quit(1)
+				return
+			var cam_index := -1
+			match cam_name:
+				"sun", "0":     cam_index = 0
+				"shade", "1":   cam_index = 1
+				"top", "2":     cam_index = 2
+				"silhouette", "3": cam_index = 3
+				_:
+					if cam_name.is_valid_int():
+						cam_index = int(cam_name)
+			if cam_index < 0:
+				printerr("[ui-script] FAILED step ", step, ": unknown camera '", cam_name, "'")
+				get_tree().quit(1)
+				return
+			cam_rig.select(cam_index)
+			print("[ui-script]   CAMERA ", cam_name, " (index=", cam_index, ")")
 		elif line.begins_with("SET_PARAM "):
 			# Live-edits IvyParams on the running Sim (W-027, AS-3b comparison, M3).
 			# Makes NO RNG draws — pure property assignment. Draw sequences diverge only
@@ -134,6 +213,88 @@ func _ready() -> void:
 					" t0pos=%.9f,%.9f,%.9f" % [t0.position.x, t0.position.y, t0.position.z],
 					" t0vig=%.9f" % t0.vigour,
 					" t0state=", t0.state)
+		elif line.begins_with("DUMP_LEAF_COLOUR"):
+			# DUMP_LEAF_COLOUR [seed_azimuth_deg]
+			# Compute LG-2a (area-weighted mean instance Color.g, sun vs shade) and
+			# LG-2b (healthy-tier area-fraction delta) per SD-METRIC-7 / W-061.
+			# Checked before DUMP_METRICS/DUMP because it also begins with "DUMP_".
+			var dlc_parts: PackedStringArray = line.split(" ", false)
+			var dlc_seed_az: float = 180.0
+			if dlc_parts.size() >= 2:
+				dlc_seed_az = float(dlc_parts[1])
+			var dlc_sim: Node = main.get_node("Sim")
+			var dlc_world: Node = main.get_node("World")
+			var dlc_spec: TowerSpec = dlc_world.get("tower_spec") as TowerSpec
+			if dlc_spec == null:
+				printerr("[ui-script] FAILED step ", step, ": World.tower_spec is null")
+				get_tree().quit(1)
+				return
+			var dlc_params: IvyParams = dlc_sim.get("params") as IvyParams
+			if dlc_params == null:
+				printerr("[ui-script] FAILED step ", step, ": Sim.params is null")
+				get_tree().quit(1)
+				return
+			var dlc_plant: PlantData = dlc_sim.get("plant") as PlantData
+			var dlc_metric: RefCounted = _LeafColourMetric.new()
+			dlc_metric.setup(dlc_spec, dlc_params)
+			var dlc_result: Dictionary = dlc_metric.measure(dlc_plant, dlc_seed_az)
+			var dlc_clock: SimClock = dlc_sim.get("clock") as SimClock
+			var dlc_day: float = dlc_clock.game_day if dlc_clock != null else 0.0
+			print("[ui-script]   DUMP_LEAF_COLOUR day=%.1f seed_az=%.1f" % [dlc_day, dlc_seed_az])
+			print("[ui-script]   LG2a  sun_g=%.5f  shade_g=%.5f  Δg=%.5f  threshold=%.3f  %s" % [
+				dlc_result.get("lg2a_sun_mean_g", 0.0),
+				dlc_result.get("lg2a_shade_mean_g", 0.0),
+				dlc_result.get("lg2a_delta", 0.0),
+				dlc_result.get("lg2a_threshold", 0.03),
+				"PASS" if dlc_result.get("lg2a_passes", false) else "FAIL"])
+			print("[ui-script]   LG2b  sun_frac=%.4f  shade_frac=%.4f  Δ=%.4f  threshold=%.3f  %s" % [
+				dlc_result.get("lg2b_sun_healthy_frac", 0.0),
+				dlc_result.get("lg2b_shade_healthy_frac", 0.0),
+				dlc_result.get("lg2b_delta", 0.0),
+				dlc_result.get("lg2b_threshold", 0.08),
+				"PASS" if dlc_result.get("lg2b_passes", false) else "FAIL"])
+			print("[ui-script]   LG2 area  sun=%.4f m²  shade=%.4f m²" % [
+				dlc_result.get("sun_leaf_area", 0.0),
+				dlc_result.get("shade_leaf_area", 0.0)])
+			# LG-2' layer (b): decile instrument (W-075, AR-METRIC-2).
+			# Ranks eligible leaves by stored leaf_light (experienced f_L, not hemisphere) and
+			# reports top-vs-bottom-decile separation in mean Color.g and healthy-tier fraction.
+			# Threshold deferred to W-077; report-only.
+			var dlc_decile: Dictionary = dlc_metric.decile_measure(dlc_plant, dlc_seed_az)
+			print("[ui-script]   LG2' decile  n_elig=%d  bot=%d[f_L<=%.3f]  top=%d[f_L>=%.3f]" % [
+				dlc_decile.get("eligible_leaf_count", 0),
+				dlc_decile.get("bottom_decile_count", 0),
+				dlc_decile.get("bottom_decile_boundary", 0.0),
+				dlc_decile.get("top_decile_count", 0),
+				dlc_decile.get("top_decile_boundary", 1.0)])
+			print("[ui-script]   LG2' Δg=%.5f  Δhealthy_frac=%.4f  (report-only; threshold deferred W-077)" % [
+				dlc_decile.get("decile_delta_g", 0.0),
+				dlc_decile.get("decile_delta_healthy_frac", 0.0)])
+			print("[ui-script]   LG2' cross-check max_residual=%.8f  (AR-METRIC-2; expect < 0.0001)" % [
+				dlc_decile.get("max_cross_check_residual", 0.0)])
+			print("[ui-script]   LG2' bot_area=%.4f m²  top_area=%.4f m²" % [
+				dlc_decile.get("bottom_decile_area", 0.0),
+				dlc_decile.get("top_decile_area", 0.0)])
+			# W-077 sector cross-check: same two decile deltas computed separately for the
+			# ±60° sun sector (centred on seed_azimuth) and the ±60° anti-sun sector
+			# (centred on seed_azimuth+180°).  Confirms the signal is not driven by a
+			# narrow sun–shade split.  For each sector: also report 0.6× for threshold context.
+			var sun_sector_az := fposmod(dlc_seed_az, 360.0)
+			var anti_az := fposmod(dlc_seed_az + 180.0, 360.0)
+			var dlc_sun_sector: Dictionary = dlc_metric.decile_measure(
+				dlc_plant, dlc_seed_az, sun_sector_az, 60.0)
+			var dlc_anti_sector: Dictionary = dlc_metric.decile_measure(
+				dlc_plant, dlc_seed_az, anti_az, 60.0)
+			var sun_dg: float = dlc_sun_sector.get("decile_delta_g", 0.0)
+			var anti_dg: float = dlc_anti_sector.get("decile_delta_g", 0.0)
+			var sun_dh: float = dlc_sun_sector.get("decile_delta_healthy_frac", 0.0)
+			var anti_dh: float = dlc_anti_sector.get("decile_delta_healthy_frac", 0.0)
+			print("[ui-script]   LG2' sector ±60°sun   n=%d  Δg=%.5f(0.6×=%.5f)  Δhfrac=%.4f(0.6×=%.4f)" % [
+				dlc_sun_sector.get("eligible_leaf_count", 0),
+				sun_dg, sun_dg * 0.6, sun_dh, sun_dh * 0.6])
+			print("[ui-script]   LG2' sector ±60°anti  n=%d  Δg=%.5f(0.6×=%.5f)  Δhfrac=%.4f(0.6×=%.4f)" % [
+				dlc_anti_sector.get("eligible_leaf_count", 0),
+				anti_dg, anti_dg * 0.6, anti_dh, anti_dh * 0.6])
 		elif line.begins_with("DUMP_METRICS"):
 			# DUMP_METRICS [seed_azimuth_deg]
 			# Must be checked before DUMP (which begins_with("DUMP") would match DUMP_METRICS).
@@ -152,20 +313,27 @@ func _ready() -> void:
 				get_tree().quit(1)
 				return
 			var dm_plant: PlantData = dm_sim.get("plant") as PlantData
+			var dm_params_early: IvyParams = dm_sim.get("params") as IvyParams
 			var dm_metric: RefCounted = _CoverageMetric.new()
-			dm_metric.setup(dm_spec)
+			dm_metric.setup(dm_spec, dm_params_early if dm_params_early != null else IvyParams.new())
 			var dm_result: Dictionary = dm_metric.measure(dm_plant, dm_seed_az)
 			var dm_clock: SimClock = dm_sim.get("clock") as SimClock
 			var dm_day: float = dm_clock.game_day if dm_clock != null else 0.0
 			print("[ui-script]   DUMP_METRICS day=%.1f seed_az=%.1f" % [dm_day, dm_seed_az])
 			print("[ui-script]   COVERAGE overall=%.2f%% (target >=70%%)" % [dm_result.get("overall_pct", 0.0)])
 			print("[ui-script]   COVERAGE sun_half=%.2f%% (target >=90%%)" % [dm_result.get("sun_half_pct", 0.0)])
-			print("[ui-script]   COVERAGE shade_half=%.2f%% (target >=50%%)" % [dm_result.get("shade_half_pct", 0.0)])
+			print("[ui-script]   COVERAGE shade_half=%.6f%% (target >=50%%)" % [dm_result.get("shade_half_pct", 0.0)])
 			print("[ui-script]   COVERAGE stem_bucket=%.2f%%" % [dm_result.get("stem_bucket_pct", 0.0)])
 			print("[ui-script]   COVERAGE eligible=%d  sun_elig=%d  shade_elig=%d" % [
 				dm_result.get("total_eligible_buckets", 0),
 				dm_result.get("sun_eligible_buckets", 0),
 				dm_result.get("shade_eligible_buckets", 0)])
+			# Diagnostic: n_wall projection (no phototropic cant) vs n_leaf (with cant).
+			# Difference isolates cant's contribution through SD-METRIC-3.  Report-only.
+			print("[ui-script]   COVERAGE_NWALL overall=%.2f%%  sun=%.2f%%  shade=%.2f%%  (diagnostic: n_wall proj)" % [
+				dm_result.get("overall_pct_nwall", 0.0),
+				dm_result.get("sun_half_pct_nwall", 0.0),
+				dm_result.get("shade_half_pct_nwall", 0.0)])
 			print("[ui-script]   LIP_REACHED=%s" % [str(dm_result.get("lip_reached", false))])
 			# AS-2: stem-length asymmetry
 			print("[ui-script]   AS2 sun_stem=%.3f m  shade_stem=%.3f m  asymmetry=%.2f%% (day30 target >=20%%)" % [
@@ -288,6 +456,12 @@ func _ready() -> void:
 			if parts.size() >= 2:
 				name = parts[1]
 			var path := outdir.path_join(name)
+			if not await _present_fresh_frame():
+				printerr("[ui-script] FAILED step ", step, ": no frame rendered within ",
+					_PRESENT_TIMEOUT_MS, " ms — refusing to save a possibly stale ",
+					"capture. Check that no other scripted run is active.")
+				get_tree().quit(1)
+				return
 			var img: Image = get_viewport().get_texture().get_image()
 			if img == null:
 				printerr("[ui-script] FAILED step ", step, ": no viewport image")
