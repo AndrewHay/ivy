@@ -24,7 +24,7 @@ static func step_tip(tip: Tip, ctx: SimContext) -> void:
 	var grad_c := ctx.env.grad_S_crowding(tip.position, basis, tip.id, tip.segment_count)
 	var l_dir := grad_l / (grad_l.length() + params.light_gradient_scale)
 	var c_dir := grad_c / (grad_c.length() + params.crowding_gradient_scale)
-	var w_p := Physiology.w_P(h)
+	var w_p := Physiology.w_P(h, params)
 	var w_r := Physiology.w_R(h, params)
 	var w_l := Physiology.w_L(f_l, params)
 	var w_c := Physiology.w_C(h, params)
@@ -60,7 +60,11 @@ static func step_tip(tip: Tip, ctx: SimContext) -> void:
 		tip.state = Tip.State.FLOATING
 	var seg_a := tip.position
 	tip.position = x_new
-	tip.direction = (tip.direction + d_actual).normalized()
+	# §30 direction_memory: how much of the previous heading survives a step. The literal 50/50
+	# blend this replaces was numerically identical at the default 0.50 (normalisation cancels the
+	# common factor), which is what let the parameter sit dead without any test noticing.
+	var mem := params.direction_memory
+	tip.direction = (tip.direction * mem + d_actual * (1.0 - mem)).normalized()
 	tip.shoot_length += params.segment_length
 	tip.segment_count += 1
 	tip.distance_since_node += params.segment_length

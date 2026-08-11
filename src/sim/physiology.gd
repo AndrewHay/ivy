@@ -24,8 +24,8 @@ static func H(d_l: float, params: IvyParams) -> float:
 	return f_L(d_l, params) * f_M(1.0)
 
 
-static func w_P(h: float) -> float:
-	return 0.5 * (0.7 + 0.3 * h)
+static func w_P(h: float, params: IvyParams) -> float:
+	return params.persistence_base * (0.7 + 0.3 * h)
 
 
 static func w_R(h: float, params: IvyParams) -> float:
