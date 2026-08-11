@@ -14,6 +14,8 @@ var _space: PhysicsDirectSpaceState3D
 
 func setup(p: IvyParams, surf: SurfaceQuery) -> void:
 	params = p
+	for problem in params.validate():
+		push_error("IvyParams: %s" % problem)
 	surface = surf
 	clock = SimClock.new(params)
 	# Starts paused so nothing advances before a caller asks. Running on the real frame

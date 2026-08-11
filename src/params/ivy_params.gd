@@ -180,6 +180,28 @@ func content_hash() -> String:
 	return "|".join(sorted).md5_text()
 
 
+## Checks constraints that couple two parameters, which no per-field `@export_range` can
+## express. Returns the violations rather than asserting: `assert` is compiled out of release
+## builds, and a guardrail that disappears in the configuration people actually run is not a
+## guardrail. Called once from `SimRoot.setup`, so the cost is irrelevant.
+func validate() -> PackedStringArray:
+	var errors: PackedStringArray = []
+
+	# SD-LEAF-6. P(healthy) = base + gain·f_L is compared unclamped against a hash draw in
+	# [0, 1), so base + gain > 1 makes the comparison always true at high light and the
+	# weathered tier silently stops appearing. Nothing else catches it: the LG-2′ layer (a)
+	# tier tests assert the shape of the probability function, not the drawn outcome, so they
+	# stay green while half the leaf atlas goes unused.
+	var healthy_max := leaf_healthy_base + leaf_healthy_gain
+	if healthy_max > 1.0:
+		errors.append(
+			"leaf_healthy_base + leaf_healthy_gain = %.4f > 1.0: at full light every tier draw"
+			% healthy_max
+			+ " returns healthy and the weathered leaf variants are never placed (SD-LEAF-6)")
+
+	return errors
+
+
 func _format_value(v: Variant) -> String:
 	match typeof(v):
 		TYPE_FLOAT:

@@ -175,6 +175,35 @@ wrong convention.
 
 ## Notes
 
+- **Code Reviewer pass, 2026-08-11 — M2.5 change set (`git diff 5a332a5..a01fdb3`, 44 files).**
+  **Verdict: PASS, nothing blocking.** Clean results worth recording, because they are the
+  evidence and not merely an absence of findings: `leaf_placer.gd` makes **zero RNG stream
+  draws** — every stochastic attribute goes through `Hash64.unit_float` on channels 99, 42, 43,
+  44 and 45 — so INV-7 holds and the two prior determinism breaks (W-033, W-034) have not
+  recurred. The crowding deposit still derives from the pre-cant `n_wall` position while
+  rendering uses `n_leaf`, so presentation and simulation stay decoupled, and nothing outside
+  the colour metric reads `leaf_area`. `sky_sun.gd` has no path to negative or unbounded energy;
+  `lit_for` returns exactly 0 at and below the horizon, with non-zero ambient floors by design.
+  `debug_camera.gd`'s `script_driven` guard is real and doubly enforced — `_ready` disables
+  unhandled input at the engine level and the handler re-checks — and every transform write is
+  confined to that one function, so AR-SCENE-3 holds for the canonical four. The late `n_wall`
+  diagnostic in `coverage.gd` accumulates in parallel and cannot reach the primary measurement.
+  W-078 and W-079 were confirmed real by inspection rather than dismissed: the cant genuinely
+  enters coverage through the stored card normal.
+  **Three findings, all fixed the same day:** (1) `LeafColourMetric` still documented the
+  withdrawn LG-2a/LG-2b thresholds as "provisional" and emitted `PASS`/`FAIL` against them, so
+  every canonical run printed FAIL for a healthy plant — now labelled `(withdrawn — report
+  only)` at both the metric and the runner, with the survivorship reasoning recorded where a
+  reader meets the numbers. (2) SD-LEAF-6's `base + gain ≤ 1.0` guardrail was specified but
+  never implemented; above 1.0 every tier draw returns healthy at full light and the weathered
+  variants silently stop being placed, which no existing test detects because the layer (a)
+  tests assert the shape of the probability function rather than the drawn outcome. Added
+  `IvyParams.validate()`, called from `SimRoot.setup` — returning violations rather than using
+  `assert`, which is compiled out of release builds. (3) The adjacency test only checked
+  consecutive pairs, so deleting `prev_leaf_id` from the forbidden set left the suite green
+  while half the two-back rule was gone; the skip-one assertion now fails on exactly that
+  deletion, verified by mutation. Suite 187 → **189**.
+
 - Stage column shows the **next** stage the item needs, per `PIPELINE.md`.
 - **Code Reviewer pass, 2026-08-09.** Scope was Stage 0, the M1 slice and the light field. The suite
   passed 63/63 and the pre-fix baseline reproduced exactly (2846 segments / 1385 leaves / 82.1559 m

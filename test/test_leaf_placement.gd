@@ -434,6 +434,8 @@ func test_adjacency_no_consecutive_repeat_on_same_stem() -> void:
 		LeafPlacer.advance(tip, ctx, Vector3.ZERO, Vector3(0.03, 0.0, 0.0), 1.0, Basis.IDENTITY)
 		if plant.leaf_count() > before:
 			placed += 1
+	assert_gt(plant.leaf_count(), 2, "need at least three leaves to test a two-back rule")
+
 	# Check: no adjacent pair shares the same atlas rect (same x+y uniquely identifies leaf id).
 	for i in range(plant.leaf_count() - 1):
 		var rx_a: float = plant.leaf_custom[i * 4]
@@ -443,4 +445,18 @@ func test_adjacency_no_consecutive_repeat_on_same_stem() -> void:
 		assert_false(
 			absf(rx_a - rx_b) < 0.001 and absf(ry_a - ry_b) < 0.001,
 			"Consecutive leaves %d and %d on same stem must not repeat the same atlas id (SD-LEAF-6 adjacency)" % [i, i + 1]
+		)
+
+	# The rule forbids reusing either of the *two* preceding ids, so the consecutive check
+	# above only covers half of it: LeafPlacer builds its forbidden set from both
+	# tip.last_leaf_id and tip.prev_leaf_id, and dropping the prev_leaf_id entry leaves every
+	# assertion above still passing. Skip-one is what makes that deletion visible.
+	for i in range(plant.leaf_count() - 2):
+		var rx_a: float = plant.leaf_custom[i * 4]
+		var ry_a: float = plant.leaf_custom[i * 4 + 1]
+		var rx_c: float = plant.leaf_custom[(i + 2) * 4]
+		var ry_c: float = plant.leaf_custom[(i + 2) * 4 + 1]
+		assert_false(
+			absf(rx_a - rx_c) < 0.001 and absf(ry_a - ry_c) < 0.001,
+			"Leaves %d and %d must not share an atlas id — the rule forbids both preceding nodes, not just the last (SD-LEAF-6 adjacency)" % [i, i + 2]
 		)

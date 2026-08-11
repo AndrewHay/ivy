@@ -7,14 +7,25 @@ extends RefCounted
 ## writes nothing to the simulation.  Two identical calls with the same PlantData
 ## return identical numbers (INV-7 not threatened).
 ##
+## LG-2a and LG-2b are WITHDRAWN (SD-OPEN-10, ratified 2026-08-11).  They are still
+## computed, and still reported, but they are **report-only diagnostics** and gate nothing.
+## Do not write new code that branches on lg2a_passes or lg2b_passes.
+##
 ## LG-2a: area-weighted mean instance Color.g, sun-facing 180° minus shaded 180°.
-##   Provisional threshold: ≥0.03.  Removing SD-LEAF-7 (flat tint) drives it to 0.
-##
 ## LG-2b: area-weighted healthy-tier area-fraction delta, same hemispheres.
-##   Provisional threshold: ≥0.08.  Removing SD-LEAF-6 (fixed tier) drives it to 0.
 ##
-## Both thresholds are provisional until the one-time calibration in DESIGN.md
-## locks them to 0.6 × measured with floors 0.02 / 0.05.
+## Why they were withdrawn, since the numbers below look like a failure and are not:
+## both average a light-derived property over the leaves that exist, and shade suppresses
+## growth, so the darkest cells hold almost no leaf area to average.  The measured 180°
+## split is therefore dominated by the brightest cells in each hemisphere — leaf-weighted
+## f_L came out at 0.9986 sun-facing against 0.9522 shaded, where ratification had assumed
+## the shaded *surface* value of 0.736.  Inverting SD-LEAF-7's linear tint reproduced the
+## measurement to five figures (predicted Δg 0.00835, measured 0.00834), which is what
+## proved the gate's premise wrong rather than its implementation.  Causation in this
+## simulation shows up as *absent* leaves, which AS-1 and AS-2 already measure.
+##
+## The thresholds are retained only so the reported PASS/FAIL keeps a stable meaning for
+## anyone reading historical logs; expect FAIL on every canonical run.
 ##
 ## LG-2' layer (b) (W-075, AR-METRIC-2): decile_measure() ranks eligible leaves
 ## by PlantData.leaf_light (the experienced f_L stored at placement — independent of
@@ -24,9 +35,10 @@ extends RefCounted
 const _CoverageMetric = preload("res://src/metrics/coverage.gd")
 const _LeafAtlas = preload("res://src/render/leaf_atlas.gd")
 
-## Provisional thresholds (SD-METRIC-7e/f). Update after calibration.
-const LG2A_THRESHOLD: float = 0.03
-const LG2B_THRESHOLD: float = 0.08
+## Withdrawn thresholds (SD-OPEN-10). Retained so historical logs stay readable; the
+## derived lg2a_passes / lg2b_passes fields are diagnostics and gate nothing.
+const LG2A_THRESHOLD_WITHDRAWN: float = 0.03
+const LG2B_THRESHOLD_WITHDRAWN: float = 0.08
 
 ## SD-LEAF-7 tint formula constants used for the cross-check in decile_measure().
 ## recovered_f_L = (Color.g - SHADE_G) / TINT_SPAN must match leaf_light within ε.
@@ -55,6 +67,10 @@ func setup(spec: TowerSpec, params: IvyParams) -> void:
 ##   lg2b_sun_healthy_frac, lg2b_shade_healthy_frac, lg2b_delta, lg2b_passes
 ##   lg2a_threshold, lg2b_threshold
 ##   sun_leaf_area, shade_leaf_area
+##
+## The *_passes fields compare against thresholds withdrawn by SD-OPEN-10 and are
+## report-only — they will read false on a healthy plant. Use decile_measure() for the
+## live LG-2' layer (b) instrument, and AS-1 / AS-2 for causation.
 func measure(plant: PlantData, seed_azimuth_deg: float) -> Dictionary:
 	var atlas := _LeafAtlas.new()
 
@@ -126,13 +142,14 @@ func measure(plant: PlantData, seed_azimuth_deg: float) -> Dictionary:
 		"lg2a_sun_mean_g":      sun_g_mean,
 		"lg2a_shade_mean_g":    shade_g_mean,
 		"lg2a_delta":           lg2a_delta,
-		"lg2a_passes":          lg2a_delta >= LG2A_THRESHOLD,
+		"lg2a_passes":          lg2a_delta >= LG2A_THRESHOLD_WITHDRAWN,
 		"lg2b_sun_healthy_frac":   sun_h_frac,
 		"lg2b_shade_healthy_frac": shade_h_frac,
 		"lg2b_delta":           lg2b_delta,
-		"lg2b_passes":          lg2b_delta >= LG2B_THRESHOLD,
-		"lg2a_threshold":       LG2A_THRESHOLD,
-		"lg2b_threshold":       LG2B_THRESHOLD,
+		"lg2b_passes":          lg2b_delta >= LG2B_THRESHOLD_WITHDRAWN,
+		"lg2a_threshold":       LG2A_THRESHOLD_WITHDRAWN,
+		"lg2b_threshold":       LG2B_THRESHOLD_WITHDRAWN,
+		"thresholds_withdrawn": true,
 		"sun_leaf_area":        sun_area_sum,
 		"shade_leaf_area":      shade_area_sum,
 	}

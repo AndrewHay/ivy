@@ -241,18 +241,23 @@ func _ready() -> void:
 			var dlc_clock: SimClock = dlc_sim.get("clock") as SimClock
 			var dlc_day: float = dlc_clock.game_day if dlc_clock != null else 0.0
 			print("[ui-script]   DUMP_LEAF_COLOUR day=%.1f seed_az=%.1f" % [dlc_day, dlc_seed_az])
-			print("[ui-script]   LG2a  sun_g=%.5f  shade_g=%.5f  Δg=%.5f  threshold=%.3f  %s" % [
+			# The 180° hemisphere deltas below are WITHDRAWN diagnostics (SD-OPEN-10): they
+			# average a light-derived property over the leaves that exist, and shade suppresses
+			# growth, so the darkest cells hold almost no area to average. Expect FAIL on a
+			# healthy plant and do not read it as a regression. Live causation signals are AS-1
+			# and AS-2 via DUMP_METRICS; the live per-rule guard is the decile block below.
+			print("[ui-script]   LG2a  sun_g=%.5f  shade_g=%.5f  Δg=%.5f  vs withdrawn %.3f  %s" % [
 				dlc_result.get("lg2a_sun_mean_g", 0.0),
 				dlc_result.get("lg2a_shade_mean_g", 0.0),
 				dlc_result.get("lg2a_delta", 0.0),
 				dlc_result.get("lg2a_threshold", 0.03),
-				"PASS" if dlc_result.get("lg2a_passes", false) else "FAIL"])
-			print("[ui-script]   LG2b  sun_frac=%.4f  shade_frac=%.4f  Δ=%.4f  threshold=%.3f  %s" % [
+				"(withdrawn — report only)"])
+			print("[ui-script]   LG2b  sun_frac=%.4f  shade_frac=%.4f  Δ=%.4f  vs withdrawn %.3f  %s" % [
 				dlc_result.get("lg2b_sun_healthy_frac", 0.0),
 				dlc_result.get("lg2b_shade_healthy_frac", 0.0),
 				dlc_result.get("lg2b_delta", 0.0),
 				dlc_result.get("lg2b_threshold", 0.08),
-				"PASS" if dlc_result.get("lg2b_passes", false) else "FAIL"])
+				"(withdrawn — report only)"])
 			print("[ui-script]   LG2 area  sun=%.4f m²  shade=%.4f m²" % [
 				dlc_result.get("sun_leaf_area", 0.0),
 				dlc_result.get("shade_leaf_area", 0.0)])

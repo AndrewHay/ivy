@@ -101,6 +101,31 @@ func test_defaults_present() -> void:
 			assert_eq(got, expected, key)
 
 
+func test_validate_accepts_the_shipped_defaults() -> void:
+	assert_eq(IvyParams.new().validate(), PackedStringArray(),
+		"shipped defaults must satisfy every coupled-parameter constraint")
+	assert_eq((load("res://src/params/ivy_params_default.tres") as IvyParams).validate(),
+		PackedStringArray(), "the default resource must satisfy them too")
+
+
+func test_validate_rejects_a_healthy_probability_above_one() -> void:
+	# SD-LEAF-6: base + gain > 1 makes every tier draw healthy at full light, so the
+	# weathered variants stop being placed. Nothing else catches it — the LG-2' layer (a)
+	# tier tests assert the probability function's shape, not the drawn outcome.
+	var p := IvyParams.new()
+	p.leaf_healthy_base = 0.5
+	p.leaf_healthy_gain = 0.7
+	var problems := p.validate()
+	assert_eq(problems.size(), 1, "base+gain=1.2 must be reported")
+	assert_string_contains(problems[0], "leaf_healthy_base + leaf_healthy_gain",
+		"the message must name both parameters so the reader can act on it")
+
+	# The boundary itself is legal: P(healthy) = 1 at full light is saturation, not overflow.
+	p.leaf_healthy_base = 0.3
+	p.leaf_healthy_gain = 0.7
+	assert_eq(p.validate(), PackedStringArray(), "base+gain == 1.0 must be accepted")
+
+
 func test_content_hash_stable() -> void:
 	var a := load("res://src/params/ivy_params_default.tres") as IvyParams
 	var b := load("res://src/params/ivy_params_default.tres") as IvyParams
