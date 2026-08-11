@@ -625,7 +625,7 @@ the time-lapse indicator (SD-TIME-5). Nothing else. The dev overlay (W-013) is a
 |---|---|
 | SD-METRIC-1 | **Surface-bucket occupancy on a fixed measurement grid in tower-cylindrical coordinates, independent of the simulation's hash field.** 72 azimuth bins (5°, ≈0.17 m arc at R = 2 m) × 35 height bins (0.10 m) = 2,520 wall buckets. |
 | SD-METRIC-2 | Buckets falling on a doorway or window opening are excluded from the denominator. The top surface and the ground are not counted. |
-| SD-METRIC-3 | A bucket is **covered** when the projected leaf area attributed to it reaches **≥50% of the bucket area** (0.0085 m²). Leaf area per instance is `alpha_fill[id] · w · h`, where `alpha_fill` is the atlas alpha coverage fraction per leaf id — **add `alpha_fill` to `leaf_atlas.json`** (offline, from the alpha channel; a small work item). Coverage % = covered buckets / eligible buckets. |
+| SD-METRIC-3 | A bucket is **covered** when the leaf area attributed to it reaches **≥50% of the bucket area** (0.0085 m²). Coverage % = covered buckets / eligible buckets. **Amended twice, both times to remove presentation from a structural gate.** (1) AR-METRIC-1 amendment: per-leaf area is the fixed leaf-`a` reference footprint `alpha_fill("a")·leaf_width_base²/aspect("a")`, not the rendered `alpha_fill[id]·w·h`, so variant, tier and `s_light` cannot move AS-1. (2) SD-OPEN-13 amendment (W-079): **no orientation projection** — the `\|dot(n_leaf, n_bucket)\|` factor is withdrawn, not merely re-based onto the wall normal, because on a cylinder the petiole's wall normal and its own bucket normal differ by at most half a 5° bin (`\|dot\| ≥ 0.999`) and the factor could never discriminate. AS-1 measures *placement occupancy*: enough leaf material attributed to a bucket, whatever direction the cards face. Orientation-weighted coverage remains as the `*_nleaf` diagnostic and gates nothing. |
 | SD-METRIC-4 | **Why not the crowding field:** crowding is simulation state the plant writes back to, so measuring coverage from it couples the acceptance metric to a tunable and lets tuning game the metric. **Why not rendered coverage:** camera, AA, and lighting dependent, and screenshot comparison is already doing a different job in AS-4. The metric must measure leaves, because leaves are what the player sees. |
 | SD-METRIC-5 | **Stem-bucket occupancy** (bucket contains ≥1 segment) is reported alongside as a diagnostic, and is the M1/M2 stand-in before leaf quality exists. |
 | SD-METRIC-6 | Secondary metric for AS-2: total stem length and leaf count per 30° azimuth sector (12 sectors). |
@@ -652,7 +652,7 @@ face normal in `leaf_xform`, area in `leaf_area`).
 |---|---|
 | SD-METRIC-7a | **Sample = eligible wall leaves only.** A leaf is in the sample iff its petiole origin (`leaf_xform` translation) maps to an **eligible** bucket of the SD-METRIC-1 grid — outer wall, height ∈ [0, 3.5 m), and **not** masked by the SD-METRIC-2 door/window exclusion. This **reuses the SD-METRIC-2 opening mask verbatim** (`CoverageMetric._eligible`), so LG-2 measures the same surface AS-1 and LG-1 read and cannot be gamed by leaves inside recesses, over the top lip, or on hanging runners (all excluded). |
 | SD-METRIC-7b | **Hemispheres reuse the AS-2 split — no second convention.** Sun-facing = `CoverageMetric._in_sun_half(leaf_azimuth, seed_azimuth_deg)` (within 90° of the seed azimuth; 180° for the south seed). "Sun side" therefore means exactly what it means in AS-1/AS-2. |
-| SD-METRIC-7c | **Weighting = raw leaf area, not one-leaf-one-vote.** Each leaf contributes with weight `leaf_area[i]` (= `alpha_fill[id]·w·h`). A dense mat of tiny weathered leaves must not out-vote the large runners the eye reads. **Deliberately unlike SD-METRIC-3, there is no `\|dot(n_leaf, n_bucket)\|` projection factor:** colour separation should weight by the leaf *material* present on each side, and dropping the projection also decouples LG-2 from the SD-LEAF-4 phototropic cant (which tilts sunny leaves' normals and would otherwise down-weight the greener side). The unweighted count-mean delta is reported alongside as a diagnostic and must share the sign. |
+| SD-METRIC-7c | **Weighting = raw leaf area, not one-leaf-one-vote.** Each leaf contributes with weight `leaf_area[i]` (= `alpha_fill[id]·w·h`). A dense mat of tiny weathered leaves must not out-vote the large runners the eye reads. **There is no `\|dot(n_leaf, n_bucket)\|` projection factor:** colour separation should weight by the leaf *material* present on each side, and dropping the projection decouples LG-2′ from the SD-LEAF-4 phototropic cant (which tilts sunny leaves' normals and would otherwise down-weight the greener side). *(This clause once read "deliberately unlike SD-METRIC-3"; since the SD-OPEN-13 amendment withdrew that projection too, the two metrics now agree on ignoring orientation and differ only in area basis — rendered here, fixed reference there, because LG-2′ is about visible material and AS-1 about placement.)* The unweighted count-mean delta is reported alongside as a diagnostic and must share the sign. |
 | SD-METRIC-7d | **Channel = instance `Color.g` (absolute), not green-minus-red or hue/saturation.** The SD-LEAF-7 tint carries its sun/shade signal in **value/brightness** (`sun_tint.g = 1.04` vs `shade_tint.g = 0.86`), not in hue — `sun_tint` is *warmer* (`r` 1.06 vs 0.78), so `g − r` is backwards (−0.02 sun vs +0.08 shade → it would call the shade side greener) and hue/saturation mislead for the same reason. `Color.g` is the correct robust channel **for this tint model**; changing it to a chroma difference inverts the gate. |
 | SD-METRIC-7e — **LG-2a (tint)** | **Sun minus shade area-weighted mean instance `Color.g` ≥ 0.03** (recommended; supersedes the ratified 0.06 pending SD-OPEN-9). Removing SD-LEAF-7 drives it to 0 → fails, preserving the Director's "removing SD-LEAF-7 must fail" intent. |
 | SD-METRIC-7f — **LG-2b (tier)** | **Sun minus shade healthy-tier area fraction ≥ 0.08.** Recover each leaf's atlas id from `leaf_custom` (rect xywh) → `LeafAtlas.tier_for(id)`; per hemisphere, healthy fraction = Σ`leaf_area` over healthy leaves / Σ`leaf_area` over all sampled leaves. This is the **automatable guard on SD-LEAF-6, the Director's designated *primary* causation signal**, which LG-2-as-ratified left entirely to the human LG-1. Needs no new offline data. Removing SD-LEAF-6 (fixed tier) drives it to 0 → fails. |
@@ -1108,8 +1108,8 @@ stem growth — INV-7.)* Therefore **`LeafPlacer` lives in the simulation layer 
 leaf instances into `PlantData`**; `LeafRenderer` only copies them into a `MultiMesh` buffer.
 
 Two consequences that matter: leaf placement is unit-testable with no rendering device (so it runs
-under `--headless` in GUT), and `CoverageMetric` (SD-METRIC-3) can compute projected leaf area from
-simulation data without a camera.
+under `--headless` in GUT), and `CoverageMetric` (SD-METRIC-3) can compute coverage from simulation
+data without a camera.
 
 ### AR-OVER-3 — Dependency injection, no autoloads
 
@@ -1982,18 +1982,21 @@ is presentation; leaf placement is simulation"). Leaf `a` is chosen over an art-
 because it *definitionally reproduces the ratified basis*; full atlas-independence would re-base the number
 and require re-ratification, which is out of scope.
 
-**The boundary this draws (and the cant, ruled on).** Neutralise presentation terms that set a leaf's
-canonical **size** (`s_light`, variant/tier, future size terms). Do **not** neutralise the SD-METRIC-3
-orientation projection: projected-area-onto-wall is a genuine *occlusion* fact — a leaf edge-on to the wall
-really does cover less wall — so it stays structural and ratified (AR-AMBIG-6 unchanged). The phototropic
-cant (`leaf_photo_cant = 0.45`) therefore still influences coverage through the projection, but this is
-**not** the shaded miss and must not be used to chase it: `l_dir → 0` on the shaded side (weak gradient),
-so the cant tilts *sunny* leaves (up to ≈24°, ≤~9% projection loss) and barely touches shaded leaves — it
-depresses the **non-binding 96% sun side**, not the binding shaded floor. It is flagged as a separately
-decidable coupling; the Programmer should **report `n_wall`-vs-`n_leaf` coverage as a diagnostic** so the
-cant's contribution is visible, and any change to the projection is deferred to its own decision (with
-Director awareness, since it touches the ratified SD-METRIC-3 basis) if `leaf_photo_cant` is ever retuned
-or the sun-side number becomes load-bearing.
+**The boundary this draws (and the cant).** Neutralise presentation terms that set a leaf's canonical
+**size** (`s_light`, variant/tier, future size terms).
+
+> **Superseded 2026-08-11 by the SD-OPEN-13 amendment (W-079).** This paragraph originally ruled the
+> opposite way on orientation: keep the SD-METRIC-3 projection, because projected-area-onto-wall is a
+> genuine occlusion fact, and expect the cant to depress only the non-binding sun figure since
+> `l_dir → 0` in shade. **Both halves were wrong.** The measurement ran the other way — shade
+> −1.77 pt (51.86% vs 50.09%), sun −0.08 pt — because the sun figure is saturated near 96% and absorbs
+> the loss invisibly while shaded buckets sit right at the occupancy threshold, and because the shaded
+> 180° includes the east and west flanks, which carry real gradients and therefore real cant. The
+> Director then found the projection could not discriminate at all: a leaf's bucket is chosen from its
+> own position, so the wall and bucket normals never differ by more than half a 5° bin and `|dot|`
+> never falls below 0.999. AS-1 is now **placement-count occupancy** with no orientation term, and
+> orientation joins size and art as presentation. Card-normal figures survive as the `*_nleaf`
+> diagnostic. `leaf_photo_cant = 0.45` is unchanged and remains pinned by the LG-1 sign-off.
 
 **Ruling (2) — add the tier-probability invariance test (the durable guard).** Companion to the
 `s_light`-gain invariance test:
@@ -2322,7 +2325,7 @@ Director can reject.
 | AR-AMBIG-3 | **SD-ENV-2 vs INV-10** | SD-ENV-2 stores resolved `A_m` per cell; INV-10 requires per-material lookup. A stored scalar cannot be hot-tuned and duplicates the registry. | Store `material_id` per cell; resolve `A_m` through `MaterialRegistry` at read time. |
 | AR-AMBIG-4 | **SD-ENV-6** | 64 SVF rays + 24 visibility rays per cell over ~40 k cells is ~3.5 M GDScript raycasts — several seconds of load stall on every run and every re-seed. | Bake visibility products on a coarse 0.12 m grid (~440 k rays) and trilerp; keep `P(cell,hour)` at full resolution since it needs no rays. Disk cache held in reserve. |
 | AR-AMBIG-5 | **SD-AGENCY-2** | "hits a collider tagged `opening`" presupposes sub-colliders, but the tower is one trimesh. | Per-face material ids via `intersect_ray`'s `face_index` (AR-TOWER-6). |
-| AR-AMBIG-6 | **SD-METRIC-3** | "projected leaf area attributed to a bucket" is not defined for a 3D card straddling a bucket boundary on a curved wall. | `alpha_fill · w · h · \|dot(n_leaf, n_bucket)\|`, attributed wholly to the petiole's bucket. Cheap, stable, unbiased at these scales. |
+| AR-AMBIG-6 | **SD-METRIC-3** | "projected leaf area attributed to a bucket" is not defined for a 3D card straddling a bucket boundary on a curved wall. | Attributed wholly to the **petiole's bucket** — this half stands. The weight was originally `alpha_fill · w · h · \|dot(n_leaf, n_bucket)\|`; it is now the fixed leaf-`a` reference footprint with **no projection** (AR-METRIC-1 amendment, then SD-OPEN-13 amendment / W-079). Petiole attribution is what makes the projection inert: the bucket is chosen from the same position the wall normal is derived from. |
 | AR-AMBIG-7 | **SD-TIME-8** | `g_ref` = "mean of `g` over the previous simulated game-day" is undefined on day 0 and implies a rolling buffer. | Since SD-TIME-6 fixes the date, `g_ref` is a constant. Compute once at `Solar._init` from 24 hourly samples. |
 | AR-AMBIG-8 | **SD-STEM vs SD-GEO-7 / INV-2** | Tip taper (`s_from_tip / 0.15`) mutates the radius of segments already emitted and frozen. | Order taper baked at birth; tip taper in the vertex shader from a per-tip length texture (AR-RENDER-2). Geometry stays immutable. |
 | AR-AMBIG-9 | **SD-GEO-6** | "rotated about the local wall normal" is undefined for a FLOATING parent, which has no wall normal — and branching off a floating runner is exactly the AS-6 / SD-EDGE-3 case. | Fall back to `tip.last_contact_normal`; if never contacted, use `Conv.tangent_basis(P).x`. |

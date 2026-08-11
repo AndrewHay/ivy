@@ -224,25 +224,47 @@ func test_synthetic_saturated_mat_is_100_pct() -> void:
 		"fully-covered plant must report 100% shade half")
 
 
-func test_edge_on_leaf_does_not_cover_bucket() -> void:
-	# A leaf whose face normal is perpendicular to the bucket wall (dot_abs = 0)
-	# contributes zero projected area → weight = ref_area * 0 = 0 → not covered.
-	# This tests SD-METRIC-3's projection: only leaves facing the wall count.
+func test_orientation_does_not_affect_bucket_coverage() -> void:
+	# Replaces test_edge_on_leaf_does_not_cover_bucket, whose premise the SD-OPEN-13
+	# amendment withdrew. AS-1 measures placement occupancy, so a leaf counts by virtue of
+	# being attributed to a bucket, whatever direction its card faces. The projection it
+	# used to assert could not discriminate anyway: a leaf's bucket comes from its own
+	# position, so the wall and bucket normals never differ by more than half a 5° bin.
+	#
+	# This is the guard against orientation creeping back into the gate — the third
+	# presentation term to do so, after s_light (W-076) and variant choice (its amendment).
 	var spec := TowerSpec.new()
 	var params := IvyParams.new()
 	var m := CoverageMetric.new()
 	m.setup(spec, params)
-	var plant := PlantData.new()
-	# Bucket at az_bin=36 (south, 180°): bucket normal = (0, 0, 1).
-	# Leaf with normal = (1, 0, 0) (east): dot((1,0,0),(0,0,1)) = 0 → no coverage.
+
 	var y := float(10) * 0.10 + 0.05
-	var pos := Vector3(0.0, y, 2.0)  # south wall
-	var n_edge_on := Vector3(1.0, 0.0, 0.0)  # east-facing (edge-on to south bucket)
-	var xform := Transform3D(Basis(Vector3.FORWARD, Vector3.UP, n_edge_on), pos)
-	plant.append_leaf(xform, Color.WHITE, Vector4.ZERO, 0, 0.0, 0.006, 0.0)
-	var result := m.measure(plant, 180.0)
-	assert_almost_eq(result["overall_pct"], 0.0, 0.001,
-		"edge-on leaf (dot_abs=0) must not cover its bucket (SD-METRIC-3 projection)")
+	var pos := Vector3(0.0, y, 2.0)  # south wall, azimuth bin 36
+	var leaves_needed := int(ceil(_bucket_area_of(spec) * 0.5 / m._ref_area))
+
+	# Same petiole, same count, opposing card orientations: face-on (outward radial) and
+	# edge-on (tangential, the case the withdrawn projection zeroed out).
+	var pcts: Array = []
+	for normal in [Vector3(0.0, 0.0, 1.0), Vector3(1.0, 0.0, 0.0)]:
+		var plant := PlantData.new()
+		for _j in range(leaves_needed):
+			var tangent := Vector3.UP.cross(normal).normalized()
+			var xform := Transform3D(Basis(tangent, Vector3.UP, normal), pos)
+			plant.append_leaf(xform, Color.WHITE, Vector4.ZERO, 0, 0.0, 0.006, 0.0)
+		assert_gt(plant.leaf_count(), 0, "plant must be non-empty")
+		var result := m.measure(plant, 180.0)
+		assert_gt(result["overall_pct"], 0.0,
+			"%d leaves must cover their bucket regardless of card orientation" % leaves_needed)
+		pcts.append(result["overall_pct"])
+
+	assert_almost_eq(pcts[1], pcts[0], 1e-9,
+		"edge-on and face-on leaves must give identical coverage (SD-OPEN-13: no orientation term)")
+
+
+## Bucket area in m² — arc length of one azimuth bin × one height bin.
+func _bucket_area_of(spec: TowerSpec) -> float:
+	return 2.0 * PI * spec.radius_outer / float(CoverageMetric.AZIMUTH_BINS) \
+		* CoverageMetric.HEIGHT_BIN_SIZE
 
 
 func test_face_on_leaves_cover_bucket() -> void:

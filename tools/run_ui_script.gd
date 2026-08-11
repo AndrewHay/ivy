@@ -333,12 +333,13 @@ func _ready() -> void:
 				dm_result.get("total_eligible_buckets", 0),
 				dm_result.get("sun_eligible_buckets", 0),
 				dm_result.get("shade_eligible_buckets", 0)])
-			# Diagnostic: n_wall projection (no phototropic cant) vs n_leaf (with cant).
-			# Difference isolates cant's contribution through SD-METRIC-3.  Report-only.
-			print("[ui-script]   COVERAGE_NWALL overall=%.2f%%  sun=%.2f%%  shade=%.2f%%  (diagnostic: n_wall proj)" % [
-				dm_result.get("overall_pct_nwall", 0.0),
-				dm_result.get("sun_half_pct_nwall", 0.0),
-				dm_result.get("shade_half_pct_nwall", 0.0)])
+			# Diagnostic: the orientation-weighted basis every AS-1 figure used before the
+			# SD-OPEN-13 amendment. Gates nothing; printed so a change of basis stays legible
+			# instead of reading as a coverage regression.
+			print("[ui-script]   COVERAGE_ORIENT overall=%.2f%%  sun=%.2f%%  shade=%.2f%%  (diagnostic: pre-SD-OPEN-13 basis, gates nothing)" % [
+				dm_result.get("overall_pct_nleaf", 0.0),
+				dm_result.get("sun_half_pct_nleaf", 0.0),
+				dm_result.get("shade_half_pct_nleaf", 0.0)])
 			print("[ui-script]   LIP_REACHED=%s" % [str(dm_result.get("lip_reached", false))])
 			# AS-2: stem-length asymmetry
 			print("[ui-script]   AS2 sun_stem=%.3f m  shade_stem=%.3f m  asymmetry=%.2f%% (day30 target >=20%%)" % [

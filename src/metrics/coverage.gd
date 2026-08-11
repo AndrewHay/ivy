@@ -11,14 +11,25 @@ extends RefCounted
 ##   azimuth: 5° bins, 0° = north, increasing clockwise (east = 90°, south = 180°).
 ##   height:  0.10 m bins, covers y = [0, 3.5 m).
 ##
-## A bucket is "covered" when the accumulated weight for it reaches ≥50% of the
-## bucket area (SD-METRIC-3).  Per-leaf weight = ref_area · |dot(n_leaf, n_bucket)|,
-## attributed to the petiole's bucket (AR-AMBIG-6).
+## A bucket is "covered" when the accumulated weight for it reaches ≥50% of the bucket
+## area (SD-METRIC-3 as amended by SD-OPEN-13).  Per-leaf weight = ref_area, attributed
+## to the petiole's bucket (AR-AMBIG-6).  There is no orientation term.
 ##
 ## ref_area = alpha_fill("a") · leaf_width_base² / aspect("a") — AR-METRIC-1 amendment.
-## Every eligible leaf is attributed the same fixed reference footprint regardless of
-## atlas variant or tier (presentation terms, not structural).  This closes the coverage
-## floor against s_light gain tweaks, tier-probability changes, and future atlas swaps.
+##
+## AS-1 asks whether enough ivy is *placed* on a part of the wall, which is the same
+## question LG-1 answers by eye, so the gate excludes every presentation term at once:
+## size (SD-LEAF-5 s_light), art (SD-LEAF-6 variant and tier), and orientation
+## (SD-LEAF-4's phototropic cant, plus jitter and droop).  Each of the first two was
+## found moving a ratified acceptance floor while the plant was bit-identical.
+##
+## The orientation term was withdrawn rather than switched to the wall normal, because on
+## a cylinder it cannot discriminate: a leaf's bucket is chosen from its own position, so
+## the wall normal and the bucket normal are never more than half a 5° bin apart and the
+## dot product never falls below 0.999.  Keeping it would have left a ratified clause with
+## no arithmetic effect.  Orientation-weighted figures remain available as the *_nleaf
+## diagnostic, which is the basis every AS-1 number before this amendment used.
+##
 ## Rendered leaf_area is unchanged and available for other consumers.
 ##
 ## Buckets on door or window openings are excluded from the denominator (SD-METRIC-2).
@@ -29,7 +40,9 @@ extends RefCounted
 ##   lip_reached
 ##   sun_stem_length, shade_stem_length, stem_asymmetry_pct   (AS-2)
 ##   total_eligible_buckets, sun_eligible_buckets, shade_eligible_buckets
-##   overall_pct_nwall, sun_half_pct_nwall, shade_half_pct_nwall  (diagnostic: n_wall projection)
+##   overall_pct_nleaf, sun_half_pct_nleaf, shade_half_pct_nleaf
+##     Diagnostic only: the orientation-weighted basis every AS-1 figure before the SD-OPEN-13
+##     amendment was measured on. Gates nothing; reported so a change of basis is legible.
 
 const AZIMUTH_BINS: int = 72       # 5° each — SD-METRIC-1
 const HEIGHT_BINS: int = 35        # 0.10 m each — SD-METRIC-1
@@ -65,13 +78,17 @@ func setup(spec: TowerSpec, params: IvyParams) -> void:
 ##   centred on this angle; so for a south seed pass 180.0.
 func measure(plant: PlantData, seed_azimuth_deg: float) -> Dictionary:
 	var n_buckets := AZIMUTH_BINS * HEIGHT_BINS
-	# Main accumulator: ref_area · |dot(n_leaf, n_bucket)| — AR-METRIC-1 structural coverage.
+	# Main accumulator: ref_area per leaf, no orientation term (SD-METRIC-3 as amended by the
+	# SD-OPEN-13 amendment). AS-1 measures placement occupancy — how much leaf is attributed to
+	# a bucket — so every presentation term is excluded at once: size (s_light), art (variant and
+	# tier) and orientation (cant, jitter, droop).
 	var leaf_accum := PackedFloat32Array()
 	leaf_accum.resize(n_buckets)
-	# Diagnostic accumulator: ref_area · |dot(n_wall, n_bucket)| — same but using the outward
-	# radial wall normal (ignoring phototropic cant) so the cant's coverage contribution is visible.
-	var leaf_accum_wall := PackedFloat32Array()
-	leaf_accum_wall.resize(n_buckets)
+	# Diagnostic accumulator: ref_area · |dot(n_leaf, n_bucket)|, the orientation-weighted basis
+	# every historical AS-1 figure was measured on. Reported so a change of basis stays visible
+	# rather than looking like a coverage regression; it gates nothing.
+	var leaf_accum_nleaf := PackedFloat32Array()
+	leaf_accum_nleaf.resize(n_buckets)
 	# Stem-occupancy: 1 if any segment midpoint maps to this bucket
 	var stem_has := PackedByteArray()
 	stem_has.resize(n_buckets)
@@ -127,27 +144,21 @@ func measure(plant: PlantData, seed_azimuth_deg: float) -> Dictionary:
 		if az < 0 or h < 0:
 			continue
 
-		# Outward wall normal at this bucket's azimuth bin centre (AR-AMBIG-6)
+		var idx := az * HEIGHT_BINS + h
+		# Every leaf contributes the same fixed leaf-"a" footprint: no size term, no art term,
+		# no orientation term. The projection that used to be here was withdrawn from the
+		# ratified contract rather than left inert, because on a cylinder it could not do
+		# anything: a leaf's bucket is chosen from its own position, so the wall normal and the
+		# bucket normal are never more than half a 5° bin apart and |dot| never fell below 0.999.
+		leaf_accum[idx] += _ref_area
+
+		# Diagnostic only: the orientation-weighted basis, kept so a basis change is legible.
+		# Outward wall normal at this bucket's azimuth bin centre (AR-AMBIG-6); nby = 0 for a
+		# vertical cylinder wall, so the vertical component of n_leaf is irrelevant here.
 		var az_rad := deg_to_rad(float(az) * 5.0 + 2.5)
 		var nbx: float = sin(az_rad)
 		var nbz: float = -cos(az_rad)
-		# |dot(n_leaf, n_bucket)|; nby = 0 for a vertical cylinder wall
-		var dot_abs := absf(nlx * nbx + nlz * nbz)
-		# AR-METRIC-1 amendment: every leaf contributes the same fixed ref_area
-		# (leaf "a" structural footprint), independent of variant/tier/s_light (AR-AMBIG-6).
-		var weight: float = _ref_area * dot_abs
-		var idx := az * HEIGHT_BINS + h
-		leaf_accum[idx] += weight
-
-		# Diagnostic: n_wall projection — same weight but dot with the petiole's outward
-		# radial direction (Vector3(ox,0,oz).normalized()) instead of the actual n_leaf.
-		# Reports how much the phototropic cant contributes through SD-METRIC-3's projection.
-		var len_xz := sqrt(ox * ox + oz * oz)
-		if len_xz > 1e-6:
-			var nwx: float = ox / len_xz
-			var nwz: float = oz / len_xz
-			var dot_abs_wall := absf(nwx * nbx + nwz * nbz)
-			leaf_accum_wall[idx] += _ref_area * dot_abs_wall
+		leaf_accum_nleaf[idx] += _ref_area * absf(nlx * nbx + nlz * nbz)
 
 	# ---- Tally coverage ----
 	var total_elig := 0
@@ -157,10 +168,10 @@ func measure(plant: PlantData, seed_azimuth_deg: float) -> Dictionary:
 	var shade_elig := 0
 	var shade_cov := 0
 	var stem_cov := 0
-	# Diagnostic n_wall tallies (parallel to above, using leaf_accum_wall)
-	var total_cov_wall := 0
-	var sun_cov_wall := 0
-	var shade_cov_wall := 0
+	# Diagnostic orientation-weighted tallies, parallel to the gating ones above
+	var total_cov_nleaf := 0
+	var sun_cov_nleaf := 0
+	var shade_cov_nleaf := 0
 
 	for az in range(AZIMUTH_BINS):
 		for h in range(HEIGHT_BINS):
@@ -171,25 +182,25 @@ func measure(plant: PlantData, seed_azimuth_deg: float) -> Dictionary:
 			var az_center := float(az) * 5.0 + 2.5
 			var in_sun := _in_sun_half(az_center, seed_azimuth_deg)
 			var covered := leaf_accum[idx] >= coverage_threshold
-			var covered_wall := leaf_accum_wall[idx] >= coverage_threshold
+			var covered_nleaf := leaf_accum_nleaf[idx] >= coverage_threshold
 			if covered:
 				total_cov += 1
-			if covered_wall:
-				total_cov_wall += 1
+			if covered_nleaf:
+				total_cov_nleaf += 1
 			if stem_has[idx] != 0:
 				stem_cov += 1
 			if in_sun:
 				sun_elig += 1
 				if covered:
 					sun_cov += 1
-				if covered_wall:
-					sun_cov_wall += 1
+				if covered_nleaf:
+					sun_cov_nleaf += 1
 			else:
 				shade_elig += 1
 				if covered:
 					shade_cov += 1
-				if covered_wall:
-					shade_cov_wall += 1
+				if covered_nleaf:
+					shade_cov_nleaf += 1
 
 	# ---- AS-2: stem length per hemisphere ----
 	var sun_stem := 0.0
@@ -220,12 +231,12 @@ func measure(plant: PlantData, seed_azimuth_deg: float) -> Dictionary:
 		"total_eligible_buckets":  total_elig,
 		"sun_eligible_buckets":    sun_elig,
 		"shade_eligible_buckets":  shade_elig,
-		# Diagnostic: n_wall projection (ref_area · |dot(n_wall, n_bucket)|).
+		# Diagnostic: orientation-weighted (ref_area · |dot(n_leaf, n_bucket)|), gates nothing.
 		# Reports coverage as if every leaf lay flush on the wall (no phototropic cant).
 		# Difference from the main numbers isolates the cant's contribution via SD-METRIC-3.
-		"overall_pct_nwall":       100.0 * float(total_cov_wall) / denom_elig,
-		"sun_half_pct_nwall":      100.0 * float(sun_cov_wall)   / float(max(sun_elig, 1)),
-		"shade_half_pct_nwall":    100.0 * float(shade_cov_wall) / float(max(shade_elig, 1)),
+		"overall_pct_nleaf":       100.0 * float(total_cov_nleaf) / denom_elig,
+		"sun_half_pct_nleaf":      100.0 * float(sun_cov_nleaf)   / float(max(sun_elig, 1)),
+		"shade_half_pct_nleaf":    100.0 * float(shade_cov_nleaf) / float(max(shade_elig, 1)),
 	}
 
 

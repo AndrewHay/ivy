@@ -201,7 +201,7 @@ silhouette against the sky.
 
 | ID | Signal |
 |---|---|
-| AS-1 | **Coverage, and it must be uneven.** From a single sun-facing seed at 150 game-days, default parameters, unattended: **≥70% of the eligible outer wall overall**, **≥90% on the sun-facing 180°**, and **≥50% on the shaded 180°**, with the top lip reached. Measured by the leaf-area bucket metric (`SD-METRIC`) on a **placement-only canonical footprint** — SD-LEAF-5 `s_light` divided out of leaf area (`SD-METRIC-7j`); AS-1 certifies structural occupancy, not rendered size. The two halves exist so that a uniform mediocre mat cannot pass — that is the wallpaper failure mode rubric criterion 2 is there to catch, and a single overall number does not catch it. The shaded floor exists so that "asymmetry" cannot degenerate into a bald side, which would fail G1. |
+| AS-1 | **Coverage, and it must be uneven.** From a single sun-facing seed at 150 game-days, default parameters, unattended: **≥70% of the eligible outer wall overall**, **≥90% on the sun-facing 180°**, and **≥50% on the shaded 180°**, with the top lip reached. Measured by the leaf-area bucket metric (`SD-METRIC`) on a **placement-count occupancy basis** — fixed leaf-`a` reference area (`SD-METRIC-7j`, AR-METRIC-1) per leaf attributed to its petiole bucket; SD-LEAF-5 `s_light`, variant/tier, and **card orientation excluded** (`SD-OPEN-13` amendment). A bucket is covered when accumulated `ref_area` from leaves placed there reaches ≥50% of bucket area. AS-1 certifies *structural wall occupancy by placement*, not rendered size or presentation tilt. Card-normal projection remains an optional **diagnostic** only. The two halves exist so that a uniform mediocre mat cannot pass — that is the wallpaper failure mode rubric criterion 2 is there to catch, and a single overall number does not catch it. The shaded floor exists so that "asymmetry" cannot degenerate into a bald side, which would fail G1. |
 | AS-2 | **Light asymmetry, and it must arrive early.** With the seed at the sun-facing base, sun-facing-vs-shaded total stem length asymmetry reaches **≥20% by game-day 30**, **≥40% by game-day 60**, and remains **≥30% at day 150**. The same run seeded on the shaded side produces **≥20% less total stem length**. The early targets matter more than the late one: the causal belief we are trying to install either forms in the first minute or it does not form. Late compression is expected and acceptable — the sunny side saturates and its crowding penalty bites while the shaded side is still uncrowded, so the cumulative ratio narrows. |
 | AS-3 | **Day/night drives growth.** In a debug readout: (a) growth rate at solar midnight is ≤15% of the daily-mean rate and ≤10% of the solar-noon rate, rising through the morning; (b) the diel gate is mean-preserving: it changes *when* growth occurs within a game-day, never the daily total budget AS-1 depends on (INV-3a). Verified in two places, neither comparing two divergent long runs: **(b.1) Unit invariant (primary).** Over the 24 simulation-tick hours of one game-day, the diel gate multiplier ĝ has arithmetic mean 1 to within 1×10⁻⁶, sampled at exactly the 24 tick-hours the simulation applies it on. Exact by construction (ĝ = g / g_ref, with g_ref the mean of g over those same 24 hours). Asserted by `test_time.gd::test_diel_gate_mean_is_unity_over_24_ticks`. **(b.2) Applied near-linear check (backstop).** With branching disabled in both runs (`SET_PARAM branch_rate 0.0`), cumulative stem elongation from game-day 0 through game-day 29 with the diel gate enabled is within **±2%** of an otherwise identical run with `diel_gate_enabled = false`, comparing `TOTAL_STEM_LENGTH` from `DUMP_METRICS` (scripts `qa_as3b_nobranch_on.txt` / `qa_as3b_nobranch_off.txt`). Branching is disabled because it is the exponential amplifier that turns sub-millimetre per-tick timing differences into an 11% cumulative gap by day 29 — a measure of trajectory divergence, not of the gate. The branching-enabled cumulative comparison ratified under W-049 is withdrawn as a test instrument: for any nonlinear growth model it exceeds any fixed tolerance at some horizon N regardless of gate correctness. Single-day deltas remain excluded (W-049). Clause (b) is the budget/mean-preservation guard only; a gate wrongly applied to a directional term is not caught here (daily elongation total unchanged) and is instead caught by (a) and the INV-3a rule that ĝ never enter a directional term; (c) accumulated light `D_L` lags a step change in instantaneous light with the expected ~3-game-day time constant. Clause (b) is the one that protects AS-1 — without it a gate that quietly halves total growth would pass (a) and (c) and fail AS-1 much later, when the cause is expensive to find. |
 | AS-4 | **Determinism.** Two consecutive serial runs with identical seed, environment, and duration on the dev machine produce: **(simulation — exact, no tolerance)** identical tip counts, segment count, leaf count, total stem length, and every automatable metric field to **six decimal places** (INV-7 scope); **(canonical screenshots — tolerance)** the four PNGs from `tools/ui_scripts/qa_m25_canonical.txt` satisfy the **LG-3 image-stability half** — ≤**0.05%** of pixels with any RGB channel delta >**1/255**, **and** RGB RMSE ≤**1×10⁻⁴** — pairwise on the same script and `force_draw` capture path. **Standing rule (simulation):** AS-4 must never relax exact-match requirements on any simulation output listed above. Any tolerance on tip counts, segment/leaf counts, stem length, or dumped metrics would turn AS-4 into a Lyapunov divergence meter and inherit the class defect that invalidated the W-049 AS-3(b) instrument — this rule is unchanged and binding. **Standing rule (rasterisation):** bit-exact PNG equality is explicitly not required and must not be demanded; GPU floating-point non-determinism on alpha-cutout edges is not simulation divergence and is bounded only by the LG-3 image-stability tolerances (hardened via W-081 before M4 exit). **M4 adds no separate pixel ceiling** — presentation drift at M4 is additionally guarded by the artifact blacklist and director rubric. |
@@ -303,8 +303,8 @@ the project's largest risk.
 |---|---|---|
 | **M1 — Ugly end-to-end** | Tower scene, constant-light stub environment, minimal physiology, growth geometry, crude stem mesh, crude leaves. | Recognizably ivy-shaped growth is on the tower and visible in a screenshot. Ugly is fine. |
 | **M2 — Environment live** | Solar position, day/night, sparse hash light field, accumulated light, sky-view factor, crowding, branching, tip lifecycle. | AS-2 and AS-3 pass. **DONE.** |
-| **M2.5 — Visible causation** | Environment presentation (sky, tower surfacing, four canonical cameras) plus the minimum leaf rules that make sun/shade asymmetry readable on the plant. | LG-1, LG-2′, LG-3, and LG-4 pass (below). AS-1 and AS-2 re-verified as automatable causation backstops. |
-| **M3 — Agency and tuning** | Seed anchors, time controls, dev overlay with all §30 parameters live and field visualization. | A parameter change can be seen on screen without a restart. **Blocked on M2.5.** |
+| **M2.5 — Visible causation** | Environment presentation (sky, tower surfacing, four canonical cameras) plus the minimum leaf rules that make sun/shade asymmetry readable on the plant. | LG-1, LG-2′, LG-3, and LG-4 pass (below). AS-1 and AS-2 re-verified as automatable causation backstops. **DONE.** |
+| **M3 — Agency and tuning** | Seed anchors, time controls, dev overlay with all §30 parameters live and field visualization. | A parameter change can be seen on screen without a restart. **Unblocked (M2.5 done).** |
 | **M4 — Looks good** | Remaining leaf and stem polish, full SD-LEAF/SD-STEM, iteration against the rubric. | Artifact blacklist clean, rubric ≥5/6 (requires W-024), AS-1/4/5/6 pass. |
 
 **No parameter tuning, no field-precision work, and no leaf-art polish happens before M1 is on
@@ -339,9 +339,10 @@ than M4: no rubric score, no performance budget, no reference photographs.
 
 **Prerequisites (already met at M2, re-verified if M2.5 leaf work changes presentation):**
 
-- **AS-1** — coverage asymmetry (≥70% / ≥90% / ≥50%) on the placement-only metric basis
-  (`SD-METRIC-7j`). Restated here as the automatable backstop for *structural* sun/shade causation
-  (density and baldness); the canonical run reads 96.15% sun-facing vs 50.27% shaded.
+- **AS-1** — coverage asymmetry (≥70% / ≥90% / ≥50%) on the **placement-count occupancy basis**
+  (`SD-OPEN-13` amendment). Restated here as the automatable backstop for *structural* sun/shade
+  causation (density and baldness); the canonical run reads **75.17% overall / 96.23% sun-facing /
+  51.86% shaded** (count basis; card-normal diagnostic 50.09% shaded).
 - **AS-2** — light asymmetry in stem length reaches ≥20% by day 30 and ≥40% by day 60 on the default
   south seed (51.31% at day 150 on the canonical run). Restated here because LG-1 is about *reading*
   asymmetry the metrics already prove.
@@ -352,7 +353,7 @@ than M4: no rubric score, no performance budget, no reference photographs.
 
 | ID | Signal |
 |---|---|
-| LG-2′ | **SD-LEAF-6/7 regression guard** (replaces withdrawn LG-2a/LG-2b hemisphere deltas — see SD-OPEN-10). Two layers, both must pass: **(a) Deterministic mechanism assertions** — SD-LEAF-7: instance `Color.g` span **0.18**, monotone in `f_L`, endpoints at `f_L = 0` and `f_L = 1`; reverting tint to `Color.WHITE` → span 0. SD-LEAF-6: healthy-tier fraction tracks **`0.25 + 0.65·f_L`**; fixing the tier → flat fraction. Unit-level, survivorship-immune. **(b) Whole-plant integration backstop** — on the canonical day-150 south-seed run, over eligible sampled leaves ranked by the `f_L` each leaf experienced: top-decile vs bottom-decile separation in healthy-tier area fraction and mean `Color.g` must exceed a threshold **set by one serial measurement (W-077; do not guess)**. Both layers collapse to zero if the corresponding rule is removed or unwired. Contract: `IMPLEMENTATION.md` SD-METRIC-7h. |
+| LG-2′ | **SD-LEAF-6/7 regression guard** (replaces withdrawn LG-2a/LG-2b hemisphere deltas — see SD-OPEN-10). Two layers, both must pass: **(a) Deterministic mechanism assertions** — SD-LEAF-7: instance `Color.g` span **0.18**, monotone in `f_L`, endpoints at `f_L = 0` and `f_L = 1`; reverting tint to `Color.WHITE` → span 0. SD-LEAF-6: healthy-tier fraction tracks **`0.25 + 0.65·f_L`**; fixing the tier → flat fraction. Unit-level, survivorship-immune. **(b) Whole-plant integration backstop** — on the canonical day-150 south-seed run, over eligible sampled leaves area-weighted by rendered `leaf_area` (SD-METRIC-7c), ranked by plumbed experienced light (`f_L`): top-decile vs bottom-decile separation must exceed **≥0.013** mean `Color.g` delta **and** **≥0.05** healthy-tier area-fraction delta (SD-OPEN-14; measured 0.02239 / 0.0895; ~1.7× headroom; **provisional** on one probe). ±60° sector splits are diagnostic only. Both layers collapse to zero if the corresponding rule is removed or unwired. Contract: `IMPLEMENTATION.md` SD-METRIC-7h. |
 | LG-3 | **Four canonical cameras exist, are fixed, and give a reproducible visual baseline.** All four transforms authored in `main.tscn`, each pinned to **local noon** (game-hour 12) when captured. `tools/ui_scripts/qa_m25_canonical.txt` captures all four without moving any camera at runtime. **Simulation determinism (exact, INV-7 scope):** two consecutive serial runs of that script on the dev machine with default seed and parameters produce identical segment count, leaf count, total stem length, and every `DUMP_LEAF_COLOUR` / `DUMP_METRICS` field to **six decimal places** — this half is not relaxed. **Image stability (tolerance):** comparing run A to run B, each of the four PNGs (`m25_cam_sun.png`, `m25_cam_shade.png`, `m25_cam_top.png`, `m25_cam_silhouette.png`) must satisfy **both**: (i) at most **0.05%** of pixels differ in any RGB channel by more than **1/255**; **and** (ii) RGB RMSE ≤ **1×10⁻⁴**. Bit-exact PNG equality is explicitly **not** required (shared with AS-4 image-stability half — SD-OPEN-12). Thresholds are **provisional** until W-081 hardening. Closes the W-002 remainder. |
 | LG-4 | **Sky and tower surfacing present.** `WorldEnvironment.environment` is non-null (procedural sky live — AR-SCENE-2). Tower wall shows repeating brick detail at ≥1 texel/cm equivalent (AR-TOWER-1 / W-046). Verified by human on the sun-facing elevation screenshot; fails if the wall is still a smooth gradient. |
 
@@ -893,19 +894,241 @@ name AS-4 explicitly; document that LG-3 and AS-4 share one image-stability inst
 W-081 hardens thresholds for both. **Gameplay Programmer** — W-082/W-083 tooling covers LG-3 and
 AS-4 without duplicate comparators.
 
+**2026-08-11 — SD-OPEN-13, AS-1 instrument: shaded margin and projection normal (W-078 + W-079):
+ratified.** Two entangled instrument questions resolved in one pass so the reasoning stays
+consistent. **→ Projection-normal ruling superseded by SD-OPEN-13 amendment (placement-count basis)
+below; W-078 shaded-margin ruling stands.**
+
+**W-078 — does AS-1 pass, and is a 0.09-point margin acceptable?**
+
+On the shipped fixed leaf-`a` reference footprint with card-normal (`n_leaf`) projection, shaded
+coverage is **50.09%** against the **50%** floor — technically a pass. **A 0.09-point margin is not
+acceptable as a durable ratified gate.** It is seven times narrower than the +0.62 pt M2 figure that
+was already flagged as an M4 tension, smaller than the effect of almost any unrelated change, and
+within measurement noise of the reference-leaf choice alone (leaf `a`'s `alpha_fill/aspect` = 0.60301
+vs six-variant mean 0.57256 — worth ≈the whole margin). The original M2 finding stands regardless of
+arithmetic: the plant was clearing 50% partly on cosmetic leaf-size inflation; the "structural margin"
+never existed at 0.62 pt once the metric is honest.
+
+**Ruling:** AS-1 **passes for M2.5 re-verification** on the current instrument (50.09% ≥ 50%). The
+**70 / 90 / 50 floors are unchanged** — no co-revision, no mechanism softening for M2.5. LG-1 already
+passed; visible coverage is not in question. The knife-edge margin is an **instrument defect**, not a
+simulation defect, and is resolved by W-079 below — not by lowering floors or retuning
+`leaf_photo_cant` (LG-1 pin).
+
+**W-079 — which normal does SD-METRIC-3 use for AS-1?**
+
+Diagnostic on the canonical run (card-normal vs wall-normal projection, same plant, same
+`ref_area`):
+
+| Basis | Shaded | Sun-facing |
+|---|---|---|
+| `n_leaf` (canted card normal) | 50.09% | 96.15% |
+| `n_wall` (petiole wall normal) | **51.86%** | 96.23% |
+| Cost of cant | **−1.77 pt** | −0.08 pt |
+
+The Architect's deferral prediction (`l_dir → 0` in shade → cant depresses sun only) is **wrong**.
+Shaded buckets sit at the occupancy threshold; marginal tilts tip them out. East/west flanks in the
+shaded 180° carry real light gradients and real cant. The cant enters through the stored card normal;
+the code is correct — this is a design ruling on what coverage *means*.
+
+**What AS-1 measures:** *structural wall occupancy by leaf placement* — whether the shaded
+hemisphere holds enough ivy to avoid the bald-side failure mode (G1, LG-1, AS-1 shaded floor). It
+does **not** measure effective perpendicular occlusion after a presentation orientation choice.
+
+**Ruling:** SD-METRIC-3 projection for AS-1 uses **`n_wall` at the petiole anchor** (segment wall
+normal), **not** the phototropic card normal `n_leaf`. Same decoupling principle as W-076: presentation
+terms (`s_light`, variant/tier, **`leaf_photo_cant` tilt**) must not move a structural gate.
+Phototropic cant remains in the render path unchanged (LG-1 pin). Jitter and droop stay in the render
+only; AS-1 asks "is leaf material placed here?" not "how edge-on is this card?"
+
+Card-normal coverage remains a **reported diagnostic** (`n_wall`-vs-`n_leaf` split) so cant coupling
+stays visible; it does not gate.
+
+**Restated canonical AS-1 figures (post W-079):** overall **75.17%**, sun-facing **96.23%**, shaded
+**51.86%** — **+1.86 pt** above the 50% floor, restorable M4 watch margin. (This entry originally
+recorded 74.28 / 96.15 / 51.86, which mixed bases: the overall and sun-facing figures were the
+card-normal ones. Corrected against the measured run after the amendment below landed; the shaded
+figure and therefore the ruling are unaffected.)
+
+**Programmer spec (W-079, do not retune `leaf_photo_cant`):** In `CoverageMetric.measure()`, compute
+`|dot(n, n_bucket)|` using the stored **segment/petiole wall normal** (`n_wall`), not the leaf
+transform's face normal. Keep the parallel card-normal accumulator as diagnostic output only.
+
+**Rejected alternatives:** (a) accept 0.09 pt and treat AS-1 as passing at M4 — gate flips on
+unrelated work; (b) lower shaded floor or co-revise 70/90/50 — plant is not bald, LG-1 confirms;
+(c) keep `n_leaf` because projected area is "physically real" — physically real but presentation-driven
+for cant, same category error as `s_light` in the metric; (d) switch reference leaf to six-variant mean
+— would land under 50% and metric-game the ratified basis.
+
+*Risk to watch:* if wall-normal AS-1 passes but a future build regresses LG-1 (shade side reads bald
+despite metric pass), the projection contract was wrong — escalate.
+
+*Falsification:* canonical shaded drops below 50% on wall-normal basis after a change that does not
+remove leaves from the shaded hemisphere; or LG-1 fail on re-test after W-079 lands.
+
+**2026-08-11 — SD-OPEN-13 amendment, placement-count basis (W-079 correction): ratified.**
+Supersedes the projection-normal wording in SD-OPEN-13 above; M2.5 close (SD-OPEN-15) stands.
+
+**Factual correction accepted.** Code inspection of `coverage.gd` shows the "wall normal" proposed in
+SD-OPEN-13 is `Vector3(ox, 0, oz).normalized()` — the radial direction of **the leaf's own
+position**. The azimuth bin is computed from that same position; the bucket normal is the bin-centre
+radial. The angle between them cannot exceed half a bin (**2.5°**); `|dot| ≥ cos(2.5°) ≈ 0.999`.
+The projection term is arithmetically a no-op (scale 0.999–1.0). The real choice was not "which
+normal to project with" but **whether to project at all**.
+
+**Confirmed ruling: (a) Pure placement count.** Orientation is irrelevant to AS-1. SD-METRIC-3's
+`|dot(n_leaf, n_bucket)|` projection clause is **withdrawn from the AS-1 contract** — not left inert
+in ratified prose. Per-leaf weight is **`ref_area` only**, attributed to the petiole bucket. A bucket
+is covered when `Σ ref_area ≥ 50%` of bucket area — equivalent to enough leaves *placed* there.
+Presentation orientation (`leaf_photo_cant`, jitter, droop) stays in the render path only (LG-1 pin).
+
+**Why (a) and not (b) or (c):**
+
+- **(b) Card-normal projection** — AS-1 stays at **50.09%** shaded; Decision 1's 0.09 pt margin
+  problem returns in full; cant remains a presentation term binding a structural gate. Rejected.
+- **(c) Fixed geometric normal** — on a cylindrical tower, bin-centre radial and petiole radial differ
+  by ≤2.5°; no meaningful orientation signal beyond what (a) already provides. Adds complexity without
+  changing the gate's meaning. Rejected.
+
+**(a) is what SD-OPEN-13's principle always pointed at** — "structural wall occupancy by placement" —
+but the entry incorrectly described it as a normal choice. Stated knowingly now.
+
+**Third basis change — stated out loud.** AS-1's 70 / 90 / 50 floors were ratified against
+orientation-weighted figures. Every historical quoted value in this document — 50.62%, 50.27%, 47.34%,
+50.09% — used card-normal projection to some degree. **51.86% is the first count-based number the
+project has.** The floors are now compared against a basis they were not calibrated on. This does not
+invalidate (a): the canonical count-basis measurement is **75.17 / 96.23 / 51.86** — all three floors
+pass, shaded at **+1.86 pt** (better margin than any orientation-weighted figure today). The floors
+remain **unchanged** (coupling rule); they are conservative on the new basis. **M4 AS-1 re-verification
+uses count basis exclusively**; do not compare future numbers to pre-amendment orientation-weighted
+history without labelling the basis.
+
+**SD-METRIC-3 restated (AS-1 portion only):** A bucket is **covered** when accumulated
+**`ref_area`** from leaves whose petiole maps to that bucket reaches **≥50% of bucket area**
+(0.0085 m²). `ref_area = alpha_fill("a") · leaf_width_base² / aspect("a")`. **No orientation
+projection.** AR-AMBIG-6 petiole attribution unchanged. Card-normal weighting
+(`ref_area · |dot(n_leaf, n_bucket)|`) may be reported as a **diagnostic** (`*_pct_nleaf` or
+equivalent) showing what the withdrawn basis would have read; it does not gate.
+
+**Test replacement (W-079, `test_metric.gd`):**
+
+- **Withdraw** `test_edge_on_leaf_does_not_cover_bucket` — it guards behaviour explicitly removed.
+- **Replace with** `test_orientation_does_not_affect_bucket_coverage`: one leaf at a fixed petiole
+  position on the south wall, measured twice with face-on vs edge-on card normals; assert
+  `overall_pct`, `sun_half_pct`, and `shade_half_pct` are **identical** (SD-OPEN-13 amendment).
+- **Retain** `test_face_on_leaves_cover_bucket` — still valid; edge-on leaves must pass it too once
+  orientation is irrelevant.
+
+**Programmer spec (W-079 revised, do not retune `leaf_photo_cant`):**
+
+1. `CoverageMetric.measure()`: per-leaf weight = `_ref_area` only; remove `|dot(n_leaf, n_bucket)|`
+   from the primary accumulator.
+2. Remove the `n_wall` diagnostic accumulator (redundant with count basis — it differed only because
+   it approximated count while main used card-normal).
+3. Optional: retain card-normal accumulator as diagnostic output (`overall_pct_nleaf`, etc.) for
+   regression visibility (canonical: 50.09% shaded vs 51.86% count).
+4. Update class header and SD-METRIC-3 cross-references — projection clause must not remain as ratified
+   dead spec.
+5. Implement test replacement above.
+
+**Rejected:** leaving projection in SD-METRIC-3 prose while code ignores it — same defect class as
+today's dead guardrails and unfalsifiable tests.
+
+*Risk to watch:* count basis ignores edge-on leaves that visually occlude less wall; LG-1 is the backstop
+that placement density matches visible baldness. If count passes and LG-1 fails, revisit.
+
+*Falsification:* two plants with identical petiole positions but different leaf orientations report
+different AS-1; or canonical count-basis shaded drops below 50% without leaf removal from shaded
+hemisphere.
+
+**2026-08-11 — SD-OPEN-14, LG-2′ layer (b) decile thresholds (W-077): ratified.** One serial probe
+on the canonical day-150.25 south-seed run (bit-identical 43,870 / 18,390 / 1288.816543 m),
+area-weighted by rendered `leaf_area` per SD-METRIC-7c, ranked by plumbed `f_L` (cross-check residual
+**5.8×10⁻⁷** vs 1×10⁻⁴ bar — ranking key independent of tint under test):
+
+| Scope | n | Δ mean `Color.g` | Δ healthy fraction |
+|---|---|---|---|
+| **Global top vs bottom decile** | 16,697 | **0.02239** | **0.0895** |
+| ±60° sun sector (diagnostic) | 9,168 | 0.00244 | 0.0039 |
+| ±60° anti-sun sector (diagnostic) | 1,552 | 0.04793 | 0.1997 |
+
+**Same discipline as LG-3 (SD-OPEN-11):** one sample, thresholds set with **deliberate headroom**
+below the observation — not calibrated to barely pass. LG-3 placed tolerances *above* measured GPU
+noise (~1.7×); LG-2′ places floors *below* measured separation at the same ratio (~1.7×). Sector
+numbers are **diagnostic only** — the sun sector would fail almost any bar by construction (light
+saturates; no gradient left to detect); the gate uses **global decile-by-light only**.
+
+**Ratified LG-2′ layer (b) floors (provisional, one probe):**
+
+- Top-decile vs bottom-decile mean instance **`Color.g` separation ≥ 0.013** (measured 0.02239;
+  ~1.7× headroom).
+- Top-decile vs bottom-decile **healthy-tier area-fraction separation ≥ 0.05** (measured 0.0895;
+  ~1.8× headroom).
+
+These replace the withdrawn hemisphere-delta floors (0.03 / 0.08) and the SD-OPEN-9 `0.6×` candidates
+(0.01343 / 0.0537) — the `0.6×` rule's 0.02 floor for Δg would leave only 1.12× headroom, repeating
+the knife-edge pattern W-078 rejects. **Confirmation before hardening:** re-probe on a second canonical
+serial run before M4 treats these as non-provisional (same spirit as W-081 for LG-3).
+
+*Risk to watch:* decile separation narrows if tier probability or tint gain changes — layer (a) unit
+assertions catch rule removal; layer (b) catches wiring failure.
+
+*Falsification:* second probe global Δg < 0.013 or Δhealthy < 0.05 with SD-LEAF-6/7 still wired →
+threshold miscalibrated or plant regressed.
+
+**2026-08-11 — SD-OPEN-15, M2.5 milestone close: ratified.**
+
+**Verdict: M2.5 closes.**
+
+| Gate | Status |
+|---|---|
+| **LG-1** | PASSED — owner unprompted causation read (2026-08-11) |
+| **LG-2′ (a)** | PASSED — unit mechanism assertions (189/189 suite) |
+| **LG-2′ (b)** | PASSED — measured 0.02239 / 0.0895 vs floors 0.013 / 0.05 (SD-OPEN-14) |
+| **LG-3** | PASSED — simulation exact; image stability provisional (SD-OPEN-11) |
+| **LG-4** | PASSED — day/night distinct; brick coursing visible |
+| **AS-1 / AS-2** | Re-verified — AS-2 51.31%; AS-1 75.17 / 96.23 / 51.86% (placement-count basis) |
+| **Code review** | PASS — no blocking findings (`a01fdb3`, `0124d98`; 189/189) |
+
+**What M2.5 proved:** Visible causation installs from looking — an unprompted viewer identifies the
+sun-facing side and cites plant-side differences (LG-1). The environment reads as day and night (LG-4).
+Four fixed canonical cameras give a reproducible baseline with exact simulation determinism and bounded
+GPU image noise (LG-3). Per-leaf appearance rules (SD-LEAF-6/7 tint and tier) are wired, guarded at unit
+and integration level (LG-2′), and decoupled from survivorship-poisoned hemisphere averages
+(SD-OPEN-10). Structural sun/shade asymmetry remains proven by AS-1 + AS-2 with an honest metric
+instrument (SD-OPEN-13).
+
+**What M2.5 cost:** Three acceptance-signal withdrawals or restatements (LG-2a/LG-2b, LG-3
+byte-identity, AS-4 bit-identical screenshots) — all the same defect class: requirements resting on
+properties the platform or survivorship math do not guarantee. One human gate (LG-1) now carries
+whole-side causation evidence weight formerly shared with automatable colour deltas. AS-1 metric basis
+required two decoupling passes (W-076 presentation size, W-079 presentation cant). Provisional
+tolerances/thresholds (LG-3 image stability, LG-2′ decile floors) await confirmation probes (W-081,
+second decile re-probe) before M4 hardening.
+
+**M3 unblocked:** seed anchors (W-012) and dev tuning overlay proceed; first M3 item is the dev tuning
+overlay per milestone table.
+
+**Remaining implementation (does not block M2.5 close):** W-079 (placement-count basis in
+`CoverageMetric` per SD-OPEN-13 amendment), W-082 (LG-3 dual-run comparison tooling), W-081 (LG-3
+tolerance confirmation).
+
+**Corrected stale claim:** SD-OPEN-10's "≈+0.6 pt structural margin after decoupling" assumed
+≈50.62% shaded on fixed footprint; measured fixed leaf-`a` + card-normal is 50.09%. Placement-count
+basis (SD-OPEN-13 amendment) gives **51.86% shaded (+1.86 pt)** — the durable margin W-078 required.
+The SD-OPEN-13 "wall-normal projection" description was incorrect; the operative change is dropping
+projection entirely.
+
 ---
 
 ## Handoff
 
-**Next stage: Gameplay Programmer** — implement LG-2′ mechanism assertions and `CoverageMetric`
-`s_light` decoupling per SD-METRIC-7h/7j; LG-2′ decile backstop threshold blocked on W-077 serial
-measurement. Systems Designer to mark SD-OPEN-10 resolved in `IMPLEMENTATION.md`.
-
-**Inputs used:** SD-METRIC-7g–7j and SD-OPEN-10 in `IMPLEMENTATION.md`; canonical day-150.25 serial
-measurements; SD-OPEN-9 ratification (2026-08-10); shade-facing canonical screenshot review.
-
-**Artifacts produced:** LG-2′ ratified in this document; LG-2a/LG-2b withdrawn; AS-1 metric-basis
-ruling; SD-OPEN-10 ratification log entry; M2.5 milestone row updated.
+**Next stage: Gameplay Programmer** — W-079 (placement-count basis per SD-OPEN-13 amendment:
+`ref_area` only, drop projection, test replacement); W-082 (LG-3/AS-4 dual-run comparison tooling).
+**Systems Designer** — restate SD-METRIC-3 AS-1 portion (projection withdrawn); document
+SD-OPEN-13 amendment and SD-OPEN-14 thresholds in `IMPLEMENTATION.md`. **QA** — W-081 three-pair
+LG-3 confirmation; LG-2′ decile re-probe before M4 hardening.
 
 **Inputs to carry forward:** this document (authoritative for vision, invariants INV-1–INV-10 and
 INV-3a, and the acceptance numbers), `IMPLEMENTATION.md` (authoritative for system contracts where
