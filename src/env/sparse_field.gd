@@ -141,6 +141,9 @@ func read_trilinear(channel: int, p: Vector3, fallback: float) -> float:
 	var fz := (p.z / _grid.cell_size) - float(base.z)
 	var sum := 0.0
 	var weight_sum := 0.0
+	var first := 0.0
+	var seen_any := false
+	var uniform := true
 	var arr: PackedFloat32Array = _ch[channel]
 	for dx in 2:
 		for dy in 2:
@@ -149,10 +152,25 @@ func read_trilinear(channel: int, p: Vector3, fallback: float) -> float:
 				if not _slot_of.has(key):
 					continue
 				var w := _tri_weight(fx, dx) * _tri_weight(fy, dy) * _tri_weight(fz, dz)
-				sum += w * arr[_slot_of[key]]
+				var v := arr[_slot_of[key]]
+				if not seen_any:
+					first = v
+					seen_any = true
+				elif v != first:
+					uniform = false
+				sum += w * v
 				weight_sum += w
 	if weight_sum < 1e-6:
 		return fallback
+	# SD-EDGE-12: a uniform neighbourhood must read as exactly its own value, because
+	# interpolation across equal corners is the identity. Taking the general path here would
+	# return `Σ(w·C) / Σw`, which lands about one ULP either side of C depending on which
+	# weights the sample point happens to produce — enough for a central difference over a
+	# perfectly uniform field to report a non-zero gradient (~6e-15) and inject phantom
+	# direction into growth. Small, but the rule says exactly zero and this makes it true
+	# rather than nearly true. Non-uniform reads are untouched, so no canonical figure moves.
+	if uniform:
+		return first
 	# Renormalizing by the realized weight, rather than blending unallocated corners
 	# against `fallback`, is what stops the shell boundary fabricating a strong radial
 	# gradient that would yank floating tips back at the wall (AR-AMBIG-2).
