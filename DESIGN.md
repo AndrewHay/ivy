@@ -304,7 +304,7 @@ the project's largest risk.
 | **M1 — Ugly end-to-end** | Tower scene, constant-light stub environment, minimal physiology, growth geometry, crude stem mesh, crude leaves. | Recognizably ivy-shaped growth is on the tower and visible in a screenshot. Ugly is fine. |
 | **M2 — Environment live** | Solar position, day/night, sparse hash light field, accumulated light, sky-view factor, crowding, branching, tip lifecycle. | AS-2 and AS-3 pass. **DONE.** |
 | **M2.5 — Visible causation** | Environment presentation (sky, tower surfacing, four canonical cameras) plus the minimum leaf rules that make sun/shade asymmetry readable on the plant. | LG-1, LG-2′, LG-3, and LG-4 pass (below). AS-1 and AS-2 re-verified as automatable causation backstops. **DONE.** |
-| **M2.6 — Real geometry pass** | A second `SurfaceQuery` backend that produces Φ and ∇Φ for imported mesh geometry (baked discrete signed-distance volume), plus two CC0 medieval test structures and authored growth scenarios — no player controls. | SG-1 through SG-7 pass (below), including the SG-7 human art-direction read. Procedural tower canonical run unchanged. **Next.** |
+| **M2.6 — Real geometry pass** | A second `SurfaceQuery` backend that produces Φ and ∇Φ for imported mesh geometry (baked discrete signed-distance volume), plus two CC0 medieval test structures and authored growth scenarios — no player controls. | SG-1 through SG-8 pass (below), including the SG-7 human art-direction read and the SG-8 interior/exterior light separation. Procedural tower canonical run unchanged. **Next.** |
 | **M2.7 — Surface differentiation** | Per-material adhesion values, imported-asset submesh → `MaterialRegistry` mapping, and a single test wall carrying window / closed door / open door so adhesion differences are readable in one frame. | RG-1 through RG-4 pass (outline below). |
 | **M3 — Agency and tuning** | Seed anchors, time controls, dev overlay with all §30 parameters live and field visualization. | A parameter change can be seen on screen without a restart. **Blocked until M2.7.** |
 | **M4 — Looks good** | Remaining leaf and stem polish, full SD-LEAF/SD-STEM, iteration against the rubric. | Artifact blacklist clean, rubric ≥5/6 (requires W-024), AS-1/4/5/6 pass. |
@@ -382,9 +382,10 @@ until M2.7.
 ### M2.6 exit gate — real geometry pass
 
 M2.6 closes when ivy grows reliably on two imported medieval structures via the mesh-SDF backend,
-when the procedural tower canonical run is provably unchanged, and when growth scenarios at different
-plant points are visually credible. No player controls, no per-material adhesion tuning, no
-AS-1/AS-2 on the new geometry.
+when the procedural tower canonical run is provably unchanged, when the interior of an enclosed
+structure is measurably darker than its exterior, and when growth scenarios at different plant points
+are visually credible. No player controls, no per-material adhesion tuning, no AS-1/AS-2 on the new
+geometry.
 
 **Prerequisites (already met at M2.5, re-verified if mesh backend touches shared code paths):**
 
@@ -397,17 +398,46 @@ AS-1/AS-2 on the new geometry.
 | ID | Signal |
 |---|---|
 | SG-1 | **Procedural tower unchanged (exact).** Two consecutive serial runs of `tools/ui_scripts/qa_m25_canonical.txt` on the default procedural tower with default seed and parameters produce **identical** segment count (**43,870**), leaf count (**18,390**), total stem length (**1288.816543 m**), and every `DUMP_METRICS` field to **six decimal places**. This is the cheapest check that adding a second surface backend did not perturb the first. Same standard as LG-3 simulation half / INV-7. |
-| SG-2 | **Mesh-SDF backend contract.** On each imported structure's collision mesh, unit tests (or an equivalent deterministic probe script) assert: (a) `signed_distance` is negative inside, positive outside, near-zero on the surface, to within a stated tolerance; (b) `surface_normal` agrees with raycast hit normals on ≥200 stratified sample points; (c) `nearest()` returns a point on the surface within 5 mm of the raycast ground truth; (d) `project_to_shell` places samples in the allocated shell band; (e) `shell_bounds` encloses the mesh plus the field halfwidth. Fail if any method falls back to `TowerSdf` when a mesh backend is active. |
+| SG-2 | **Mesh-SDF backend contract.** On each imported structure's collision mesh, unit tests (or an equivalent deterministic probe script) assert: (a) `signed_distance` is negative inside, positive outside, near-zero on the surface, to within a stated tolerance; (b) `surface_normal` agrees with raycast hit normals on ≥200 stratified sample points; (c) `nearest()` returns a point on the surface within 5 mm of the raycast ground truth; (d) `project_to_shell` places samples in the allocated shell band; (e) `shell_bounds` encloses the mesh plus the field halfwidth. Fail if any method falls back to `TowerSdf` when a mesh backend is active. **SG-2 is a Φ-only gate and is deliberately left that way** (ruled 2026-08-12, SD-OPEN-23): every clause above passes intact on a building whose rooms are spuriously sunlit, because none of them reads the light bake. That defect is SG-8's, not SG-2's; do not fold the two together, or SG-2 stops meaning "the SDF is right". |
 | SG-3 | **Environment field builds on mesh geometry.** `IvyEnvironment.build()` completes without error on each structure; light bake and shell allocation succeed; a 30-game-day unattended growth run from a single authored seed reaches ≥1 m total stem length with zero tip deaths from `max_float` on the first attempt at default parameters. |
-| SG-4 | **Two structures present and correctly scaled, sourced in two phases** (owner decision, 2026-08-12). Committed CC0 assets with provenance per `assets/CREDITS.md`. **Phase A — the single-storey square building** (target 3–5 m wall height, 4–8 m footprint), from a clean **game-ready** CC0 source: already watertight, already scaled, modest triangle count. **Phase B — the squat two-storey tower** (small, human-scale, target 4–6 m), from **heritage photogrammetry** of a real medieval structure. Both scaled in **real metres** — the simulation uses 3 cm segments and 10 cm coverage bins, so mis-scaled geometry makes every growth rate meaningless — and both watertight by the time they reach the bake. **The sequencing is the point:** phase A validates the mesh-SDF backend against geometry that cannot be blamed, so if phase B then fails, the fault is isolated to scan conditioning (decimation, hole-filling, non-manifold edges) rather than being ambiguous between the two. Do not start phase B until phase A passes SG-2 and SG-3. On style: **realism-leaning is the bar, not photorealism.** A clean game-ready model that reads as plausible stone is acceptable for phase A even if it is not scan-grade, since the owner has accepted that the photoreal pass may be redone later; cartoon or flat-shaded kit pieces remain out of scope because they would undermine SG-7. |
+| SG-4 | **Two structures present and correctly scaled, sourced in two phases** (owner decision, 2026-08-12). Committed CC0 assets with provenance per `assets/CREDITS.md`. **Phase A — the single-storey square building** (target 3–5 m wall height, 4–8 m footprint), from a clean **game-ready** CC0 source: already watertight, already scaled, modest triangle count. **Phase B — the squat two-storey tower** (small, human-scale, target 4–6 m), from **heritage photogrammetry** of a real medieval structure. Both scaled in **real metres** — the simulation uses 3 cm segments and 10 cm coverage bins, so mis-scaled geometry makes every growth rate meaningless — and both watertight by the time they reach the bake. **The sequencing is the point:** phase A validates the mesh-SDF backend against geometry that cannot be blamed, so if phase B then fails, the fault is isolated to scan conditioning (decimation, hole-filling, non-manifold edges) rather than being ambiguous between the two. Do not start phase B until phase A passes SG-2 and SG-3. On style: **realism-leaning is the bar, not photorealism.** A clean game-ready model that reads as plausible stone is acceptable for phase A even if it is not scan-grade, since the owner has accepted that the photoreal pass may be redone later; cartoon or flat-shaded kit pieces remain out of scope because they would undermine SG-7. **Wall thickness is part of "correctly scaled" (added 2026-08-12, SD-OPEN-23):** the thinnest solid feature of the mesh that carries the SDF and the colliders must be **measured and recorded before the asset is committed**, and must be **≥ 0.30 m** for any wall separating an interior from an exterior. 0.24 m is the engine's hard refusal floor (`2·vis_cell`); 0.30 m is what a committed M2.6 asset is held to, because the floor itself has no margin. **At least one committed structure must enclose an interior volume** (roof, floor, and ≥ 2 m of clear interior span) so that SG-8 has a subject — a structure set with no interior would let SG-8 pass by absence, which is the unfalsifiable shape this milestone already rejected once. |
 | SG-5 | **Authored growth scenarios, ui_script verified.** For each structure, at least **two** distinct authored seed positions (different faces or corners — not merely N/E/S/W of a cylinder). Each scenario has a committed `tools/ui_scripts/` script that loads the structure, plants at the authored point, runs to a fixed game-day, and captures screenshots. Pass requires: ivy adheres to the wall (no systematic float-off or tunnel-through); growth reaches at least one vertical metre on each seed point; captures reviewed for artifact-blacklist items 1, 2, 6, and 7 (through-wall, float, ground/air growth, visible repeat). Exit code alone is insufficient — QA reads the captures. |
 | SG-6 | **Determinism on mesh scenarios.** Two consecutive serial runs of each structure's scenario script produce identical segment count, leaf count, total stem length, and metric dump to six decimal places. Image stability tolerances from LG-3 apply to scenario captures if a canonical camera set is authored for each structure. |
+| SG-8 | **Interior and exterior are distinguishable in the light bake** (added 2026-08-12, SD-OPEN-23 ruling; guards the SD-OPEN-17 interior-growth ruling). On the structure that encloses an interior (SG-4), build the environment and compare the baked light products at a **matched pair on the same wall**: an interior-face cell at least 1 m from any aperture, and the exterior-face cell directly opposite it at the same height. Pass requires **interior `SVF` ≤ 0.10** and **exterior `SVF` − interior `SVF` ≥ 0.25**; where the exterior face is sun-facing, additionally **≥ 4 direct-sun hours set on the exterior** and **≤ 1 on the interior**. Report the measured pair and the wall thickness, not pass/fail alone. Thresholds are **provisional pending one phase A probe** (same discipline as LG-2′ and RG-1); calibrate once against the measurement and escalate to the Director before hardening if the measured margin leaves less than 2× headroom over any floor. **Why this is a named gate and not a test buried in W-094:** with `LightBake` keying sky-view factor and the 24-bit sun mask by coarse cell alone, two faces of a wall thinner than `2·vis_cell = 0.24 m` share one light value, so the room is lit, the ivy thrives inside, nothing errors, and every other M2.6 gate passes. M2.5's repeated lesson is that unnamed guarantees do not get measured. |
 
 **Human signal (must be able to fail):**
 
 | ID | Signal |
 |---|---|
 | SG-7 | **Art-direction coherence.** A reviewer inspects each structure's scenario captures (fixed game-day, local noon) with no simulation numbers. Pass only if (a) the building reads as photoreal/naturalistic alongside the existing ivy and brick tower — not as a flat-shaded kit piece — **and** (b) the ivy mat conforms to the imported geometry (follows corners, ledges, and rooflines rather than treating the mesh as a smooth cylinder). Fail if the structure clashes with the leaf presentation or if ivy behaviour is visibly wrong for the shape (systematic corner-cutting, lip ignoring, interior leakage). QA records pass/fail and reviewer quotes. Same spirit as LG-1 human sign-off. |
+
+**Load and iteration budget on mesh scenarios (ruled 2026-08-12, SD-OPEN-24).** A hollow building has
+roughly eight times the tower's exposed surface, so the derived figures are ~39 k coarse cells,
+~3.4 M bake raycasts, a bake near 10 s against AR-BUDGET's 3 s escalation line, and
+`advance_light_ewma` over ~325 k cells per tick instead of ~40 k. **These are extrapolations from the
+tower, not measurements, and no scope is committed on them.** The ruling:
+
+- **Measure before sizing.** The first successful `IvyEnvironment.build()` on the phase A structure
+  reports bake wall-clock, coarse-cell count, bake raycast count, allocated fine-cell count,
+  `P(cell, hour)` table size, and mean per-tick EWMA cost. This is a deliverable of W-094, due before
+  any cache work is scoped.
+- **Pre-committed trigger, so this is not relitigated.** If the measured phase A bake exceeds
+  **3 s** — AR-BUDGET's own escalation line, unchanged — the AR-FIELD-6 light-bake **disk cache lands
+  inside M2.6** (W-097), at minimum viable shape: content-addressed on the SDF provenance key plus the
+  light parameters, hard error or re-bake on mismatch, never a silent stale read, no new tuning
+  surface, and no partial invalidation. At or under 3 s it stays a named escape hatch and defers to
+  whichever milestone first crosses the line — most likely phase B's scan or M2.7's test wall.
+- **The cheaper lever is content, not engine.** `shell_bounds` sets all of this, so a compact phase A
+  footprint with no large empty courtyard inside its AABB is the first remedy if the bake is
+  uncomfortable. Shrinking the asset is a Director-side change and is preferred to growing the
+  milestone.
+- **Per-tick throughput is explicitly not M2.6 scope.** AS-5 is already a non-goal on imported
+  structures. Note the arithmetic that deflates the alarm: SG-3/SG-5 scenario runs are **30
+  game-days**, not the canonical 150.25, so even at ~8× cost per tick a mesh scenario is roughly
+  1.6× the canonical tower run — the bake, which is paid on every process launch regardless of run
+  length, is the real iteration tax, not the EWMA. Measure and record both; if a 30-game-day scenario
+  run lands materially beyond that, escalate to the Director rather than opening a throughput pass.
+  AR-RISK-2 (GDScript throughput) remains a Phase 2 item.
 
 **AS-1 / AS-2 ruling (ratified):** The procedural tower **remains the canonical metrics substrate**.
 AS-1 and AS-2 ratified figures continue to mean what they mean — cylindrical azimuth binning,
@@ -428,6 +458,12 @@ that requires a new metric design (`SD-OPEN-18`); do not retrofit AS-1.
 - Interior growth policy for open doors and windows (M2.7 — `INTERIOR` material exists but is
   untuned)
 - Sourcing or committing assets beyond the two specified structures
+- **Face-aware keying of the coarse light bake** — the real fix for the 0.24 m floor, deferred to
+  M2.7 (ruled 2026-08-12, SD-OPEN-23). M2.6 buys the separation with an asset constraint instead,
+  which is free.
+- **Per-tick light throughput work** on imported structures (AS-5 is already a non-goal there);
+  measurement yes, optimisation no
+- The light-bake disk cache, **unless** the phase A measurement trips the 3 s trigger above
 
 **Asset constraints (binding):**
 
@@ -440,6 +476,25 @@ that requires a new metric design (`SD-OPEN-18`); do not retrofit AS-1.
 - **Photoreal PBR compatibility** — must accept AmbientCG-class brick/stone materials at correct
   physical UV scale; stylised low-poly medieval kits are abundant in CC0 libraries but clash with the
   ivy hero asset and undermine SG-7.
+- **Minimum solid feature ≥ 0.30 m, measured not assumed** (added 2026-08-12, SD-OPEN-23) — for every
+  wall whose two faces must behave differently, i.e. every wall enclosing an interior. The engine
+  refuses below 0.24 m; a committed asset is held to 0.30 m so the floor has margin against
+  `project_to_shell` error at reveals. Record the measured minimum alongside the scale verification.
+- **Interior enclosure** — at least one of the two structures encloses a real interior volume (roof,
+  floor, ≥ 2 m clear span), because that is SG-8's subject and it is also what makes the SD-OPEN-17
+  interior-growth ruling observable at all.
+- **Phase B ships two co-registered meshes, not one** (ruled 2026-08-12, SD-OPEN-22) — a high-poly
+  **hero mesh, render-only, carrying no collider**, and a **watertight manifold low-poly proxy**
+  carrying both the physics colliders and the baked SDF. Hole-filling to watertight is required on the
+  proxy only; decimating the hero is a render-budget choice, not a correctness requirement. The two
+  must share origin, scale and orientation with no per-instance corrective transform, and the proxy
+  surface must not deviate from the hero surface by more than **0.05 m** anywhere ivy grows, with the
+  features a reviewer expects ivy to follow (ledges, corners, rooflines, door and window reveals)
+  present in the proxy. Deviation is measured by sampling hero-mesh vertices and reading `|Φ|` from
+  the proxy's own volume — free, since the volume already exists — and the measured maximum is
+  recorded with the asset. Thickening a thin scanned wall **inward** on the proxy to clear the 0.30 m
+  floor is sanctioned and must be recorded; moving the exterior surface outward is not, because that
+  is where the deviation budget binds.
 
 **Required implementation seams** (see `IMPLEMENTATION.md` AR-TOWER-*): a mesh-backed
 `SurfaceQuery` implementation selectable alongside `TowerSdf`; scene/scenario loader that swaps
@@ -480,6 +535,33 @@ LG-2′/LG-3):**
 | RG-2 | **Imported submesh → registry mapping.** Each material region on the test wall and on the M2.6 structures resolves to the correct `material_id` via `face_index`; unit test asserts mapping on every face of the test wall. |
 | RG-3 | **Interior growth policy decided and enforced.** An `SD-OPEN-*` row resolves whether ivy may grow on `INTERIOR` surfaces exposed by an open door, and at what `A_m`. The chosen policy is testable: either interior segments exist and adhere, or they are suppressed — not ambiguous. |
 | RG-4 | **Human adhesion read.** Show a reviewer the test-wall scenario capture (60 game-days, single seed, local noon) with no numbers. Pass if the reviewer correctly ranks which regions carry more ivy (brick > wood > glass, or whatever the tuned ordering is) and cites visible differences (density, reach, or absence). Fail if all regions look the same. |
+
+**Inherited from M2.6 — face-aware keying of the coarse light bake (ruled 2026-08-12, SD-OPEN-23).**
+M2.6 buys interior/exterior light separation with an asset constraint (walls ≥ 0.30 m) because that is
+free; M2.7 is where the constraint runs out. `LightBake` keys sky-view factor and the 24-bit sun mask
+by coarse cell alone and `fill_field` blends the eight surrounding corners, so below
+`2·vis_cell = 0.24 m` a wall's two faces share one light value — interiors read spuriously lit and
+thin exterior walls read spuriously dark, both silently. **The forcing case is W-092's open door.** An
+open-door reveal is the wall thickness seen edge-on, so M2.7 has exactly two legal options and must
+pick one before the test wall is authored:
+
+1. Author the test wall at **≥ 0.30 m**, in which case keying can stay deferred again; or
+2. Land **face-aware keying** — store the baked normal as a third parallel array beside `_svf` and
+   `_vis`, and have `_gather_corners` accept only corners whose baked normal agrees with the reading
+   cell's, renormalising over the survivors.
+
+Option 2 is small but sits on **shared code the procedural tower also runs through**, so it must be
+gated on the selected backend or proven behaviour-preserving for the analytic path. **SG-1's
+bit-identity check therefore becomes a standing regression, not a one-milestone gate:** the canonical
+tower run must still produce 43,870 segments / 18,390 leaves / 1288.816543 m after any M2.7 change to
+`LightBake`, `SparseHashField` or `IvyEnvironment`. RG-3's "testable, not ambiguous" requirement is
+also what SG-8 measures on M2.6's structure, so the instrument already exists by then.
+
+**Also inherited: `material_id` on the nearest-surface path (W-044).** The mesh backend populates
+`face_index` and `material_id` from its refinement ray during M2.6 because that is free there; the
+analytic path's hardcoded `BRICK_WALL` is deliberately **not** fixed during M2.6 (SG-1 forbids
+touching that path) and has no observable effect until RG-1 gives materials distinct `A_m` values.
+Fixing it is M2.7 work, and RG-2 is the gate that needs it.
 
 **Explicit non-goals for M2.7:**
 
@@ -676,6 +758,12 @@ this table is the index.
 | D-5 | Which artifact-blacklist items are automatable versus screenshot-only. | Resolved — `SD-METRIC`. Four automatable, two auto-screened with human confirmation, one (visible repetition) human-only with preventative guards instead. |
 | SD-OPEN-17 | Interior growth policy for open doors (`INTERIOR` material exposed). | **Resolved 2026-08-12 by owner ruling.** Interior growth is wanted and needs no simulation change: `INTERIOR` stays at `A_m = 1.0` and interiors thin out because raycast occlusion starves them of light, not because a rule forbids it. The proposed low `A_m` and segment cap are both withdrawn. Residual work is a rendering one — an indirect/bounce term, since a fully enclosed cell currently evaluates to exactly zero light and would kill ivy rather than thin it. See the M2.7 section. Previously: Director recommended low `A_m` (≈0.2–0.4) plus interior segment budget cap; Systems Designer to formalise testable policy and escalate if cap adds architecture. |
 | SD-OPEN-18 | Automatable coverage metrics on non-cylindrical imported geometry. | Open — **deferred, not M2.6 scope.** AS-1/AS-2 remain procedural-tower-only (ratified 2026-08-12). If a future milestone needs geometry-agnostic metrics, design a new instrument; do not retrofit cylindrical binning onto square buildings. |
+| SD-OPEN-19 | Mesh-SDF voxel pitch and the geometric thin-feature floors (`h`, band, `2·h` / `4·h`). | **Delegated to the Gameplay Architect** (2026-08-12) — an implementation-accuracy choice, not a Director one. The Director's half, asset dimensions, is answered by SD-OPEN-23: committed assets are held to ≥ 0.30 m, which clears the geometric floors with room to spare, and a thin M2.7 feature is handled per-asset (the pitch lives in the asset header) rather than by a global pitch change. |
+| SD-OPEN-20 | `nearest()` raycast-refinement cost (one extra raycast per call). | **Delegated to the Gameplay Architect** (2026-08-12). Accuracy-vs-cost inside a milestone where AS-5 is already a non-goal on imported structures; the 5 mm SG-2(c) figure is the Director-owned number and it is unchanged. |
+| SD-OPEN-21 | Bake location, asset format, and content-addressing of the SDF volume. | **Delegated to the Gameplay Architect** (2026-08-12). Offline, committed and hash-verified is the right shape; the Director's only requirement is that a stale or mismatched pairing is a hard load error, never a degraded run — same standard as INV-7. |
+| SD-OPEN-22 | Collision/SDF proxy separate from the render hero mesh (phase B). | **Resolved 2026-08-12 by Director ruling — accepted.** Phase B ships a render-only hero mesh plus a watertight low-poly proxy carrying physics and the SDF; hole-filling is required on the proxy only. Co-registration is binding, with a measured ≤ 0.05 m proxy-vs-hero deviation budget and named features required in the proxy. Inward wall thickening on the proxy is sanctioned. See the M2.6 asset constraints. |
+| SD-OPEN-23 | The binding thin-wall floor is `2·vis_cell = 0.24 m`, set by the light bake rather than the SDF. | **Resolved 2026-08-12 by Director ruling — accepted with two modifications.** Engine hard floor 0.24 m as recommended; committed M2.6 assets held to **0.30 m, measured before commit** (SG-4 clause), and the 0.20–0.24 m band **fails closed** — the baker refuses unless an asset explicitly declares it has no interior surfaces. New named gate **SG-8** measures the separation. Face-aware keying deferred to **M2.7**, forced by W-092's open-door reveal. |
+| SD-OPEN-24 | Mesh-scenario load and per-tick budget; whether the light-bake disk cache becomes M2.6 scope. | **Resolved 2026-08-12 by Director ruling — measure first, with a pre-committed trigger.** No scope is committed on extrapolated figures. W-094 reports the phase A bake and per-tick timings; above AR-BUDGET's 3 s line the disk cache lands in M2.6 (W-097) at minimum viable shape, at or below it stays a named escape hatch. Per-tick throughput is explicitly out of scope — measure, do not optimise. Shrinking the asset footprint is the preferred first remedy. |
 
 ---
 
@@ -1379,14 +1467,155 @@ scene swap architecture (procedural tower vs imported structure scenarios withou
 consumers). **Gameplay Programmer** — implement mesh backend and scenario scripts (W-088+). Do not
 source assets until SG-4 constraints are written into the sourcing brief.
 
+**2026-08-12 — SD-OPEN-22, -23 and -24 (mesh-SDF contract, W-095, commit `a73edc5`): ratified, one
+modified.** The Systems Designer's central finding is accepted as established fact, independently
+verified against source: `LightBake._bake_coarse_cell` computes sky-view factor and the 24-bit sun
+mask **once per coarse cell, keyed by cell position alone with no notion of which face it belongs
+to**, and `fill_field` blends the eight surrounding coarse corners. With `vis_cell = 0.12 m`, two
+opposite faces of a wall thinner than **0.24 m share light values**.
+
+**Why this matters more than a tolerance question.** Yesterday's SD-OPEN-17 ruling — interiors need no
+simulation rule because they are dark by occlusion and ivy starves there naturally — is correct in
+principle and **silently inoperative below 0.24 m of wall**. The room is lit, the ivy thrives inside,
+nothing errors and nothing fails. The 0.20–0.24 m band is the nasty one: the geometry resolves
+perfectly, every SG-2 assertion passes, and only the behaviour is wrong. **This is the LG-2
+survivorship shape again** — a gate that cannot fail on the defect it exists to catch — which is the
+class M2.5 kept finding (LG-2a/b, AS-4's bit-identical screenshots, W-049's branched comparison,
+W-076's unfalsifiable guards) and the reason it is worth a named gate rather than a note. The ruling
+below is written to close it at author time and in the suite, not to make M2.6 into a rendering
+milestone.
+
+**SD-OPEN-23 — the 0.24 m floor: accepted, with two modifications.** The recommendation (0.24 m hard,
+0.30 m comfortable, enforced by the SD-MESH-13 thin-region scan, real fix deferred) is right, and its
+best property is that it is **free**: the scan already computes what is needed and the constraint is
+paid in asset choice rather than in engine work. Two changes:
+
+1. **The 0.20–0.24 m band fails closed, not open.** The recommendation aborts there only if the asset
+   *declares* interior surfaces. A declaration that defaults to "no interiors" hands the silent
+   failure straight back — the author who forgets to declare is exactly the author this gate exists
+   for. Invert it: the baker refuses unless the asset explicitly and reviewably declares that it has
+   **no** interior surfaces.
+2. **Committed M2.6 assets are held to 0.30 m, measured before commit, as an SG-4 clause.** 0.24 m is
+   a floor with zero margin — a coarse corner near the wall's mid-plane is ambiguous and
+   `project_to_shell`'s O(`h`) error at a reveal can flip which face it picks. The engine keeps 0.24 m
+   so the machinery stays general, but **we choose the asset**, so the constraint costs nothing to
+   spend at sourcing time and everything to discover at SG-5 time. This is the difference between a
+   gate we can hold an asset to and one we cannot: wall thickness is a property of a file we select,
+   verified the same way scale already is.
+
+Face-aware keying of the coarse bake is **deferred to M2.7**, forced by W-092's open-door reveal, with
+two legal options named there (author the wall ≥ 0.30 m, or land the keying gated on the backend).
+Deferral is correct because that code is shared with the tower and a one-line improvement to
+`_gather_corners` is not free while SG-1 demands bit-identity — which is also why **SG-1 becomes a
+standing regression check** rather than a one-milestone gate.
+
+**Does SG-2 need a clause? No — it needs a sibling. New gate SG-8.** SG-2 tests `nearest()` accuracy
+and normal agreement and by construction cannot fail on interior lighting, because it never reads the
+light bake. Folding the light-separation assertion into SG-2 would make SG-2 stop meaning "the SDF is
+right", and burying it in W-094 would repeat M2.5's most expensive lesson: **unnamed guarantees do not
+get measured.** The counter-argument — that gates you cannot hold an asset to are worse than none —
+is the right test to apply, and this gate passes it, for the reason LG-2 failed it. LG-2 measured a
+population selected by the mechanism under test (survivorship concentrates leaves in lit cells). SG-8
+measures two geometrically chosen points on one wall, from a deterministic bake, with an interior/
+exterior spread of roughly 0.45 against 0.05 — an order of magnitude, not a few percent. It is
+falsifiable, cheap, and holdable, so it gets a name and a number. Thresholds are provisional pending
+one phase A probe, and SG-4 now requires at least one structure to enclose an interior so SG-8 cannot
+pass by absence.
+
+**SD-OPEN-24 — load budget: measure first, with a pre-committed trigger; no scope on extrapolation.**
+The figures (~3.4 M bake raycasts, ~10 s bake, ~325 k cells per tick) are derived from AR-FIELD-6's
+tower numbers, and committing a disk cache on them would repeat SD-OPEN-9's error — a figure carried
+from one context into another and never measured. A cache is also not free: it is a second
+content-addressed artefact and a new stale-pairing surface, which is the exact hazard SD-MESH-9 exists
+to close. So: W-094 measures the phase A bake and per-tick cost, and **AR-BUDGET's existing 3 s line
+is the trigger** — above it the cache is M2.6 scope (W-097) at minimum viable shape, at or below it
+stays the named escape hatch it already is. Two things keep this from inflating the milestone. First,
+the preferred remedy is **content, not engine**: `shell_bounds` sets the whole cost, so a compact phase
+A footprint is a Director-side lever and comes before growing scope. Second, the per-tick alarm
+deflates on inspection — SG-3/SG-5 runs are 30 game-days against the canonical 150.25, so even at ~8×
+per-tick cost a mesh scenario is roughly **1.6×** the canonical tower run. The bake is paid on every
+process launch regardless of run length; the EWMA is not. That is why the bake is the iteration tax
+and per-tick throughput stays out of scope with AS-5.
+
+**SD-OPEN-22 — collision proxy: accepted.** It removes M2.6's hardest problem from the critical path.
+A scan must be hole-filled before inside/outside is even defined, and doing that **once on a simple
+proxy** instead of on a 250 k–2 M triangle hero mesh is the difference between a conditioning task and
+a research project; it also collapses the BVH and bake cost, and lets SG-7(a) keep photogrammetric
+detail while SG-7(b) becomes a co-registration requirement. The cost is a new failure mode — ivy
+sitting off the surface the player sees — and a human gate discovering a systematic geometric offset
+late is expensive, so the constraint is given a number: **≤ 0.05 m proxy-vs-hero deviation**, measured
+by sampling hero vertices and reading `|Φ|` from the proxy's own volume, which is free because the
+volume already exists. Two consequences worth stating: the provenance hash binds the **proxy** (both
+its volume and its colliders), so the hero sits outside the simulation's provenance chain entirely and
+the deviation measurement is the only thing checking it; and because the proxy is what the SDF and the
+light bake read, **thickening a thin scanned wall inward on the proxy to clear 0.30 m is sanctioned**
+and recorded — a legal way to make a scan admissible without touching the engine. Outward movement is
+not, because that is where the deviation budget binds.
+
+**SD-OPEN-19, -20 and -21 are delegated to the Gameplay Architect**, unruled by design — pitch,
+refinement cost and asset format are implementation-accuracy choices. The Director-owned halves are
+unchanged: the 5 mm `nearest()` figure stands, a stale pairing is a hard load error rather than a
+degraded run, and the asset-dimension question SD-OPEN-19 shares with this desk is answered by the
+0.30 m floor above.
+
+**Rejected alternatives:** (a) fold the light-separation assertion into SG-2 — destroys what SG-2
+means and invites it to be read as an SDF claim; (b) leave it as a W-094 test only — the M2.5 failure
+mode, three times over; (c) lower `vis_cell` to buy margin — raycasts scale as `vis_cell⁻²` on top of
+an already 8× bake, and it is a per-scenario escape hatch, not an answer; (d) land face-aware keying
+in M2.6 — small code on shared paths, and SG-1 is the gate most worth not spending; (e) commit the
+disk cache now on derived figures; (f) hold the 0.24 m engine floor as the *asset* floor too — free
+margin declined for no reason; (g) drop the phase B scan to one structure — SG-4's two-phase
+sequencing is what isolates a scan-conditioning failure from a backend failure, and the proxy ruling
+is what makes phase B tractable.
+
+*Risk to watch:* the 0.30 m asset floor and the interior-enclosure requirement narrow an already thin
+CC0 candidate list — if phase B conditioning overruns even with the proxy split, escalate to the
+Director rather than burning the milestone; substituting a second game-ready structure is preferable
+to slipping M2.6, and I would rather rule on that than have it discovered late. Second: SG-8's
+thresholds are provisional on one probe, the same posture that LG-2 was in before it was withdrawn —
+the difference is the expected margin, so if the measured pair lands anywhere near the floors, that is
+a signal to escalate rather than to recalibrate quietly.
+
+*Acceptance signals for QA (eventual):* SG-8 measured interior/exterior pair reported with wall
+thickness on the enclosing structure; measured minimum wall thickness recorded in `assets/CREDITS.md`
+provenance before either asset is committed; phase A bake and per-tick timings logged at first
+successful `IvyEnvironment.build()`; phase B proxy-vs-hero maximum deviation recorded; SG-1 re-run
+after any change to `LightBake`, `SparseHashField` or `IvyEnvironment`.
+
+**Inputs used:** `IMPLEMENTATION.md` SD-MESH-1…18 and SD-OPEN-19…24 (commit `a73edc5`, W-095);
+AR-FIELD-6 and AR-BUDGET load figures; the M2.6 SG-1…SG-7 gates and M2.7 RG-1…RG-4 outline; the
+SD-OPEN-17 interior-growth ruling of 2026-08-12; the SD-OPEN-10 survivorship precedent;
+`work-items/WORK_ITEMS.md` W-044, W-088…W-091, W-094, W-095; the **owner's independent verification**
+of `LightBake._bake_coarse_cell` and `fill_field` keying against source, which is why the mechanism is
+treated here as established fact rather than re-derived.
+
+**Artifacts produced:** M2.6 milestone row updated to SG-1…SG-8; new **SG-8** gate; SG-2 scoped
+explicitly to Φ; SG-4 wall-thickness and interior-enclosure clauses; M2.6 load-and-iteration budget
+subsection with the 3 s trigger; three added M2.6 non-goals; three added binding asset constraints
+including the phase B hero/proxy split; M2.7 inherited-scope section (face-aware keying with its
+forcing case, SG-1 as a standing regression, W-044's seam); SD-OPEN-19…24 rows in the open-decisions
+index; W-091, W-094 and W-044 acceptance criteria and new W-097 in `work-items/WORK_ITEMS.md`.
+
+**Next handoff: Gameplay Architect.** W-088/W-089 are unblocked and nothing further is owed from this
+desk. Take the SD-MESH constants as defaults, treat 0.24 m as the engine's hard refusal and 0.30 m as
+the asset spec, build SG-8's assertion as a named gate rather than a test, and report the phase A
+timings before sizing any cache work. Do not fix W-044 on the analytic path. **Game Director** retains
+the phase A asset dimensions (thickness measured before commit) and the W-097 scope call once the
+measurement exists.
+
 ---
 
 ## Handoff
 
-**Next stage: Systems Designer** — mesh-SDF backend contract and M2.7 material registry extension;
-formalise `SD-OPEN-17` (interior growth policy) and note `SD-OPEN-18` (non-cylindrical coverage
-metrics — deferred). **Gameplay Architect** — structure scenario loader seam.
-**Gameplay Programmer** — M2.6 mesh backend (W-088); M2.6 remains blocked on architect spec.
+**Next stage: Gameplay Architect** (updated 2026-08-12) — the mesh-SDF contract is delivered (W-095,
+commit `a73edc5`) and its four escalations are ruled (SD-OPEN-22/23/24 above; SD-OPEN-19/20/21
+delegated to this desk). Spec `MeshSdf` and the offline baker behind the `SurfaceQuery` seam (W-088)
+and the structure scenario loader (W-089), with the SDF constructed and hash-verified before the field
+builds. Hold the 0.24 m engine refusal and the 0.30 m asset spec, wire SG-8 as a gate, and report the
+phase A load and per-tick timings before any cache work is sized (W-097). **Systems Designer** —
+M2.7 material registry extension (W-092/W-093) and the W-092 wall-thickness choice named in the M2.7
+section. **Gameplay Programmer** — M2.6 mesh backend (W-088) and test surface (W-094); still blocked
+on the architect spec.
 **Remaining M2.5 tail:** W-079 (placement-count basis per SD-OPEN-13 amendment:
 `ref_area` only, drop projection, test replacement); W-082 (LG-3/AS-4 dual-run comparison tooling).
 **Systems Designer** — restate SD-METRIC-3 AS-1 portion (projection withdrawn); document
