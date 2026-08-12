@@ -495,13 +495,31 @@ climbing. Without M2.7, every imported building is brick-at-1.0 and the material
 code; with M2.7, Phase 2 mechanics (moisture on porous vs impermeable surfaces, player-placed
 trellises) have a tested seam.
 
-**Open question (`SD-OPEN-17`, recommendation pending Systems Designer):** an open door exposes
-`INTERIOR` surface. Options: (a) `A_m = 0` — ivy never enters (simplest, may look wrong if the door
-is only slightly ajar); (b) `A_m` low but non-zero — slow interior colonisation (interesting, needs
-blacklist guard against ivy filling the whole room); (c) `A_m = 1.0` same as wall — interior is
-just another surface (ignores the design intent of the material id). **Director recommendation:
-(b) with a low `A_m` (≈0.2–0.4) and an interior segment budget cap** — enough to show the mechanism
-works, not enough to become a second simulation domain. Escalate if the cap adds architecture.
+**`SD-OPEN-17` — resolved by owner ruling, 2026-08-12. Interior growth is wanted, and it needs no
+simulation change: let light do the work.** The question had been framed as a choice of interior
+`A_m` — nothing, a low value with a segment cap, or the same as wall — and the Director had
+recommended a low `A_m` around 0.2–0.4 plus a cap. **The owner rejected the framing.** A real
+building's interior is not a surface that repels ivy; it is a surface that is *dark*. The correct
+mechanism is the one already built: `LightBake.sky_view_factor()` and `visibility_mask()` decide
+exposure purely by raycasting against whatever collision geometry is present, so an enclosed
+interior yields a near-zero sky-view factor and no direct-sun hours **with no special case at all**,
+and ivy thins out inside because it is starved rather than because a rule forbids it. That is the
+`simple rules, emergent behaviour` principle applied exactly where it belongs, and it removes both
+the arbitrary `A_m` value and the segment cap the Director worried would add architecture.
+
+`INTERIOR` therefore stays at `A_m = 1.0` — interior masonry is as climbable as exterior masonry,
+because physically it is. The material id remains useful for coverage-denominator questions, not
+for suppressing growth.
+
+**What this does move, and it is a rendering problem rather than a simulation one:** with sky-view
+factor at zero and no direct sun, a deep interior currently evaluates to *exactly* zero light, so
+ivy would die at the threshold instead of thinning realistically and reaching back toward the
+opening. Real interiors are dim, not black — they are lit through the aperture and by bounce. The
+light model needs an indirect term before interior growth reads correctly. Near a doorway the
+existing geometric falloff already produces some gradient, since an upward ray angled out through
+the aperture escapes and counts as open, but it is weak and has no bounce component. Scoped as an
+M2.7 rendering task, not a simulation one, per the owner's framing: *the engine may need work to
+compute light correctly inside; the simulation should work just fine.*
 
 **Risk to watch:** tuning `A_m` spreads before M3's live overlay means values are committed blind —
 acceptable for M2.7's narrow test wall, but M3 should re-verify adhesion defaults on first overlay
@@ -656,7 +674,7 @@ this table is the index.
 | D-3 | The live tip cap value, and the behaviour at the cap (see R-6). | Resolved — `SD-TIP`. Soft 96 / hard 160, tapered branch probability between them, vigour-based retirement at the hard cap, with floating tips and the top-of-tower tips protected. |
 | D-4 | Whether the four seed anchors are authored or derived from geometry at runtime. | Resolved — `SD-AGENCY`. Derived by raycast at load and cached, so they cannot desync from a re-modelled or re-scaled tower. |
 | D-5 | Which artifact-blacklist items are automatable versus screenshot-only. | Resolved — `SD-METRIC`. Four automatable, two auto-screened with human confirmation, one (visible repetition) human-only with preventative guards instead. |
-| SD-OPEN-17 | Interior growth policy for open doors (`INTERIOR` material exposed). | Open — Director recommends low `A_m` (≈0.2–0.4) plus interior segment budget cap (M2.7). Systems Designer to formalise testable policy and escalate if cap adds architecture. |
+| SD-OPEN-17 | Interior growth policy for open doors (`INTERIOR` material exposed). | **Resolved 2026-08-12 by owner ruling.** Interior growth is wanted and needs no simulation change: `INTERIOR` stays at `A_m = 1.0` and interiors thin out because raycast occlusion starves them of light, not because a rule forbids it. The proposed low `A_m` and segment cap are both withdrawn. Residual work is a rendering one — an indirect/bounce term, since a fully enclosed cell currently evaluates to exactly zero light and would kill ivy rather than thin it. See the M2.7 section. Previously: Director recommended low `A_m` (≈0.2–0.4) plus interior segment budget cap; Systems Designer to formalise testable policy and escalate if cap adds architecture. |
 | SD-OPEN-18 | Automatable coverage metrics on non-cylindrical imported geometry. | Open — **deferred, not M2.6 scope.** AS-1/AS-2 remain procedural-tower-only (ratified 2026-08-12). If a future milestone needs geometry-agnostic metrics, design a new instrument; do not retrofit cylindrical binning onto square buildings. |
 
 ---
