@@ -1,6 +1,6 @@
 # Ivy — Game Design Document
 
-Last updated: 2026-08-10
+Last updated: 2026-08-12
 
 ---
 
@@ -304,7 +304,9 @@ the project's largest risk.
 | **M1 — Ugly end-to-end** | Tower scene, constant-light stub environment, minimal physiology, growth geometry, crude stem mesh, crude leaves. | Recognizably ivy-shaped growth is on the tower and visible in a screenshot. Ugly is fine. |
 | **M2 — Environment live** | Solar position, day/night, sparse hash light field, accumulated light, sky-view factor, crowding, branching, tip lifecycle. | AS-2 and AS-3 pass. **DONE.** |
 | **M2.5 — Visible causation** | Environment presentation (sky, tower surfacing, four canonical cameras) plus the minimum leaf rules that make sun/shade asymmetry readable on the plant. | LG-1, LG-2′, LG-3, and LG-4 pass (below). AS-1 and AS-2 re-verified as automatable causation backstops. **DONE.** |
-| **M3 — Agency and tuning** | Seed anchors, time controls, dev overlay with all §30 parameters live and field visualization. | A parameter change can be seen on screen without a restart. **Unblocked (M2.5 done).** |
+| **M2.6 — Real geometry pass** | A second `SurfaceQuery` backend that produces Φ and ∇Φ for imported mesh geometry (baked discrete signed-distance volume), plus two CC0 medieval test structures and authored growth scenarios — no player controls. | SG-1 through SG-7 pass (below), including the SG-7 human art-direction read. Procedural tower canonical run unchanged. **Next.** |
+| **M2.7 — Surface differentiation** | Per-material adhesion values, imported-asset submesh → `MaterialRegistry` mapping, and a single test wall carrying window / closed door / open door so adhesion differences are readable in one frame. | RG-1 through RG-4 pass (outline below). |
+| **M3 — Agency and tuning** | Seed anchors, time controls, dev overlay with all §30 parameters live and field visualization. | A parameter change can be seen on screen without a restart. **Blocked until M2.7.** |
 | **M4 — Looks good** | Remaining leaf and stem polish, full SD-LEAF/SD-STEM, iteration against the rubric. | Artifact blacklist clean, rubric ≥5/6 (requires W-024), AS-1/4/5/6 pass. |
 
 **No parameter tuning, no field-precision work, and no leaf-art polish happens before M1 is on
@@ -330,6 +332,180 @@ controls and field overlay also help iteration, and a thin M3 slice (pause/play/
 W-013's full overlay) could run parallel to M2.5 leaf work without blocking it. **Seed anchors (W-012)
 and rubric-scored polish stay gated on M2.5**, because re-seeding is the impulse we are trying to
 install and it requires visible asymmetry first.
+
+### Why M2.6 and M2.7 precede M3
+
+M2.5 closed the legibility question on the **procedural tower** — the subject Phase 1 was designed
+around. M3's core offer is choosing where to plant and tuning parameters live. Both are meaningless
+on geometry the simulator cannot yet treat as a surface, or on surfaces whose material properties are
+indistinguishable.
+
+**What M2.6 buys.** `SurfaceQuery.raycast()` already works against any collision mesh via Godot
+physics. Five other methods — `signed_distance`, `surface_normal`, `nearest`, `project_to_shell`,
+and `shell_bounds` — delegate to the analytic `TowerSdf`. Those five feed the entire environment
+field and light bake: shell allocation, cell projection, sample jitter, sky-view factor, surface
+normals. An imported mesh has no closed-form Φ. M2.6's real content is therefore **producing Φ and
+∇Φ for arbitrary watertight mesh geometry** — conventionally by baking a discrete signed-distance
+volume and sampling it trilinearly — behind the existing `SurfaceQuery` interface. The project already
+owns every piece of that machinery (`CellGrid`, `SparseHashField`, trilinear reads, the shell concept,
+W-087's uniform-neighbourhood exactness fix). Importing two CC0 medieval models is the easy half;
+the milestone is written around the mesh-SDF backend, not an asset checklist, because an exit
+condition framed as "two models imported" would hide the engineering.
+
+**What M2.6 defers.** Per-material adhesion differentiation (`MaterialRegistry.adhesion()` returns
+1.0 for everything except ground today). Player-facing seed anchors and time controls (M3). Coverage
+metrics on non-cylindrical geometry (see AS-1 ruling below). Any claim that ivy on glass behaves
+differently from ivy on brick — that requires at least two distinguishable surface types on real
+geometry, which is M2.7's job.
+
+**What M2.7 buys that M2.6 cannot answer.** M2.6 proves the simulator climbs arbitrary watertight
+buildings. It cannot answer whether ivy *prefers* brick to glass, whether a window sill deters
+growth, or whether an open door exposes interior surface the plant should or should not colonise.
+Those questions need the adhesion mechanism exercised with real per-material `A_m` values and a test
+piece that puts several materials in one frame at one light level — the owner's wall-with-openings
+proposal is the right fixture precisely because it avoids confounding adhesion with sun and shade.
+
+**Ordering honesty.** M3 time controls (pause/play/speed) could run parallel to M2.6 mesh work on
+the procedural tower, exactly as M2.5 accepted a thin M3 slice for time controls. **Seed anchors
+(W-012) and the full dev tuning overlay stay gated on M2.7**, not merely M2.6: re-seeding on a
+building whose surfaces all behave identically teaches nothing about material choice, and tuning
+`A_m` before the values exist is tuning air. If M2.6 overruns, time controls alone may ship first;
+they do not unblock seed anchors.
+
+**Consequence for SD-OPEN-15.** That entry correctly recorded M3 as unblocked when M2.5 closed —
+seed anchors on the procedural tower were the stated blocker, and LG-1 cleared it. Inserting M2.6
+and M2.7 **re-gates M3** for the expanded Phase 1 scope (real buildings and surface differentiation)
+without rewriting the historical record. The procedural-tower M3 work (time controls, overlay on the
+canonical subject) remains valid parallel work; player-facing seed choice on imported structures waits
+until M2.7.
+
+### M2.6 exit gate — real geometry pass
+
+M2.6 closes when ivy grows reliably on two imported medieval structures via the mesh-SDF backend,
+when the procedural tower canonical run is provably unchanged, and when growth scenarios at different
+plant points are visually credible. No player controls, no per-material adhesion tuning, no
+AS-1/AS-2 on the new geometry.
+
+**Prerequisites (already met at M2.5, re-verified if mesh backend touches shared code paths):**
+
+- **LG-1 through LG-4** — visible causation on the procedural tower remains intact.
+- **AS-1 / AS-2** — re-verified on the **procedural tower only** (canonical metrics substrate;
+  ruling below).
+
+**Automatable signals (new — must be able to fail):**
+
+| ID | Signal |
+|---|---|
+| SG-1 | **Procedural tower unchanged (exact).** Two consecutive serial runs of `tools/ui_scripts/qa_m25_canonical.txt` on the default procedural tower with default seed and parameters produce **identical** segment count (**43,870**), leaf count (**18,390**), total stem length (**1288.816543 m**), and every `DUMP_METRICS` field to **six decimal places**. This is the cheapest check that adding a second surface backend did not perturb the first. Same standard as LG-3 simulation half / INV-7. |
+| SG-2 | **Mesh-SDF backend contract.** On each imported structure's collision mesh, unit tests (or an equivalent deterministic probe script) assert: (a) `signed_distance` is negative inside, positive outside, near-zero on the surface, to within a stated tolerance; (b) `surface_normal` agrees with raycast hit normals on ≥200 stratified sample points; (c) `nearest()` returns a point on the surface within 5 mm of the raycast ground truth; (d) `project_to_shell` places samples in the allocated shell band; (e) `shell_bounds` encloses the mesh plus the field halfwidth. Fail if any method falls back to `TowerSdf` when a mesh backend is active. |
+| SG-3 | **Environment field builds on mesh geometry.** `IvyEnvironment.build()` completes without error on each structure; light bake and shell allocation succeed; a 30-game-day unattended growth run from a single authored seed reaches ≥1 m total stem length with zero tip deaths from `max_float` on the first attempt at default parameters. |
+| SG-4 | **Two structures present and correctly scaled.** Committed CC0 assets, sourced per `assets/CREDITS.md`: **(a)** a squat two-storey tower (small, roughly human-scale — target 4–6 m tall); **(b)** a single-storey square building (target 3–5 m wall height, footprint roughly 4–8 m per side). Both watertight, scaled in **real metres** (simulation uses 3 cm segments and 10 cm coverage bins — mis-scaled geometry makes every growth rate meaningless). PBR materials compatible with the established photoreal art direction (AmbientCG brick scale, realistic leaf atlas); low-poly stylised kit pieces are **out of scope** even if CC0. |
+| SG-5 | **Authored growth scenarios, ui_script verified.** For each structure, at least **two** distinct authored seed positions (different faces or corners — not merely N/E/S/W of a cylinder). Each scenario has a committed `tools/ui_scripts/` script that loads the structure, plants at the authored point, runs to a fixed game-day, and captures screenshots. Pass requires: ivy adheres to the wall (no systematic float-off or tunnel-through); growth reaches at least one vertical metre on each seed point; captures reviewed for artifact-blacklist items 1, 2, 6, and 7 (through-wall, float, ground/air growth, visible repeat). Exit code alone is insufficient — QA reads the captures. |
+| SG-6 | **Determinism on mesh scenarios.** Two consecutive serial runs of each structure's scenario script produce identical segment count, leaf count, total stem length, and metric dump to six decimal places. Image stability tolerances from LG-3 apply to scenario captures if a canonical camera set is authored for each structure. |
+
+**Human signal (must be able to fail):**
+
+| ID | Signal |
+|---|---|
+| SG-7 | **Art-direction coherence.** A reviewer inspects each structure's scenario captures (fixed game-day, local noon) with no simulation numbers. Pass only if (a) the building reads as photoreal/naturalistic alongside the existing ivy and brick tower — not as a flat-shaded kit piece — **and** (b) the ivy mat conforms to the imported geometry (follows corners, ledges, and rooflines rather than treating the mesh as a smooth cylinder). Fail if the structure clashes with the leaf presentation or if ivy behaviour is visibly wrong for the shape (systematic corner-cutting, lip ignoring, interior leakage). QA records pass/fail and reviewer quotes. Same spirit as LG-1 human sign-off. |
+
+**AS-1 / AS-2 ruling (ratified):** The procedural tower **remains the canonical metrics substrate**.
+AS-1 and AS-2 ratified figures continue to mean what they mean — cylindrical azimuth binning,
+sun-facing/shaded 180° halves about the seed azimuth. **AS-1 and AS-2 do not apply to the M2.6
+imported structures.** A square building has no meaningful azimuth binning; applying AS-1 there would
+silently invalidate every acceptance number M2.5 just closed on. M2.6 structures are judged by
+SG-5/SG-7 (structural growth correctness and visual coherence) and the artifact blacklist subset,
+not by coverage percentages. If a future milestone needs automatable metrics on arbitrary geometry,
+that requires a new metric design (`SD-OPEN-18`); do not retrofit AS-1.
+
+**Explicit non-goals for M2.6** (defer to M2.7 or M3 unless needed to pass SG-5):
+
+- Per-material adhesion values other than the current default (`A_m = 1.0` for all non-ground surfaces)
+- Player-facing seed anchors, time controls, or dev overlay (M3)
+- AS-1, AS-2, AS-4, AS-5, AS-6 on imported structures
+- Director rubric scoring and W-024 reference photographs (M4)
+- Multiple structures in one simultaneous scene (each structure is a separate scenario/load)
+- Interior growth policy for open doors and windows (M2.7 — `INTERIOR` material exists but is
+  untuned)
+- Sourcing or committing assets beyond the two specified structures
+
+**Asset constraints (binding):**
+
+- **CC0 only**, with full provenance in `assets/CREDITS.md` (source URL, author, license, retrieval
+  date) — same convention as ambientCG entries.
+- **Real-metre scale** — verify against a known dimension (door height ≈ 2.0–2.1 m, storey height
+  ≈ 2.4–3.0 m) before committing.
+- **Watertight manifold** — inside/outside must be unambiguous for a baked SDF; open meshes are
+  rejected regardless of license.
+- **Photoreal PBR compatibility** — must accept AmbientCG-class brick/stone materials at correct
+  physical UV scale; stylised low-poly medieval kits are abundant in CC0 libraries but clash with the
+  ivy hero asset and undermine SG-7.
+
+**Required implementation seams** (see `IMPLEMENTATION.md` AR-TOWER-*): a mesh-backed
+`SurfaceQuery` implementation selectable alongside `TowerSdf`; scene/scenario loader that swaps
+structure without touching simulator consumers; per-face `material_id` mapping on imported meshes
+(all `BRICK_WALL` at `A_m = 1.0` for M2.6 — mapping infrastructure may land here but tuning waits
+for M2.7).
+
+**Risk to watch:** mesh-SDF bake quality at sharp creases (door reveals, roof eaves). The analytic
+tower accepts conservative SDF error at creases (AR-TOWER-4); the mesh bake must be held to a
+similar or stated tolerance or growth will systematically miss ledges the player expects ivy to
+claim.
+
+### M2.7 exit gate — surface differentiation (outline)
+
+M2.7 closes when per-material adhesion produces **visibly and behaviourally different** ivy growth
+on a single test wall carrying several surface types at one light level. This is mostly content and
+tuning — the mechanism is fully plumbed (`MaterialRegistry`, `face_index → material_id` via
+raycast, `adhesion_suitability()` in `growth_step`, `in_coverage_denominator()` for coverage) but
+entirely unexercised (`adhesion()` returns 1.0 for everything except ground).
+
+**Content target (owner proposal, adopted):** one imported wall segment of a house face, authored to
+carry in a single frame:
+
+- a **window** (glass or leaded — low adhesion),
+- a **closed door** (wood — moderate adhesion),
+- an **open door** revealing **interior** surface (`INTERIOR` material id already exists),
+- surrounding **brick wall** (high adhesion, baseline).
+
+The fixture's purpose is legibility: several materials, one sun direction, one seed point — the
+cleanest way to see adhesion differences without confounding them with sun/shade geometry.
+
+**Automatable signals (outline — thresholds pending Systems Designer probe, same discipline as
+LG-2′/LG-3):**
+
+| ID | Signal |
+|---|---|
+| RG-1 | **Per-material `A_m` values committed** in `MaterialRegistry` for at least: `BRICK_WALL`, a new or mapped **glass** id, a new or mapped **wood** id, and `INTERIOR`. Values must differ enough that a 60-game-day run from a single seed on the test wall produces **≥15% difference in stem length** between the highest- and lowest-adhesion eligible surfaces (automatable via per-face material attribution on segments). Threshold provisional — one probe run before ratification. |
+| RG-2 | **Imported submesh → registry mapping.** Each material region on the test wall and on the M2.6 structures resolves to the correct `material_id` via `face_index`; unit test asserts mapping on every face of the test wall. |
+| RG-3 | **Interior growth policy decided and enforced.** An `SD-OPEN-*` row resolves whether ivy may grow on `INTERIOR` surfaces exposed by an open door, and at what `A_m`. The chosen policy is testable: either interior segments exist and adhere, or they are suppressed — not ambiguous. |
+| RG-4 | **Human adhesion read.** Show a reviewer the test-wall scenario capture (60 game-days, single seed, local noon) with no numbers. Pass if the reviewer correctly ranks which regions carry more ivy (brick > wood > glass, or whatever the tuned ordering is) and cites visible differences (density, reach, or absence). Fail if all regions look the same. |
+
+**Explicit non-goals for M2.7:**
+
+- New `SurfaceQuery` architecture (M2.6 delivers the mesh backend)
+- AS-1 coverage metrics on the test wall (still not cylindrical; procedural tower remains substrate)
+- Player-facing seed anchors on imported structures (M3 — though authored scenario seeds remain valid)
+- Weathering, moss, or biological realism beyond adhesion suitability
+- Multiple buildings or full house interiors
+
+**What M2.7 answers that M2.6 cannot:** M2.6 proves geometry works. M2.7 proves **surface identity
+matters** — the same simulator on the same wall produces different ivy depending on what it is
+climbing. Without M2.7, every imported building is brick-at-1.0 and the material registry is dead
+code; with M2.7, Phase 2 mechanics (moisture on porous vs impermeable surfaces, player-placed
+trellises) have a tested seam.
+
+**Open question (`SD-OPEN-17`, recommendation pending Systems Designer):** an open door exposes
+`INTERIOR` surface. Options: (a) `A_m = 0` — ivy never enters (simplest, may look wrong if the door
+is only slightly ajar); (b) `A_m` low but non-zero — slow interior colonisation (interesting, needs
+blacklist guard against ivy filling the whole room); (c) `A_m = 1.0` same as wall — interior is
+just another surface (ignores the design intent of the material id). **Director recommendation:
+(b) with a low `A_m` (≈0.2–0.4) and an interior segment budget cap** — enough to show the mechanism
+works, not enough to become a second simulation domain. Escalate if the cap adds architecture.
+
+**Risk to watch:** tuning `A_m` spreads before M3's live overlay means values are committed blind —
+acceptable for M2.7's narrow test wall, but M3 should re-verify adhesion defaults on first overlay
+ship.
 
 ### M2.5 exit gate — visible causation
 
@@ -390,7 +566,7 @@ already landed at M2.
 
 ### M4 exit gate — looks good (unchanged scope, clarified boundary)
 
-M4 begins after M2.5 and M3. It adds polish and the full acceptance suite:
+M4 begins after M2.7 and M3. It adds polish and the full acceptance suite:
 
 - **Artifact blacklist** — zero occurrences across the four canonical angles
 - **Director visual rubric** — ≥5 of 6 criteria on the four canonical screenshots, scored against
@@ -415,7 +591,8 @@ Game Director.
 latitude/longitude control · artificial light sources · runtime geometry changes such as awnings or
 destruction · multiple plant species · plant ageing or juvenile/adult leaf morphs.
 
-**Content:** houses, castles, multi-storey buildings, interiors · any second building · flowers,
+**Content:** houses, castles, multi-storey buildings, interiors · any second building **beyond the
+two M2.6 test structures and the M2.7 surface test wall** · flowers,
 berries, autumn colour · terrain, backdrops, rolling hills, forests, cliffs · wind or any vine
 animation beyond growth itself.
 
@@ -479,6 +656,8 @@ this table is the index.
 | D-3 | The live tip cap value, and the behaviour at the cap (see R-6). | Resolved — `SD-TIP`. Soft 96 / hard 160, tapered branch probability between them, vigour-based retirement at the hard cap, with floating tips and the top-of-tower tips protected. |
 | D-4 | Whether the four seed anchors are authored or derived from geometry at runtime. | Resolved — `SD-AGENCY`. Derived by raycast at load and cached, so they cannot desync from a re-modelled or re-scaled tower. |
 | D-5 | Which artifact-blacklist items are automatable versus screenshot-only. | Resolved — `SD-METRIC`. Four automatable, two auto-screened with human confirmation, one (visible repetition) human-only with preventative guards instead. |
+| SD-OPEN-17 | Interior growth policy for open doors (`INTERIOR` material exposed). | Open — Director recommends low `A_m` (≈0.2–0.4) plus interior segment budget cap (M2.7). Systems Designer to formalise testable policy and escalate if cap adds architecture. |
+| SD-OPEN-18 | Automatable coverage metrics on non-cylindrical imported geometry. | Open — **deferred, not M2.6 scope.** AS-1/AS-2 remain procedural-tower-only (ratified 2026-08-12). If a future milestone needs geometry-agnostic metrics, design a new instrument; do not retrofit cylindrical binning onto square buildings. |
 
 ---
 
@@ -725,7 +904,9 @@ caused by the environment — holds.
 
 **Consequences.** M3 seed anchors (W-012) unblock: choosing where to plant is only a meaningful
 decision once a player can see that one side of the tower is better than another, which was the
-stated reason for the block. LG-1's pass also depends on `s_light` and the phototropic cant
+stated reason for the block. *(Superseded 2026-08-12: M2.6/M2.7 insertion re-gates M3 for imported
+structures and surface differentiation; procedural-tower seed anchors remain logically unblocked by
+LG-1 but ship after M2.7 — see SD-OPEN-16.)* LG-1's pass also depends on `s_light` and the phototropic cant
 remaining in the render path, so both are now protected by a shipped human gate and must not be
 reverted to satisfy a metric — a live concern, since reverting the cant was proposed as a remedy
 for the AS-1 shortfall the same day and would have traded confirmed visual quality for an
@@ -1107,8 +1288,11 @@ required two decoupling passes (W-076 presentation size, W-079 presentation cant
 tolerances/thresholds (LG-3 image stability, LG-2′ decile floors) await confirmation probes (W-081,
 second decile re-probe) before M4 hardening.
 
-**M3 unblocked:** seed anchors (W-012) and dev tuning overlay proceed; first M3 item is the dev tuning
-overlay per milestone table.
+**M3 unblocked (historical — superseded by 2026-08-12 M2.6/M2.7 insertion):** seed anchors (W-012)
+and dev tuning overlay were declared unblocked when LG-1 passed; the stated reason was that choosing
+where to plant requires visible asymmetry on the procedural tower. **M2.6 and M2.7 now re-gate M3**
+for the expanded scope (real buildings, surface differentiation) — see 2026-08-12 ratification below.
+Procedural-tower time controls may still proceed in parallel.
 
 **Remaining implementation (does not block M2.5 close):** W-079 (placement-count basis in
 `CoverageMetric` per SD-OPEN-13 amendment), W-082 (LG-3 dual-run comparison tooling), W-081 (LG-3
@@ -1120,11 +1304,72 @@ basis (SD-OPEN-13 amendment) gives **51.86% shaded (+1.86 pt)** — the durable 
 The SD-OPEN-13 "wall-normal projection" description was incorrect; the operative change is dropping
 projection entirely.
 
+**2026-08-12 — SD-OPEN-16, M2.6/M2.7 milestone insertion: ratified.** Owner scope decision:
+insert **M2.6 — Real geometry pass** and **M2.7 — Surface differentiation** between M2.5 and M3.
+M3 content unchanged; sequencing extended. Not relitigated — recorded with honest framing.
+
+**M2.6 — Real geometry pass.** Second `SurfaceQuery` backend producing Φ and ∇Φ for imported mesh
+geometry via baked discrete signed-distance volume (trilinear sample against existing `CellGrid` /
+`SparseHashField` machinery). Two CC0 medieval test structures: squat two-storey tower and
+single-storey square building. Authored growth scenarios at different seed points; **no player
+controls**. Exit: SG-1 through SG-7 (see milestone section). **AS-1/AS-2 ruling:** procedural
+tower remains the canonical metrics substrate; ratified AS-1/AS-2 figures apply to it only. Imported
+structures judged by SG-5/SG-7 and artifact-blacklist subset, not coverage percentages. **SG-1 gate:**
+canonical day-150.25 tower run must remain bit-identical (43,870 segments / 18,390 leaves /
+1288.816543 m) — cheapest check the mesh backend did not perturb the analytic backend.
+
+**M2.7 — Surface differentiation (outline).** Per-material `A_m` values, submesh → registry mapping,
+test wall with window / closed door / open door (owner proposal adopted). Mechanism already plumbed;
+milestone is content and tuning. Exit outline: RG-1 through RG-4. **SD-OPEN-17:** interior growth
+policy for open doors — Director recommends low `A_m` (≈0.2–0.4) plus interior segment budget cap;
+Systems Designer to formalise or escalate if cap adds architecture.
+
+**M3 re-gated.** Seed anchors and full dev overlay blocked until M2.7. Time controls on procedural
+tower may proceed in parallel (same parallel-slice precedent as M2.5/M3). SD-OPEN-15 "M3 unblocked"
+entry preserved as historical fact with supersession note above.
+
+**Ordering assessment (Director, stated plainly):** The M2.6 → M2.7 → M3 sequence is correct. M3 seed
+choice on imported structures before surface differentiation would teach the wrong lesson (all surfaces
+behave identically). M2.7 before M3 tuning overlay is also correct — tuning `A_m` requires values to
+exist. **One caveat:** if M2.6 mesh-SDF work overruns, do not block procedural-tower time controls on
+it; only seed anchors and structure-facing agency stay gated.
+
+**Rejected alternatives:** (a) apply AS-1 to imported structures — silently invalidates M2.5
+metrics; (b) fold M2.7 into M2.6 — surface differentiation is a separate legibility question and
+the adhesion mechanism deserves its own gate; (c) skip M2.6 and import models without mesh SDF —
+environment field and light bake would not function.
+
+*Risk to watch:* mesh-SDF bake quality at sharp creases (M2.6); `A_m` tuning committed before live
+overlay exists (M2.7); CC0 medieval assets that are photoreal-compatible may be scarce — SG-7 may
+force custom retopology or material rebake rather than raw kit import.
+
+*Acceptance signals for QA (eventual):* SG-1 exact tower repro; SG-5 ui_script captures per
+structure; SG-7 human art-direction sign-off; RG-4 human adhesion read on test wall.
+
+**Inputs used:** owner scope decision; `SurfaceQuery` / `TowerSdf` boundary audit; `MaterialRegistry`
+plumbing audit; `CoverageMetric` cylindrical geometry (SD-METRIC-1); SD-OPEN-15 historical M3
+unblock; `assets/CREDITS.md` licensing convention.
+
+**Artifacts produced:** M2.6 and M2.7 milestone rows; "Why M2.6 and M2.7 precede M3" section; SG-1
+through SG-7 gates; M2.7 RG-1 through RG-4 outline; AS-1 substrate ruling; SD-OPEN-17/18 entries;
+M3 re-gate note; non-goals carve-out for M2.6/M2.7 structures.
+
+**Next handoff: Systems Designer** — mesh-SDF backend contract (`SurfaceQuery` second implementation,
+bake resolution, tolerance budget, SG-2 test surface); per-material registry extension for M2.7
+(glass, wood ids; `SD-OPEN-17` interior policy spec); scenario loader seam. **Gameplay Architect** —
+scene swap architecture (procedural tower vs imported structure scenarios without touching simulator
+consumers). **Gameplay Programmer** — implement mesh backend and scenario scripts (W-088+). Do not
+source assets until SG-4 constraints are written into the sourcing brief.
+
 ---
 
 ## Handoff
 
-**Next stage: Gameplay Programmer** — W-079 (placement-count basis per SD-OPEN-13 amendment:
+**Next stage: Systems Designer** — mesh-SDF backend contract and M2.7 material registry extension;
+formalise `SD-OPEN-17` (interior growth policy) and note `SD-OPEN-18` (non-cylindrical coverage
+metrics — deferred). **Gameplay Architect** — structure scenario loader seam.
+**Gameplay Programmer** — M2.6 mesh backend (W-088); M2.6 remains blocked on architect spec.
+**Remaining M2.5 tail:** W-079 (placement-count basis per SD-OPEN-13 amendment:
 `ref_area` only, drop projection, test replacement); W-082 (LG-3/AS-4 dual-run comparison tooling).
 **Systems Designer** — restate SD-METRIC-3 AS-1 portion (projection withdrawn); document
 SD-OPEN-13 amendment and SD-OPEN-14 thresholds in `IMPLEMENTATION.md`. **QA** — W-081 three-pair
