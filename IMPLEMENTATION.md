@@ -217,6 +217,553 @@ a world-space address.
 
 ---
 
+## SD-MESH — Mesh-backed surface backend (M2.6, W-095)
+
+**Stage:** Systems Designer · **Date:** 2026-08-12 · **Inputs:** M2.6 milestone row and SG-1…SG-7,
+M2.7 outline (`DESIGN.md`); SD-OPEN-17 owner ruling and SD-OPEN-18; INV-7; source read of
+`surface_query.gd`, `tower_sdf.gd`, `sparse_field.gd`, `environment.gd`, `light_bake.gd`,
+`ivy_params.gd`; SD-ENV, AR-FIELD-3/5/6, AR-TOWER-4/5/6, AR-BUDGET, AR-TEST-1, W-044, W-087,
+W-088/089/091/094 · **Next stage:** Gameplay Architect (W-088 backend spec, W-089 loader).
+
+This is the contract W-088 rests on: **Φ and ∇Φ for arbitrary imported watertight geometry, behind
+the existing `SurfaceQuery` seam.** `raycast()` already works against any collision mesh and is
+unchanged. The five methods that delegate to `TowerSdf` today — `signed_distance`, `surface_normal`,
+`nearest`, `project_to_shell`, `shell_bounds` — gain a **second backend** selected per scenario. The
+tower path is never routed through the new backend, so SG-1 stays exact by construction.
+
+Numbers below (`mesh_sdf_cell = 0.05 m`, band `= 0.55 m`, floors) are **recommendations pending
+ratification** where flagged; see SD-OPEN-19…24. They are chosen against the M2.6 realities: 3 cm
+segments, 10 cm coverage bins, `max_float = 0.40 m`, `field_shell_halfwidth = 0.09 m`,
+`vis_cell = 0.12 m`, and heritage photogrammetry at 250 k–2 M triangles.
+
+**The one thing to read if you read nothing else.** The obvious framing of this milestone — "get Φ
+right for a mesh" — is not the hard part, and solving it alone leaves the milestone broken. Φ is a
+solved problem the moment the bake goes offline. The two things that will actually cost time are
+that **the interior/exterior distinction the owner's SD-OPEN-17 ruling depends on is gated by the
+light bake's coarse 0.12 m grid, not by the SDF pitch** (SD-MESH-17, floor 0.24 m rather than
+0.20 m), and that **everything downstream of the SDF scales with surface area, which a hollow
+building has roughly eight times more of than a solid cylinder** (SD-MESH-18). Both are silent
+failures: the first produces a correct-looking building whose rooms are sunlit, the second produces
+a ten-second load stall and a sluggish tick.
+
+### SD-MESH-1 — Two backends, one seam; how the choice is made (SG-1)
+
+`SurfaceQuery` delegates the five analytic methods to an injected backend, not to a hard-wired
+`TowerSdf`. Define the seam by role, not by class:
+
+- **`TowerSdf`** — the analytic backend. Unchanged, bit-for-bit. The procedural-tower scenario
+  constructs it exactly as today.
+- **`MeshSdf`** — the new backend: a baked discrete signed-distance volume sampled trilinearly
+  (SD-MESH-2…8).
+
+The backend is chosen **once, at load, by the scenario loader (W-089)** and never switched at
+runtime; a scenario is either analytic or mesh, never both, and two backends are never live at once
+(M2.6 non-goal: multiple structures in one scene). This is the whole of the SG-1 guarantee: the
+tower scenario touches no mesh code, so adding `MeshSdf` cannot perturb the 43,870 / 18,390 /
+1288.816543 m canonical run. The `SurfaceQuery` refactor that introduces the seam **must be a pure
+refactor for the analytic path** — same call order, same arithmetic — and SG-1's dual-run exact
+check is the guard that it was. Concretely the seam is `SurfaceQuery.setup()`, whose `sdf` parameter
+is statically typed `TowerSdf` today; widening that type, and the `_sdf` field behind it, is the
+whole structural change. Note that SG-1 constrains more than this file — see the warning in
+SD-MESH-17.
+
+**No silent fallback (binding, W-094).** When a mesh scenario is active, the five methods resolve
+against `MeshSdf` or **fail loudly**. There is no `TowerSdf` fallback branch anywhere on the mesh
+path. A backend that cannot be constructed (missing / stale volume, inadmissible geometry —
+SD-MESH-13) is a **hard load error**, not a degraded run. A fallback would make every SG-2
+assertion pass against the tower instead of the mesh — the unfalsifiable-test shape of W-076.
+
+### SD-MESH-2 — Representation: a dense narrow-band volume with world-space addressing
+
+`MeshSdf` stores Φ on a **regular lattice at pitch `h = mesh_sdf_cell = 0.05 m`**, dense over the
+mesh AABB padded by `pad = 0.55 m` on every side, addressed in world space:
+
+```
+i = floor((p − origin) / h)   with origin = mesh_aabb.position snapped down to a multiple of h
+Φ(p) = trilinear over the 8 lattice values around p
+```
+
+Storage is a single `PackedFloat32Array` plus a small header (`origin`, `h`, `dims: Vector3i`,
+`band`, provenance hash — SD-MESH-11). Dense, not sparse, because (a) these are small structures
+(4–8 m), (b) O(1) addressing makes trilinear and central differences uniform everywhere with no
+sparse-edge special case, and (c) it avoids the AR-AMBIG-2 renormalisation-at-the-boundary problem
+that the light field has to carry — a dense array simply has all eight corners always present.
+
+**Narrow band.** Exact magnitudes are stored only for `|Φ| ≤ band = 0.55 m`; beyond the band the
+stored value is the clamped constant `±band` (sign from a flood fill off the watertight surface —
+SD-MESH-10). `band` is sized so every point on the growth path is inside it: a tip floats at most
+`max_float = 0.40 m` out, field allocation projects points up to `field_shell_halfwidth = 0.09 m`,
+and one cell of slack ⇒ `band ≥ 0.40 + 0.09 + h ≈ 0.54`, rounded to 0.55. Symmetric inward, so
+interior-face bands reach equally far into rooms.
+
+**`pad = band` is a load-bearing equality, not a coincidence.** Because the padded AABB extends
+exactly `band` beyond the mesh AABB, and the mesh lies inside its own AABB, every point on the
+padded boundary is at least `band` from the surface — so the outermost stored layer is guaranteed to
+hold the saturated constant, which is what makes SD-MESH-5's volume-boundary claim true. It also
+comfortably contains the region the light field asks for: `IvyEnvironment.build` allocates over
+`shell_bounds(field_shell_halfwidth + field_cell)` = mesh AABB grown by 0.15 m, well inside 0.55 m,
+so no field lattice point ever samples a clamped boundary value. If `pad` is ever reduced, both
+guarantees have to be re-derived.
+
+### SD-MESH-3 — Resolution justified against the thinnest supported feature
+
+A wall of thickness `t` reads as **two distinct surfaces** only if trilinear reconstruction along a
+line through it produces two sign changes, which requires at least one lattice sample strictly
+inside the solid on that line. The phase-independent guarantee of an interior sample is `t ≥ 2·h`;
+for the two crossings to be *located* within the SG-2 class and for the interior face to carry a
+usable baked normal you want 3–4 samples across, i.e. `t ≥ 4·h`. With `h = 0.05 m`, for the
+**geometry** alone (the separate and coarser light-side floor is SD-MESH-17):
+
+| Feature thickness | Behaviour |
+|---|---|
+| `t ≥ 0.20 m` (`4·h`) | **Full geometric contract.** Both faces resolved, both surfaces present in Φ, normals accurate. |
+| `0.10 m ≤ t < 0.20 m` (`2·h`–`4·h`) | Resolved but **degraded**: two crossings exist, interior-face normals are noisier and Φ error near the reveal is O(`h`). Flagged by the bake (SD-MESH-13). |
+| `t < 0.10 m` (`< 2·h`) | **Inadmissible.** The two faces merge into one blob; the interior vanishes. The baker must detect and refuse (SD-MESH-13) — silently-wrong is not allowed. |
+
+**This table is about geometry only, and it is not the floor that matters most.** Resolving both
+faces in Φ is necessary but not sufficient for the interior to *behave* as an interior: the light
+products that actually starve it are baked on the light layer's coarse `vis_cell = 0.12 m` grid,
+whose face-separation floor is `2·vis_cell = 0.24 m` — coarser than every number above. **0.24 m,
+not 0.20 m, is the binding thin-wall floor for this contract.** See SD-MESH-17, which is where the
+owner's SD-OPEN-17 ruling is actually won or lost.
+
+Phase A (game-ready square building: walls ≥ 0.3 m, storey ≥ 2.4 m) clears both floors on its walls,
+which is why the contract is **satisfiable by phase A alone**. A door reveal is the wall thickness
+seen edge-on, so a 0.3 m wall gives a 0.3 m reveal and also clears them; a genuinely thinner feature
+(M2.7's open-door test wall is the case to watch) clears the geometry floor and **fails the light
+floor**, and must be handled per SD-MESH-17 rather than waved through. Where a finer *geometric*
+pitch is the answer, it is a per-asset change, not a global one — the pitch lives in the asset header
+(SD-MESH-11, SD-MESH-16), so one thin asset can be baked at `h = 0.025 m` without touching anything
+else.
+
+### SD-MESH-4 — Per-method contract
+
+Each method's inputs, output, and guarantee. "Volume read" = trilinear sample of SD-MESH-2; "ray"
+= physics raycast against the scenario's collision mesh (SD-MESH-12), which is always present.
+
+| Method | Input → output | Definition | Guarantee | Failure mode |
+|---|---|---|---|---|
+| `signed_distance(p)` | `Vector3` → `float` | Volume read of Φ. | Sign exact inside/outside within the band; `|Φ|` within `~0.5·h` of truth away from creases, degrading to O(`h`) at convex creases (discrete SDFs round sharp edges — same conservative rounding AR-TOWER-4 already accepts on the tower, and behaviourally better: ivy does not hug a razor edge). Satisfies SG-2(a). | Outside band: saturates to `±band` (SD-MESH-8). |
+| `surface_normal(p)` | `Vector3` → `Vector3` (unit) | `∇̂Φ` by central differences of the volume; normalised (SD-MESH-5). | Agrees with raycast hit normals on the ≥200 stratified samples of SG-2(b) at surface-adjacent points. | Uniform / out-of-band neighbourhood ⇒ `Conv.UP` fallback (SD-MESH-5), never a ULP-scale vector. |
+| `nearest(p)` | `Vector3` → `Hit` | Volume seed `q₀ = p − Φ·∇̂Φ`, then **raycast-refined** to the exact mesh point (SD-MESH-6). | Returned point within **5 mm** of raycast ground truth; `normal` is the exact hit normal; `face_index` / `material_id` are the refined hit's own, not a constant. Satisfies SG-2(b,c). | Grazing miss ⇒ SDF seed `q₀`, `Hit` flagged `refined = false` (dev counter). |
+| `project_to_shell(p, offset)` | `Vector3` → `Vector3` | **Two** fixed Newton steps `p ← p − Φ(p)·∇̂Φ(p)` from the volume only (no ray). | `|Φ(result)| ≤ 0.045 m` — half `field_shell_halfwidth`, so the result is inside the allocated band with margin. Satisfies SG-2(d). This is the hot path (every field sample jitters + projects), so it stays ray-free. | Out of band ⇒ moved toward the saturated-Φ direction; benign, tip is off-path (SD-MESH-8). |
+| `shell_bounds(margin)` | `float` → `AABB` | Mesh AABB (from the header) grown by `margin`. | Encloses the mesh plus the field halfwidth. Satisfies SG-2(e). | — |
+
+The **different accuracy contracts on `nearest()` and `project_to_shell()` are deliberate**:
+`nearest()` is the 5 mm adhesion query and pays one ray; `project_to_shell()` only needs to land
+inside a 9 cm band and is called orders of magnitude more often, so it must not.
+
+**Why two Newton steps and not one.** The analytic tower gets away with one (`test_field.gd` asserts
+a point 0.35 m out lands at `|Φ| ≤ 1 mm`) because `TowerSdf` is near-exact. A discrete Φ is not: it
+is smoothed at creases, so `|∇Φ| < 1` there and a single step overshoots by O(`h`) — 5 cm against a
+9 cm band is not margin, it is a coin toss at every corner, and corners are precisely where SG-7
+says the ivy must conform. Two steps square the residual and cost one extra volume read plus one
+extra gradient. **This is a measurement, not a guess to keep forever:** W-094 should report the
+worst-case `|Φ(result)|` over its stratified samples for one and two steps on the phase A asset, and
+if one step measures comfortably inside 0.045 m the second can be dropped as pure cost. It matters
+because `IvyEnvironment._sample()` projects on every field read and `_grad()` does four of those per
+gradient, so this constant multiplies the hottest loop in the simulation.
+
+**`nearest()` and `material_id` (W-044).** `SurfaceQuery.nearest()` currently hardcodes
+`BRICK_WALL` while the raycast path resolves `face_index → material_id` properly — harmless today
+only because every surface is brick. The mesh path's refinement ray already has the real
+`face_index` in hand, so it must populate both fields; that is free here and is exactly the seam
+M2.7's RG-2 needs. **Do not fix W-044 on the analytic path during M2.6.** Nothing about that path
+may change while SG-1 demands bit-identity, and the fix has no observable effect until M2.7 gives
+materials distinct `A_m` values anyway.
+
+### SD-MESH-5 — ∇Φ without the W-087 rounding class
+
+Normals are `∇Φ` by central differences of the volume — exactly the computation that produced
+W-087's phantom ~6e-15 gradient — so the same guard is mandatory:
+
+1. **The volume's trilinear reader carries the W-087 uniform-neighbourhood shortcut.** If all eight
+   corners are equal, return that value *exactly*, not `Σ(w·C)/Σw`. Then a central difference across
+   any uniform region is bit-exact zero rather than a ULP either side of it.
+2. **Zero-gradient ⇒ documented fallback.** If `|∇Φ|² < 1e-10`, return `Conv.UP` — the identical
+   degenerate-case rule `TowerSdf.gradient_normalized` already uses, so the two backends agree on
+   the flat-top / uniform-region behaviour that feeds the SD-CONV-5 tangent basis.
+3. **Volume boundary.** Lattice indices are clamped into the array on read; the outermost stored
+   layer holds the clamped `±band` constant. A central difference at the padded-AABB face is then
+   either a genuine inward pull (one side in-band, one side clamped) or exactly zero at a corner
+   (both clamped) → fallback. It is never a fabricated small gradient. Central-difference `ε`
+   follows the volume, not the light field: use `ε = h` here (the SDF is smooth at cell scale),
+   distinct from SD-ENV-5's `1.5·field_cell`, which exists to fight banding in a noisier field.
+
+Degenerate cases, stated: (i) uniform region → zero gradient → `UP`; (ii) out of band → constant Φ
+→ zero gradient → `UP`; (iii) exact crease → gradient is the average of adjoining face normals
+(rounded), which is the correct conservative behaviour.
+
+### SD-MESH-6 — `nearest()` meets 5 mm by delegating to the ray, not by pitch
+
+A 5 cm trilinear volume cannot land `nearest()` within 5 mm at corners and thin features by cell
+size alone; refining the pitch far enough to try would blow the memory and bake budgets. Instead:
+the volume gives the seed `q₀ = p − Φ·∇̂Φ` and the **direction**, then a short ray from `p` toward
+`q₀` (length `|Φ| + 2·h`) returns the **exact** hit point and hit normal. Physics-exact ⇒ trivially
+within 5 mm, and it reuses the mechanism that is already authoritative for collision (AR-TOWER-4).
+The tested path is the shipped path — the sim's adhesion query and SG-2(c)'s probe call the same
+`nearest()`, so there is no untested divergence. Cost: **one extra raycast per `nearest()` call**,
+roughly doubling growth-loop raycasts (collision already casts one). Acceptable under M2.6, where
+AS-5 is an explicit non-goal on imported structures; revisit only if a mesh scenario is ever held
+to a frame budget (SD-OPEN-20).
+
+### SD-MESH-7 — Relationship to the light-field shell and cell grid: independent grids
+
+There are **three** grids in play, not two: the SDF volume, the light field
+(`SparseHashField`, `field_cell = 0.06 m`, `field_shell_halfwidth = 0.09 m`), and the light bake's
+coarse SVF / visibility grid (`vis_cell = 0.12 m`, AR-FIELD-6). This rule covers the first two; the
+third is SD-MESH-17, and it is the one with teeth.
+
+The SDF volume and the light field are **separate structures on separate grids**, deliberately, not
+a shared lattice:
+
+- **Dependency order forbids sharing.** `SparseHashField.allocate_shell` calls
+  `surface.signed_distance()` at each candidate lattice point to decide allocation; the SDF must
+  therefore already exist and be readable *before* the field is built. The SDF is an **input to**
+  field construction, not a co-resident channel of it.
+- **They cover different widths.** The field shell is 9 cm (three cell layers); the SDF band is
+  55 cm, because `project_to_shell` and floating tips need valid Φ/∇Φ far outside the field shell.
+  One structure cannot be both 9 cm and 55 cm wide.
+- **They have different densities and pitches.** The field is sparse (surface cells only) at 6 cm;
+  the SDF is dense at 5 cm and includes interior bands the field never allocates.
+
+Consequences that must hold: `shell_bounds(margin)` (SD-MESH-4) is what `IvyEnvironment.build`
+grows to get the allocation region, so the SDF's AABB must enclose the mesh; and because field
+allocation and the bake (`fill_field`, `sky_view_factor`) read Φ, ∇Φ and project through the SDF,
+**the SDF must be constructed first in the load order** (loader responsibility, W-089). `field_cell`
+and `field_shell_halfwidth` keep their tower values on the mesh path and simply consume a different
+Φ provider — but `vis_cell` does **not** get to keep its value unexamined (SD-MESH-17), and the
+absolute cost of building the field over a building-sized AABB does not survive the change of scale
+(SD-MESH-18).
+
+### SD-MESH-8 — Behaviour outside the baked volume
+
+Two distinct "outside" cases, both benign:
+
+1. **Outside the band, inside the padded AABB** (`|Φ| > 0.55 m` — e.g. a room centre far from any
+   wall): Φ saturates to `±band` and ∇Φ is zero → normal fallback `UP`. This is never on the growth
+   path: a tip dies at `max_float = 0.40 m < band`, so any surface a tip can adhere to is inside the
+   band. A read there returns a flat field with no gradient pull — it cannot yank a tip anywhere.
+2. **Outside the padded AABB entirely**: index-clamped reads return the boundary layer's `+band`
+   constant (treated as "far outside the solid"), ∇Φ zero → `UP`. Also off-path.
+
+This is orthogonal to the light field's SD-EDGE-15 out-of-shell fallback, which still applies to
+field reads independently.
+
+### SD-MESH-9 — Bake provenance, determinism, content addressing (INV-7, SG-6)
+
+The volume is **baked offline and committed as a content-addressed asset** (SD-MESH-10 explains why
+offline). Determinism is met not by re-baking deterministically at load but by shipping a fixed
+artefact and proving it pairs with the right mesh:
+
+- The header stores `provenance = hash(source_mesh_content, h, band, baker_version)`.
+- At load, the loader recomputes `hash(source_mesh_content, …)` and **asserts it equals the header**.
+  A mismatch — an edited mesh against a stale volume, or a pitch/version drift — is a **hard load
+  error**, never a silent pairing. This is the INV-7 guarantee that the simulation consumes nothing
+  non-reproducible, and the SG-6 guarantee that two serial runs read byte-identical Φ and produce
+  identical counts to six decimals.
+- **The hash must bind the collision mesh that is actually loaded, not a path on disk.** Half of
+  this contract runs on raycasts — `nearest()`'s refinement, every SVF and visibility ray, and
+  SG-2's own ground truth — and those hit the collision shape, not Φ. Pair a correct volume with the
+  wrong collision mesh and the two halves disagree while every test still passes, because SG-2
+  compares raycasts against raycasts. Hash the loaded collision geometry and verify it, so that
+  "the SDF and the colliders describe the same building" is checked rather than assumed.
+- The baker itself must be deterministic given `(mesh, h, band)` — content addressing requires that
+  re-baking reproduces the same volume.
+- Trilinear reads and central differences are pure arithmetic over a fixed lattice with a
+  deterministic `origin` (mesh-AABB snapped to `h`), so runtime is deterministic regardless of the
+  baker.
+
+### SD-MESH-10 — Compute budget: offline is not optional for phase B
+
+Exact point-to-triangle over every band cell is the cost that decides this. Phase A (~10–50 k tris)
+over ~2 M cells is already ~10¹⁰ tests; phase B (250 k–2 M tris) is 10¹¹–10¹² — astronomical in
+GDScript at load, as W-088 notes. Resolution:
+
+- **Bake offline** with a triangle **BVH** and **narrow-band restriction**: compute exact distance
+  only for cells within `band` of the surface (found by rasterising triangle neighbourhoods into the
+  lattice), then **flood-fill the sign** to `±band` for the rest from the watertight surface. This
+  is the standard narrow-band SDF construction; runtime then loads a `PackedFloat32Array` (a few MB,
+  SD-MESH-11) in milliseconds.
+- **Load-time baking is permitted only for phase A** as an authoring convenience (its triangle count
+  makes a BVH bake tolerable), but the *shipped* runtime input is always the committed volume, so
+  there is one runtime code path. Phase B is offline-only.
+
+This is the reason the representation is a shipped asset rather than a load computation, and it is
+what keeps the contract satisfiable by phase A while phase B's cost is handled the same way.
+
+### SD-MESH-11 — Memory and asset budget
+
+Dense over a padded AABB at 5 cm: a 7 × 7 × 5 m structure padded to ~8 × 8 × 6 m is
+`160 × 160 × 120 ≈ 3.1 M` cells × 4 B ≈ **12 MB** on disk and in RAM, one structure loaded at a time
+(M2.6 non-goal: simultaneous structures). Phase A's smaller footprint is well under this. The AABB
+cell product is capped (recommend 32 M cells); an asset that would exceed it at its chosen pitch is
+rejected at bake with the cell count reported, so the author drops pitch or splits the asset rather
+than discovering an OOM at load. Compare the light-field bake budget (AR-BUDGET: < 1.5 s load, disk
+cache above 3 s) — the SDF is pre-baked, so its load is a file read, not a compute.
+
+### SD-MESH-12 — Collision / SDF proxy vs. the render hero mesh
+
+Evaluated on its merits, adopted **with a co-registration constraint**:
+
+- **Phase B (heritage scan): decouple.** The hero mesh stays high-poly for SG-7 photorealism and is
+  render-only; a **watertight, manifold, low-poly collision proxy** carries both physics (`raycast`)
+  and the SDF bake. This is the right split because W-091's real cost is that a scan needs
+  hole-filling to define inside/outside at all — and hole-filling only has to be done **once, on the
+  proxy**, not on the hero mesh. It also collapses the BVH/bake cost (SD-MESH-10) onto a simple
+  mesh.
+- **Phase A (game-ready): the mesh is its own proxy.** It is already watertight, manifold, and
+  low-poly, so a separate proxy is needless indirection.
+- **Constraint (SG-7 risk).** Proxy and hero must be **co-registered** (same origin, scale,
+  orientation) and the proxy must not deviate from the hero surface by more than ~`h` where ivy
+  reads it, or the ivy will visibly sit off the geometry the player sees — the exact "does not
+  conform to the geometry" failure SG-7(b) is written to catch. Ledges, corners and rooflines the
+  reviewer expects ivy to follow must be present in the proxy.
+
+Owner/asset-pipeline decision, since it changes the W-091 deliverable shape → SD-OPEN-22.
+
+### SD-MESH-13 — Geometry admissibility and what failure looks like
+
+An asset is **admissible** for the mesh backend iff its collision/SDF mesh is:
+
+1. **Watertight & manifold** — every edge shared by exactly two triangles; no holes, no
+   non-manifold edges. Inside/outside is undefined on an open mesh and the SDF sign depends on it
+   entirely.
+2. **Consistently oriented** — coherent outward winding, so the flood-fill sign (SD-MESH-9) and
+   `∇̂Φ` point outward (SD-CONV-3).
+3. **Real-metre scale** — verified against a named dimension (door ≈ 2.0–2.1 m, storey ≈ 2.4–3.0 m).
+   Mis-scale makes 3 cm segments and 10 cm bins meaningless (SG-4).
+4. **No self-intersections** that flip inside/outside within the band.
+5. **Thinnest solid feature ≥ 0.24 m**, the SD-MESH-17 light-separation floor, for any wall whose
+   two faces must behave differently — which is every wall enclosing an interior. Geometry-only
+   features fall back to the SD-MESH-3 floors (`≥ 0.10 m` hard, `≥ 0.20 m` full).
+
+**Detection is the baker's job, and it refuses rather than emitting a wrong volume:**
+
+| Violation | Detection | What the baker does |
+|---|---|---|
+| Open / non-manifold | edge-manifoldness scan | **Abort**, name the boundary edges. Never produce a volume (sign undefined). |
+| Inconsistent winding | orientation pass | Abort or auto-reorient if globally flippable; else abort. |
+| Mis-scale | reference-dimension check (manual/authored) | Abort with measured vs expected. |
+| Thin feature `< 0.10 m` | narrow-band thin-region scan (cells whose ± bands overlap) | **Abort**, list offending AABBs. Geometry itself is unrepresentable. |
+| Thin feature `0.10–0.20 m` | same scan | **Warn**, list AABBs, proceed. Geometry degraded; light separation absent. |
+| Thin feature `0.20–0.24 m` | same scan | **Abort** if the asset declares interior surfaces, else **warn**. Φ is fine and the light bake is not (SD-MESH-17) — the most dangerous band, because everything looks correct. |
+| Thin feature `0.24–0.30 m` | same scan | **Warn**: separation holds but with no margin against `project_to_shell` error at reveals. |
+
+Two failures this prevents, stated concretely. The first is the obvious one: a bake too coarse for
+the wall fuses a 0.3–0.6 m wall's two faces into one positive-outside blob with **no interior
+surface**, so the SD-OPEN-17 interior growth the owner asked for has nothing to grow on and M2.7's
+open-door reveal wall reads as solid. The second is worse because it is quiet: at 0.20–0.24 m the
+geometry resolves perfectly, every SG-2 assertion passes, and the interior is merely *lit like the
+outside*. No SG-2 assertion can catch that, because SG-2 only ever asks about Φ — which is why it
+needs both the baker gate here and the purpose-built light-separation assertion in SD-MESH-15.
+Between them, both failures are caught at author time or in the suite, rather than discovered as
+"ivy won't go inside" — or "ivy went inside and thrived" — three milestones later.
+
+### SD-MESH-14 — Interior growth interaction (SD-OPEN-17 dependency)
+
+SD-OPEN-17 is **resolved by owner ruling**: interiors are wanted, `INTERIOR` stays at `A_m = 1.0`,
+and ivy thins inside from light starvation (raycast occlusion drives `sky_view_factor` and
+`visibility_mask` to near zero) rather than from any rule — no low `A_m`, no segment cap (both
+withdrawn). **That ruling is load-bearing on this contract:** it works only if interior and exterior
+are *distinguishable surfaces*, and "distinguishable" has to hold in **two** places, not one — in Φ
+(the thin-wall guarantee of SD-MESH-3, floor `4·h = 0.20 m`) *and* in the baked light products
+(SD-MESH-17, floor `2·vis_cell = 0.24 m`). Resolving the geometry and then averaging the two faces'
+sky-view factors together would satisfy the first and lose the ruling anyway: the interior would be
+a correctly-shaped surface that is spuriously lit. So the mesh contract's obligation for interior
+growth is: **resolve both faces of any wall ≥ 0.24 m in Φ *and* in the light bake, and refuse to
+ship a volume that silently doesn't.** The residual
+"interiors evaluate to exactly zero light and kill ivy at the threshold" problem is a rendering
+concern already scoped to M2.7 (W-096, indirect/bounce term) and is **out of scope here** — the SDF
+just has to keep the interior surface present and correctly signed.
+
+### SD-MESH-15 — W-094 test surface, and detecting the silent `TowerSdf` fallback
+
+W-094 asserts SG-2(a)–(e) on each structure's collision mesh: sign inside/outside/on-surface to the
+stated tolerance; `surface_normal` vs raycast hit normals over ≥200 stratified samples;
+`nearest()` within 5 mm of raycast; `project_to_shell` inside the allocated band; `shell_bounds`
+encloses mesh + halfwidth. The load-bearing addition is **detecting a silent fallback to
+`TowerSdf`**, which would make all of the above pass against the wrong geometry. Three guards,
+layered:
+
+1. **Behavioural discrimination (primary).** Probe points where the mesh answer is *impossible* for
+   `TowerSdf` to produce: a flat wall and a right-angle corner of the square building, where the
+   analytic tower would return a cylindrical radial normal but the mesh returns a face / edge
+   normal. Assert the normals match the *mesh* raycast, not a cylinder. This fails a fallback even
+   if someone bypasses an identity flag, because the geometry genuinely differs. (Choosing a
+   non-cylindrical phase-A structure is what makes this test possible — a second reason the square
+   building goes first.)
+2. **Backend identity (secondary).** `SurfaceQuery` exposes a dev/test-only backend tag; the test
+   asserts it is `MeshSdf` and that no `TowerSdf` was constructed for a mesh scenario.
+3. **Source-scan (structural).** A `test_params_conformance`-style scan asserts the `MeshSdf` module
+   references `TowerSdf` nowhere — the no-fallback rule of SD-MESH-1 enforced by absence, the same
+   discipline SD-ENV-3 uses for the nearest-cell accessor.
+
+**One assertion beyond SG-2, and it is not optional: interior/exterior light separation.** SG-2 asks
+only about Φ, so it passes intact on a building whose interior is spuriously lit (SD-MESH-17). Build
+the environment on the phase A structure and assert that `SVF` sampled at an enclosed interior wall
+cell is **near zero** while `SVF` at the corresponding exterior cell of the same wall is **at least
+the open-vertical-wall value** — the two must differ by a wide margin, not by a few percent. This is
+the only automatable guard that the owner's SD-OPEN-17 mechanism is actually running, and it is a
+property of the *pair*, so it fails whenever the coarse bake has merged the faces regardless of
+cause. Report the measured pair rather than only pass/fail, so a shrinking margin is visible before
+it becomes a failure. Also worth reporting, since W-094 is already building the field: the two-step
+`project_to_shell` residual (SD-MESH-4) and the load timings SD-OPEN-24 wants measured.
+
+### SD-MESH-16 — Parameters live in the asset header, not `IvyParams` (INV-6 note)
+
+`mesh_sdf_cell`, `band`, `pad`, the cell cap, and the thin-feature floors are **bake-time**
+properties of a committed asset, content-addressed into the volume header (SD-MESH-9). They are
+**not** added to `IvyParams`. Reason: they are not runtime-tunable (changing pitch means re-baking,
+which changes the provenance hash), and adding an unread `@export` would trip the INV-6 dead-knob
+guard (`test_params_conformance`, W-086). The one plausibly-runtime knob — the `nearest()`
+refinement ray margin — is a small fixed constant on `MeshSdf`, not a tuning parameter. This keeps
+the sim parameter table honest and the asset self-describing.
+
+### SD-MESH-17 — The light bake's coarse grid is the real interior/exterior floor
+
+**The finding.** SD-MESH-3 makes Φ resolve both faces of a wall at `4·h = 0.20 m`. That is not
+enough to make an interior behave like an interior, because the values that starve it are not read
+from Φ. `LightBake` bakes `SVF` and the 24-bit direct-sun mask on a **coarse `vis_cell = 0.12 m`
+grid**, one `(svf, mask)` pair per coarse cell keyed by cell alone, sampled at that cell's
+`project_to_shell()` point; `fill_field` then hands each fine cell a weighted blend of the **eight
+coarse corners surrounding its projected surface point**. Nothing in that path knows which *side* of
+a wall a corner belongs to.
+
+**The consequence, derived.** Take a fine cell on the interior face of a wall of thickness `t`. Its
+coarse corners sit up to `vis_cell` away along each axis. A corner displaced outward by `d` lands
+nearer the exterior face whenever `d > t/2`, so its baked pair is the **exterior** one — open sky,
+`SVF ≈ 0.5`, direct-sun hours set. That value is then blended into the interior cell. Contamination
+therefore occurs exactly when `vis_cell > t/2`:
+
+> **Interior and exterior are separable in the light products iff `t ≥ 2·vis_cell = 0.24 m`.**
+
+This dominates every geometric floor in SD-MESH-3, and it fails in both directions. Below 0.24 m the
+interior of a thin wall is spuriously lit — the owner's SD-OPEN-17 mechanism silently does nothing,
+and ivy colonises a room it should have starved in. Symmetrically, the **exterior** of a thin wall
+inherits interior darkness and ivy refuses to climb the outside of it, which reads as an adhesion or
+light bug and is an SG-5 failure, not merely an interior-fidelity one. Both are silent: the geometry
+is perfect, the SDF tests pass, and the plant is simply wrong.
+
+**Rules.**
+
+1. **`t ≥ 0.24 m` is the binding thin-feature floor** for any wall whose two faces must behave
+   differently. The SD-MESH-13 thin-region scan already computes what is needed; it reports against
+   `0.24 m`, not `0.20 m`. Below it the baker **refuses** for assets declaring interior surfaces, and
+   warns loudly otherwise.
+2. **`t ≥ 0.30 m` is the comfortable figure.** 0.24 m is a floor with zero margin: a corner sitting
+   near the wall's mid-plane is ambiguous, and `project_to_shell`'s O(`h`) error at a reveal can flip
+   which face it picks. Phase A's ≥ 0.3 m walls clear this, which is again why phase A alone
+   satisfies the contract.
+3. **Do not silently lower `vis_cell` to buy margin.** Raycast count scales as `vis_cell⁻²` on top of
+   the SD-MESH-18 blowup, so halving it quadruples a bake that is already several times the tower's.
+   It is a per-scenario escape hatch, not the answer.
+4. **The correct long-term fix is face-aware keying**, and it is small: store the baked normal
+   alongside `_svf` and `_vis` as a third parallel array, and have `_gather_corners` accept only
+   corners whose baked normal agrees with the reading cell's `n` (renormalising over the survivors,
+   which it already does). That is one extra array and one predicate, not a new architecture — but
+   see the SG-1 warning below. Out of M2.6 scope unless M2.7's open-door test wall forces it, since
+   that wall is where a sub-0.24 m reveal is most likely to be authored.
+
+**SG-1 warning, and it generalises.** `LightBake`, `SparseHashField` and `IvyEnvironment` are
+**shared code**: the tower runs through them too. Any change made to accommodate meshes — including
+rule 4 above — must be either provably behaviour-preserving for the analytic path or gated on the
+selected backend, or the canonical 43,870 / 18,390 / 1288.816543 m run moves and SG-1 fails. SG-1 is
+not a constraint on `SurfaceQuery` alone; it is a constraint on the whole environment layer, and it
+is the reason a tempting one-line improvement to `_gather_corners` is not free.
+
+### SD-MESH-18 — Load and per-tick budget on mesh scenarios
+
+Going offline solved the *SDF* bake (SD-MESH-10). It did not touch the cost of everything that
+consumes the SDF, and that cost scales with surface area — which a hollow building has far more of
+than a solid cylinder. Calibrating against the AR-FIELD-6 / AR-BUDGET tower figures (~5 k coarse
+cells, ~440 k bake raycasts, < 1.5 s, ~40 k fine cells, ~3.8 MB table), and taking a 6 × 8 m,
+4 m-tall phase A building with 0.3 m walls, a floor and a roof:
+
+| Quantity | Tower | Phase A building | Driver |
+|---|---|---|---|
+| Exposed surface (incl. interior) | ~50 m² | ~390 m² | hollow, two-sided, plus roof and underside |
+| Coarse cells (`vis_cell`) | ~5 k | ~39 k | ∝ area |
+| Bake raycasts (64 SVF + ≤24 mask) | ~440 k | ~3.4 M | ∝ coarse cells |
+| Allocated fine cells | ~40 k | ~325 k | ∝ area |
+| `P(cell, hour)` table | ~3.8 MB | ~31 MB | ∝ fine cells |
+| Per-tick EWMA writes | ~40 k | ~325 k | every tick, every speed |
+
+Three consequences, all of which want stating before someone meets them at 3 a.m.:
+
+- **The load bake blows the budget.** AR-BUDGET's threshold is "above 3 s, move to the AR-FIELD-6
+  disk cache". At ~8× the tower's raycasts this lands near 10 s, so **the disk cache stops being a
+  named escape hatch and becomes M2.6 work.** It should be content-addressed on the same key as the
+  SDF volume (SD-MESH-9) plus the light parameters, for exactly the same stale-pairing reason.
+- **The per-tick cost rises ~8× too**, and it is `advance_light_ewma` over every allocated cell,
+  every tick, at every speed — AR-RISK-2's named GDScript-throughput risk, arriving. AS-5 is an
+  explicit M2.6 non-goal on imported structures so this gates nothing, but SG-5 and SG-6 require
+  30-game-day runs to complete twice, and if a scenario run takes minutes the milestone becomes
+  painful to iterate on. Measure it on phase A before assuming it is fine.
+- **`allocate_shell` is *not* a concern**, despite scanning ~2.6× more lattice points: a trilinear
+  volume read is cheaper than `TowerSdf.signed_distance`, which evaluates two opening boxes with
+  four trig calls each. Noted so the Architect optimises the loop that is actually slow.
+
+`shell_bounds(margin)` is what sets all of this, so an asset with a large empty courtyard inside its
+AABB pays for volume it never uses. That is a reason to prefer compact phase A geometry, not a
+reason to change the allocation rule.
+
+### SD-MESH — example scenarios
+
+- **Square building, ground seed on a flat wall (phase A).** Loader selects `MeshSdf`, asserts the
+  volume's provenance hash, builds the field over `shell_bounds`. Φ is negative in the 0.35 m walls,
+  positive in the courtyard and outside; a tip adheres via `nearest()` (raycast-refined onto the
+  exact wall), climbs, and `surface_normal` returns the flat face normal — not a radial cylinder
+  normal, which is what proves the mesh backend is live (SD-MESH-15). Reaches ≥1 m, zero `max_float`
+  deaths (SG-3).
+- **Open door, interior reveal (phase A/B, feeds M2.7).** The wall is 0.3 m, so the reveal is 0.3 m
+  and clears both the geometric floor (SD-MESH-3) and the light-separation floor (SD-MESH-17). Both
+  faces resolve in Φ *and* in the coarse bake, so a tip rounding the jamb finds interior masonry at
+  `A_m = 1.0` whose `sky_view_factor` is ~0 from raycast occlusion, and growth thins with depth —
+  the SD-OPEN-17 emergent behaviour, working because both floors were met.
+- **The same scenario at 0.18 m (the failure worth rehearsing).** Φ still resolves both faces and
+  every SG-2 assertion still passes, so the geometry looks correct. But the interior fine cells
+  blend exterior coarse corners, `SVF` inside reads ~0.3 instead of ~0, and ivy colonises the room
+  as happily as the façade. Nothing errors, and the only two things that catch it are the ones this
+  contract added for the purpose: the baker's 0.24 m thin-region gate (SD-MESH-13) refuses the asset
+  at author time, and failing that, W-094's interior/exterior `SVF` pair assertion (SD-MESH-15)
+  fails in the suite. Every other check in M2.6 passes happily.
+- **Stale volume (failure path).** An author edits the mesh but forgets to re-bake. Load recomputes
+  the mesh hash, it disagrees with the header, and the loader aborts with a clear error (SD-MESH-9)
+  — the plant never grows against mismatched geometry, and no SG assertion runs against a lie.
+
+### SD-MESH — non-goals
+
+- Per-material adhesion, glass/wood ids, submesh→registry tuning — M2.7 (all `BRICK_WALL` /
+  `INTERIOR` at `A_m = 1.0` here).
+- The interior indirect-light / bounce term — M2.7 rendering (W-096); the SDF only keeps the
+  interior surface present.
+- Automatable coverage on non-cylindrical geometry — deferred (SD-OPEN-18); do not retrofit AS-1's
+  cylindrical binning onto square buildings.
+- Player-facing seed anchors, time controls, dev overlay — M3.
+- A new field or `SurfaceQuery` architecture beyond the backend seam — the seam is the change.
+- GPU baking, multithreading, runtime deformation of the SDF — Phase 2.
+
+### SD-MESH — handoff to Gameplay Architect (W-088, W-089)
+
+- Spec `MeshSdf` implementing the SD-MESH-4 method contract behind the AR-TOWER-5 `SurfaceQuery`
+  API, injected as the backend (SD-MESH-1); refactor `SurfaceQuery` to hold a backend without
+  changing the analytic path (SG-1 guard).
+- Spec the committed volume asset format and the offline baker (SD-MESH-9/10/13): header fields,
+  provenance hash, narrow-band + BVH construction, admissibility gates.
+- Own the load order in W-089's loader: SDF constructed and hash-verified **before** the field
+  builds (SD-MESH-7); decide the collision-proxy pipeline shape (SD-MESH-12 / SD-OPEN-22).
+- Take the recommended constants (`h = 0.05 m`, `band = 0.55 m`, geometric floors 0.10 / 0.20 m,
+  **binding thin-wall floor 0.24 m**) as defaults pending SD-OPEN-19 and SD-OPEN-23; wire W-094's
+  three-layer fallback-detection (SD-MESH-15) into the test plan, and have it report the measured
+  one-step vs two-step `project_to_shell` residual (SD-MESH-4).
+- Budget the load path, not just the SDF bake: the light-bake disk cache is M2.6 work rather than an
+  escape hatch on mesh scenarios (SD-MESH-18 / SD-OPEN-24), and any change to `LightBake`,
+  `SparseHashField` or `IvyEnvironment` must be behaviour-preserving for the tower or gated on the
+  backend, or SG-1 fails (SD-MESH-17).
+
+---
+
 ## SD-PHYS — Physiology layer
 
 Spec §10–§15, §18, §24, §25, verbatim. No deviations except SD-TIME-8.
@@ -1010,6 +1557,12 @@ the sky. Expected: AS-6, rubric criterion 1.
 | SD-OPEN-9 | **LG-2 as ratified is miscalibrated and under-covers the primary signal (escalated 2026-08-10).** (1) At the real day-150 `f_L` split the SD-LEAF-7 tint yields only ≈0.041 mean green delta, so the ratified **≥0.06 cannot be met by the intended full implementation** — a check that cannot *pass*, the W-053/W-058 defect inverted. (2) LG-2 measures only the instance tint (SD-LEAF-7, the *secondary* signal), leaving **SD-LEAF-6 — the Director's designated *primary* causation signal — with no automatable guard** (only human LG-1). Systems Designer specifies the full contract in **SD-METRIC-7** and recommends: lower **LG-2a to ≥0.03** area-weighted instance-green (one-time calibrated, floor 0.02; widen tint if measured `Δg < 0.035`), and add **LG-2b ≥0.08** healthy-tier area-fraction delta. Both are **Director-owned acceptance numbers** (`DESIGN.md` is their only authoritative home) → needs ratification, same route as SD-OPEN-2. **Root cause:** the shaded *hemisphere* of a south seed reaches only `f_L ≈ 0.74` (`D_L ≈ 4.3`), not the ≈0.57 the design texts assumed, so both the tint and tier separations are compressed. | Game Director | **RESOLVED 2026-08-10 (W-063) — ratified in full.** The Director accepted all four points: LG-2a ≥ 0.03 with the calibration protocol, LG-2b ≥ 0.08 added to guard SD-LEAF-6, widening the tint rejected (clearing 0.06 honestly needs a green spread ≈0.26–0.4 against the current 0.18, which reads as two species rather than one plant in two light conditions), and no other ratified acceptance number was affected — the ≈0.57 figure remains **correct** for the deep-shade north-wall point of SD-ENV-10 and was only wrong when applied to the shaded *hemisphere* mean. |
 | SD-OPEN-10 | **The ratified LG-2a/LG-2b hemisphere-delta gate is measuring the wrong thing — survivorship, not miscalibration (escalated 2026-08-11).** Canonical day-150.25 south-seed run measures `Δg = 0.00834` (thr 0.03) and `Δtier = 0.0423` (thr 0.08), both FAIL, ≈1/5 and ≈1/4 of the SD-OPEN-9 prediction. Root cause **confirmed by tint inversion**: the *leaf-area-weighted* shade-hemisphere `f̄_L ≈ 0.95`, not the surface `0.736` SD-OPEN-9 assumed — growth ∝ `f_L` concentrates surviving leaves in the lit cells, and the 180° split folds the sunlit NE/NW flanks into the "shade" half. Causation here lives in **absence of leaves** (AS-1 96% vs 50%, AS-2 51%), not in the tint of surviving leaves. Recalibration cannot rescue it: `0.6×` measured lands under both floors (0.02 / 0.05). **Recommendations (SD-METRIC-7g–j):** (1) withdraw both hemisphere-delta thresholds; name AS-1+AS-2 the automatable causation backstop and LG-1 the human gate; (2) re-home the SD-LEAF-6/7 regression guard to deterministic mechanism assertions conditioned on per-leaf `f_L` (+ a top/bottom-decile-by-light integration backstop), threshold pending one serial decile measurement; (3) leaf appearance rules unchanged (tint span/tier mapping are correct; widening tint stays rejected); (4) decouple `s_light` from `CoverageMetric` so a presentation knob stops moving the AS-1 shaded floor (50.62%→50.27%, +0.27 pt). All touch Director-owned numbers → ratification, same route as SD-OPEN-9. | Game Director | **OPEN — awaiting ratification.** |
 | SD-OPEN-6 | **The AR-BUDGET segment/stem/leaf-area envelope conflicts with AS-1's 50% shaded floor at measured placement efficiency.** The shaded 180° is sparse and volume-limited; it needs ≈60 m² of leaf area (2× the 20–35 m² budget) merely to reach 53.99% (+3.99). Every uniform volume brake (`branch_rate`, the caps, the stall rule) halves the shaded coverage before it reaches the envelope — `branch_rate` is additionally inert until ≈1.0 because the SD-TIP-3 taper is a homeostat, then it collapses the shaded half first (see AR-BUDGET). AR-BUDGET is labelled "sanity targets, not requirements," but its 20–35 m² / 360–600 m / 12–20k-segment lines were back-derived from AR-RISK-4's assumption that ~27 m² *reasonably distributed* meets 70/90/50, and the real distribution is far more uneven. **Two options for the Director, neither decidable at this stage:** (a) re-derive the AR-BUDGET leaf-area/stem/segment lines upward to whatever is actually compatible with holding 70/90/50 (an architectural number — the AS-1 floors themselves are **not** to be touched); or (b) hold the budget and require the shaded floor to be met by *better placement* (M4 leaf-quality / distribution work — e.g. crowding-gradient steering off the saturated sunny mat, W-015), not by more volume. The rubric-2 green-mat half of W-048 is already handled separately by the density-gated SD-LEAF-8 leaf levers and does **not** need this decision. | Game Director | **RESOLVED 2026-08-09 — split ruling.** (a) AR-BUDGET re-derived upward to bracket the measured day-150 pass state; see § AR-BUDGET. (b) Placement-efficiency improvement deferred to M4 via W-015/W-030. AS-1 floors unchanged. M2 gate: envelope no longer blocks; green mat fixed by pending SD-LEAF-8 levers before M2 close. See `DESIGN.md` ratification log. |
+| SD-OPEN-19 | **Mesh SDF voxel pitch and geometric thin-feature floors (W-095, SD-MESH-2/3).** Recommend `mesh_sdf_cell = 0.05 m`, hard geometric floor `2·h = 0.10 m`, full-contract geometric floor `4·h = 0.20 m`, band `= 0.55 m`. Note these are **not** the binding thin-wall numbers — SD-OPEN-23's 0.24 m dominates them. Confirm phase A/B target assets clear both, and that a thin M2.7 open-door reveal needing to read cleanly is handled per-asset rather than by a global pitch change. | Gameplay Architect (with Game Director on asset dimensions) | **Recommendation given.** Not blocking phase A (its walls clear both floors); blocks the phase B / M2.7 reveal-wall admissibility check. |
+| SD-OPEN-20 | **`nearest()` raycast-refinement cost (SD-MESH-6).** Recommend refining `nearest()` to the exact surface with one extra raycast to meet the 5 mm SG-2(c) gate, roughly doubling growth-loop raycasts. | Gameplay Architect | **Recommendation given.** Not blocking — AS-5 is an explicit M2.6 non-goal on imported structures; revisit only if a mesh scenario is ever held to a frame budget. |
+| SD-OPEN-21 | **Bake location and content-addressing (SD-MESH-9/10).** Recommend an offline, committed, content-addressed volume as the single runtime input (a `hash(mesh, h, band, baker_version)` header verified at load, hard-error on mismatch); load-time bake permitted for phase A authoring only. Needs the Architect to spec the asset format, the baker (BVH + narrow band + sign flood-fill), and the hash. | Gameplay Architect | **Recommendation given.** Not blocking the design; must be settled before W-088 implementation. |
+| SD-OPEN-22 | **Collision/SDF proxy separate from the render hero mesh (SD-MESH-12).** Recommend a watertight low-poly proxy carrying physics + SDF for phase B (hero mesh render-only; hole-filling done once on the proxy), the game-ready mesh serving as its own proxy for phase A, with proxy↔hero co-registration to protect SG-7. Changes the W-091 deliverable shape. | Game Director / asset pipeline (W-091) | **Recommendation given.** Blocks the phase B asset spec, not phase A. |
+| SD-OPEN-23 | **The binding thin-wall floor is `2·vis_cell = 0.24 m`, set by the light bake and not by the SDF (W-095, SD-MESH-17).** `LightBake` keys SVF and the 24-bit sun mask by coarse cell alone and `fill_field` blends the eight surrounding corners, so for `t < 0.24 m` a wall's two faces share light values: interiors read spuriously lit (defeating the SD-OPEN-17 ruling with no error and no failing test) and thin exterior walls read spuriously dark. **Recommend** raising the admissibility floor to 0.24 m hard / 0.30 m comfortable and having the SD-MESH-13 thin-region scan report against it — free, and sufficient for phase A. The correct fix, face-aware keying of the coarse bake, is two small functions but sits on the tower's shared path and so must be gated on the backend or it breaks SG-1; recommend deferring it to M2.7, where an authored sub-0.24 m door reveal is the likely forcing case. Confirm the phase A asset's wall thickness before committing it. | Gameplay Architect (asset dimensions with Game Director; M2.7 forcing case with Systems Designer) | **Recommendation given.** Not blocking phase A if its walls are ≥ 0.3 m — which needs confirming, not assuming. Blocks the M2.7 test-wall design. |
+| SD-OPEN-24 | **Mesh-scenario load and per-tick budget (W-095, SD-MESH-18).** A hollow building has ~8× the tower's exposed surface, so the light bake goes from ~440 k raycasts and < 1.5 s to ~3.4 M and ~10 s, past AR-BUDGET's 3 s escalation line, and `advance_light_ewma` runs over ~325 k cells per tick instead of ~40 k. **Recommend** promoting the AR-FIELD-6 bake disk cache from named escape hatch to M2.6 work, content-addressed on the SD-MESH-9 key plus the light parameters. Figures are derived from the AR-FIELD-6 tower numbers, not measured — measure on phase A before sizing the work. AS-5 is a non-goal on imported structures, so this gates nothing formally; it gates whether SG-5/SG-6 iteration is tolerable. | Gameplay Architect | **Recommendation given.** Not blocking the design. Likely to bite during W-088/W-090 if unaddressed. |
 
 ---
 
