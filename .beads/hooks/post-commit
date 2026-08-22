@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Installed by semantic-memory. Re-indexes changed files after each commit.
+# Runs detached so it never delays the commit; failures are deliberately silent.
+( "/Users/andrewhay/github/semantic-memory/.venv/bin/python" -m semantic_memory.cli sync "ivy" >/dev/null 2>&1 & ) || true

@@ -8,5 +8,16 @@
 # Downloaded asset archives — see assets/CREDITS.md for URLs
 /assets/_zips/
 
+# Full third-party asset libraries, kept locally so pieces can be auditioned
+# without bloating the repo. Only the pieces actually used in the game are
+# copied out to a committed location — see assets/ASSET_LIBRARIES.md.
+/assets/_local/
+
 # Dev tool output (screenshots, UI-script captures)
 /.tmp/
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+.beads/proxieddb/

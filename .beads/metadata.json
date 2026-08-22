@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "ivy",
+  "project_id": "b8d78b7c-b6e3-4448-b9c2-eab930826c37"
+}

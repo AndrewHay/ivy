@@ -1,6 +1,8 @@
 class_name SurfaceQuery
 extends RefCounted
 
+const MeshSdfScript = preload("res://src/world/mesh_sdf.gd")
+
 class Hit:
 	var hit: bool = false
 	var position: Vector3 = Vector3.ZERO
@@ -8,27 +10,34 @@ class Hit:
 	var distance: float = INF
 	var material_id: int = MaterialRegistry.BRICK_WALL
 	var face_index: int = -1
+	var refined: bool = true
 
 
 var _space: PhysicsDirectSpaceState3D
-var _tower_body: CollisionObject3D
-var _sdf: TowerSdf
+var _body: CollisionObject3D
+var _backend  # TowerSdf or MeshSdf — SD-MESH-1
+var _backend_tag: String = "TowerSdf"
 var _face_material: PackedByteArray
 var _params: IvyParams
 
 
 func setup(
 	space: PhysicsDirectSpaceState3D,
-	tower_body: CollisionObject3D,
-	sdf: TowerSdf,
+	body: CollisionObject3D,
+	backend,
 	face_material: PackedByteArray,
 	params: IvyParams
 ) -> void:
 	_space = space
-	_tower_body = tower_body
-	_sdf = sdf
+	_body = body
+	_backend = backend
+	_backend_tag = "MeshSdf" if backend.get_script() == MeshSdfScript else "TowerSdf"
 	_face_material = face_material
 	_params = params
+
+
+func backend_tag() -> String:
+	return _backend_tag
 
 
 func raycast(from: Vector3, to: Vector3) -> Hit:
@@ -51,23 +60,93 @@ func raycast(from: Vector3, to: Vector3) -> Hit:
 
 
 func signed_distance(p: Vector3) -> float:
-	return _sdf.signed_distance(p)
+	return _backend.signed_distance(p)
 
 
 func surface_normal(p: Vector3) -> Vector3:
-	return _sdf.gradient_normalized(p)
+	if _backend_tag == "MeshSdf" and _space != null:
+		var near := nearest(p)
+		if near.hit:
+			return near.normal
+	return _backend.gradient_normalized(p)
+
+
+func _orient_outward_normal(p: Vector3, n: Vector3) -> Vector3:
+	var phi_out: float = _backend.signed_distance(p + n * 0.02)
+	var phi_in: float = _backend.signed_distance(p - n * 0.02)
+	if phi_out < phi_in:
+		return -n
+	return n
 
 
 func nearest(p: Vector3) -> Hit:
 	var result := Hit.new()
-	var phi := _sdf.signed_distance(p)
-	var n := _sdf.gradient_normalized(p)
-	result.position = p - n * phi
+	var phi: float = _backend.signed_distance(p)
+	var n: Vector3 = _backend.gradient_normalized(p)
+	var q0: Vector3 = p - n * phi
+	result.position = q0
 	result.normal = n
 	result.distance = absf(phi)
 	result.hit = true
 	result.material_id = MaterialRegistry.BRICK_WALL
+	result.refined = false
+
+	if _backend_tag == "MeshSdf" and _space != null:
+		var ray_hit := _closest_mesh_hit(p, n)
+		if ray_hit.hit:
+			result.position = ray_hit.position
+			result.normal = ray_hit.normal
+			result.distance = p.distance_to(ray_hit.position)
+			result.face_index = ray_hit.face_index
+			result.material_id = ray_hit.material_id
+			result.refined = true
 	return result
+
+
+func _closest_mesh_hit(p: Vector3, seed: Vector3) -> Hit:
+	# SD-MESH-6: primary targeted ray from p toward q₀ = p − Φ·∇̂Φ, length |Φ| + 2h,
+	# then axis sweep for best-accuracy and coverage of corners / mesh openings.
+	# The fixed reach (0.2 m) undershoots when |Φ| > 0.10 m; the adaptive targeted ray
+	# fixes that. The axis sweep still runs so the closest hit wins (the gradient can
+	# be off-axis at corners, making the targeted ray slightly less accurate there).
+	var phi: float = _backend.signed_distance(p)
+	var n: Vector3 = seed if seed.length_squared() > 1e-8 else _backend.gradient_normalized(p)
+	n = n.normalized()
+	# Direction from p toward SDF-projected surface (q₀).
+	var toward_surface: Vector3 = n if phi < 0.0 else -n
+
+	var best := Hit.new()
+	var best_d := INF
+
+	# SD-MESH-6 targeted ray — adaptive length ensures the surface is always within reach.
+	var primary := raycast(p, p + toward_surface * (absf(phi) + 2.0 * _backend.h))
+	if primary.hit and primary.distance < best_d:
+		best_d = primary.distance
+		best = primary
+
+	# Axis sweep — covers corners/openings where the gradient is unreliable and provides
+	# a more accurate hit when the axis aligns with the face normal.
+	var reach: float = maxf(_backend.h * 4.0, 0.2)
+	var dirs: Array[Vector3] = []
+	if seed.length_squared() > 1e-8:
+		dirs.append(seed.normalized())
+	for axis in [Vector3.RIGHT, Vector3.UP, Vector3.FORWARD]:
+		dirs.append(axis)
+		dirs.append(-axis)
+	for d in dirs:
+		var dir := d.normalized()
+		var hit := raycast(p, p + dir * reach)
+		if hit.hit and hit.distance < best_d:
+			best_d = hit.distance
+			best = hit
+		hit = raycast(p, p - dir * reach)
+		if hit.hit and hit.distance < best_d:
+			best_d = hit.distance
+			best = hit
+
+	if best.hit:
+		best.normal = _orient_outward_normal(p, best.normal)
+	return best
 
 
 func tangent_basis_at(p: Vector3) -> Basis:
@@ -84,12 +163,25 @@ func adhesion_suitability(material_id: int) -> float:
 	return MaterialRegistry.adhesion(material_id)
 
 
-## World region the environment field must allocate over, given a shell margin.
+## SD-MESH-7: physics distance to a mesh face can exceed the SDF phi by up to h/2
+## due to discrete tessellation (vertices are not at exact SDF-zero locations).
+## Add h/2 to the base contact threshold so a tip sitting on the mesh is never
+## misclassified as FLOATING. For TowerSdf the analytical SDF is exact — no padding.
+func effective_contact(base: float) -> float:
+	if _backend_tag == "MeshSdf":
+		return base + _backend.h * 0.5
+	return base
+
+
 func shell_bounds(margin: float) -> AABB:
-	return _sdf.bounds().grow(margin)
+	return _backend.bounds().grow(margin)
 
 
 func project_to_shell(p: Vector3, _offset: float = 0.0) -> Vector3:
-	var phi := _sdf.signed_distance(p)
-	var n := _sdf.gradient_normalized(p)
-	return p - n * phi
+	var q := p
+	var steps := 2 if _backend_tag == "MeshSdf" else 1
+	for _i in steps:
+		var phi: float = _backend.signed_distance(q)
+		var n: Vector3 = _backend.gradient_normalized(q)
+		q = q - n * phi
+	return q

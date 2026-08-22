@@ -52,7 +52,22 @@ static func step_tip(tip: Tip, ctx: SimContext) -> void:
 		x_new.y = params.ground_y_min
 		tip.ground_strikes += 1
 	# float update
-	if d <= params.contact_distance:
+	# SD-MESH-7: on mesh SDF surfaces, small errors in the baked gradient cause
+	# cumulative outward drift — each segment adds a tiny off-wall component that
+	# adhesion alone cannot fully counteract. Two layers of defence:
+	#   1. Widen contact_thresh by h/2 to absorb single-step quantisation error.
+	#   2. Post-placement snap: if the old position was attached (d ≤ contact_thresh)
+	#      and the new endpoint drifted beyond it, project back to the nearest surface.
+	#      Only fires when no wall collision intercepted the segment (hit.hit == false)
+	#      and the drift is within adhesion_range (genuinely still near the wall).
+	var contact_thresh := ctx.surface.effective_contact(params.contact_distance)
+	if d <= contact_thresh and ctx.surface.backend_tag() == "MeshSdf" and not hit.hit:
+		var near_x := ctx.surface.nearest(x_new)
+		if near_x.hit and near_x.distance > contact_thresh \
+				and near_x.distance < params.adhesion_range:
+			x_new = near_x.position
+			d_actual = (x_new - tip.position).normalized()
+	if d <= contact_thresh:
 		tip.floating_length = 0.0
 		tip.state = Tip.State.GROWING
 	else:
