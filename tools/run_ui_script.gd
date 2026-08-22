@@ -5,6 +5,7 @@ extends Node
 const _MAIN_SCENE := "res://src/main/main.tscn"
 const _CoverageMetric = preload("res://src/metrics/coverage.gd")
 const _LeafColourMetric = preload("res://src/metrics/leaf_colour_metric.gd")
+const _StructureScenario = preload("res://src/world/structure_scenario.gd")
 ## Output defaults inside the project so runs need no write access outside the
 ## workspace. `.tmp/` is gitignored.
 const _DEFAULT_OUTDIR := "res://.tmp/ui_scripts/"
@@ -25,7 +26,8 @@ const _PRESENT_TIMEOUT_MS := 4000
 ## `force_draw()` sidesteps the OS entirely by drawing synchronously — it returns
 ## only once the frame is rendered, whether or not the window is visible. That
 ## makes captures depend on the simulation state alone, which is what LG-3's
-## byte-identical requirement needs.
+## simulation-determinism half (exact) and image-stability half (toleranced)
+## both require: captures must not carry stale or timing-dependent pixels.
 ##
 ## The bounded fallback covers the case where `force_draw` is unavailable or
 ## refuses; it never blocks indefinitely, and the caller fails loudly rather than
@@ -83,6 +85,14 @@ func _ready() -> void:
 	var scene_root := ps.instantiate()
 	# Set before entering the tree so `_ready` sees it and never starts the clock.
 	scene_root.set("script_driven", true)
+	var scenario_path: String = args.get("scenario", "")
+	if not scenario_path.is_empty():
+		var scenario: Resource = load(scenario_path) as Resource
+		if scenario == null or scenario.get_script() != _StructureScenario:
+			printerr("[ui-script] failed to load scenario ", scenario_path)
+			get_tree().quit(2)
+			return
+		scene_root.set("mesh_scenario", scenario)
 	add_child(scene_root)
 
 	_keep_window_presenting()
@@ -165,6 +175,19 @@ func _ready() -> void:
 				return
 			cam_rig.select(cam_index)
 			print("[ui-script]   CAMERA ", cam_name, " (index=", cam_index, ")")
+		elif line.begins_with("SEED "):
+			var seed_idx := int(line.substr(5).strip_edges())
+			var sim := main.get_node("Sim")
+			var world := main.get_node("World")
+			if world.has_method("set_seed_index"):
+				world.set_seed_index(seed_idx)
+			if not sim.has_method("set_seed_index") or not sim.has_method("reseed"):
+				printerr("[ui-script] FAILED step ", step, ": Sim missing set_seed_index/reseed")
+				get_tree().quit(1)
+				return
+			sim.set_seed_index(seed_idx)
+			sim.reseed()
+			print("[ui-script]   SEED ", seed_idx)
 		elif line.begins_with("SET_PARAM "):
 			# Live-edits IvyParams on the running Sim (W-027, AS-3b comparison, M3).
 			# Makes NO RNG draws — pure property assignment. Draw sequences diverge only
@@ -494,4 +517,6 @@ func _parse_args() -> Dictionary:
 			args["script"] = a.substr(9)
 		elif a.begins_with("--outdir="):
 			args["outdir"] = a.substr(9)
+		elif a.begins_with("--scenario="):
+			args["scenario"] = a.substr(11)
 	return args

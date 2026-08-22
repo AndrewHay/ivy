@@ -1,7 +1,14 @@
 # M2.5 canonical four-camera capture script (LG-3, W-002, W-061).
 #
-# LG-3 requirement: this script must produce byte-identical output on two
-# consecutive runs.  Run it twice and diff the PNGs to verify.
+# LG-3 two-part gate (SD-OPEN-11, ratified 2026-08-11) — run via:
+#   python3 tools/lg3_dual_run.py
+#
+# Half 1 — Simulation determinism (exact, INV-7 scope): segment count, leaf
+#   count, stem length, and every numeric field in DUMP_METRICS / DUMP_LEAF_COLOUR
+#   must be bit-identical across two consecutive runs.  Any difference is a hard
+#   FAIL.
+# Half 2 — Image stability (toleranced): for each of the 4 PNGs, differing-pixel
+#   fraction ≤ 0.05% (pixels with any channel delta > 1/255) AND RGB RMSE ≤ 1e-4.
 #
 # Capture time: day 150 + 0.25 game-days = local noon (start_hour=6, noon=12).
 # Captures at noon per W-051: dawn (06:00) makes the plant an unreadable dark mass.
