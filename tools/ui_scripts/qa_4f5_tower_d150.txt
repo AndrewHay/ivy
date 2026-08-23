@@ -1,0 +1,27 @@
+# QA ivy-4f5 — tower corner accept at day 150 (M2.6 canonical growth).
+# Run: --scenario=res://assets/structures/scenarios/tower.tres
+SPEED pause
+SEED 0
+ADVANCE_DAYS 150
+ADVANCE_DAYS 0.25
+DUMP
+CAMERA silhouette
+SCREENSHOT tower_s0_d150_silhouette.png
+CAMERA sun
+SCREENSHOT tower_s0_d150_sun.png
+CAMERA shade
+SCREENSHOT tower_s0_d150_shade.png
+CAMERA top
+SCREENSHOT tower_s0_d150_top.png
+SEED 1
+ADVANCE_DAYS 150
+ADVANCE_DAYS 0.25
+DUMP
+CAMERA silhouette
+SCREENSHOT tower_s1_d150_silhouette.png
+CAMERA sun
+SCREENSHOT tower_s1_d150_sun.png
+CAMERA shade
+SCREENSHOT tower_s1_d150_shade.png
+CAMERA top
+SCREENSHOT tower_s1_d150_top.png

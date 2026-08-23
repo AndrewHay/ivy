@@ -1,0 +1,30 @@
+# QA ivy-4f5 — SG-7(b) tower faceted corner proxy accept.
+# Local noon (ADVANCE_DAYS 0.25), fixed game-day, two seeds, four canonical cameras.
+# Silhouette = near-ground corner read; sun/shade = full-height elevation (ground/mid/roof);
+# top = near-roof corner wrap from above.
+# Run: --scenario=res://assets/structures/scenarios/tower.tres
+SPEED pause
+SEED 0
+ADVANCE_DAYS 60
+ADVANCE_DAYS 0.25
+DUMP
+CAMERA silhouette
+SCREENSHOT tower_s0_d60_silhouette.png
+CAMERA sun
+SCREENSHOT tower_s0_d60_sun.png
+CAMERA shade
+SCREENSHOT tower_s0_d60_shade.png
+CAMERA top
+SCREENSHOT tower_s0_d60_top.png
+SEED 1
+ADVANCE_DAYS 60
+ADVANCE_DAYS 0.25
+DUMP
+CAMERA silhouette
+SCREENSHOT tower_s1_d60_silhouette.png
+CAMERA sun
+SCREENSHOT tower_s1_d60_sun.png
+CAMERA shade
+SCREENSHOT tower_s1_d60_shade.png
+CAMERA top
+SCREENSHOT tower_s1_d60_top.png

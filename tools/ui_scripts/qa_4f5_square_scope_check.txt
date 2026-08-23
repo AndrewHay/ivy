@@ -1,0 +1,14 @@
+# QA ivy-4f5 — square south-face scope check (must match ivy-2p0.5 baseline).
+# Same framing as m26_square_growth seed-0 shade capture.
+# Run: --scenario=res://assets/structures/scenarios/square.tres
+SPEED pause
+SEED 0
+ADVANCE_DAYS 30
+ADVANCE_DAYS 0.25
+DUMP
+CAMERA sun
+SCREENSHOT square_s0_d30_sun.png
+CAMERA shade
+SCREENSHOT square_s0_d30_shade.png
+CAMERA top
+SCREENSHOT square_s0_d30_top.png

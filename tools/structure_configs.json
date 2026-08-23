@@ -37,6 +37,7 @@
     ],
     "scene_offset": [7.0, 0.0, 0.0],
     "hero_end_overlap": false,
-    "intermediate_floor": true
+    "intermediate_floor": true,
+    "corner_chamfer": 0.15
   }
 }

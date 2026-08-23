@@ -119,6 +119,7 @@ _OPTIONAL_KEYS = {
     "roof_half": (int, float),
     "intermediate_floor": (bool,),
     "hero_end_overlap": (bool,),
+    "corner_chamfer": (int, float),
 }
 
 
@@ -574,21 +575,56 @@ def hero_corner_block(name, xy, collection, d, z_base=0.0, world_offset=Vector((
     return obj
 
 
-def corner_column(name, xy, collection, d, z0, z1, material=None, world_offset=Vector((0, 0, 0))):
+def corner_column(name, xy, collection, d, z0, z1, material=None, world_offset=Vector((0, 0, 0)), chamfer=0.0):
     cx, cy = xy
-    h = z1 - z0
-    cz = (z0 + z1) / 2.0
+    s = d["corner_size"] / 2.0
     root = collection.name.split("_")[0]
     parent_name = "Hero" if root == "Hero" else "Simulation"
     layer = bpy.context.view_layer.active_layer_collection
     bpy.context.view_layer.active_layer_collection = (
         bpy.context.view_layer.layer_collection.children[parent_name].children[collection.name]
     )
-    bpy.ops.mesh.primitive_cube_add(size=1.0, location=(cx + world_offset.x, cy + world_offset.y, cz + world_offset.z))
+
+    if chamfer > 0.0:
+        c = min(chamfer, s - 1e-4)
+        verts_2d = [
+            ( s,      s - c),
+            ( s - c,  s),
+            (-s + c,  s),
+            (-s,      s - c),
+            (-s,     -s + c),
+            (-s + c, -s),
+            ( s - c, -s),
+            ( s,     -s + c),
+        ]
+        wx = cx + world_offset.x
+        wy = cy + world_offset.y
+        mesh_data = bpy.data.meshes.new(name + "_mesh")
+        bm = bmesh.new()
+        bot = [bm.verts.new((wx + x, wy + y, z0)) for x, y in verts_2d]
+        top = [bm.verts.new((wx + x, wy + y, z1)) for x, y in verts_2d]
+        n = len(verts_2d)
+        bm.faces.new(list(reversed(bot)))
+        bm.faces.new(top)
+        for i in range(n):
+            bm.faces.new([bot[i], bot[(i + 1) % n], top[(i + 1) % n], top[i]])
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+        bm.to_mesh(mesh_data)
+        bm.free()
+        o = bpy.data.objects.new(name, mesh_data)
+        collection.objects.link(o)
+    else:
+        h = z1 - z0
+        cz = (z0 + z1) / 2.0
+        bpy.ops.mesh.primitive_cube_add(
+            size=1.0,
+            location=(cx + world_offset.x, cy + world_offset.y, cz + world_offset.z),
+        )
+        o = bpy.context.active_object
+        o.name = name
+        o.scale = (d["corner_size"], d["corner_size"], h)
+
     bpy.context.view_layer.active_layer_collection = layer
-    o = bpy.context.active_object
-    o.name = name
-    o.scale = (d["corner_size"], d["corner_size"], h)
     if material is not None:
         assign_material(o, material)
     return o
@@ -816,8 +852,9 @@ def assemble_sim(cfg, sim_col, clay, world_offset, omit_seal=None):
             )
     for obj in parts:
         assign_material(obj, clay)
+    chamfer = cfg.get("corner_chamfer", 0.0)
     for i, xy in enumerate(d["corner_centers"]):
-        parts.append(corner_column(f"{prefix}CornerColumn_{i}", xy, sim_col, d, 0.0, d["total_h"], clay, world_offset))
+        parts.append(corner_column(f"{prefix}CornerColumn_{i}", xy, sim_col, d, 0.0, d["total_h"], clay, world_offset, chamfer=chamfer))
     parts.append(solid_box(f"{prefix}FloorSlab", -CAP, 0.05, d["envelope_half"], sim_col, clay, world_offset))
     if cfg.get("intermediate_floor"):
         parts.append(solid_box(f"{prefix}MidFloorSlab", WALL_H - 0.10, WALL_H + 0.02,

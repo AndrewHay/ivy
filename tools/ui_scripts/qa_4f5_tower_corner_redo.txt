@@ -1,0 +1,33 @@
+# QA ivy-4f5 redo — isolated seeds + day-300 plateau check.
+# Tower scenario; local noon captures; DUMP for growth state.
+# Run: --scenario=res://assets/structures/scenarios/tower.tres
+SPEED pause
+# Seed 0 only (south face, ground)
+SEED 0
+ADVANCE_DAYS 150
+ADVANCE_DAYS 0.25
+DUMP
+CAMERA shade
+SCREENSHOT tower_seed0_d150_shade.png
+CAMERA sun
+SCREENSHOT tower_seed0_d150_sun.png
+CAMERA silhouette
+SCREENSHOT tower_seed0_d150_silhouette.png
+# Seed 1 only (east face, mid-height)
+SEED 1
+ADVANCE_DAYS 150
+ADVANCE_DAYS 0.25
+DUMP
+CAMERA shade
+SCREENSHOT tower_seed1_d150_shade.png
+CAMERA sun
+SCREENSHOT tower_seed1_d150_sun.png
+CAMERA silhouette
+SCREENSHOT tower_seed1_d150_silhouette.png
+# Plateau sanity: seed 0 to day 300
+SEED 0
+ADVANCE_DAYS 300
+ADVANCE_DAYS 0.25
+DUMP
+CAMERA shade
+SCREENSHOT tower_seed0_d300_shade.png
