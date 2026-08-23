@@ -1,0 +1,12 @@
+# QA ivy-2p0.5 — bare tower, four canonical cameras at local noon for corner/storey seam read.
+# Run: --scenario=res://assets/structures/scenarios/tower.tres
+SPEED pause
+ADVANCE_DAYS 0.25
+CAMERA sun
+SCREENSHOT tower_bare_sun.png
+CAMERA shade
+SCREENSHOT tower_bare_shade.png
+CAMERA top
+SCREENSHOT tower_bare_top.png
+CAMERA silhouette
+SCREENSHOT tower_bare_silhouette.png
