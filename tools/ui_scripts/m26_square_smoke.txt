@@ -1,0 +1,5 @@
+# M2.6 square building smoke — load mesh scenario, grow briefly, capture.
+SPEED pause
+ADVANCE_DAYS 5
+CAMERA sun
+SCREENSHOT square_d5_sun.png

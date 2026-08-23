@@ -1,0 +1,4 @@
+# SG-3 trace — tower seed 0, first 5 game-days (control)
+SPEED pause
+SEED 0
+TRACE 5

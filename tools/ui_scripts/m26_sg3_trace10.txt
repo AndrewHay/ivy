@@ -1,0 +1,4 @@
+# SG-3 trace — square seed 0, first 10 game-days to find first FLOATING tick
+SPEED pause
+SEED 0
+TRACE 10

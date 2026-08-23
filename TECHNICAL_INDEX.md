@@ -150,7 +150,9 @@ implemented. Remove the marker as each file lands.
 
 | Path | Summary |
 |------|---------|
-| `assets/CREDITS.md` | Provenance and licensing for all third-party (CC0) assets, plus notes on derived files. |
+| `assets/CREDITS.md` | Provenance and licensing for every committed third-party asset (CC0 or CC-BY; NC and ND excluded), plus notes on derived files. |
+| `assets/ASSET_LIBRARIES.md` | Whole third-party libraries held locally to audition pieces from — source URLs, licenses, the three-tier storage policy (archive and full library untracked, in-game pieces committed), and the full 176-model manifest of the Quaternius Medieval Village MegaKit including the six vine props that must be excluded. |
+| `assets/_zips/`, `assets/_local/` | **Untracked.** Downloaded archives and extracted full libraries respectively; see `assets/ASSET_LIBRARIES.md` to re-fetch. |
 | `assets/materials/brick/Bricks094/` | Primary tower brick PBR set (colour, `_NormalGL`, roughness, AO, displacement) with a ready-made Godot material. |
 | `assets/materials/brick/Bricks102/` | Alternate tower material, kept for in-engine A/B. |
 | `assets/plants/ivy/LeafSet017/` | Primary ivy leaf atlas: composited `_Leaves_RGBA.png`, PBR maps, and `leaf_atlas.json`. |

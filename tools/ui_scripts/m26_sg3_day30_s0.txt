@@ -1,0 +1,6 @@
+# SG-3 gate verification — square seed 0, day 30
+# Pass: total_len >= 1.0, tip not DEAD from max_float
+SPEED pause
+SEED 0
+ADVANCE_DAYS 30
+DUMP

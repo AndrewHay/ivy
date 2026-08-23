@@ -1,0 +1,9 @@
+# M2.6 square — day-30 DUMP per seed for ≥1m growth gate.
+# Run: --scenario=res://assets/structures/scenarios/square.tres
+SPEED pause
+SEED 0
+ADVANCE_DAYS 30
+DUMP
+SEED 1
+ADVANCE_DAYS 30
+DUMP

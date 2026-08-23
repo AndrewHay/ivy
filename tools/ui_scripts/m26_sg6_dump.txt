@@ -1,0 +1,10 @@
+# SG-6 determinism dump — both seeds, metrics at day 30
+SPEED pause
+SEED 0
+ADVANCE_DAYS 30
+DUMP
+DUMP_METRICS
+SEED 1
+ADVANCE_DAYS 30
+DUMP
+DUMP_METRICS

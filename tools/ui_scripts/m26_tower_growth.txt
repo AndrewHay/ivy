@@ -1,0 +1,21 @@
+# M2.6 offset tower structure — 30 game-days, two seeds, three canonical cameras.
+# Run: --scenario=res://assets/structures/scenarios/tower.tres
+SPEED pause
+SEED 0
+ADVANCE_DAYS 30
+ADVANCE_DAYS 0.25
+CAMERA sun
+SCREENSHOT m26_tower_s0_sun.png
+CAMERA shade
+SCREENSHOT m26_tower_s0_shade.png
+CAMERA top
+SCREENSHOT m26_tower_s0_top.png
+SEED 1
+ADVANCE_DAYS 30
+ADVANCE_DAYS 0.25
+CAMERA sun
+SCREENSHOT m26_tower_s1_sun.png
+CAMERA shade
+SCREENSHOT m26_tower_s1_shade.png
+CAMERA top
+SCREENSHOT m26_tower_s1_top.png

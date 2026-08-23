@@ -1,0 +1,10 @@
+# Quick capture — tower seed 0 (ground south face), 30 game-days at local noon.
+# Prefer m26_tower_seeded_capture.txt for SG-5 seed-facing review (both seeds).
+# Run: --scenario=res://assets/structures/scenarios/tower.tres
+SPEED pause
+SEED 0
+ADVANCE_DAYS 30
+ADVANCE_DAYS 0.25
+CAMERA shade
+SCREENSHOT tower_s0_d30_shade.png
+DUMP

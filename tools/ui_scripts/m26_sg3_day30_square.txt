@@ -1,0 +1,9 @@
+# SG-3 fix verification — square building, seeds 0 and 1, day 30 DUMP.
+# Run: --scenario=res://assets/structures/scenarios/square.tres
+SPEED pause
+SEED 0
+ADVANCE_DAYS 30
+DUMP
+SEED 1
+ADVANCE_DAYS 30
+DUMP

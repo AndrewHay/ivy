@@ -1,6 +1,9 @@
 extends Node3D
 
+const _StructureScenario = preload("res://src/world/structure_scenario.gd")
+
 @export var params: IvyParams
+@export var mesh_scenario: Resource
 
 ## Set by `tools/run_ui_script.gd` before the scene enters the tree. A scripted run
 ## drives ticks explicitly, so the clock must not also free-run on the frame delta.
@@ -11,12 +14,24 @@ var script_driven: bool = false
 @onready var _plant_render: Node3D = $PlantRender
 
 
+func _enter_tree() -> void:
+	if mesh_scenario == null:
+		return
+	var world := get_node_or_null("World")
+	if world == null:
+		return
+	world.mesh_scenario = mesh_scenario
+
+
 func _ready() -> void:
 	if params == null:
 		params = load("res://src/params/ivy_params_default.tres") as IvyParams
+	if mesh_scenario != null and _world.mesh_scenario == null:
+		_world.mesh_scenario = mesh_scenario
+		_world.ensure_mesh_scenario_loaded()
 	await get_tree().process_frame
 	var surface: SurfaceQuery = _world.get_surface_query(params)
-	_sim.setup(params, surface)
+	_sim.setup(params, surface, _world.get_mesh_scenario(), _world.get_seed_index())
 	_plant_render.setup(params)
 	_world.get_sky_sun().setup(_sim.solar)
 	if not script_driven:

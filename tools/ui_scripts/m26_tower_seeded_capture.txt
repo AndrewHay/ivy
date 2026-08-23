@@ -1,0 +1,20 @@
+# M2.6 tower — seed-facing captures for SG-5 visual review (W-090).
+# Shade camera frames south/west seeded faces better than sun at day-30 density.
+# Run: --scenario=res://assets/structures/scenarios/tower.tres
+SPEED pause
+SEED 0
+ADVANCE_DAYS 30
+ADVANCE_DAYS 0.25
+CAMERA shade
+SCREENSHOT m26_tower_s0_seeded_shade.png
+CAMERA top
+SCREENSHOT m26_tower_s0_seeded_top.png
+DUMP
+SEED 1
+ADVANCE_DAYS 30
+ADVANCE_DAYS 0.25
+CAMERA shade
+SCREENSHOT m26_tower_s1_seeded_shade.png
+CAMERA top
+SCREENSHOT m26_tower_s1_seeded_top.png
+DUMP

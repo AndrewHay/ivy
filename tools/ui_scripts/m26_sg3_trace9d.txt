@@ -1,0 +1,5 @@
+# SG-3 debug trace — square seed 0, 9 game-days
+# Covers ticks 200-216 to capture t0state=FLOATING at tick 205
+SPEED pause
+SEED 0
+TRACE 9

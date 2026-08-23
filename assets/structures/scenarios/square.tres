@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="StructureScenario" load_steps=2 format=3 uid="uid://c8square26"]
+
+[ext_resource type="Script" path="res://src/world/structure_scenario.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+scenario_id = "square"
+display_name = "Square building"
+collision_glb = "res://assets/structures/square_sim.glb"
+hero_glb = "res://assets/structures/square_hero.glb"
+sdf_path = "res://assets/structures/square_sim.sdf"
+seed_positions = PackedVector3Array(-9, 1.2, -4.5, -2.5, 1.2, 0)
+seed_normals = PackedVector3Array(0, 0, 1, -1, 0, 0)
+camera_pivot = Vector3(-7, 1.56, 0)

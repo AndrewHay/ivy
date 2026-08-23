@@ -1,0 +1,9 @@
+# Quick capture — square building, seed 0 (south wall), 30 game-days at local noon.
+# Run: --scenario=res://assets/structures/scenarios/square.tres
+SPEED pause
+SEED 0
+ADVANCE_DAYS 30
+ADVANCE_DAYS 0.25
+CAMERA shade
+SCREENSHOT square_s0_d30_shade.png
+DUMP

@@ -1,0 +1,4 @@
+# SG-3 — find first FLOATING/DEAD tick on square seed 0
+SPEED pause
+SEED 0
+TRACE 30

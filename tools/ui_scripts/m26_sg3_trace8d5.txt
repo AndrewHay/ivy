@@ -1,0 +1,5 @@
+# SG-3 debug trace — square seed 0, ticks 190-215
+# Records t0state and floating state transition info
+SPEED pause
+SEED 0
+TRACE 8.5

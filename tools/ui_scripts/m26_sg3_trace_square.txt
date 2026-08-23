@@ -1,0 +1,4 @@
+# SG-3 trace — square seed 0, first 5 game-days
+SPEED pause
+SEED 0
+TRACE 5

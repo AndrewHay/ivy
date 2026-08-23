@@ -1,0 +1,5 @@
+# SG-3 debug trace — square seed 0, 30 game-days
+# Verify first FLOATING event with effective_contact fix
+SPEED pause
+SEED 0
+TRACE 30
