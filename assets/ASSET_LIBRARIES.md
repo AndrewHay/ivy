@@ -37,9 +37,11 @@ recorded below. That trade is intentional.
 | Author | Quaternius (https://quaternius.com) |
 | License | **CC0 1.0 Universal** (public domain) — verified in `License_Standard.txt` |
 | Tier obtained | `Medieval Village MegaKit[Standard].zip`, the free tier — 161,003,471 bytes |
+| SHA-256 (archive) | `e60dea67c10f30dccccfbff92a7933f5ea5cfe99be0e2a0fa5118cceabeec5c4` |
 | Retrieved | 2026-08-18 |
-| Archive | `assets/_zips/Medieval Village MegaKit[Standard].zip` *(untracked)* |
-| Full library | `assets/_local/medieval_village_megakit/` *(untracked)* |
+| Archive | `assets/_zips/Medieval Village MegaKit[Standard].zip` *(untracked — three-tier policy)* |
+| Full library | `assets/_local/medieval_village_megakit/` *(untracked — three-tier policy)* |
+| glTF pieces (build input) | `assets/_local/medieval_village_megakit/glTF/` — the `<glTF dir>` argv `tools/build_structures.py` expects |
 | Formats | glTF (+`.bin`), FBX, OBJ (+`.mtl`) — 176 models in each, plus 26 shared PBR textures |
 
 Paid Pro and Source tiers exist with more models; we have neither and do not need
@@ -223,17 +225,49 @@ gets designed, whatever happens to this kit's role in M2.6.
 
 ### M2.6 audition structures
 
-Two buildings are assembled offline in `.tmp/assethunt/build.py` from kit glTF
-pieces. Each is exported as a **hero** mesh (original kit UVs and materials) and
-a **sim** mesh (bridged closed solids for SDF baking). Nothing below has entered
-the repository yet.
+Two buildings are assembled offline by `tools/build_structures.py` (tracked)
+from kit glTF pieces. Each is exported as a **hero** mesh (original kit UVs and
+materials) and a **sim** mesh (bridged closed solids for SDF baking). The
+exported GLBs, their baked SDFs and the review renders are committed under
+`assets/structures/` (see *Committed in-game assets* below). Per-structure
+geometry is declared in `tools/structure_configs.json`; the build engine is
+structure-agnostic, so adding a structure is a config-data edit, not a code
+change.
+
+**Rebuilding from a fresh clone.** Download the kit (URL and SHA-256 above),
+extract it, and run — from the project root, with Blender 4.2.1 LTS:
+
+```bash
+blender --background --python tools/build_structures.py -- \
+    assets/_local/medieval_village_megakit/glTF assets/structures
+# faster, identical GLB output (renders never mutate the exported meshes):
+blender --background --python tools/build_structures.py -- \
+    assets/_local/medieval_village_megakit/glTF assets/structures --no-render
+```
+
+Then re-bake the SDFs and re-measure the Director gates:
+
+```bash
+python3 tools/bake_mesh_sdf.py assets/structures/square_sim.glb assets/structures/square_sim.sdf
+python3 tools/bake_mesh_sdf.py assets/structures/tower_sim.glb  assets/structures/tower_sim.sdf
+python3 tools/measure_structure_gates.py square tower
+```
+
+Build arguments: `<glTF dir>` (kit pieces) and `<out dir>` are positional. A
+bare float before the structure names overrides the 0.45 m sim wall target
+(`TARGET_T`). `--no-render` skips the Cycles review renders. `--omit-seal <id>`
+drops one aperture seal panel for the falsifiability check. Trailing names
+(`square` / `tower`) restrict the build; the default is every structure in
+`structure_configs.json`. The regenerate → re-bake → measure round-trip is
+byte-for-byte deterministic: it reproduces the committed GLBs and SDFs exactly
+(verified 2026-08-23, matching SHA-256).
 
 #### Square building *(M2.6 first subject)*
 
 One storey, three 2 m bays per side (6 m × 6 m wall centre square, 7.17 m
 envelope footprint, 3.42 m total height). Wall thickness 0.45 m after
-solidification. See `.tmp/assethunt/square_hero.glb` /
-`square_sim.glb`.
+solidification. Committed as `assets/structures/square_hero.glb` /
+`square_sim.glb` (config: `square` in `tools/structure_configs.json`).
 
 #### Tower *(M2.6 second subject)*
 
@@ -245,9 +279,9 @@ solidification. See `.tmp/assethunt/square_hero.glb` /
 | Storeys | **2** |
 | Wall thickness | **0.45 m** (sim solidification target; measured thinnest span 0.450 m on both storeys) |
 | Bays | **2** per side at **±1.0 m** from centre (2 m module; **x = 0 is the bay seam**, not an aperture centre) |
-| Build script | `.tmp/assethunt/build.py` (`TOWER_CFG`) |
-| Exports *(untracked)* | `.tmp/assethunt/tower_hero.glb`, `.tmp/assethunt/tower_sim.glb` |
-| Review renders | `.tmp/assethunt/renders9/` |
+| Build script | `tools/build_structures.py` (config: `tower` in `tools/structure_configs.json`) |
+| Exports | `assets/structures/tower_hero.glb`, `assets/structures/tower_sim.glb` *(committed)* |
+| Review renders | written to `<out dir>/renders/` on a rendered build *(not committed)* |
 
 **Ground-floor south door placement (Director ruling 2026-08-23, ivy-2p0.2):**
 The tower's south door sits in the **+1.0 m bay** (corner-adjacent), not centred
