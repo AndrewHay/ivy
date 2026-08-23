@@ -1,0 +1,92 @@
+---
+description: Beads acceptance tiers and gameplay-pipeline bead shapes for game projects.
+alwaysApply: true
+---
+
+<!-- Generated from semantic-memory/assets/rules/beads-acceptance.mdc by
+     scripts/install-into-projects.sh. Edit the template there, not this
+     copy: local edits are overwritten on the next install. -->
+
+# Beads Acceptance and Pipeline Beads
+
+Use with `agent-pipeline.mdc` (seven studio roles) and `PIPELINE.md`.
+
+## Acceptance tiers
+
+Set label `acceptance:mechanical` or `acceptance:fuzzy` on the epic when
+creating it. Default: `feature`/`epic` → fuzzy; `task`/`chore`/`bug` →
+mechanical unless the acceptance criteria require player-visible judgment.
+
+### Mechanical (single bead)
+
+Use when every acceptance line is objectively verifiable (tests, lint,
+CLI output, file exists).
+
+- One bead. Implementer claims, implements, closes with evidence in `--notes`.
+- Example notes: test command + pass summary, or `bd preflight --check` output.
+
+### Fuzzy (implement + accept pair)
+
+Use when acceptance depends on gameplay feel, UX, visuals, design fidelity,
+or multi-step behavior screenshots cannot be reduced to one unit test.
+
+Required shape:
+
+```
+epic (acceptance signals on --acceptance)
+├── … pipeline stage beads (gd → sd → ga) as needed …
+├── <title> — implement   label stage:gameplay-programmer
+├── <title> — review      label stage:code-reviewer
+├── <title> — fix         label stage:gameplay-fixer   (only if review fails)
+└── <title> — accept      label stage:qa-playtester
+```
+
+Dependencies (child depends on parent):
+
+```bash
+bd dep add accept-bead implement-bead
+bd dep add review-bead implement-bead
+bd dep add fix-bead review-bead          # when needed
+bd dep add accept-bead review-bead       # or accept-bead fix-bead after fix
+bd dep add epic-bead accept-bead
+```
+
+**Close authority**
+
+| Bead | Who closes | Evidence |
+|------|------------|----------|
+| implement | Gameplay Programmer (or Fixer) | Tests + handoff in notes |
+| review | Code Reviewer | Pass/fail verdict in notes |
+| fix | Gameplay Fixer | Regression tests in notes |
+| accept | QA Playtester only | Scenario scripts + screenshots |
+| epic | QA after accept closes, or orchestrator after human sign-off | Accept bead closed |
+
+Implementer and reviewer must **not** close the epic or the accept bead.
+
+## Pipeline stage labels
+
+Label stage beads `stage:game-director`, `stage:systems-designer`,
+`stage:gameplay-architect`, `stage:gameplay-programmer`, `stage:code-reviewer`,
+`stage:gameplay-fixer`, `stage:qa-playtester`.
+
+Spawn the matching `.cursor/agents/<role>.md` subagent for that stage. Each
+stage closes its own bead and writes a structured handoff in `--notes`:
+
+- Inputs used
+- Artifacts produced
+- Next handoff target
+- Explicit non-goals
+
+Do not append unbounded pipeline-run markdown files for new work; the bead
+graph and stage notes are the source of truth.
+
+## Bugs
+
+File bugs as bd issues (`--type=bug`), not GitHub Issues. QA verifies fixes
+against repro steps, then closes the bug bead. Link bugs to the feature epic
+with `bd dep add` when discovered during pipeline work.
+
+## Orchestrator context diet
+
+When spawning a subagent, pass: bead id, acceptance criteria, prior stage
+notes summary, and search results — not the full parent chat log.

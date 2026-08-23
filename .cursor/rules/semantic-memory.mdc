@@ -1,0 +1,55 @@
+---
+alwaysApply: true
+---
+
+<!-- Generated from semantic-memory/assets/rules/semantic-memory.mdc by
+     scripts/install-into-projects.sh. Edit the template there, not this
+     copy: local edits are overwritten on the next install. -->
+
+# Semantic Memory
+
+This project is indexed in Postgres and searchable through the `semantic-memory`
+MCP server. What is in the index: Markdown (`.md`, `.mdc`, `.mdx`) anywhere in
+the repo, GDScript declarations under `src/`, `tools/`, and `test/`, and notes
+left by earlier sessions. What is not: `addons/` and other third-party code,
+`.tscn`, `.tres`, `project.godot`, and any file over 2 MB. A symbol you cannot
+find may simply live outside the index rather than not exist.
+
+The tools describe how to use them; this rule is about when.
+
+When `technical-index-lookup.mdc` also applies, **search wins over reading
+`TECHNICAL_INDEX.md` or `IMPLEMENTATION.md` whole**; those files are fallbacks,
+not the first open.
+
+## Reading
+
+`DESIGN.md`, `IMPLEMENTATION.md`, and `work-items/` run to hundreds of kilobytes,
+so reading one to answer a narrow question spends most of a context window. For
+any "how does this work", "why was this decided", or "where is this implemented"
+question, call `search_project_memory` first. Don't re-read a file to confirm
+prose a result has already shown you — but do open it before you quote a line
+number or edit it, because reported line ranges for Markdown can be off by one.
+
+That is a default, not a prohibition. Read the file directly when you are about to
+edit it, when you need exact line-by-line control flow, when the file is small
+enough that reading it costs no more than a result set, or when it is outside the
+index. If two searches come back useless, say so and go read — retrieval lands the
+answer in the top five about 88% of the time, so misses are uncommon but real.
+Search always returns its full quota of results and never scores them, so judge
+relevance yourself rather than assuming the top hit answers the question.
+
+## Writing
+
+Call `sync_project_memory` once you have finished changing documentation or landed
+a change in behaviour. It is incremental and takes seconds.
+
+Call `remember` when you work out something a future session would otherwise have
+to rediscover: a non-obvious interaction between systems, why an approach was
+abandoned, an ordering constraint that cost you time. Notes supplement the
+documents rather than replacing them — if the design itself changed, edit
+`DESIGN.md` and sync. Re-using a note title overwrites it, so correct a stale note
+instead of adding a rival to it.
+
+## If Postgres is unreachable
+
+Say so once, read files directly, and carry on. Do not retry in a loop.

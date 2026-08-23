@@ -3,6 +3,10 @@ description: Enforce the multi-agent gameplay delivery pipeline and handoff qual
 alwaysApply: true
 ---
 
+<!-- Generated from semantic-memory/assets/rules/agent-pipeline.mdc by
+     scripts/install-into-projects.sh. Edit the template there, not this
+     copy: local edits are overwritten on the next install. -->
+
 # Agent Pipeline Rule
 
 Use this stage order for feature delivery unless the user explicitly overrides it:
@@ -27,3 +31,13 @@ Handoff quality bar:
 - Include explicit non-goals to prevent scope creep.
 - Keep scope aligned to the current phase objectives.
 - Preserve core loop clarity and player feedback.
+
+## Retrieval order (parent and subagent prompts)
+
+When launching a subagent or starting a pipeline stage that needs codebase context:
+
+1. **`search_project_memory` (`project="ivy"`)** — at least one task-specific query before any wholesale doc read.
+2. **Read only cited files** — `.gd` sources, or targeted sections via `fetch_document_section`. Do not open `TECHNICAL_INDEX.md`, `DESIGN.md`, or `IMPLEMENTATION.md` whole unless search fails twice or Postgres is unreachable.
+3. **Pass parent search results into the subagent prompt** — paste a short summary of what the parent already found so the subagent does not repeat or skip retrieval.
+
+Do **not** use `## Read first\n- TECHNICAL_INDEX.md` in Task prompts; use the retrieval order above instead.

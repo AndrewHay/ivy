@@ -2,13 +2,17 @@
 alwaysApply: true
 ---
 
+<!-- Generated from semantic-memory/assets/rules/technical-index-lookup.mdc by
+     scripts/install-into-projects.sh. Edit the template there, not this
+     copy: local edits are overwritten on the next install. -->
+
 # Technical Index Lookup Rule
 
 Before reading game source files to understand the codebase, find files for a task, or learn the overall technical design:
 
-1. **Read `TECHNICAL_INDEX.md` first.** It contains a complete index of every file in the project with summaries, a system-to-file cross-reference, and the signal flow between systems.
-2. **Use the index to identify which specific files are relevant** to the current task.
-3. **Read only those files.** Do not blindly read every file in the repository.
+1. **Call `search_project_memory` first** (`project="ivy"`) with a natural-language query about the system, file, or contract you need. When `semantic-memory.mdc` also applies, search wins — do not open large docs wholesale first.
+2. **Read only the specific files search cites** (or `outline_document` / `fetch_document_section` for a cited doc). Do not blindly read every file in the repository.
+3. **Fall back to `TECHNICAL_INDEX.md`** only if search is empty after two tries, or Postgres is unreachable. It contains a complete file index, system cross-reference, and signal flow — use it to identify which files to open next, not as a default first read.
 
 This applies whenever you need to:
 - Find which files implement a specific system or feature
@@ -17,6 +21,6 @@ This applies whenever you need to:
 - Identify test files for a given system
 - Understand signal flow or system dependencies
 
-If the Technical Index does not contain enough information to identify the right files, then and only then should you explore the codebase more broadly.
+If search and the Technical Index together do not identify the right files, then explore the codebase more broadly.
 
-Also read `DESIGN.md` for game design intent and `IMPLEMENTATION.md` for detailed system contracts and API signatures when you need that level of detail.
+For game design intent or detailed system contracts, prefer search → `fetch_document_section` on `DESIGN.md` or `IMPLEMENTATION.md` rather than reading either file whole.

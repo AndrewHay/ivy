@@ -23,6 +23,34 @@ ps -A -o pid,command | grep run_ui_script | grep -v grep && echo "!!! run alive,
 `--outdir` is optional and defaults to `res://.tmp/ui_scripts/`, which is gitignored. Do not point it
 at `/tmp/` — output belongs inside the project so runs need no extra permissions.
 
+## Invoke Godot directly — no Python wrappers
+
+Agents must run the Godot command above (with `--script` and `--outdir` set explicitly). **Do not**
+invoke `python3 tools/<name>.py` when the script's job is only to subprocess Godot — wrappers hide
+the real command, runtime (~75 s for day-150), and output paths from review, and users cannot approve
+what they cannot see.
+
+When a bead calls for multiple serial runs (e.g. LG-3 dual-run confirmation), run Godot once per
+pair member with distinct `--outdir` values, then compare the resulting stdout and PNGs explicitly.
+Do not delegate that loop to an opaque orchestrator.
+
+Offline Python tools that **do not** launch Godot (e.g. `tools/bake_mesh_sdf.py`) are a separate
+category: still state what they read and write before running, and get explicit user approval.
+
+**LG-3 dual-run example** (two serial canonical captures, then compare):
+
+```bash
+ps -A -o pid,command | grep run_ui_script | grep -v grep && echo "!!! run alive, abort" && exit 1
+/Applications/Godot.app/Contents/MacOS/Godot \
+  res://tools/run_ui_script.tscn \
+  -- \
+  --script=/Users/andrewhay/github/ivy/tools/ui_scripts/qa_m25_canonical.txt \
+  --outdir=res://.tmp/lg3/run1
+# repeat after run1 finishes, with --outdir=res://.tmp/lg3/run2
+```
+
+Diff the `[ui-script]` stdout lines and the four `m25_cam_*.png` files between `run1/` and `run2/`.
+
 Set `block_until_ms` to at least `30000`; a 30-game-day growth run takes ~13s plus Godot startup.
 Day-150 runs (`qa_m25_canonical.txt` and similar) take ~2 min with a warm Metal PSO cache — set
 `block_until_ms` to at least `300000` (5 min).

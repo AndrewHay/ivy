@@ -46,5 +46,5 @@ Every stage output must include:
 
 Work is complete only when:
 - Code Reviewer has no blocking findings
-- QA Playtester has verified behavior
-- Associated GitHub issue is closed with QA verification notes (if an issue exists)
+- QA Playtester has verified behavior against the epic's acceptance criteria
+- The accept bead and epic are closed in bd (see `beads-acceptance.mdc`)

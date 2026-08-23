@@ -2,6 +2,10 @@
 alwaysApply: false
 ---
 
+<!-- Generated from semantic-memory/assets/rules/technical-index-maintenance.mdc by
+     scripts/install-into-projects.sh. Edit the template there, not this
+     copy: local edits are overwritten on the next install. -->
+
 # Technical Index Maintenance Rule
 
 When you add, remove, rename, or significantly change the purpose of any file in the project, you must update `TECHNICAL_INDEX.md` to reflect the change.

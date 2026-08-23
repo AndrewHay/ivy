@@ -3,6 +3,10 @@ description: Use the shell tool's working_directory parameter instead of `cd &&`
 alwaysApply: true
 ---
 
+<!-- Generated from semantic-memory/assets/rules/shell-working-directory.mdc by
+     scripts/install-into-projects.sh. Edit the template there, not this
+     copy: local edits are overwritten on the next install. -->
+
 # Shell Working Directory
 
 When running a terminal command that needs to execute in a specific directory (e.g. the

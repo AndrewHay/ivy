@@ -1,0 +1,47 @@
+---
+description: Thin Beads orchestrator loop shared by all projects using bd.
+alwaysApply: true
+---
+
+<!-- Generated from semantic-memory/assets/rules/beads-kernel.mdc by
+     scripts/install-into-projects.sh. Edit the template there, not this
+     copy: local edits are overwritten on the next install. -->
+
+# Beads Kernel
+
+This project uses **bd (beads)** for durable work tracking. Run `bd prime` when
+context is missing or after compaction.
+
+## Orchestrator (main chat)
+
+1. `bd ready` — find unblocked work
+2. `bd show <id>` — read acceptance criteria, design, notes
+3. `bd update <id> --claim` — take one bead atomically
+4. Spawn a role subagent when the bead's stage label calls for it (see
+   `agent-pipeline.mdc` and `beads-acceptance.mdc` on game projects)
+5. Close only beads this role is allowed to close; file follow-ups with
+   `bd create` + `bd dep add`
+
+## Rules
+
+- Track ALL shared project work in bd — not markdown TODO queues or
+  `work-items/WORK_ITEMS.md` for new work
+- Do not use TodoWrite or markdown task lists as the source of truth
+- Use `bd remember "…"` for durable project memory — not MEMORY.md files
+- Do not auto-close beads unless the work and its evidence are complete
+- Do not commit, push, or `bd dolt push` unless the user explicitly asks
+
+## Quick reference
+
+```bash
+bd prime
+bd ready
+bd show <id>
+bd update <id> --claim
+bd create --title="…" --acceptance="…" --type=task
+bd dep add <child> <parent>   # child depends on parent (parent blocks child)
+bd close <id> --reason="…"
+```
+
+For gameplay pipeline stages and fuzzy acceptance, see `beads-acceptance.mdc`
+(game projects) and `PIPELINE.md`.

@@ -14,7 +14,7 @@ Godot 4.4 game project with the same Cursor agent pipeline and dev tooling patte
 - `IMPLEMENTATION.md` — system contracts
 - `TECHNICAL_INDEX.md` — file index and signal flow
 - `PIPELINE.md` — agent stage order
-- `work-items/WORK_ITEMS.md` — feature queue
+- **Feature queue: `bd` (`bd ready`, `bd show <id>`)** — see `.cursor/rules/beads-kernel.mdc`. `work-items/WORK_ITEMS.md` is a read-only historical archive; new work is not added there.
 
 ## Agent workflow
 

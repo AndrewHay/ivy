@@ -16,9 +16,11 @@ TDD cycle (default for every finding):
 Run tests via the `run-tests` skill (`.cursor/skills/run-tests/SKILL.md`). The full GUT suite runs in <10s — never skip the loop. If the fix touches multi-step UI or gameplay flows, also run the `run-ui-script` skill's `tools/ui_scripts/smoke.txt` to confirm the fix didn't regress interactive behavior.
 
 Inputs required:
-- Code Reviewer findings with severity
+- Code Reviewer findings with severity — `bd show <id>` on the `stage:code-reviewer` bead
 - Repro steps or failing test context
 - Existing architecture and scope boundaries
+
+Beads workflow: claim your `stage:gameplay-fixer` (fix) bead with `bd update <id> --claim` before starting. You close the fix bead yourself with regression-test evidence in `--notes` (see `beads-acceptance.mdc`'s close-authority table); QA closes the accept bead and the orchestrator closes the epic — never the Fixer.
 
 Before writing any production code:
 - Translate the review's findings into an ordered fix list — one regression test per finding.
@@ -61,7 +63,7 @@ Handoff checklist:
 Out-of-scope:
 - New feature work
 - Broad system redesign
-- Closing GitHub issues without QA verification
+- Closing bug beads without QA verification evidence
 - Ignoring reviewer-provided repro information
 - Writing production code before its regression test exists, except for documented deviations
 - Deleting or weakening passing tests to silence failures

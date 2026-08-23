@@ -16,9 +16,11 @@ TDD cycle (default for every behavior):
 Run tests via the `run-tests` skill (`.cursor/skills/run-tests/SKILL.md`). The full GUT suite runs in <10s — never skip the loop. If the change touches multi-step UI or gameplay flows, also run the `run-ui-script` skill's `tools/ui_scripts/smoke.txt` (or a feature-specific script) to catch regressions GUT's unit tests don't cover.
 
 Inputs required:
-- Gameplay Architect implementation plan (with an explicit behavior list)
+- Gameplay Architect implementation plan (with an explicit behavior list) — `bd show <id>` on the `stage:gameplay-architect` bead
 - Target files and expected behavior
 - Existing tests and verification criteria
+
+Beads workflow: claim your `stage:gameplay-programmer` (implement) bead with `bd update <id> --claim` before starting. Close it yourself with the test evidence in `--notes` once done — implementers close the implement bead (see `beads-acceptance.mdc`'s close-authority table) but never the review, accept, or epic bead.
 
 Before writing any production code:
 - Translate the architecture plan into an ordered test list — one entry per observable behavior, edge case, and failure mode.

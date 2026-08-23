@@ -2,6 +2,10 @@
 alwaysApply: true
 ---
 
+<!-- Generated from semantic-memory/assets/rules/reviewing.mdc by
+     scripts/install-into-projects.sh. Edit the template there, not this
+     copy: local edits are overwritten on the next install. -->
+
 # Code Review Standards
 
 All gameplay code should be reviewed for:
