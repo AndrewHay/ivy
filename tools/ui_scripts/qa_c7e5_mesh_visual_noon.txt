@@ -1,0 +1,13 @@
+# ivy-c7e.5 — mesh tower organic growth at local noon (both seeds).
+# Run with --scenario=res://assets/structures/scenarios/tower.tres
+SPEED pause
+ADVANCE_DAYS 60
+ADVANCE_DAYS 0.25
+CAMERA sun
+SCREENSHOT mesh_d60_sun.png
+CAMERA shade
+SCREENSHOT mesh_d60_shade.png
+CAMERA silhouette
+SCREENSHOT mesh_d60_silhouette.png
+CAMERA top
+SCREENSHOT mesh_d60_top.png

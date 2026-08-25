@@ -31,6 +31,8 @@ static func step_tip(tip: Tip, ctx: SimContext) -> void:
 	var w_g := Physiology.w_G(tip.floating_length, params)
 	var u := w_p * tip.direction + w_r * tip.random_dir + params.adhesion_base * a_vec
 	u += w_l * l_dir - w_c * c_dir + w_g * Conv.GRAVITY
+	if tip.floating_length == 0.0:
+		u += params.upward_base * Conv.UP
 	var d_dir := u
 	if u.length_squared() < 1e-8:
 		d_dir = tip.direction

@@ -8,6 +8,8 @@ const SurfaceQuery = preload("res://src/world/surface_query.gd")
 const TowerSdf = preload("res://src/world/tower_sdf.gd")
 const TowerSpec = preload("res://src/world/tower_spec.gd")
 const IvyParams = preload("res://src/params/ivy_params.gd")
+const IvyEnvironment = preload("res://src/env/environment.gd")
+const LightBakeCache = preload("res://src/env/light_bake_cache.gd")
 const MainScene = preload("res://src/main/main.tscn")
 
 const SQUARE_SDF := "res://assets/structures/square_sim.sdf"
@@ -572,3 +574,29 @@ func test_phase_a_load_and_build_timing() -> void:
 	print("[W-094 timing] Total load+build: %d ms" % (load_ms + build_ms))
 
 	assert_not_null(env, "IvyEnvironment.build() must complete without error")
+
+
+func test_phase_a_cached_build_skips_ray_bake() -> void:
+	# W-097: second build on unchanged square_sim mesh loads coarse grid from disk.
+	var fixture: Dictionary = await _make_square_surface_query()
+	var sq: SurfaceQuery = fixture.sq
+	var params := IvyParams.new()
+	var prov := sq.mesh_provenance()
+	var ph := LightBakeCache.params_hash(params)
+	var cache_path := LightBakeCache.cache_path(prov, ph)
+	if FileAccess.file_exists(cache_path):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(cache_path))
+
+	var env1 := IvyEnvironment.new()
+	var t0: int = Time.get_ticks_msec()
+	env1.build(params, sq)
+	var first_ms: int = Time.get_ticks_msec() - t0
+	assert_true(FileAccess.file_exists(cache_path), "first build must write cache file")
+
+	var env2 := IvyEnvironment.new()
+	t0 = Time.get_ticks_msec()
+	env2.build(params, sq)
+	var second_ms: int = Time.get_ticks_msec() - t0
+
+	print("[W-097 timing] first build (ray bake): %d ms; cached build: %d ms" % [first_ms, second_ms])
+	assert_lt(second_ms, first_ms, "cached build must be faster than full ray bake")

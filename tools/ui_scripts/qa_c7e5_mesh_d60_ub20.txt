@@ -1,0 +1,6 @@
+# ivy-c7e.5 — mesh tower d60, upward_base=0.20 (default)
+# Run with --scenario=res://assets/structures/scenarios/tower.tres
+SPEED pause
+ADVANCE_DAYS 60
+DUMP
+DUMP_METRICS 180

@@ -1,0 +1,10 @@
+# ivy-c7e.5 — organic growth / no striping visual check at local noon.
+SPEED pause
+ADVANCE_DAYS 30
+ADVANCE_DAYS 0.25
+CAMERA sun
+SCREENSHOT m1_d30_sun.png
+CAMERA shade
+SCREENSHOT m1_d30_shade.png
+CAMERA silhouette
+SCREENSHOT m1_d30_silhouette.png

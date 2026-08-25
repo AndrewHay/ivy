@@ -1,0 +1,6 @@
+# ivy-c7e.5 — M1 tower d30, upward_base=0.30
+SPEED pause
+SET_PARAM upward_base 0.30
+ADVANCE_DAYS 30
+DUMP
+DUMP_METRICS 180

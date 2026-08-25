@@ -39,7 +39,7 @@ func setup(
 	tips = TipManager.new()
 	ctx = SimContext.new(params, env, surface, plant, tips, clock)
 	if _scenario != null:
-		_seed_scenario(_seed_index)
+		_seed_all_scenario()
 	else:
 		_seed_m1()
 
@@ -60,11 +60,22 @@ func reseed() -> void:
 		_seed_m1()
 
 
+func _seed_all_scenario() -> void:
+	if _scenario == null:
+		return
+	for i in _scenario.seed_positions.size():
+		_plant_scenario_seed(i)
+
+
 func _seed_scenario(index: int) -> void:
 	if _scenario == null:
 		push_error("SimRoot: no scenario for seed index %d" % index)
 		return
 	index = clampi(index, 0, _scenario.seed_positions.size() - 1)
+	_plant_scenario_seed(index)
+
+
+func _plant_scenario_seed(index: int) -> void:
 	var toward_wall: Vector3 = _scenario.seed_normals[index].normalized()
 	var seed_pos: Vector3 = _scenario.seed_positions[index]
 	# seed_normals point toward the wall (exterior → interior). Ray from outside

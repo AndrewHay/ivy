@@ -24,6 +24,7 @@ const _DEFAULTS := {
 	"direction_memory": 0.50,
 	"light_gradient_scale": 4.0,
 	"crowding_gradient_scale": 2.0,
+	"upward_base": 0.20,
 	"sim_tick": 1.0 / 24.0,
 	"speed_watch": 60.0,
 	"speed_fast": 6.0,

@@ -24,6 +24,8 @@ extends Resource
 @export var direction_memory: float = 0.50
 @export var light_gradient_scale: float = 4.0
 @export var crowding_gradient_scale: float = 2.0
+## Negative gravitropism: constant upward bias while attached (ivy-fhh / SD-CONV-6).
+@export var upward_base: float = 0.20
 
 @export_group("Time")
 @export var sim_tick: float = 1.0 / 24.0
@@ -151,7 +153,7 @@ func content_hash() -> String:
 		"persistence_base", "random_base", "random_new_mix", "light_seek_min", "light_seek_max",
 		"adhesion_base", "adhesion_range", "max_float", "gravity_exponent", "crowding_base",
 		"crowding_decay", "branch_rate", "branch_light_exponent", "branch_crowd_exponent",
-		"direction_memory", "light_gradient_scale", "crowding_gradient_scale", "sim_tick", "speed_watch", "speed_fast",
+		"direction_memory", "light_gradient_scale", "crowding_gradient_scale", "upward_base", "sim_tick", "speed_watch", "speed_fast",
 		"speed_grow", "render_sun_blend_lo", "render_sun_blend_hi", "latitude", "longitude",
 		"day_of_year", "start_hour", "light_warmup_days", "diel_night_floor", "diel_exponent",
 		"light_p_max", "light_p_sky", "weather_direct", "weather_sky",

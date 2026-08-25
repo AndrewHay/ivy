@@ -453,6 +453,7 @@ func _ready() -> void:
 			var floating := 0
 			var dead := 0
 			var dormant := 0
+			var max_live_tip_y := -INF
 			for t in tips.tips:
 				match t.state:
 					Tip.State.GROWING:
@@ -465,6 +466,7 @@ func _ready() -> void:
 						dormant += 1
 				if t.is_live():
 					live += 1
+					max_live_tip_y = maxf(max_live_tip_y, t.position.y)
 			print("[ui-script]   DUMP day=", sim.clock.game_day,
 				" tick=", sim.clock.tick_index,
 				" tips=", tips.tips.size(), " live=", live,
@@ -472,7 +474,8 @@ func _ready() -> void:
 				" dormant=", dormant, " dead=", dead,
 				" segments=", plant.segment_count(),
 				" leaves=", plant.leaf_count(),
-				" total_len=", plant.total_length)
+				" total_len=", plant.total_length,
+				" max_live_tip_y=", max_live_tip_y if live > 0 else 0.0)
 			if tips.tips.size() > 0:
 				var t0 = tips.tips[0]
 				print("[ui-script]   DUMP tip0 pos=", t0.position, " dir=", t0.direction,

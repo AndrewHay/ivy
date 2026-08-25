@@ -40,6 +40,12 @@ func backend_tag() -> String:
 	return _backend_tag
 
 
+func mesh_provenance() -> PackedByteArray:
+	if _backend_tag == "MeshSdf":
+		return (_backend as MeshSdf).provenance
+	return PackedByteArray()
+
+
 func raycast(from: Vector3, to: Vector3) -> Hit:
 	var result := Hit.new()
 	if _space == null:

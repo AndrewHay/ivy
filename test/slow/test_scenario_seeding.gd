@@ -39,7 +39,7 @@ func test_seed_scenario_anchor_on_south_wall() -> void:
 		"res://assets/structures/scenarios/square.tres"
 	) as StructureScenario
 	var sim := await _make_square_sim(scenario, 0)
-	assert_eq(sim.tips.tips.size(), 1)
+	assert_eq(sim.tips.tips.size(), 2, "setup must plant every authored scenario seed")
 	var tip = sim.tips.tips[0]
 	var sdf := MeshSdf.new()
 	sdf.load_from_file(SQUARE_SDF)
@@ -61,8 +61,8 @@ func test_seed_scenario_east_wall_seed1() -> void:
 		"res://assets/structures/scenarios/square.tres"
 	) as StructureScenario
 	var sim := await _make_square_sim(scenario, 1)
-	assert_eq(sim.tips.tips.size(), 1)
-	var tip = sim.tips.tips[0]
+	assert_eq(sim.tips.tips.size(), 2, "setup must plant every authored scenario seed")
+	var tip = sim.tips.tips[1]
 	var sdf := MeshSdf.new()
 	sdf.load_from_file(SQUARE_SDF)
 	var phi: float = sdf.signed_distance(tip.position)

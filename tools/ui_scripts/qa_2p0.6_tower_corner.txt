@@ -1,0 +1,14 @@
+# ivy-2p0.6 — tower corner SG-7(b) re-run (both authored seeds, ivy-hob setup).
+# Run: --scenario=res://assets/structures/scenarios/tower.tres
+SPEED pause
+ADVANCE_DAYS 150
+ADVANCE_DAYS 0.25
+DUMP
+CAMERA silhouette
+SCREENSHOT tower_d150_silhouette.png
+CAMERA sun
+SCREENSHOT tower_d150_sun.png
+CAMERA shade
+SCREENSHOT tower_d150_shade.png
+CAMERA top
+SCREENSHOT tower_d150_top.png

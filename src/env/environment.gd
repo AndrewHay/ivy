@@ -15,6 +15,8 @@ const DL_SCALE := 0.0864
 ## the same step size `set_light_ewma_steady_state` solves its fixed point over.
 const EWMA_STEP_DAYS := 1.0 / 24.0
 
+const LightBakeCache = preload("res://src/env/light_bake_cache.gd")
+
 var params: IvyParams
 var surface: SurfaceQuery
 var solar: Solar
@@ -41,7 +43,17 @@ func build(p: IvyParams, surf: SurfaceQuery, sun: Solar = null) -> void:
 	_field.set_all(SparseHashField.Channel.CROWDING, 0.0)
 	_field.set_all(SparseHashField.Channel.MATERIAL_ID, float(MaterialRegistry.BRICK_WALL))
 	_bake = LightBake.new(params, solar)
-	_bake.bake(surface, bounds)
+	var coarse_loaded := false
+	if surface.backend_tag() == "MeshSdf":
+		var prov := surface.mesh_provenance()
+		var ph := LightBakeCache.params_hash(params)
+		coarse_loaded = LightBakeCache.try_load(_bake, bounds, prov, ph)
+	if not coarse_loaded:
+		_bake.bake(surface, bounds)
+		if surface.backend_tag() == "MeshSdf":
+			var prov := surface.mesh_provenance()
+			var ph := LightBakeCache.params_hash(params)
+			LightBakeCache.save(_bake, bounds, prov, ph)
 	_bake.fill_field(surface, _field, _grid)
 	_baseline_p_bar = _bake.diffuse_baseline_p_bar()
 	warm_up(params.light_warmup_days)

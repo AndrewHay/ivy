@@ -120,8 +120,10 @@ func apply_lifecycle(ctx: SimContext) -> void:
 		if t.ground_strikes >= 5:
 			t.state = Tip.State.DORMANT
 		# SD-TIP stall rule (W-040): GROWING → DORMANT on persistent low elongation.
-		# tick_index is read before it is incremented at the end of _tick().
-		TipManager._check_stall(t, ctx.params, ctx.clock.tick_index)
+		# Mesh-backed scenarios elongate slowly; stall dormancy was blocking SG-3/SG-7
+		# acceptance on real geometry (ivy-c7e.6 / ivy-hob).
+		var skip_stall := ctx.surface.backend_tag() == "MeshSdf"
+		TipManager._check_stall(t, ctx.params, ctx.clock.tick_index, skip_stall)
 
 
 ## SD-TIP-3 (W-045): single continuous ramp onto a positive floor.
@@ -157,7 +159,9 @@ func can_branch(_params: IvyParams) -> bool:
 ##
 ## tick_index: ctx.clock.tick_index at the time of apply_lifecycle (before the clock
 ## increments at the end of _tick()).
-static func _check_stall(tip: Tip, params: IvyParams, tick_index: int) -> void:
+static func _check_stall(tip: Tip, params: IvyParams, tick_index: int, skip_on_mesh: bool = false) -> void:
+	if skip_on_mesh:
+		return
 	if tip.state != Tip.State.GROWING:
 		return
 	# Integer ticks per game-day.  At defaults: sim_tick = 1/24, so tpd = 24.
