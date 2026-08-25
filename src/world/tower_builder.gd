@@ -16,8 +16,14 @@ static func build(spec: TowerSpec, dev_build: bool = true) -> TowerBuildResult:
 		var a0 := TAU * float(ring) / float(segs)
 		var a1 := TAU * float(ring + 1) / float(segs)
 		if _spans_doorway(spec, a0, a1):
-			continue
-		if _spans_window(spec, a0, a1):
+			# Rectangular cutout like the window band — keep wall continuous above the
+			# door so the cylinder does not read as an open arc (ivy-r37.2).
+			if spec.door_height < spec.height:
+				_add_wall_quad(
+					st, face_material, spec, a0, a1,
+					spec.door_height, spec.height, MaterialRegistry.BRICK_WALL
+				)
+		elif _spans_window(spec, a0, a1):
 			# The window is bounded vertically, so we split the ring into a below-sill
 			# strip and an above-window strip, skipping the opening height band.
 			# A naive full-height quad would contradict the SDF and saturate the light

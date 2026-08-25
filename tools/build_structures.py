@@ -86,6 +86,7 @@ SHIFT = TARGET_T - NATIVE_T
 WALL_H = 3.12
 MODULE = 2.0
 CAP = 0.30
+TOWER_CONE_HEIGHT = 1.20
 END_OVERLAP = TARGET_T
 HERO_CORNER_PIECES = ("Corner_ExteriorWide_Brick", "Corner_Exterior_Brick")
 HERO_SEAL_PIECES = ("Door_2_Round", "DoorFrame_Round_Brick")
@@ -648,6 +649,93 @@ def solid_box(name, z0, z1, half, collection, material=None, world_offset=Vector
     return o
 
 
+def place_conical_roof(
+    name: str, z_base: float, height: float, radius: float, collection,
+    material=None, world_offset=Vector((0, 0, 0)), segments: int = 32,
+) -> bpy.types.Object:
+    root = collection.name.split("_")[0]
+    parent_name = "Hero" if root == "Hero" else "Simulation"
+    layer = bpy.context.view_layer.active_layer_collection
+    bpy.context.view_layer.active_layer_collection = (
+        bpy.context.view_layer.layer_collection.children[parent_name].children[collection.name]
+    )
+    bpy.ops.mesh.primitive_cone_add(
+        vertices=segments,
+        radius1=radius,
+        radius2=0.0,
+        depth=height,
+        location=(
+            world_offset.x,
+            world_offset.y,
+            z_base + height / 2.0 + world_offset.z,
+        ),
+    )
+    bpy.context.view_layer.active_layer_collection = layer
+    o = bpy.context.active_object
+    o.name = name
+    apply_transform(o)
+    if material is not None:
+        assign_material(o, material)
+    return o
+
+
+def make_hero_roof_material(repo_root: Path) -> bpy.types.Material:
+    """ambientCG RoofingTiles014B — same map set as Bricks094 in Godot."""
+    mat = bpy.data.materials.new("HeroRoofTiles")
+    mat.use_nodes = True
+    tree = mat.node_tree
+    links = tree.links
+    bsdf = tree.nodes.get("Principled BSDF")
+    base_dir = repo_root / "assets/materials/roof/RoofingTiles014B"
+
+    def tex_node(fname: str) -> bpy.types.ShaderNodeTexImage:
+        img = bpy.data.images.load(str(base_dir / fname))
+        node = tree.nodes.new("ShaderNodeTexImage")
+        node.image = img
+        return node
+
+    color = tex_node("RoofingTiles014B_2K-JPG_Color.jpg")
+    links.new(color.outputs["Color"], bsdf.inputs["Base Color"])
+    rough = tex_node("RoofingTiles014B_2K-JPG_Roughness.jpg")
+    links.new(rough.outputs["Color"], bsdf.inputs["Roughness"])
+    normal_tex = tex_node("RoofingTiles014B_2K-JPG_NormalGL.jpg")
+    normal_map = tree.nodes.new("ShaderNodeNormalMap")
+    links.new(normal_tex.outputs["Color"], normal_map.inputs["Color"])
+    links.new(normal_map.outputs["Normal"], bsdf.inputs["Normal"])
+    bsdf.inputs["Specular IOR Level"].default_value = 0.2
+    return mat
+
+
+def add_roof_cap(
+    parts: list, prefix: str, cfg: dict, d: dict, collection, material, world_offset
+) -> None:
+    total_h = d["total_h"]
+    if cfg["name"] == "tower":
+        parts.append(
+            place_conical_roof(
+                f"{prefix}RoofCone",
+                total_h,
+                TOWER_CONE_HEIGHT,
+                d["roof_half"],
+                collection,
+                material,
+                world_offset,
+            )
+        )
+    else:
+        parts.append(
+            solid_box(
+                f"{prefix}RoofCap",
+                total_h - 0.05,
+                total_h + CAP,
+                d["roof_half"],
+                collection,
+                material,
+                world_offset,
+            )
+        )
+
+
 def wall_world_matrix(yaw_deg, wall_loc, world_offset, z_base=0.0):
     yr = math.radians(yaw_deg)
     loc = wall_loc.copy()
@@ -826,8 +914,7 @@ def assemble_hero(cfg, hero_col, hero_roof_mat, glass_mat, world_offset):
         for i, xy in enumerate(d["corner_centers"]):
             parts.append(hero_corner_block(f"{prefix}CornerBlock_{si}_{i}", xy, hero_col, d, z_base, world_offset))
     total_h = d["total_h"]
-    parts.append(solid_box(f"{prefix}RoofCap", total_h - 0.05, total_h + CAP, d["roof_half"],
-                           hero_col, hero_roof_mat, world_offset))
+    add_roof_cap(parts, prefix, cfg, d, hero_col, hero_roof_mat, world_offset)
     if cfg.get("intermediate_floor"):
         parts.append(solid_box(f"{prefix}MidFloorSlab", WALL_H - 0.10, WALL_H + 0.02,
                                d["interior_half"], hero_col, hero_roof_mat, world_offset))
@@ -859,8 +946,7 @@ def assemble_sim(cfg, sim_col, clay, world_offset, omit_seal=None):
     if cfg.get("intermediate_floor"):
         parts.append(solid_box(f"{prefix}MidFloorSlab", WALL_H - 0.10, WALL_H + 0.02,
                                d["interior_half"], sim_col, clay, world_offset))
-    parts.append(solid_box(f"{prefix}RoofCap", d["total_h"] - 0.05, d["total_h"] + CAP,
-                           d["roof_half"], sim_col, clay, world_offset))
+    add_roof_cap(parts, prefix, cfg, d, sim_col, clay, world_offset)
     apertures = enumerate_apertures(cfg, d)
     for ap in apertures:
         panel = place_sim_panel(ap, sim_col, prefix, world_offset, clay, omit=(ap["id"] == omit_seal))
@@ -1209,10 +1295,7 @@ sim_root = bpy.data.collections.new("Simulation")
 bpy.context.scene.collection.children.link(hero_root)
 bpy.context.scene.collection.children.link(sim_root)
 
-_hero_roof = bpy.data.materials.new("HeroRoofCap")
-_hero_roof.use_nodes = True
-_hero_roof.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value = (0.52, 0.44, 0.36, 1.0)
-_hero_roof.node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value = 0.85
+_hero_roof = make_hero_roof_material(Path(__file__).resolve().parent.parent)
 
 _clay = bpy.data.materials.new("SimClay")
 _clay.use_nodes = True
@@ -1232,7 +1315,7 @@ _gbsdf.inputs["Transmission Weight"].default_value = 0.65
 
 def hide_roof_caps(parts, hide):
     for obj in parts:
-        if "RoofCap" in obj.name:
+        if "RoofCap" in obj.name or "RoofCone" in obj.name:
             obj.hide_render = hide
 
 

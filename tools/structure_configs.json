@@ -19,20 +19,20 @@
     "name": "tower",
     "half": 1.6,
     "storeys": 2,
-    "module_offsets": [-1.0, 1.0],
+    "module_offsets": [-1.0, 0.0, 1.0],
     "roof_half": 1.51,
     "storey_sides": [
       [
-        [0.0, ["Wall_UnevenBrick_Straight", "Wall_UnevenBrick_Door_Round"]],
-        [90.0, ["Wall_UnevenBrick_Straight", "Wall_UnevenBrick_Window_Thin_Round"]],
-        [180.0, ["Wall_UnevenBrick_Straight", "Wall_UnevenBrick_Straight"]],
-        [270.0, ["Wall_UnevenBrick_Straight", "Wall_UnevenBrick_Straight"]]
+        [0.0, ["Wall_UnevenBrick_Straight", "Wall_UnevenBrick_Door_Round", "Wall_UnevenBrick_Straight"]],
+        [90.0, ["Wall_UnevenBrick_Straight", "Wall_UnevenBrick_Window_Thin_Round", "Wall_UnevenBrick_Straight"]],
+        [180.0, ["Wall_UnevenBrick_Straight", "Wall_UnevenBrick_Straight", "Wall_UnevenBrick_Straight"]],
+        [270.0, ["Wall_UnevenBrick_Straight", "Wall_UnevenBrick_Straight", "Wall_UnevenBrick_Straight"]]
       ],
       [
-        [0.0, ["Wall_UnevenBrick_Straight", "Wall_UnevenBrick_Straight"]],
-        [90.0, ["Wall_UnevenBrick_Window_Wide_Round", "Wall_UnevenBrick_Straight"]],
-        [180.0, ["Wall_UnevenBrick_Straight", "Wall_UnevenBrick_Window_Thin_Round"]],
-        [270.0, ["Wall_UnevenBrick_Straight", "Wall_UnevenBrick_Straight"]]
+        [0.0, ["Wall_UnevenBrick_Straight", "Wall_UnevenBrick_Straight", "Wall_UnevenBrick_Straight"]],
+        [90.0, ["Wall_UnevenBrick_Straight", "Wall_UnevenBrick_Window_Wide_Round", "Wall_UnevenBrick_Straight"]],
+        [180.0, ["Wall_UnevenBrick_Straight", "Wall_UnevenBrick_Window_Thin_Round", "Wall_UnevenBrick_Straight"]],
+        [270.0, ["Wall_UnevenBrick_Straight", "Wall_UnevenBrick_Straight", "Wall_UnevenBrick_Straight"]]
       ]
     ],
     "scene_offset": [7.0, 0.0, 0.0],

@@ -24,6 +24,7 @@ License: https://docs.ambientcg.com/license
 | `LeafSet029` | **Seasonal leaf variation.** Brighter green plus autumn-tinted leaves; also ships a Scattering map for backlit translucency. | `plants/ivy/LeafSet029/` |
 | `Bricks094` | **Primary tower material.** Old weathered red brick. Chosen for contrast — green ivy reads clearly against warm red. | `materials/brick/Bricks094/` |
 | `Bricks102` | **Alternate tower material.** Warm sandy medieval stonework, Cotswolds/cottagecore feel. Kept for in-engine A/B. | `materials/brick/Bricks102/` |
+| `RoofingTiles014B` | **Mesh structure roof cap.** Weathered round roofing tiles (~2.9 m patch); pairs with stone walls on square/tower hero meshes. | `materials/roof/RoofingTiles014B/` |
 
 ### Re-downloading
 
@@ -33,8 +34,8 @@ ambientCG download URLs are deterministic:
 https://ambientcg.com/get?file=<AssetID>_2K-JPG.zip
 ```
 
-So the four archives above are `LeafSet017_2K-JPG.zip`, `LeafSet029_2K-JPG.zip`,
-`Bricks094_2K-JPG.zip`, and `Bricks102_2K-JPG.zip`. Asset metadata (including the full
+So the five archives above are `LeafSet017_2K-JPG.zip`, `LeafSet029_2K-JPG.zip`,
+`Bricks094_2K-JPG.zip`, `Bricks102_2K-JPG.zip`, and `RoofingTiles014B_2K-JPG.zip`. Asset metadata (including the full
 map list and available resolutions) can be queried without downloading anything:
 
 ```
