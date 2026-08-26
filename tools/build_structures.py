@@ -91,6 +91,7 @@ END_OVERLAP = TARGET_T
 HERO_CORNER_PIECES = ("Corner_ExteriorWide_Brick", "Corner_Exterior_Brick")
 HERO_SEAL_PIECES = ("Door_2_Round", "DoorFrame_Round_Brick")
 GLASS_T = 0.02
+DOOR_HERO_OUTSET = 0.10  ## hero door/frame past exterior wall face (kit reads recessed)
 
 APERTURE_SPECS = {
     "door": {"x0": -0.625, "x1": 0.625, "z0": 0.0, "z1": 2.475},
@@ -834,8 +835,16 @@ def place_hero_seals(ap, hero_col, prefix, world_offset, glass_mat):
     if ap["kind"] == "door":
         fc = piece_centre("DoorFrame_Round_Brick")
         dc = piece_centre("Door_2_Round")
-        frame_off = Vector((oc.x - fc.x, -piece_y_min("DoorFrame_Round_Brick"), oc.z - fc.z))
-        door_off = Vector((oc.x - dc.x, -piece_y_min("Door_2_Round"), oc.z - dc.z))
+        frame_off = Vector((
+            oc.x - fc.x,
+            -piece_y_min("DoorFrame_Round_Brick") - DOOR_HERO_OUTSET,
+            oc.z - fc.z,
+        ))
+        door_off = Vector((
+            oc.x - dc.x,
+            -piece_y_min("Door_2_Round") - DOOR_HERO_OUTSET,
+            oc.z - dc.z,
+        ))
         parts.append(place_kit_seal(ap, hero_col, prefix, world_offset,
                                     "DoorFrame_Round_Brick", "frame", frame_off))
         parts.append(place_kit_seal(ap, hero_col, prefix, world_offset,
