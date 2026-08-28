@@ -122,6 +122,7 @@ _OPTIONAL_KEYS = {
     "intermediate_floor": (bool,),
     "hero_end_overlap": (bool,),
     "corner_chamfer": (int, float),
+    "open_apertures": (list,),
 }
 
 
@@ -152,6 +153,10 @@ def validate_config(name, cfg):
                 f"{where}: key '{key}' must be {', '.join(t.__name__ for t in types)}, "
                 f"got {type(cfg[key]).__name__}"
             )
+    if "open_apertures" in cfg:
+        for aid in cfg["open_apertures"]:
+            if not isinstance(aid, str):
+                raise ValueError(f"{where}: each open_apertures entry must be a string")
     if cfg["name"] != name:
         raise ValueError(f"{where}: 'name' is '{cfg['name']}', expected '{name}'")
     if cfg["storeys"] < 1:
@@ -519,7 +524,7 @@ def set_collection(col):
 
 
 def place_wall_run(names, yaw_deg, collection, data_fn, prefix, cfg, d, z_base=0.0,
-                   end_overlap=True, world_offset=Vector((0, 0, 0))):
+                   end_overlap=True, world_offset=Vector((0, 0, 0)), skip_wall=None):
     n, tang = side_vectors(yaw_deg)
     yr = math.radians(yaw_deg)
     half = d["half"]
@@ -527,6 +532,8 @@ def place_wall_run(names, yaw_deg, collection, data_fn, prefix, cfg, d, z_base=0
     offsets = cfg["module_offsets"]
     ext_scale = (MODULE + END_OVERLAP) / MODULE
     for i, nm in enumerate(names):
+        if skip_wall is not None and skip_wall(yaw_deg, i, nm):
+            continue
         obj = bpy.data.objects.new(f"{prefix}{nm}_{int(yaw_deg)}_{i}", data_fn(nm).copy())
         collection.objects.link(obj)
         obj.rotation_euler = (0.0, 0.0, yr)
@@ -797,7 +804,7 @@ def enumerate_apertures(cfg, d):
                     kind = "thin_win" if "Thin" in nm else "wide_win"
                 else:
                     continue
-                aid = f"{cfg['name']}_{tag}_{kind}_{side}"
+                aid = f"{cfg['name']}_{tag}_{kind}_{side}_{i}"
                 apertures.append({
                     "id": aid,
                     "kind": kind,
@@ -829,33 +836,83 @@ def piece_y_min(name):
     return _piece_centre[key]
 
 
-def place_hero_seals(ap, hero_col, prefix, world_offset, glass_mat):
+def place_wall_local_box(ap, hero_col, prefix, world_offset, suffix, local_center, local_scale, material):
+    """Axis-aligned box in wall-local coords (x along wall, y into room, z up)."""
+    root = hero_col.name.split("_")[0]
+    parent_name = "Hero" if root == "Hero" else "Simulation"
+    layer = bpy.context.view_layer.active_layer_collection
+    bpy.context.view_layer.active_layer_collection = (
+        bpy.context.view_layer.layer_collection.children[parent_name].children[hero_col.name]
+    )
+    bpy.ops.mesh.primitive_cube_add(size=1.0)
+    bpy.context.view_layer.active_layer_collection = layer
+    obj = bpy.context.active_object
+    obj.name = f"{prefix}Reveal_{ap['id']}_{suffix}"
+    obj.scale = (local_scale[0], local_scale[1], local_scale[2])
+    apply_transform(obj)
+    obj.matrix_world = wall_world_matrix(ap["yaw"], ap["wall_loc"], world_offset, ap["z_base"]) @ Matrix.Translation(local_center)
+    if material is not None:
+        assign_material(obj, material)
+    return obj
+
+
+def place_hero_open_reveal(ap, hero_col, prefix, world_offset, d, floor_mat, interior_mat):
+    """Depth + floor glimpse through an open door — avoids a bare arch tunnel."""
+    spec = ap["spec"]
+    width = spec["x1"] - spec["x0"]
+    height = spec["z1"] - spec["z0"]
+    depth = min(max(d["interior_half"] * 1.5, 1.5), 4.0)
+    floor_h = 0.08
+    inset = 0.05
+    parts = []
+    parts.append(place_wall_local_box(
+        ap, hero_col, prefix, world_offset, "floor",
+        Vector((
+            (spec["x0"] + spec["x1"]) / 2.0,
+            TARGET_T / 2.0 + depth * 0.35,
+            spec["z0"] + floor_h / 2.0 + inset,
+        )),
+        (width - inset * 2, depth * 0.7, floor_h),
+        floor_mat,
+    ))
+    parts.append(place_wall_local_box(
+        ap, hero_col, prefix, world_offset, "interior",
+        Vector((
+            (spec["x0"] + spec["x1"]) / 2.0,
+            TARGET_T / 2.0 + depth * 0.75,
+            spec["z0"] + height * 0.38,
+        )),
+        (width - inset * 2, 0.06, height * 0.62),
+        interior_mat,
+    ))
+    return parts
+
+
+def place_hero_seals(ap, hero_col, prefix, world_offset, glass_mat, wood_mat=None, open_ids=None, d=None):
+    open_ids = open_ids or set()
     oc = opening_center_local(ap)
     parts = []
     if ap["kind"] == "door":
-        fc = piece_centre("DoorFrame_Round_Brick")
-        dc = piece_centre("Door_2_Round")
-        frame_off = Vector((
-            oc.x - fc.x,
-            -piece_y_min("DoorFrame_Round_Brick") - DOOR_HERO_OUTSET,
-            oc.z - fc.z,
-        ))
-        door_off = Vector((
-            oc.x - dc.x,
-            -piece_y_min("Door_2_Round") - DOOR_HERO_OUTSET,
-            oc.z - dc.z,
-        ))
-        parts.append(place_kit_seal(ap, hero_col, prefix, world_offset,
-                                    "DoorFrame_Round_Brick", "frame", frame_off))
-        parts.append(place_kit_seal(ap, hero_col, prefix, world_offset,
-                                    "Door_2_Round", "door", door_off))
+        if ap["id"] in open_ids and d is not None:
+            parts += place_hero_open_reveal(
+                ap, hero_col, prefix, world_offset, d, _interior_floor, _interior,
+            )
+        elif ap["id"] not in open_ids:
+            dc = piece_centre("Door_2_Round")
+            door_off = Vector((
+                oc.x - dc.x,
+                -piece_y_min("Door_2_Round") - DOOR_HERO_OUTSET,
+                oc.z - dc.z,
+            ))
+            parts.append(place_kit_seal(ap, hero_col, prefix, world_offset,
+                                        "Door_2_Round", "door", door_off, wood_mat))
     else:
         spec = ap["spec"]
         width = spec["x1"] - spec["x0"]
         height = spec["z1"] - spec["z0"]
         glass_off = Vector((
             (spec["x0"] + spec["x1"]) / 2.0,
-            GLASS_T / 2.0,
+            TARGET_T / 2.0,
             (spec["z0"] + spec["z1"]) / 2.0,
         ))
         root = hero_col.name.split("_")[0]
@@ -904,6 +961,33 @@ def place_sim_panel(ap, sim_col, prefix, world_offset, clay, omit=False):
     return obj
 
 
+def place_interior_face(ap, sim_col, prefix, world_offset, clay):
+    """Thin collision quad on the interior masonry face behind an open aperture."""
+    spec = ap["spec"]
+    width = spec["x1"] - spec["x0"]
+    height = spec["z1"] - spec["z0"]
+    centre_local = Vector((
+        (spec["x0"] + spec["x1"]) / 2.0,
+        -(TARGET_T / 2.0 - 0.01),
+        (spec["z0"] + spec["z1"]) / 2.0,
+    ))
+    root = sim_col.name.split("_")[0]
+    parent_name = "Hero" if root == "Hero" else "Simulation"
+    layer = bpy.context.view_layer.active_layer_collection
+    bpy.context.view_layer.active_layer_collection = (
+        bpy.context.view_layer.layer_collection.children[parent_name].children[sim_col.name]
+    )
+    bpy.ops.mesh.primitive_cube_add(size=1.0)
+    bpy.context.view_layer.active_layer_collection = layer
+    obj = bpy.context.active_object
+    obj.name = f"{prefix}Interior_{ap['id']}"
+    obj.scale = (width, 0.02, height)
+    apply_transform(obj)
+    obj.matrix_world = wall_world_matrix(ap["yaw"], ap["wall_loc"], world_offset, ap["z_base"]) @ Matrix.Translation(centre_local)
+    assign_material(obj, clay)
+    return obj
+
+
 def assemble_hero(cfg, hero_col, hero_roof_mat, glass_mat, world_offset):
     d = cfg_derived(cfg)
     name = cfg["name"]
@@ -927,9 +1011,10 @@ def assemble_hero(cfg, hero_col, hero_roof_mat, glass_mat, world_offset):
     if cfg.get("intermediate_floor"):
         parts.append(solid_box(f"{prefix}MidFloorSlab", WALL_H - 0.10, WALL_H + 0.02,
                                d["interior_half"], hero_col, hero_roof_mat, world_offset))
+    open_ids = set(cfg.get("open_apertures", []))
     apertures = enumerate_apertures(cfg, d)
     for ap in apertures:
-        parts += place_hero_seals(ap, hero_col, prefix, world_offset, glass_mat)
+        parts += place_hero_seals(ap, hero_col, prefix, world_offset, glass_mat, _wood, open_ids, d)
     return parts, d, apertures
 
 
@@ -956,11 +1041,15 @@ def assemble_sim(cfg, sim_col, clay, world_offset, omit_seal=None):
         parts.append(solid_box(f"{prefix}MidFloorSlab", WALL_H - 0.10, WALL_H + 0.02,
                                d["interior_half"], sim_col, clay, world_offset))
     add_roof_cap(parts, prefix, cfg, d, sim_col, clay, world_offset)
+    open_ids = set(cfg.get("open_apertures", []))
     apertures = enumerate_apertures(cfg, d)
     for ap in apertures:
-        panel = place_sim_panel(ap, sim_col, prefix, world_offset, clay, omit=(ap["id"] == omit_seal))
+        omit = ap["id"] == omit_seal or ap["id"] in open_ids
+        panel = place_sim_panel(ap, sim_col, prefix, world_offset, clay, omit=omit)
         if panel is not None:
             parts.append(panel)
+        # Open apertures must stay ray-permeable for light bake (W-096); interior brick
+        # faces come from the wall mesh collision, not a quad across the hole.
     return parts, d, apertures
 
 
@@ -972,7 +1061,7 @@ def shell_objects(parts):
     """
     return [
         o for o in parts
-        if "Wall_UnevenBrick" in o.name or "_Seal_" in o.name or "_Panel_" in o.name
+        if "Wall_UnevenBrick" in o.name or "_Seal_" in o.name or "_Panel_" in o.name or "_Interior_" in o.name
     ]
 
 
@@ -1319,7 +1408,26 @@ _gbsdf = _glass.node_tree.nodes["Principled BSDF"]
 _gbsdf.inputs["Base Color"].default_value = (0.72, 0.82, 0.88, 1.0)
 _gbsdf.inputs["Roughness"].default_value = 0.05
 _gbsdf.inputs["Specular IOR Level"].default_value = 0.8
-_gbsdf.inputs["Transmission Weight"].default_value = 0.65
+_gbsdf.inputs["Transmission Weight"].default_value = 0.35
+
+_wood = bpy.data.materials.new("HeroWood")
+_wood.use_nodes = True
+_wbsdf = _wood.node_tree.nodes["Principled BSDF"]
+_wbsdf.inputs["Base Color"].default_value = (0.42, 0.28, 0.18, 1.0)
+_wbsdf.inputs["Roughness"].default_value = 0.75
+_wbsdf.inputs["Specular IOR Level"].default_value = 0.2
+
+_interior = bpy.data.materials.new("HeroInterior")
+_interior.use_nodes = True
+_ib = _interior.node_tree.nodes["Principled BSDF"]
+_ib.inputs["Base Color"].default_value = (0.18, 0.16, 0.14, 1.0)
+_ib.inputs["Roughness"].default_value = 0.92
+
+_interior_floor = bpy.data.materials.new("HeroInteriorFloor")
+_interior_floor.use_nodes = True
+_ifb = _interior_floor.node_tree.nodes["Principled BSDF"]
+_ifb.inputs["Base Color"].default_value = (0.11, 0.10, 0.09, 1.0)
+_ifb.inputs["Roughness"].default_value = 0.95
 
 
 def hide_roof_caps(parts, hide):

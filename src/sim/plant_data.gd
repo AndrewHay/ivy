@@ -1,12 +1,15 @@
 class_name PlantData
 extends RefCounted
 
+const MaterialRegistry = preload("res://src/world/material_registry.gd")
+
 var seg_a: PackedVector3Array = PackedVector3Array()
 var seg_b: PackedVector3Array = PackedVector3Array()
 var seg_normal: PackedVector3Array = PackedVector3Array()
 var seg_tip: PackedInt32Array = PackedInt32Array()
 var seg_order: PackedInt32Array = PackedInt32Array()
 var seg_s: PackedFloat32Array = PackedFloat32Array()
+var seg_material: PackedInt32Array = PackedInt32Array()
 var total_length: float = 0.0
 
 var leaf_xform: PackedFloat32Array = PackedFloat32Array()
@@ -21,13 +24,22 @@ var leaf_light: PackedFloat32Array = PackedFloat32Array()
 var leaf_frozen_count: int = 0
 
 
-func append_segment(a: Vector3, b: Vector3, normal: Vector3, tip_id: int, order: int, s: float) -> void:
+func append_segment(
+	a: Vector3,
+	b: Vector3,
+	normal: Vector3,
+	tip_id: int,
+	order: int,
+	s: float,
+	material_id: int = MaterialRegistry.BRICK_WALL
+) -> void:
 	seg_a.append(a)
 	seg_b.append(b)
 	seg_normal.append(normal)
 	seg_tip.append(tip_id)
 	seg_order.append(order)
 	seg_s.append(s)
+	seg_material.append(material_id)
 	total_length += float(a.distance_to(b))
 
 
@@ -51,6 +63,14 @@ func append_leaf(
 
 func segment_count() -> int:
 	return seg_a.size()
+
+
+func stem_length_for_material(material_id: int) -> float:
+	var total := 0.0
+	for i in seg_material.size():
+		if seg_material[i] == material_id:
+			total += seg_a[i].distance_to(seg_b[i])
+	return total
 
 
 func leaf_count() -> int:

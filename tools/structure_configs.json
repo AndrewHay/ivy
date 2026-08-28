@@ -39,5 +39,46 @@
     "hero_end_overlap": false,
     "intermediate_floor": true,
     "corner_chamfer": 0.15
+  },
+  "surface_wall": {
+    "name": "surface_wall",
+    "half": 3.0,
+    "storeys": 1,
+    "module_offsets": [-2.0, -1.0, 0.0, 1.0, 2.0],
+    "storey_sides": [
+      [
+        [0.0, [
+          "Wall_UnevenBrick_Straight",
+          "Wall_UnevenBrick_Window_Wide_Round",
+          "Wall_UnevenBrick_Straight",
+          "Wall_UnevenBrick_Door_Round",
+          "Wall_UnevenBrick_Straight"
+        ]],
+        [90.0, [
+          "Wall_UnevenBrick_Straight",
+          "Wall_UnevenBrick_Straight",
+          "Wall_UnevenBrick_Door_Round",
+          "Wall_UnevenBrick_Straight",
+          "Wall_UnevenBrick_Straight"
+        ]],
+        [180.0, [
+          "Wall_UnevenBrick_Straight",
+          "Wall_UnevenBrick_Straight",
+          "Wall_UnevenBrick_Straight",
+          "Wall_UnevenBrick_Straight",
+          "Wall_UnevenBrick_Straight"
+        ]],
+        [270.0, [
+          "Wall_UnevenBrick_Straight",
+          "Wall_UnevenBrick_Straight",
+          "Wall_UnevenBrick_Straight",
+          "Wall_UnevenBrick_Straight",
+          "Wall_UnevenBrick_Straight"
+        ]]
+      ]
+    ],
+    "scene_offset": [0.0, 0.0, 0.0],
+    "hero_end_overlap": false,
+    "open_apertures": ["surface_wall_ground_door_E_2"]
   }
 }

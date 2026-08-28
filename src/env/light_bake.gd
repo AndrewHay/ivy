@@ -28,6 +28,8 @@ var _coarse: CellGrid
 var _slot_of: Dictionary = {}
 var _svf: PackedFloat32Array = PackedFloat32Array()
 var _vis: PackedInt32Array = PackedInt32Array()
+var _leak: PackedFloat32Array = PackedFloat32Array()
+var _bake_normal: PackedVector3Array = PackedVector3Array()
 
 var _corner_slot: PackedInt32Array = PackedInt32Array()
 var _corner_weight: PackedFloat32Array = PackedFloat32Array()
@@ -64,16 +66,24 @@ func p_diffuse(svf: float, hour: int) -> float:
 	return params.light_p_sky * params.weather_sky * _diffuse_elevation[hour] * svf
 
 
-func p_at(normal: Vector3, svf: float, visibility: float, hour: int) -> float:
-	return p_direct(normal, visibility, hour) + p_diffuse(svf, hour)
+## W-096: weak ambient from horizontal escape toward apertures when SVF≈0.
+func p_leak(leak: float, svf: float, hour: int) -> float:
+	if leak <= 0.0 or svf >= 0.12:
+		return 0.0
+	var dim := 1.0 - clampf(svf / 0.12, 0.0, 1.0)
+	return params.light_p_leak * params.weather_sky * _diffuse_elevation[hour] * leak * dim
+
+
+func p_at(normal: Vector3, svf: float, visibility: float, hour: int, leak: float = 0.0) -> float:
+	return p_direct(normal, visibility, hour) + p_diffuse(svf, hour) + p_leak(leak, svf, hour)
 
 
 ## Mean of P over a game-day. Because the date is fixed and weather is pinned
 ## (SD-TIME-6, INV-9) this is also the value the SD-ENV-8 EWMA converges to.
-func daily_mean_p(normal: Vector3, svf: float, visibility: float) -> float:
+func daily_mean_p(normal: Vector3, svf: float, visibility: float, leak: float = 0.0) -> float:
 	var sum := 0.0
 	for hour in HOURS:
-		sum += p_at(normal, svf, visibility, hour)
+		sum += p_at(normal, svf, visibility, hour, leak)
 	return sum / float(HOURS)
 
 
@@ -139,6 +149,31 @@ func visibility_mask(surface: SurfaceQuery, point: Vector3, normal: Vector3) -> 
 	return mask
 
 
+## Fraction of shallow outward rays in the tangent plane that escape (W-096).
+## Uses basis.x/basis.y (wall plane), not basis.z (normal), with small tilts
+## outward so ground-door apertures register from above the opening.
+func horizon_escape_factor(surface: SurfaceQuery, point: Vector3, normal: Vector3) -> float:
+	var n := normal.normalized()
+	var basis := Conv.tangent_basis(n)
+	var origin := point + n * params.bake_ray_offset
+	const SAMPLES := 8
+	const TILTS := [-0.25, 0.0, 0.35]
+	var trials := 0
+	var open := 0
+	for i in SAMPLES:
+		var ang := TAU * float(i) / float(SAMPLES)
+		var tan_dir := (basis.x * cos(ang) + basis.y * sin(ang)).normalized()
+		for tilt in TILTS:
+			for sign in [-1.0, 1.0]:
+				var dir: Vector3 = (tan_dir + n * tilt * sign).normalized()
+				trials += 1
+				if not surface.raycast(origin, origin + dir * params.bake_ray_length).hit:
+					open += 1
+	if trials == 0:
+		return 0.0
+	return float(open) / float(trials)
+
+
 # --- Coarse grid. ---
 
 
@@ -146,6 +181,8 @@ func bake(surface: SurfaceQuery, bounds: AABB) -> void:
 	_slot_of.clear()
 	_svf = PackedFloat32Array()
 	_vis = PackedInt32Array()
+	_leak = PackedFloat32Array()
+	_bake_normal = PackedVector3Array()
 	rebake_region(surface, bounds)
 
 
@@ -164,8 +201,8 @@ func coarse_count() -> int:
 	return _svf.size()
 
 
-func svf_at(p: Vector3) -> float:
-	var count := _gather_corners(p)
+func svf_at(p: Vector3, normal: Vector3 = Vector3.ZERO) -> float:
+	var count := _gather_corners(p, normal)
 	if count == 0:
 		return 1.0
 	var sum := 0.0
@@ -174,8 +211,46 @@ func svf_at(p: Vector3) -> float:
 	return clampf(sum, 0.0, 1.0)
 
 
-func visibility_at(p: Vector3, hour: int) -> float:
-	var count := _gather_corners(p)
+func leak_at(p: Vector3, normal: Vector3 = Vector3.ZERO) -> float:
+	var local := _leak_trilerp(p, normal)
+	var propagated := _leak_propagate(p, normal, 2.5)
+	return maxf(local, propagated)
+
+
+func _leak_trilerp(p: Vector3, normal: Vector3) -> float:
+	var count := _gather_corners(p, normal)
+	if count == 0:
+		return 0.0
+	var sum := 0.0
+	for k in count:
+		sum += _corner_weight[k] * _leak[_corner_slot[k]]
+	return clampf(sum, 0.0, 1.0)
+
+
+func _leak_propagate(p: Vector3, normal: Vector3, radius: float) -> float:
+	if radius <= 0.0:
+		return 0.0
+	var use_filter := normal.length_squared() > 1e-8
+	var fn := normal.normalized() if use_filter else Vector3.ZERO
+	var best := 0.0
+	for key in _slot_of:
+		var slot: int = _slot_of[key]
+		if _leak[slot] <= 0.0:
+			continue
+		if use_filter and _bake_normal[slot].dot(fn) < 0.5:
+			continue
+		var cell := CellGrid.unpack_key(key)
+		var cp := _coarse.cell_point(cell)
+		var d := p.distance_to(cp)
+		if d > radius:
+			continue
+		var w := 1.0 - d / radius
+		best = maxf(best, _leak[slot] * w)
+	return best
+
+
+func visibility_at(p: Vector3, hour: int, normal: Vector3 = Vector3.ZERO) -> float:
+	var count := _gather_corners(p, normal)
 	if count == 0:
 		return 0.0
 	return _corner_visibility(count, hour)
@@ -201,20 +276,24 @@ func fill_field(
 		# point, so all three shell layers share one surface sample and the field
 		# carries no fabricated radial gradient (AR-FIELD-3).
 		var on_surface := surface.project_to_shell(p)
-		var count := _gather_corners(on_surface)
+		var count := _gather_corners(on_surface, n)
 		var svf := 1.0
+		var leak := 0.0
 		if count > 0:
 			svf = 0.0
+			leak = 0.0
 			for k in count:
 				svf += _corner_weight[k] * _svf[_corner_slot[k]]
+				leak += _corner_weight[k] * _leak[_corner_slot[k]]
 			svf = clampf(svf, 0.0, 1.0)
+			leak = clampf(leak, 0.0, 1.0)
 		field.write_slot(SparseHashField.Channel.SVF, slot, svf)
 		field.write_slot(SparseHashField.Channel.F_M, slot, 1.0)
 		for hour in HOURS:
 			var v := 0.0
 			if count > 0 and _direct_elevation[hour] > 0.0 and n.dot(_sun_dir[hour]) > 0.0:
 				v = _corner_visibility(count, hour)
-			field.set_p_hour(slot, hour, p_at(n, svf, v, hour))
+			field.set_p_hour(slot, hour, p_at(n, svf, v, hour, leak))
 
 
 func _precompute_sun_path() -> void:
@@ -240,21 +319,26 @@ func _bake_coarse_cell(surface: SurfaceQuery, cell: Vector3i) -> void:
 	var on_surface := surface.project_to_shell(p)
 	var svf := sky_view_factor(surface, on_surface, n)
 	var mask := visibility_mask(surface, on_surface, n)
+	var leak := horizon_escape_factor(surface, on_surface, n)
 	var key := CellGrid.pack_key(cell)
 	if _slot_of.has(key):
 		var slot: int = _slot_of[key]
 		_svf[slot] = svf
 		_vis[slot] = mask
+		_leak[slot] = leak
+		_bake_normal[slot] = n
 		return
 	_slot_of[key] = _svf.size()
 	_svf.append(svf)
 	_vis.append(mask)
+	_leak.append(leak)
+	_bake_normal.append(n)
 
 
 ## Collects the allocated corners of the coarse cube containing `p` into
 ## `_corner_slot` / `_corner_weight`, with weights renormalized to sum to 1. Returns
 ## the corner count, 0 when nothing is allocated nearby.
-func _gather_corners(p: Vector3) -> int:
+func _gather_corners(p: Vector3, filter_normal: Vector3 = Vector3.ZERO) -> int:
 	var size := _coarse.cell_size
 	var bx := int(floor(p.x / size))
 	var by := int(floor(p.y / size))
@@ -262,6 +346,8 @@ func _gather_corners(p: Vector3) -> int:
 	var fx := p.x / size - float(bx)
 	var fy := p.y / size - float(by)
 	var fz := p.z / size - float(bz)
+	var use_filter := filter_normal.length_squared() > 1e-8
+	var fn := filter_normal.normalized() if use_filter else Vector3.ZERO
 	var count := 0
 	var total := 0.0
 	for dx in 2:
@@ -272,10 +358,13 @@ func _gather_corners(p: Vector3) -> int:
 				var key := CellGrid.pack_key(Vector3i(bx + dx, by + dy, bz + dz))
 				if not _slot_of.has(key):
 					continue
+				var slot: int = _slot_of[key]
+				if use_filter and _bake_normal[slot].dot(fn) < 0.5:
+					continue
 				var w := wx * wy * (fz if dz == 1 else 1.0 - fz)
 				if w <= 0.0:
 					continue
-				_corner_slot[count] = _slot_of[key]
+				_corner_slot[count] = slot
 				_corner_weight[count] = w
 				total += w
 				count += 1

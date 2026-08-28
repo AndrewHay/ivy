@@ -1,0 +1,11 @@
+# M2.7 RG-4 — surface_wall adhesion read (60 game-days, seed 0, local noon).
+# Run: --scenario=res://assets/structures/scenarios/surface_wall.tres
+SPEED pause
+SEED 0
+ADVANCE_DAYS 60
+ADVANCE_DAYS 0.25
+CAMERA sun
+SCREENSHOT m27_surface_wall_rg4_sun.png
+CAMERA shade
+SCREENSHOT m27_surface_wall_rg4_shade.png
+DUMP_METRICS

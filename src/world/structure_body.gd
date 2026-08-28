@@ -3,6 +3,8 @@ extends StaticBody3D
 
 ## Collision proxy (+ optional hero visual) for an imported M2.6 structure (SD-MESH-12).
 
+const _BRICK_MAT := preload("res://assets/materials/brick/Bricks094/Bricks094_2K-JPG.tres")
+
 var face_material: PackedByteArray = PackedByteArray()
 
 
@@ -10,6 +12,7 @@ func build(collision_glb: String, hero_glb: String = "") -> void:
 	collision_layer = 1
 	collision_mask = 0
 	_clear_generated()
+	face_material = PackedByteArray()
 	if not collision_glb.is_empty():
 		_add_collision_from_glb(collision_glb)
 	if not hero_glb.is_empty():
@@ -66,7 +69,26 @@ func _add_collision_from_glb(path: String) -> void:
 		add_child(col)
 		col.transform = piece.transform
 		idx += 1
-		face_material.append(MaterialRegistry.BRICK_WALL)
+		face_material.append(_material_for_object_name(piece.name))
+
+
+static func _material_for_object_name(name: String) -> int:
+	if "Interior_" in name:
+		return MaterialRegistry.INTERIOR
+	if "_Panel_" in name:
+		if "_door" in name:
+			return MaterialRegistry.WOOD
+		if "_win" in name or "_wide_win" in name or "_thin_win" in name:
+			return MaterialRegistry.GLASS
+		return MaterialRegistry.BRICK_WALL
+	if "_Seal_" in name:
+		if "_glass" in name:
+			return MaterialRegistry.GLASS
+		if "_frame" in name:
+			return MaterialRegistry.OPENING_REVEAL
+		if "_door" in name:
+			return MaterialRegistry.WOOD
+	return MaterialRegistry.BRICK_WALL
 
 
 func _add_visual_from_glb(path: String) -> void:
@@ -76,6 +98,56 @@ func _add_visual_from_glb(path: String) -> void:
 	root.name = "StructureVisual"
 	add_child(root)
 	_strip_physics(root)
+	_apply_hero_materials(root)
+
+
+static func _apply_hero_materials(node: Node) -> void:
+	if node is MeshInstance3D:
+		var mi := node as MeshInstance3D
+		var name_lower := node.name.to_lower()
+		if "glass" in name_lower:
+			mi.material_override = _glass_material()
+		elif "_door" in name_lower or "door_2" in name_lower:
+			mi.material_override = _wood_material()
+		elif "reveal" in name_lower and "floor" in name_lower:
+			mi.material_override = _interior_floor_material()
+		elif "reveal" in name_lower:
+			mi.material_override = _interior_wall_material()
+		elif mi.material_override == null:
+			mi.material_override = _BRICK_MAT
+	for child in node.get_children():
+		_apply_hero_materials(child)
+
+
+static func _glass_material() -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.albedo_color = Color(0.72, 0.82, 0.88, 0.82)
+	m.roughness = 0.06
+	m.metallic = 0.05
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	return m
+
+
+static func _wood_material() -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = Color(0.42, 0.28, 0.18, 1.0)
+	m.roughness = 0.75
+	return m
+
+
+static func _interior_wall_material() -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = Color(0.18, 0.16, 0.14, 1.0)
+	m.roughness = 0.92
+	return m
+
+
+static func _interior_floor_material() -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = Color(0.11, 0.10, 0.09, 1.0)
+	m.roughness = 0.95
+	return m
 
 
 func _collect_mesh_pieces(
@@ -85,7 +157,11 @@ func _collect_mesh_pieces(
 ) -> void:
 	var xform: Transform3D = parent_xform * node.transform
 	if node is MeshInstance3D and (node as MeshInstance3D).mesh != null:
-		out.append({"mesh": (node as MeshInstance3D).mesh, "transform": xform})
+		out.append({
+			"name": node.name,
+			"mesh": (node as MeshInstance3D).mesh,
+			"transform": xform,
+		})
 	for child in node.get_children():
 		_collect_mesh_pieces(child, xform, out)
 

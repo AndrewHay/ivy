@@ -36,6 +36,7 @@ func _ready() -> void:
 		{"id": "procedural_tower", "path": ""},
 		{"id": "square", "path": "res://assets/structures/scenarios/square.tres"},
 		{"id": "tower", "path": "res://assets/structures/scenarios/tower.tres"},
+		{"id": "surface_wall", "path": "res://assets/structures/scenarios/surface_wall.tres"},
 	]
 
 	var only_id := _parse_only()

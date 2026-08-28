@@ -6,12 +6,24 @@ const BRICK_LIP := 1
 const OPENING_REVEAL := 2
 const INTERIOR := 3
 const GROUND := 4
+const GLASS := 5
+const WOOD := 6
 
 
 static func adhesion(material_id: int) -> float:
 	match material_id:
 		GROUND:
 			return 0.0
+		BRICK_WALL:
+			return 1.0
+		WOOD:
+			return 0.45
+		GLASS:
+			return 0.05
+		INTERIOR:
+			return 1.0
+		BRICK_LIP, OPENING_REVEAL:
+			return 1.0
 		_:
 			return 1.0
 

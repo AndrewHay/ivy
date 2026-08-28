@@ -6,7 +6,7 @@ extends RefCounted
 ## Hard error on corrupt files; provenance/params mismatch is a miss (re-bake).
 
 const MAGIC := "IVYLBC1"
-const VERSION := 1
+const VERSION := 3
 const CACHE_DIR := "res://.tmp/light_bake_cache/"
 
 
@@ -19,6 +19,7 @@ static func params_hash(params: IvyParams) -> PackedByteArray:
 		params.field_cell,
 		params.bake_ray_length,
 		params.bake_ray_offset,
+		params.light_p_leak,
 	]).to_byte_array())
 	ctx.update(PackedInt32Array([params.svf_rays]).to_byte_array())
 	return ctx.finish()
@@ -74,14 +75,28 @@ static func try_load(
 	bake._slot_of.clear()
 	bake._svf = PackedFloat32Array()
 	bake._vis = PackedInt32Array()
+	bake._leak = PackedFloat32Array()
+	bake._bake_normal = PackedVector3Array()
 	for _i in n:
 		var key := f.get_64()
 		var svf := f.get_float()
 		var vis := f.get_32()
+		var leak := 0.0
+		var nx := 0.0
+		var ny := 0.0
+		var nz := 0.0
+		if ver >= 2:
+			leak = f.get_float()
+		if ver >= 3:
+			nx = f.get_float()
+			ny = f.get_float()
+			nz = f.get_float()
 		var cell := CellGrid.unpack_key(key)
 		bake._slot_of[key] = bake._svf.size()
 		bake._svf.append(svf)
 		bake._vis.append(vis)
+		bake._leak.append(leak)
+		bake._bake_normal.append(Vector3(nx, ny, nz))
 	if f.get_position() != f.get_length():
 		push_error("LightBakeCache: truncated file %s" % path)
 		return false
@@ -121,6 +136,11 @@ static func save(
 		f.store_64(key)
 		f.store_float(bake._svf[slot])
 		f.store_32(bake._vis[slot])
+		f.store_float(bake._leak[slot])
+		var bn: Vector3 = bake._bake_normal[slot]
+		f.store_float(bn.x)
+		f.store_float(bn.y)
+		f.store_float(bn.z)
 
 
 static func _ensure_cache_dir() -> void:

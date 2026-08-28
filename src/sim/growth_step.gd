@@ -85,7 +85,16 @@ static func step_tip(tip: Tip, ctx: SimContext) -> void:
 	tip.shoot_length += params.segment_length
 	tip.segment_count += 1
 	tip.distance_since_node += params.segment_length
-	ctx.plant.append_segment(seg_a, x_new, tip.last_contact_normal, tip.id, tip.branch_order, tip.shoot_length)
+	var seg_material := MaterialRegistry.BRICK_WALL
+	if hit.hit:
+		seg_material = hit.material_id
+	else:
+		var at_end := ctx.surface.nearest(x_new)
+		if at_end.hit:
+			seg_material = at_end.material_id
+	ctx.plant.append_segment(
+		seg_a, x_new, tip.last_contact_normal, tip.id, tip.branch_order, tip.shoot_length, seg_material
+	)
 	Physiology.deposit_stem_crowding(tip, ctx)
 	# branch — SD-TIP-2/3: apply taper scale between soft and hard cap
 	if ctx.tips.can_branch(params):

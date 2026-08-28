@@ -47,6 +47,9 @@ extends Resource
 ## Spec section 5 calibration values, in micromol m^-2 s^-1.
 @export var light_p_max: float = 1600.0
 @export var light_p_sky: float = 180.0
+## W-096: aperture-driven ambient for enclosed cells (SVF≈0). Scales with horizon escape
+## fraction, not a global floor — shaded exterior walls keep SVF≈0.5 and get no leak term.
+@export var light_p_leak: float = 36.0
 ## Weather multipliers W and W_sky. Pinned to 1.0 by INV-9: present, not implemented.
 @export var weather_direct: float = 1.0
 @export var weather_sky: float = 1.0
@@ -156,7 +159,7 @@ func content_hash() -> String:
 		"direction_memory", "light_gradient_scale", "crowding_gradient_scale", "upward_base", "sim_tick", "speed_watch", "speed_fast",
 		"speed_grow", "render_sun_blend_lo", "render_sun_blend_hi", "latitude", "longitude",
 		"day_of_year", "start_hour", "light_warmup_days", "diel_night_floor", "diel_exponent",
-		"light_p_max", "light_p_sky", "weather_direct", "weather_sky",
+		"light_p_max", "light_p_sky", "light_p_leak", "weather_direct", "weather_sky",
 		"light_elevation_exponent_direct", "light_elevation_exponent_diffuse",
 		"field_cell", "field_sample_jitter_ratio", "gradient_epsilon_ratio", "field_shell_halfwidth",
 		"vis_cell", "svf_rays", "bake_ray_length", "bake_ray_offset",
