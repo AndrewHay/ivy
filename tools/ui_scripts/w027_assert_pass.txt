@@ -1,0 +1,8 @@
+# W-027 ASSERT pass smoke — reseed clears stem length.
+SPEED pause
+SEED s
+ADVANCE_DAYS 5
+ASSERT total_stem_length > 0
+SEED n
+ASSERT total_stem_length == 0
+ASSERT segments == 0

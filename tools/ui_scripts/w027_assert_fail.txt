@@ -1,0 +1,3 @@
+# W-027 ASSERT failure smoke — must exit non-zero.
+SPEED pause
+ASSERT total_stem_length > 999999

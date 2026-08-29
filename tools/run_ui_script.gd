@@ -6,6 +6,7 @@ const _MAIN_SCENE := "res://src/main/main.tscn"
 const _CoverageMetric = preload("res://src/metrics/coverage.gd")
 const _LeafColourMetric = preload("res://src/metrics/leaf_colour_metric.gd")
 const _StructureScenario = preload("res://src/world/structure_scenario.gd")
+const _UiScriptVerbs = preload("res://tools/ui_script_verbs.gd")
 ## Output defaults inside the project so runs need no write access outside the
 ## workspace. `.tmp/` is gitignored.
 const _DEFAULT_OUTDIR := "res://.tmp/ui_scripts/"
@@ -176,7 +177,12 @@ func _ready() -> void:
 			cam_rig.select(cam_index)
 			print("[ui-script]   CAMERA ", cam_name, " (index=", cam_index, ")")
 		elif line.begins_with("SEED "):
-			var seed_idx := int(line.substr(5).strip_edges())
+			var seed_token := line.substr(5).strip_edges()
+			var seed_idx := _UiScriptVerbs.compass_to_seed_index(seed_token)
+			if seed_idx < 0:
+				printerr("[ui-script] FAILED step ", step, ": unknown SEED '", seed_token, "' (use n|e|s|w or index)")
+				get_tree().quit(1)
+				return
 			var sim := main.get_node("Sim")
 			var world := main.get_node("World")
 			if world.has_method("set_seed_index"):
@@ -187,7 +193,34 @@ func _ready() -> void:
 				return
 			sim.set_seed_index(seed_idx)
 			sim.reseed()
-			print("[ui-script]   SEED ", seed_idx)
+			print("[ui-script]   SEED ", seed_token, " (index=", seed_idx, ")")
+		elif line.begins_with("ASSERT "):
+			var assert_parts: PackedStringArray = line.split(" ", false)
+			if assert_parts.size() < 4:
+				printerr("[ui-script] FAILED step ", step, ": ASSERT requires <metric> <op> <value> [seed_azimuth_deg]")
+				get_tree().quit(1)
+				return
+			var metric_name: String = assert_parts[1]
+			var op: String = assert_parts[2]
+			var expected: float = float(assert_parts[3])
+			var seed_az: float = 180.0
+			if assert_parts.size() >= 5:
+				seed_az = float(assert_parts[4])
+			var assert_sim: Node = main.get_node("Sim")
+			var assert_world: Node = main.get_node("World")
+			var metrics: Dictionary = _UiScriptVerbs.collect_metrics(assert_sim, assert_world, seed_az)
+			var actual_v: Variant = _UiScriptVerbs.read_metric(metric_name, metrics)
+			if actual_v == null:
+				printerr("[ui-script] FAILED step ", step, ": unknown ASSERT metric '", metric_name, "'")
+				get_tree().quit(1)
+				return
+			var actual: float = float(actual_v)
+			if not _UiScriptVerbs.compare(actual, op, expected):
+				printerr("[ui-script] FAILED step ", step, ": ASSERT ", metric_name, " ", op, " ", expected,
+					" (actual=", actual, ")")
+				get_tree().quit(1)
+				return
+			print("[ui-script]   ASSERT ", metric_name, " ", op, " ", expected, " (actual=", actual, ")")
 		elif line.begins_with("SET_PARAM "):
 			# Live-edits IvyParams on the running Sim (W-027, AS-3b comparison, M3).
 			# Makes NO RNG draws — pure property assignment. Draw sequences diverge only
