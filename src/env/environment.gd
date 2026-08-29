@@ -80,6 +80,13 @@ func warm_up(_days: float) -> void:
 	)
 
 
+## SD-EDGE-11: crowding is plant state and must clear on re-seed.
+func reset_crowding() -> void:
+	if _field == null:
+		return
+	_field.set_all(SparseHashField.Channel.CROWDING, 0.0)
+
+
 ## SD-ENV-7 seam for Phase 2 moving geometry. Re-bakes and re-fills only the affected
 ## region, then re-warms, because light memory over those cells is now wrong.
 func invalidate(aabb: AABB) -> void:

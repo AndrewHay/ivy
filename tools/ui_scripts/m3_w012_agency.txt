@@ -1,0 +1,40 @@
+# W-012 QA — seed anchors, reseed reset, and sun/shade asymmetry by compass.
+# Compass indices: 0=N (az 0°), 1=E (90°), 2=S (180°), 3=W (270°).
+# All growth is deterministic: SPEED pause + ADVANCE_DAYS only.
+
+SPEED pause
+CAMERA sun
+
+# Reseed must clear prior growth when switching anchors.
+SEED 2
+ADVANCE_DAYS 20
+DUMP
+SEED 0
+DUMP
+
+# South seed — sun-facing half should dominate at day 30.
+SEED 2
+ADVANCE_DAYS 30
+DUMP_METRICS 180
+ADVANCE_DAYS 0.25
+SCREENSHOT w012_south_d30.png
+
+# North seed — shaded-side read should differ from south.
+SEED 0
+ADVANCE_DAYS 30
+DUMP_METRICS 0
+ADVANCE_DAYS 0.25
+SCREENSHOT w012_north_d30.png
+
+# Shorter runs on E/W to confirm anchors are live and asymmetric.
+SEED 1
+ADVANCE_DAYS 15
+DUMP_METRICS 90
+ADVANCE_DAYS 0.25
+SCREENSHOT w012_east_d15.png
+
+SEED 3
+ADVANCE_DAYS 15
+DUMP_METRICS 270
+ADVANCE_DAYS 0.25
+SCREENSHOT w012_west_d15.png

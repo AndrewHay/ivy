@@ -39,7 +39,8 @@ func add_seed(position: Vector3, normal: Vector3, seed_value: int, params: IvyPa
 	t.id = _next_id
 	_next_id += 1
 	t.position = position
-	t.direction = Conv.UP
+	# SD-AGENCY-4: slight outward lean so adhesion pulls the first segments onto the wall.
+	t.direction = (Conv.UP + normal * 0.15).normalized()
 	t.random_dir = normal.cross(Conv.UP).normalized()
 	if t.random_dir.length_squared() < 0.01:
 		t.random_dir = Vector3.RIGHT

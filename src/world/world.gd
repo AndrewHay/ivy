@@ -5,6 +5,7 @@ const MeshSdfScript = preload("res://src/world/mesh_sdf.gd")
 const SurfaceQueryScript = preload("res://src/world/surface_query.gd")
 const StructureBodyScript = preload("res://src/world/structure_body.gd")
 const StructureScenarioScript = preload("res://src/world/structure_scenario.gd")
+const SeedAnchorsScript = preload("res://src/world/seed_anchors.gd")
 
 @onready var _tower: Tower = $Tower
 @onready var sky_sun: SkySun = $SkySun
@@ -18,6 +19,7 @@ var seed_index: int = 0
 var _structure  # StructureBody
 var _mesh_sdf  # MeshSdf
 var _tower_built: bool = false
+var _seed_anchors  # SeedAnchors
 
 ## CamSun local origin y when the rig sits at the tower — horizontal cameras aim here.
 const _CANONICAL_CAM_AIM_Y := 2.0
@@ -59,6 +61,10 @@ func get_seed_index() -> int:
 	return seed_index
 
 
+func get_seed_anchors():
+	return _seed_anchors
+
+
 func set_seed_index(index: int) -> void:
 	seed_index = index
 
@@ -93,6 +99,9 @@ func get_surface_query(params: IvyParams) -> SurfaceQuery:
 			_tower.face_material,
 			params
 		)
+		if _seed_anchors == null:
+			_seed_anchors = SeedAnchorsScript.new()
+			_seed_anchors.build(surface, tower_spec)
 	return surface
 
 

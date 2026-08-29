@@ -12,13 +12,15 @@ var ctx: SimContext
 var _space: PhysicsDirectSpaceState3D
 var _scenario  # StructureScenario
 var _seed_index: int = 0
+var _seed_anchors  # SeedAnchors — tower path only (SD-AGENCY-3)
 
 
 func setup(
 	p: IvyParams,
 	surf: SurfaceQuery,
 	scenario = null,
-	seed_index: int = 0
+	seed_index: int = 0,
+	anchors = null
 ) -> void:
 	params = p
 	for problem in params.validate():
@@ -26,6 +28,7 @@ func setup(
 	surface = surf
 	_scenario = scenario
 	_seed_index = seed_index
+	_seed_anchors = anchors
 	clock = SimClock.new(params)
 	# Starts paused so nothing advances before a caller asks. Running on the real frame
 	# delta from `_ready` makes the tick count depend on wall-clock timing, which breaks
@@ -41,7 +44,7 @@ func setup(
 	if _scenario != null:
 		_seed_all_scenario()
 	else:
-		_seed_m1()
+		_seed_tower(_seed_index)
 
 
 func set_seed_index(index: int) -> void:
@@ -57,7 +60,9 @@ func reseed() -> void:
 	if _scenario != null:
 		_seed_scenario(_seed_index)
 	else:
-		_seed_m1()
+		_seed_tower(_seed_index)
+	env.reset_crowding()
+	env.warm_up(params.light_warmup_days)
 
 
 func _seed_all_scenario() -> void:
@@ -97,14 +102,20 @@ func _plant_scenario_seed(index: int) -> void:
 	push_error("SimRoot: seed %d raycast missed wall at %s" % [index, seed_pos])
 
 
-func _seed_m1() -> void:
-	# Derive the anchor from geometry rather than hardcoding a radius (SD-AGENCY-1),
-	# then stand it 0.01 m proud of the wall (SD-AGENCY-4) so the first adhesion
-	# query has a non-zero distance to work with (SD-GEO-2).
+func _seed_tower(compass: int) -> void:
+	compass = clampi(compass, 0, 3)
+	if _seed_anchors != null:
+		var anchors: Array = _seed_anchors.get_anchors()
+		var anchor = anchors[compass]
+		if not anchor.available:
+			push_warning("SimRoot: compass anchor %d unavailable" % compass)
+			return
+		tips.add_seed(anchor.position, anchor.normal, 12345 + compass, params)
+		return
+	# Fallback when SeedAnchors were not wired (headless tests).
 	var probe := Vector3(0.0, params.ground_y_min, 0.0) + Conv.SOUTH * 8.0
-	var anchor := surface.nearest(probe)
-	var pos := anchor.position + anchor.normal * 0.01
-	tips.add_seed(pos, anchor.normal, 12345, params)
+	var hit := surface.nearest(probe)
+	tips.add_seed(hit.position + hit.normal * 0.01, hit.normal, 12345, params)
 
 
 func _process(delta: float) -> void:
