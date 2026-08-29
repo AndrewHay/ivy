@@ -18,8 +18,8 @@ func test_compass_to_seed_index() -> void:
 
 
 func test_compass_to_seed_azimuth_deg() -> void:
-	assert_almost_eq(UiScriptVerbs.compass_to_seed_azimuth_deg(0), 0.0)
-	assert_almost_eq(UiScriptVerbs.compass_to_seed_azimuth_deg(2), 180.0)
+	assert_almost_eq(UiScriptVerbs.compass_to_seed_azimuth_deg(0), 0.0, 1e-6)
+	assert_almost_eq(UiScriptVerbs.compass_to_seed_azimuth_deg(2), 180.0, 1e-6)
 
 
 func test_compare_operators() -> void:

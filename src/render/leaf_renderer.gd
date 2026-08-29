@@ -17,6 +17,9 @@ func setup(params: IvyParams) -> void:
 	mesh.size = Vector2(1.0, 1.0)
 	multimesh.mesh = mesh
 	material_override = load("res://src/render/materials/leaf_material.tres")
+	(material_override as ShaderMaterial).set_shader_parameter(
+		"weathered_tint",
+		Vector3(params.leaf_weathered_tint.r, params.leaf_weathered_tint.g, params.leaf_weathered_tint.b))
 
 
 func sync_from(plant: PlantData) -> void:

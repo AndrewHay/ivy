@@ -108,6 +108,7 @@ const _TIPS: Dictionary = {
 	"leaf_size_sigma": "Random leaf size spread (not wired). Would add size variety between leaves.",
 	"leaf_healthy_base": "Baseline chance of healthy (green) leaf tier. Higher = fewer weathered/speckled leaves overall.",
 	"leaf_healthy_gain": "How much light pushes healthy tier. Higher = sun leaves greener; shade can stay weathered.",
+	"leaf_weathered_tint": "Color multiplier on weathered-tier leaves. Lower red / higher green cools autumn-like atlas speckle.",
 	"leaf_shade_tint": "Colour multiplier for shaded leaves. Cooler/darker = more muted north side; warmer = less contrast.",
 	"leaf_sun_tint": "Colour multiplier for sunlit leaves. Warmer/brighter = sunnier read on south face.",
 	"leaf_crowd_suppress": "How strongly high crowding blocks new leaves. Higher = thinner mats in dense zones.",
