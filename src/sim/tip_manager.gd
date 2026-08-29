@@ -25,6 +25,13 @@ func live_count() -> int:
 	return n
 
 
+func shoot_lengths() -> Dictionary:
+	var lengths: Dictionary = {}
+	for t in tips:
+		lengths[t.id] = t.shoot_length
+	return lengths
+
+
 func refresh_vigour(ctx: SimContext) -> void:
 	for t in tips:
 		if not t.is_live():

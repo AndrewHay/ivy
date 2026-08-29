@@ -137,7 +137,7 @@ func _sync_plant_render() -> void:
 		return
 	var pr := get_parent().get_node_or_null("PlantRender")
 	if pr != null and pr.has_method("sync"):
-		pr.sync(plant)
+		pr.sync(plant, tips.shoot_lengths())
 
 
 func _tick() -> void:

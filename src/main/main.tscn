@@ -93,6 +93,9 @@ script = ExtResource("5")
 [node name="StemChunks" type="Node3D" parent="PlantRender"]
 script = ExtResource("6")
 
+[node name="LeavesStatic" type="MultiMeshInstance3D" parent="PlantRender"]
+script = ExtResource("7")
+
 [node name="LeavesGrowing" type="MultiMeshInstance3D" parent="PlantRender"]
 script = ExtResource("7")
 

@@ -90,8 +90,8 @@ static func advance(
 	var u_var := Hash64.unit_float(tip.id, tip.node_count, 46)
 	var z_var := (u_var * 2.0 - 1.0) * 1.5
 	var s_var := clampf(exp(params.leaf_size_sigma * z_var), 0.75, 1.35)
-	var s_age := 1.0
-	var width := params.leaf_width_base * s_order * s_age * s_light * s_var
+	# s_age applied in the growing-leaf buffer (AR-RENDER-3); width frozen without it here.
+	var width := params.leaf_width_base * s_order * s_light * s_var
 	var height := width / aspect
 
 	var n_wall := tip.last_contact_normal

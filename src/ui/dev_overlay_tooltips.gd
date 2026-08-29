@@ -102,7 +102,7 @@ const _TIPS: Dictionary = {
 	"leaf_offset_ladder": "How many offset steps before resetting. Affects how deep overlapping leaves sit.",
 	"leaf_width_base": "Base leaf card width. Larger = bolder, coarser texture; smaller = finer, lacy ivy.",
 	"leaf_order_falloff": "Size reduction on higher branch orders. Higher = smaller leaves on twigs.",
-	"leaf_expand_distance": "Distance-based leaf expansion (not wired). Would swell leaves away from anchors.",
+	"leaf_expand_distance": "Metres of stem growth before a leaf reaches full size (s_age). Younger leaves stay smaller near tips.",
 	"leaf_light_scale_base": "Minimum rendered leaf size from light. Floors how small sun leaves can look.",
 	"leaf_light_scale_gain": "How much light enlarges leaves. Higher = sun leaves noticeably bigger (presentation only).",
 	"leaf_size_sigma": "Random leaf size spread (log-normal sigma). Higher = more size variety between leaves.",
