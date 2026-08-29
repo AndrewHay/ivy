@@ -11,8 +11,8 @@ const IvyParams = preload("res://src/params/ivy_params.gd")
 
 
 func test_overlay_inert_list_covers_w086_knobs() -> void:
-	assert_eq(IvyParams.OVERLAY_INERT.size(), 11)
-	assert_true("stem_tip_taper" in IvyParams.OVERLAY_INERT)
+	assert_eq(IvyParams.OVERLAY_INERT.size(), 2)
+	assert_true("leaf_expand_distance" in IvyParams.OVERLAY_INERT)
 	assert_true("tip_cap_m1" in IvyParams.OVERLAY_INERT)
 
 

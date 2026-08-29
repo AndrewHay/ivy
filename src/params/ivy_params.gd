@@ -143,9 +143,7 @@ extends Resource
 ## W-086 / W-013: declared in IvyParams but not read by simulation — overlay shows
 ## these as inert (disabled) so tuning sessions are not misled.
 const OVERLAY_INERT := [
-	"droop_base", "droop_shade_gain",
-	"leaf_expand_distance", "leaf_jitter_roll", "leaf_jitter_tilt", "leaf_jitter_yaw",
-	"leaf_order_falloff", "leaf_size_sigma",
+	"leaf_expand_distance",
 	"tip_cap_m1",
 ]
 

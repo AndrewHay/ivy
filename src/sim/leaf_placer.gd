@@ -83,11 +83,15 @@ static func advance(
 
 	var aspect := atlas.aspect_for(leaf_id)
 
-	# ── SD-LEAF-5 s_light only (W-060) ─────────────────────────────────────────
-	# w = leaf_width_base * s_light, frozen at node creation.
-	# M2.5 scope: s_light only; s_order, s_age, s_var deferred to M4 / W-030.
+	# ── SD-LEAF-5 size model (W-030): s_order + s_light + s_var at placement ───
+	# s_age animates in the growing-leaf buffer (AR-RENDER-3); frozen at 1.0 until then.
+	var s_order := 1.0 / (1.0 + params.leaf_order_falloff * float(tip.branch_order))
 	var s_light := params.leaf_light_scale_base + params.leaf_light_scale_gain * f_l
-	var width := params.leaf_width_base * s_light
+	var u_var := Hash64.unit_float(tip.id, tip.node_count, 46)
+	var z_var := (u_var * 2.0 - 1.0) * 1.5
+	var s_var := clampf(exp(params.leaf_size_sigma * z_var), 0.75, 1.35)
+	var s_age := 1.0
+	var width := params.leaf_width_base * s_order * s_age * s_light * s_var
 	var height := width / aspect
 
 	var n_wall := tip.last_contact_normal
@@ -127,6 +131,27 @@ static func advance(
 		x_axis = basis.x
 	var y_axis := p_dir
 	var z_axis := x_axis.cross(y_axis).normalized()
+
+	# ── SD-LEAF-4 rule 6: droop toward gravity (W-030) ───────────────────────
+	var droop_deg := params.droop_base + params.droop_shade_gain * (1.0 - f_l)
+	var droop_rad := deg_to_rad(droop_deg)
+	var droop_basis := Basis(y_axis, droop_rad)
+	x_axis = droop_basis * x_axis
+	z_axis = droop_basis * z_axis
+	y_axis = droop_basis * y_axis
+
+	# ── SD-LEAF-4 rule 7: per-node jitter (W-030; channels 47–49, SD-RNG-6) ──
+	var u_tilt := Hash64.unit_float(tip.id, tip.node_count, 47)
+	var u_roll := Hash64.unit_float(tip.id, tip.node_count, 48)
+	var u_yaw := Hash64.unit_float(tip.id, tip.node_count, 49)
+	var tilt := deg_to_rad(params.leaf_jitter_tilt) * (2.0 * u_tilt - 1.0)
+	var roll := deg_to_rad(params.leaf_jitter_roll) * (2.0 * u_roll - 1.0)
+	var yaw := deg_to_rad(params.leaf_jitter_yaw) * (2.0 * u_yaw - 1.0)
+	y_axis = y_axis.rotated(x_axis, roll).normalized()
+	x_axis = x_axis.rotated(y_axis, yaw).normalized()
+	z_axis = x_axis.cross(y_axis).normalized()
+	x_axis = x_axis.rotated(y_axis, tilt).normalized()
+	z_axis = x_axis.cross(y_axis).normalized()
 
 	var xform := Transform3D(Basis(x_axis * width, y_axis * height, z_axis), node_pos)
 	var rect := atlas.rect_for(leaf_id)
