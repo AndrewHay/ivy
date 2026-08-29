@@ -32,17 +32,7 @@ const CONSUMER_DIRS := [
 ## (§30 leaf and stem shaping) or a superseded M1 scaffold, and none is referenced by any consumer
 ## or by any `IvyParams` helper. Tracked as W-086; the M3 overlay must not offer these as live
 ## controls. Keep alphabetical within each group.
-const UNIMPLEMENTED := [
-	# Leaf presentation — SD-LEAF droop, jitter, size and order shaping (M4).
-	"leaf_expand_distance", "leaf_jitter_roll", "leaf_jitter_tilt", "leaf_jitter_yaw",
-	"leaf_order_falloff", "leaf_size_sigma",
-	# Stem presentation — taper and per-order thinning (M4).
-	"stem_order_falloff", "stem_tip_taper",
-	# Vine droop under gravity (M4).
-	"droop_base", "droop_shade_gain",
-	# M1 scaffold, superseded by the SD-TIP soft/hard cap.
-	"tip_cap_m1",
-]
+const UNIMPLEMENTED := IvyParams.OVERLAY_INERT
 
 ## Parameters a consumer reads without naming, with the reason. Anything added here admits the
 ## mechanical guard cannot see the use, so it needs a specific reason rather than just a name.

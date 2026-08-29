@@ -1,0 +1,8 @@
+# W-013 smoke — dev overlay param edit + ASSERT on stem growth.
+SPEED pause
+SEED s
+ADVANCE_DAYS 5
+ASSERT total_stem_length > 0
+SET_PARAM branch_rate 0.0
+ADVANCE_DAYS 5
+DUMP

@@ -2,6 +2,8 @@ extends Node3D
 
 const _StructureScenario = preload("res://src/world/structure_scenario.gd")
 const _Hud = preload("res://src/ui/hud.gd")
+const _DevOverlay = preload("res://src/ui/dev_overlay.gd")
+const _FieldViz = preload("res://src/ui/field_viz.gd")
 
 @export var params: IvyParams
 @export var mesh_scenario: Resource
@@ -16,6 +18,8 @@ var script_driven: bool = false
 @onready var _ui: CanvasLayer = $UI
 
 var _hud: Control
+var _dev_overlay: PanelContainer
+var _field_viz: Node3D
 
 
 func _enter_tree() -> void:
@@ -50,6 +54,35 @@ func _ready() -> void:
 		_hud.name = "Hud"
 		_ui.add_child(_hud)
 		_hud.setup(_world, _sim, params)
+		if params.dev_build:
+			var dev_layer := CanvasLayer.new()
+			dev_layer.layer = 10
+			dev_layer.name = "DevUI"
+			add_child(dev_layer)
+			_dev_overlay = _DevOverlay.new()
+			_dev_overlay.name = "DevOverlay"
+			dev_layer.add_child(_dev_overlay)
+			_dev_overlay.setup(_sim, params)
+			_field_viz = _FieldViz.new() as Node3D
+			_field_viz.name = "FieldViz"
+			_world.add_child(_field_viz)
+			_field_viz.setup(_sim)
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if script_driven or params == null or not params.dev_build:
+		return
+	if not event is InputEventKey or not event.pressed or event.echo:
+		return
+	match event.keycode:
+		KEY_F:
+			if _field_viz != null and _field_viz.has_method("toggle"):
+				_field_viz.toggle()
+				get_viewport().set_input_as_handled()
+		KEY_QUOTELEFT:
+			if _dev_overlay != null and _dev_overlay.has_method("toggle_visible"):
+				_dev_overlay.toggle_visible()
+				get_viewport().set_input_as_handled()
 
 
 func _process(_delta: float) -> void:
@@ -59,3 +92,5 @@ func _process(_delta: float) -> void:
 	_world.get_sky_sun().update(clock.game_day, clock.seconds_per_game_day())
 	if _hud != null:
 		_hud.refresh(clock, _world.get_sky_sun())
+	if _dev_overlay != null and _dev_overlay.has_method("refresh"):
+		_dev_overlay.refresh(clock)

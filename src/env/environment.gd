@@ -156,6 +156,27 @@ func mean_p_bar_facing(dir: Vector3, min_dot: float = 0.85) -> float:
 	return sum / float(n) if n > 0 else 0.0
 
 
+## W-013 field visualization: one entry per allocated shell cell.
+func debug_field_cells() -> Array:
+	var rows: Array = []
+	if _field == null or surface == null:
+		return rows
+	for slot in _field.slot_count():
+		var cell := CellGrid.unpack_key(_field.cell_key(slot))
+		var point := surface.project_to_shell(_grid.cell_point(cell))
+		var normal := surface.surface_normal(point)
+		var p_bar := _field.read_trilinear(
+			SparseHashField.Channel.P_BAR_L, point, _baseline_p_bar
+		)
+		rows.append({
+			"position": point,
+			"normal": normal,
+			"d_l": p_bar * DL_SCALE,
+			"crowding": _field.read_slot(SparseHashField.Channel.CROWDING, slot),
+		})
+	return rows
+
+
 func _hour_index(game_day: float) -> int:
 	return int(floor(solar.hour_of_day(game_day))) % LightBake.HOURS
 

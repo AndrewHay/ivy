@@ -137,6 +137,16 @@ extends Resource
 @export_group("Flags")
 @export var dev_build: bool = true
 
+## W-086 / W-013: declared in IvyParams but not read by simulation — overlay shows
+## these as inert (disabled) so tuning sessions are not misled.
+const OVERLAY_INERT := [
+	"droop_base", "droop_shade_gain",
+	"leaf_expand_distance", "leaf_jitter_roll", "leaf_jitter_tilt", "leaf_jitter_yaw",
+	"leaf_order_falloff", "leaf_size_sigma",
+	"stem_order_falloff", "stem_tip_taper",
+	"tip_cap_m1",
+]
+
 
 func field_sample_jitter() -> float:
 	return field_sample_jitter_ratio * field_cell

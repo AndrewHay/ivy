@@ -30,6 +30,10 @@ func slot_count() -> int:
 	return _cells.size()
 
 
+func read_slot(channel: int, slot: int) -> float:
+	return (_ch[channel] as PackedFloat32Array)[slot]
+
+
 func cell_key(slot: int) -> int:
 	return _cells[slot]
 
