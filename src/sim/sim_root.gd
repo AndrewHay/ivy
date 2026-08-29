@@ -110,7 +110,9 @@ func _seed_tower(compass: int) -> void:
 		if not anchor.available:
 			push_warning("SimRoot: compass anchor %d unavailable" % compass)
 			return
-		tips.add_seed(anchor.position, anchor.normal, 12345 + compass, params)
+		# South reuses the M1 stream (12345) so AS-1 matches the ratified baseline (ivy-bax).
+		var stream_seed := 12345 if compass == 2 else 12345 + compass
+		tips.add_seed(anchor.position, anchor.normal, stream_seed, params)
 		return
 	# Fallback when SeedAnchors were not wired (headless tests).
 	var probe := Vector3(0.0, params.ground_y_min, 0.0) + Conv.SOUTH * 8.0

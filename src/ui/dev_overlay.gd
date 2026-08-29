@@ -4,6 +4,7 @@ extends PanelContainer
 ## W-013 / AR-UI-2 — reflection-driven IvyParams tuning + AS-3 readouts.
 
 const _SKIP_PARAMS := ["resource_local_to_scene", "resource_name", "script", "dev_build"]
+const _Tooltips = preload("res://src/ui/dev_overlay_tooltips.gd")
 
 var _sim: Node = null
 var _params: IvyParams = null
@@ -90,24 +91,29 @@ func _build_param_rows(parent: Control) -> void:
 		var name: String = prop["name"]
 		if name in _SKIP_PARAMS:
 			continue
+		var inert := inert_set.has(name)
+		var tip := _Tooltips.for_param(name, inert)
+
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 6)
+		row.tooltip_text = tip
 		parent.add_child(row)
 
 		var label := Label.new()
 		label.text = name
-		if inert_set.has(name):
+		if inert:
 			label.text += " (inert)"
 			label.modulate = Color(0.65, 0.65, 0.65)
 		label.custom_minimum_size.x = 150
+		label.tooltip_text = tip
 		row.add_child(label)
 
-		var editor := _make_editor(name, prop["type"], inert_set.has(name))
+		var editor := _make_editor(name, prop["type"], inert, tip)
 		if editor != null:
 			row.add_child(editor)
 
 
-func _make_editor(name: String, prop_type: int, inert: bool) -> Control:
+func _make_editor(name: String, prop_type: int, inert: bool, tip: String) -> Control:
 	match prop_type:
 		TYPE_FLOAT:
 			var spin := SpinBox.new()
@@ -117,6 +123,7 @@ func _make_editor(name: String, prop_type: int, inert: bool) -> Control:
 			spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			spin.value = float(_params.get(name))
 			spin.editable = not inert
+			spin.tooltip_text = tip
 			if not inert:
 				spin.value_changed.connect(func(v: float) -> void: _params.set(name, v))
 			return spin
@@ -129,6 +136,7 @@ func _make_editor(name: String, prop_type: int, inert: bool) -> Control:
 			spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			spin.value = int(_params.get(name))
 			spin.editable = not inert
+			spin.tooltip_text = tip
 			if not inert:
 				spin.value_changed.connect(func(v: float) -> void: _params.set(name, int(v)))
 			return spin
@@ -136,6 +144,7 @@ func _make_editor(name: String, prop_type: int, inert: bool) -> Control:
 			var check := CheckButton.new()
 			check.button_pressed = bool(_params.get(name))
 			check.disabled = inert
+			check.tooltip_text = tip
 			if not inert:
 				check.toggled.connect(func(v: bool) -> void: _params.set(name, v))
 			return check
@@ -143,6 +152,7 @@ func _make_editor(name: String, prop_type: int, inert: bool) -> Control:
 			var picker := ColorPickerButton.new()
 			picker.color = _params.get(name)
 			picker.disabled = inert
+			picker.tooltip_text = tip
 			if not inert:
 				picker.color_changed.connect(func(c: Color) -> void: _params.set(name, c))
 			return picker

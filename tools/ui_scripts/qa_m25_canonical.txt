@@ -20,6 +20,7 @@
 #   3 = CamSilhouette — ground-level silhouette (low south angle)
 
 SPEED pause
+SEED s
 ADVANCE_DAYS 150
 # Offset to local noon: start_hour=6, so 0.25 game-days from any whole-day lands at noon.
 ADVANCE_DAYS 0.25

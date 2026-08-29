@@ -22,6 +22,11 @@ static func compass_to_seed_index(token: String) -> int:
 			return -1
 
 
+## Bucket-metric sun-half azimuth (°) for a compass seed index (0=N … 3=W).
+static func compass_to_seed_azimuth_deg(compass: int) -> float:
+	return float(clampi(compass, 0, 3)) * 90.0
+
+
 static func compare(actual: float, op: String, expected: float) -> bool:
 	match op:
 		"==":
@@ -75,8 +80,11 @@ static func collect_metrics(sim: Node, world: Node, seed_azimuth_deg: float) -> 
 		var day_int: int = int(floor(clock.game_day))
 		var noon_day: float = float(day_int) + (12.0 - params.start_hour) / 24.0
 		var midnight_day: float = float(day_int) + (24.0 - params.start_hour) / 24.0
-		out["gate_noon"] = solar.diel_gate(noon_day)
-		out["gate_midnight"] = solar.diel_gate(midnight_day)
+		var gate_noon: float = solar.diel_gate(noon_day)
+		var gate_midnight: float = solar.diel_gate(midnight_day)
+		out["gate_noon"] = gate_noon
+		out["gate_midnight"] = gate_midnight
+		out["gate_midnight_ratio_noon"] = gate_midnight / maxf(gate_noon, 1e-6)
 
 	return out
 

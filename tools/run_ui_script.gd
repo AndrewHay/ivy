@@ -204,10 +204,12 @@ func _ready() -> void:
 			var op: String = assert_parts[2]
 			var expected: float = float(assert_parts[3])
 			var seed_az: float = 180.0
+			var assert_world: Node = main.get_node("World")
+			if assert_world != null and assert_world.has_method("get_seed_index"):
+				seed_az = _UiScriptVerbs.compass_to_seed_azimuth_deg(assert_world.get_seed_index())
 			if assert_parts.size() >= 5:
 				seed_az = float(assert_parts[4])
 			var assert_sim: Node = main.get_node("Sim")
-			var assert_world: Node = main.get_node("World")
 			var metrics: Dictionary = _UiScriptVerbs.collect_metrics(assert_sim, assert_world, seed_az)
 			var actual_v: Variant = _UiScriptVerbs.read_metric(metric_name, metrics)
 			if actual_v == null:
@@ -361,13 +363,15 @@ func _ready() -> void:
 			# Must be checked before DUMP (which begins_with("DUMP") would match DUMP_METRICS).
 			# Compute bucket-occupancy coverage (SD-METRIC-1/2/3/5/6), stem-length
 			# asymmetry (AS-2), and diel gate readouts (AS-3) at the current game day.
-			# seed_azimuth_deg defaults to 180.0 (south seed, which is the M1 default).
+			# seed_azimuth_deg defaults to the active World seed compass (0=N … 3=W).
 			var dm_parts: PackedStringArray = line.split(" ", false)
 			var dm_seed_az: float = 180.0
+			var dm_world: Node = main.get_node("World")
+			if dm_world != null and dm_world.has_method("get_seed_index"):
+				dm_seed_az = _UiScriptVerbs.compass_to_seed_azimuth_deg(dm_world.get_seed_index())
 			if dm_parts.size() >= 2:
 				dm_seed_az = float(dm_parts[1])
 			var dm_sim: Node = main.get_node("Sim")
-			var dm_world: Node = main.get_node("World")
 			var dm_spec: TowerSpec = dm_world.get("tower_spec") as TowerSpec
 			if dm_spec == null:
 				printerr("[ui-script] FAILED step ", step, ": World.tower_spec is null")

@@ -17,6 +17,11 @@ func test_compass_to_seed_index() -> void:
 	assert_eq(UiScriptVerbs.compass_to_seed_index("bogus"), -1)
 
 
+func test_compass_to_seed_azimuth_deg() -> void:
+	assert_almost_eq(UiScriptVerbs.compass_to_seed_azimuth_deg(0), 0.0)
+	assert_almost_eq(UiScriptVerbs.compass_to_seed_azimuth_deg(2), 180.0)
+
+
 func test_compare_operators() -> void:
 	assert_true(UiScriptVerbs.compare(5.0, ">=", 5.0))
 	assert_true(UiScriptVerbs.compare(5.1, ">", 5.0))

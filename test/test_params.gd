@@ -54,7 +54,7 @@ const _DEFAULTS := {
 	"stall_rate": 0.01,
 	"stall_days": 3,
 	"internode_base": 0.040,
-	"internode_shade_gain": 0.9,
+	"internode_shade_gain": 0.85,
 	"internode_jitter": 0.25,
 	"leaf_tip_suppress": 0.06,
 	"phyllotaxy_divergence": 137.5,

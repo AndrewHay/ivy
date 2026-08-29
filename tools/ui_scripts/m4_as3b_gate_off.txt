@@ -1,0 +1,5 @@
+# AS-3(b) harness: gate OFF, branching disabled, cumulative length at day 29.
+SET_PARAM branch_rate 0.0
+SET_PARAM diel_gate_enabled false
+SPEED pause
+ADVANCE_DAYS 29

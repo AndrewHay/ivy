@@ -1,10 +1,10 @@
 # M2 acceptance gate measurement.
 #
 # Grows the plant to game-days 30, 60 and 150 and emits DUMP_METRICS at each
-# checkpoint.  Seed is at south (azimuth 180°, the M1 default) so the sun-
-# facing half is the south half and shade is north.
+# checkpoint.  AS-1/AS-2 assume a sun-facing south seed (azimuth 180°).
 #
-# DUMP_METRICS 180 = seed_azimuth_deg=180 (south seed).
+# M3 defaults the live sim to north (index 0); SEED s re-anchors before growth.
+# DUMP_METRICS uses seed_azimuth_deg=180 to match the south anchor.
 #
 # AS-1 targets (ratified DESIGN.md 2026-08-09):
 #   ≥70% overall / ≥90% sun-facing / ≥50% shaded  (at day 150)
@@ -22,6 +22,7 @@
 # the field, not pixels.
 
 SPEED pause
+SEED s
 DUMP
 
 ADVANCE_DAYS 30

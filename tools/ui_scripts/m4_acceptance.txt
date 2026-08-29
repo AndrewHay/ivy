@@ -1,0 +1,23 @@
+# W-014 visual acceptance — AS-1, AS-2, AS-3(a).
+#
+# South seed (default, seed_azimuth_deg=180). ASSERT thresholds match ratified
+# DESIGN.md AS-1 / AS-2 / AS-3(a). AS-3(b) is checked by acceptance_harness.gd
+# via m4_as3b_gate_*.txt (branching disabled, ±2% cumulative at day 29).
+
+SPEED pause
+SEED s
+
+ADVANCE_DAYS 30
+ASSERT stem_asymmetry >= 20 180
+
+ADVANCE_DAYS 30
+ASSERT stem_asymmetry >= 40 180
+
+ADVANCE_DAYS 90
+ASSERT overall_pct >= 70 180
+ASSERT sun_half_pct >= 90 180
+ASSERT shade_half_pct >= 50 180
+ASSERT stem_asymmetry >= 30 180
+ASSERT lip_reached == 1 180
+ASSERT gate_midnight <= 0.15 180
+ASSERT gate_midnight_ratio_noon <= 0.10 180

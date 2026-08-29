@@ -1,6 +1,7 @@
 extends GutTest
 
 const DevOverlay = preload("res://src/ui/dev_overlay.gd")
+const DevOverlayTooltips = preload("res://src/ui/dev_overlay_tooltips.gd")
 const FieldViz = preload("res://src/ui/field_viz.gd")
 const SimRoot = preload("res://src/sim/sim_root.gd")
 const TowerSdf = preload("res://src/world/tower_sdf.gd")
@@ -13,6 +14,31 @@ func test_overlay_inert_list_covers_w086_knobs() -> void:
 	assert_eq(IvyParams.OVERLAY_INERT.size(), 11)
 	assert_true("stem_tip_taper" in IvyParams.OVERLAY_INERT)
 	assert_true("tip_cap_m1" in IvyParams.OVERLAY_INERT)
+
+
+func test_every_overlay_param_has_tooltip() -> void:
+	var params := IvyParams.new()
+	var skip := {
+		"resource_local_to_scene": true,
+		"resource_name": true,
+		"script": true,
+		"dev_build": true,
+	}
+	for prop in params.get_property_list():
+		var usage: int = prop["usage"]
+		if (usage & PROPERTY_USAGE_SCRIPT_VARIABLE) == 0:
+			continue
+		if (usage & PROPERTY_USAGE_STORAGE) == 0:
+			continue
+		var name: String = prop["name"]
+		if skip.has(name):
+			continue
+		var tip := DevOverlayTooltips.for_param(name, name in IvyParams.OVERLAY_INERT)
+		assert_false(
+			tip.begins_with("No description"),
+			"missing tooltip for IvyParams.%s" % name
+		)
+		assert_gt(tip.length(), 20, "tooltip too short for %s" % name)
 
 
 func test_debug_field_cells_nonempty_after_build() -> void:

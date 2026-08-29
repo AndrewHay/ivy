@@ -31,7 +31,10 @@ static func step_tip(tip: Tip, ctx: SimContext) -> void:
 	var w_g := Physiology.w_G(tip.floating_length, params)
 	var u := w_p * tip.direction + w_r * tip.random_dir + params.adhesion_base * a_vec
 	u += w_l * l_dir - w_c * c_dir + w_g * Conv.GRAVITY
-	if tip.floating_length == 0.0:
+	# SD-CONV-6 gravitropism is for mesh-backed scenarios (M2.6 quoin reach). On the
+	# analytic cylinder it steers tips vertical too aggressively and collapses AS-1
+	# bucket coverage (ivy-bax); stall skip is already mesh-only for the same reason.
+	if tip.floating_length == 0.0 and ctx.surface.backend_tag() == "MeshSdf":
 		u += params.upward_base * Conv.UP
 	var d_dir := u
 	if u.length_squared() < 1e-8:

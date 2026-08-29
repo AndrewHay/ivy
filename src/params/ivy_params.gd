@@ -92,7 +92,7 @@ extends Resource
 
 @export_group("Leaf")
 @export var internode_base: float = 0.040
-@export var internode_shade_gain: float = 0.9
+@export var internode_shade_gain: float = 0.85
 @export var internode_jitter: float = 0.25
 @export var leaf_tip_suppress: float = 0.06
 @export var phyllotaxy_divergence: float = 137.5
