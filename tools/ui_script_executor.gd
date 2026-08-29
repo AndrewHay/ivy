@@ -5,6 +5,7 @@ extends RefCounted
 
 const _CoverageMetric = preload("res://src/metrics/coverage.gd")
 const _LeafColourMetric = preload("res://src/metrics/leaf_colour_metric.gd")
+const _BlacklistAssertions = preload("res://src/metrics/blacklist.gd")
 const _UiScriptVerbs = preload("res://tools/ui_script_verbs.gd")
 const _PRESENT_TIMEOUT_MS := 4000
 
@@ -186,6 +187,8 @@ static func _dispatch_line(
 				" t0state=", t0.state)
 	elif line.begins_with("DUMP_LEAF_COLOUR"):
 		return await _dump_leaf_colour(main, line, step)
+	elif line.begins_with("DUMP_BLACKLIST"):
+		return _dump_blacklist(main, step)
 	elif line.begins_with("DUMP_METRICS"):
 		return _dump_metrics(main, line, step)
 	elif line.begins_with("DUMP_LIGHT"):
@@ -242,6 +245,36 @@ static func _dump_metrics(main: Node, line: String, step: int) -> int:
 	print("[ui-script]   AS2 asymmetry=%.2f%%" % [dm_result.get("stem_asymmetry_pct", 0.0)])
 	var dm_total_len: float = dm_plant.total_length if dm_plant != null else 0.0
 	print("[ui-script]   TOTAL_STEM_LENGTH=%.6f m" % dm_total_len)
+	return OK
+
+
+static func _dump_blacklist(main: Node, step: int) -> int:
+	var sim: Node = main.get_node("Sim")
+	var plant: PlantData = sim.get("plant") as PlantData
+	var tips: TipManager = sim.get("tips") as TipManager
+	var surface: SurfaceQuery = sim.get("surface") as SurfaceQuery
+	var params: IvyParams = sim.get("params") as IvyParams
+	if plant == null or tips == null or surface == null or params == null:
+		printerr("[ui-script] FAILED step ", step, ": DUMP_BLACKLIST missing sim state")
+		return 1
+	var seed_pos := Vector3.ZERO
+	if tips.tips.size() > 0:
+		seed_pos = tips.tips[0].position
+	var world: Node = main.get_node("World")
+	var spec: TowerSpec = world.get("tower_spec") as TowerSpec
+	var bl: Dictionary = _BlacklistAssertions.measure(plant, tips, surface, params, seed_pos, spec)
+	print("[ui-script]   BLACKLIST hard_pass=%s" % str(bl.get("hard_pass", false)))
+	print("[ui-script]   BLACKLIST direction_fourfold=%.4f (screen fail >%.2f)"
+		% [bl.get("direction_fourfold_ratio", 0.0), _BlacklistAssertions.FOURFOLD_FAIL_RATIO])
+	print("[ui-script]   BLACKLIST density_fft_peak_ratio=%.4f (screen)" % bl.get("density_fft_peak_ratio", 0.0))
+	print("[ui-script]   BLACKLIST coplanar_pairs=%d (screen)" % bl.get("coplanar_pair_count", 0))
+	print("[ui-script]   BLACKLIST item7=%s — %s"
+		% [bl.get("item7_status", "?"), bl.get("item7_detail", "")])
+	for msg in bl.get("hard_failures", PackedStringArray()):
+		printerr("[ui-script]   BLACKLIST FAIL: ", msg)
+	var fail_count: int = bl.get("hard_failures", PackedStringArray()).size()
+	if fail_count > 0:
+		print("[ui-script]   BLACKLIST hard_failures=%d (report-only until canonical run is clean)" % fail_count)
 	return OK
 
 

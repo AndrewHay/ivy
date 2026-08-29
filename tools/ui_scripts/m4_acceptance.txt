@@ -21,3 +21,5 @@ ASSERT stem_asymmetry >= 30 180
 ASSERT lip_reached == 1 180
 ASSERT gate_midnight <= 0.15 180
 ASSERT gate_midnight_ratio_noon <= 0.10 180
+
+DUMP_BLACKLIST
