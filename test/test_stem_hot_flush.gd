@@ -34,8 +34,8 @@ func test_full_chunk_seals_and_new_hot_starts() -> void:
 	add_child(builder)
 	builder.setup(IvyParams.new())
 
-	# Fill exactly one full chunk
-	var plant := _make_plant_with_segments(StemMeshBuilder.CHUNK_SEGMENTS)
+	# Lag needs one extra segment to emit a full chunk of tubes.
+	var plant := _make_plant_with_segments(StemMeshBuilder.CHUNK_SEGMENTS + 1)
 	builder.sync_from(plant, 0)
 
 	# After sealing, _hot_count resets
@@ -52,4 +52,5 @@ func test_tip_segments_beyond_chunk_boundary_are_rendered() -> void:
 	builder.sync_from(plant, 0)
 
 	assert_not_null(builder._hot_instance.mesh, "new hot chunk is visible after crossing chunk boundary")
-	assert_eq(builder._hot_count, 5)
+	assert_eq(builder._hot_count, 4,
+		"lagged emit leaves (CHUNK+5)-1 tubes modulo chunk size in the hot buffer")

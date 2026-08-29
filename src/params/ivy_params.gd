@@ -146,7 +146,6 @@ const OVERLAY_INERT := [
 	"droop_base", "droop_shade_gain",
 	"leaf_expand_distance", "leaf_jitter_roll", "leaf_jitter_tilt", "leaf_jitter_yaw",
 	"leaf_order_falloff", "leaf_size_sigma",
-	"stem_order_falloff", "stem_tip_taper",
 	"tip_cap_m1",
 ]
 

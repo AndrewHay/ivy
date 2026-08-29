@@ -118,8 +118,8 @@ const _TIPS: Dictionary = {
 
 	# Stem render
 	"stem_radius_base": "Rendered stem tube radius. Thicker = woodier look; thinner = delicate vines.",
-	"stem_order_falloff": "Stem thinning on higher branch orders (not wired). Would taper twigs visually.",
-	"stem_tip_taper": "Narrowing toward stem tips (not wired). Would point growing ends more finely.",
+	"stem_order_falloff": "Stem thinning on higher branch orders. Higher = thinner twigs on side branches.",
+	"stem_tip_taper": "Metres of shoot over which stems narrow toward the tip. Lower = sharper points.",
 }
 
 
