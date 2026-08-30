@@ -1,6 +1,7 @@
 ## Regression tests for SD-LEAF-2 (shade etiolation), SD-LEAF-3 (phyllotaxy),
 ## SD-LEAF-8 (leaf crowding), and W-060 rules (SD-LEAF-4r5, SD-LEAF-5s_light,
-## SD-LEAF-6 tiers, SD-LEAF-7 tint).
+## SD-LEAF-6 tiers, SD-LEAF-7 tint).  LeafPlacer stochastic draws are hash-based
+## (SD-RNG-6) — no per-tip RNG stream consumption (INV-7).
 extends GutTest
 
 const LeafPlacer = preload("res://src/sim/leaf_placer.gd")

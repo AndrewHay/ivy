@@ -7,7 +7,7 @@ extends Camera3D
 ## Structural invariant for Code Review (AR-DBGCAM-5):
 ##   Every write to [current] and to the transform (make_current, global_transform)
 ##   occurs exclusively inside [_unhandled_input], and nowhere else in this file.
-##   [_ready] writes only the private floats _yaw/_pitch/_radius; it never touches
+##   [_ready] writes only the private floats _yaw/_pitch/_radius via setup(); it never touches
 ##   [current] or the camera transform. A reviewer can confirm this by grepping for
 ##   make_current, global_transform, and transform writes — all appear only below.
 
@@ -48,11 +48,15 @@ func _ready() -> void:
 		# Engine-level gate: kill _unhandled_input entirely for UI-script runs (AR-DBGCAM-5b).
 		# A second in-function guard exists inside _unhandled_input for test visibility.
 		set_process_unhandled_input(false)
+
+
+## Called from Main._ready() after World has assigned tower_spec (W-055).
+## AR-DBGCAM-2 seeding lives here, not in _ready — children run before parent, so
+## Main cannot inject spec before DebugCamera._ready() without racing the seed.
+func setup(tower_spec: TowerSpec) -> void:
+	spec = tower_spec
+	if script_driven:
 		return
-
-	if spec == null:
-		spec = load("res://src/world/tower_spec_default.tres") as TowerSpec
-
 	# Seed orbit state from CamSun's authored transform so that first activation
 	# produces no visible jump (AR-DBGCAM-2). Only the private floats are written here —
 	# current and the camera transform are never touched outside _unhandled_input.
@@ -79,7 +83,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 
 	if spec == null:
-		spec = load("res://src/world/tower_spec_default.tres") as TowerSpec
+		return
 
 	# Branches below only update the orbit floats and set `moved`; the single write to
 	# `current` and to the transform happens at the end of this function, so the

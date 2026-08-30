@@ -8,8 +8,10 @@
 ##
 ## Two completely independent simulation objects are constructed from the same seed,
 ## run for TICKS_5_DAYS ticks each, and compared for: segment count, leaf count,
-## bit-identical total stem length, total tip count, and per-tip draw count for the
-## root tip.  Exact equality only — not assert_almost_eq.  A tolerance here would
+## bit-identical total stem length, total tip count, and per-tip **growth-step**
+## stream draw count for the root tip (branch + correlated-random draws only —
+## LeafPlacer is hash-based per SD-RNG-6 and consumes no stream).  Exact equality
+## only — not assert_almost_eq.  A tolerance here would
 ## turn this into a Lyapunov divergence meter, which is the class defect that
 ## invalidated the W-049 AS-3(b) instrument and is explicitly forbidden by the
 ## standing rule in the AS-4 row (DESIGN.md § SD-OPEN-12).
@@ -46,8 +48,8 @@ const SEED := 12345
 
 ## Five game-days = 120 ticks.  Short enough to finish in < 2 s on a laptop;
 ## long enough for several branch events (branching probability ~0.05/segment
-## gives ~24 expected events in 480 segments), which makes the draw-count
-## comparison meaningful rather than vacuous.
+## gives ~24 expected events in 480 segments), which makes the growth-step
+## stream draw-count comparison meaningful rather than vacuous.
 const TICKS_5_DAYS := 5 * 24
 
 
@@ -142,8 +144,9 @@ func test_two_identical_seed_runs_produce_identical_outputs() -> void:
 		"total stem length must be bit-identical across runs (SD-RNG-5)")
 	assert_eq(tips_a.tips.size(), tips_b.tips.size(),
 		"total tip count (including dead/dormant) must be identical across runs")
-	# Per-tip draw count for the root tip confirms the streams were advanced exactly
-	# the same number of times — the per-tip draw counter (SD-RNG-1) in dev builds.
+	# Growth-step stream draw count for the root tip confirms GrowthStep advanced
+	# each tip.stream exactly the same number of times (SD-RNG-1).  LeafPlacer
+	# takes no stream draws (SD-RNG-6) — this assertion does not cover leaf hashing.
 	assert_eq(
 		tips_a.tips[0].stream.draw_count(),
 		tips_b.tips[0].stream.draw_count(),

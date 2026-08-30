@@ -16,6 +16,26 @@ extends GutTest
 const DebugCameraScript = preload("res://src/world/debug_camera.gd")
 
 
+## W-055 — spec must come from Main.setup(), not an independent load in _ready.
+func test_ready_does_not_load_spec_independently() -> void:
+	var cam := DebugCameraScript.new()
+	add_child(cam)
+	assert_null(cam.spec, "_ready must not load tower_spec_default.tres; wait for setup()")
+
+
+## W-055 — setup() assigns the World tower_spec instance used for orbit pivot.
+func test_setup_sources_tower_spec_from_composition_root() -> void:
+	var custom_spec := TowerSpec.new()
+	custom_spec.height = 9.99
+	var cam := DebugCameraScript.new()
+	add_child(cam)
+	cam.setup(custom_spec)
+	assert_eq(cam.spec, custom_spec,
+		"setup() must store the passed TowerSpec, not load a separate default")
+	assert_almost_eq(cam._pivot().y, 9.99 * 0.5, 1e-6,
+		"orbit pivot must derive from the setup() spec")
+
+
 ## AR-DBGCAM-6 Test 1 — out-of-range values must clamp into [3.0, 12.0] and [-5°, +85°].
 ## Catches someone widening min_radius, max_radius, or the pitch bounds so the camera
 ## can pass through the wall, drop below ground, or reach the look_at pole singularity.

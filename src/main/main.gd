@@ -15,6 +15,7 @@ var script_driven: bool = false
 @onready var _world: Node3D = $World
 @onready var _sim: Node = $Sim
 @onready var _plant_render: Node3D = $PlantRender
+@onready var _debug_camera: DebugCamera = $World/DebugCamera
 @onready var _ui: CanvasLayer = $UI
 
 var _hud: Control
@@ -47,6 +48,7 @@ func _ready() -> void:
 		_world.get_seed_anchors()
 	)
 	_plant_render.setup(params)
+	_debug_camera.setup(_world.tower_spec)
 	_world.get_sky_sun().setup(_sim.solar)
 	if not script_driven:
 		_sim.get_clock().set_speed(SimClock.Speed.GROW)

@@ -148,11 +148,22 @@ def validate_config(name, cfg):
                 f"got {type(cfg[key]).__name__}"
             )
     for key, types in _OPTIONAL_KEYS.items():
-        if key in cfg and not isinstance(cfg[key], types):
+        if key not in cfg:
+            continue
+        v = cfg[key]
+        # bool is a subclass of int; reject stray JSON true/false on numeric keys.
+        if isinstance(v, bool) and bool not in types:
             raise ValueError(
                 f"{where}: key '{key}' must be {', '.join(t.__name__ for t in types)}, "
-                f"got {type(cfg[key]).__name__}"
+                f"got {type(v).__name__}"
             )
+        if not isinstance(v, types):
+            raise ValueError(
+                f"{where}: key '{key}' must be {', '.join(t.__name__ for t in types)}, "
+                f"got {type(v).__name__}"
+            )
+    if "corner_chamfer" in cfg and cfg["corner_chamfer"] < 0:
+        raise ValueError(f"{where}: 'corner_chamfer' must be >= 0")
     if "open_apertures" in cfg:
         for aid in cfg["open_apertures"]:
             if not isinstance(aid, str):
