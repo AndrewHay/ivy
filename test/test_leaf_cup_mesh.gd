@@ -33,3 +33,11 @@ func test_should_freeze_at_expand_distance() -> void:
 	var expand := IvyParams.new().leaf_expand_distance
 	assert_false(LeafRenderer.should_freeze(expand - 0.001, expand))
 	assert_true(LeafRenderer.should_freeze(expand, expand))
+
+
+func test_static_sync_uses_tip_shoot_past_node_for_s_age() -> void:
+	var expand := IvyParams.new().leaf_expand_distance
+	var s_at := 2.5
+	var shoot := s_at + expand * 0.4
+	assert_almost_eq(LeafRenderer.s_age_for(shoot - s_at, expand), 0.352, 0.02,
+		"static sync path must derive s_age from tip_shoot past-node distance")

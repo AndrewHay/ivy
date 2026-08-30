@@ -25,7 +25,7 @@ func sync(plant: PlantData, tip_shoot: Dictionary = {}) -> void:
 		_stem.sync_from(plant, _seg_hw)
 		_seg_hw = plant.segment_count()
 	_promote_mature_leaves(plant, tip_shoot)
-	_leaves_static.sync_static_from(plant, _frozen_hw)
+	_leaves_static.sync_static_from(plant, _frozen_hw, tip_shoot)
 	_frozen_hw = plant.leaf_frozen_count
 	_leaves_growing.sync_growing_from(plant, tip_shoot, plant.leaf_frozen_count)
 

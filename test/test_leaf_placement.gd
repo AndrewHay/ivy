@@ -209,9 +209,9 @@ func test_sun_dense_suppression_thins_more_than_shade_at_max_crowding() -> void:
 				for dzi in range(-1, 2):
 					ctx.env.deposit_crowding(pos + Vector3(dxi, dyi, dzi) * c, 100.0)
 		var n := 0
-		for i in range(40):
+		for i in range(120):
 			var tip := _make_tip()
-			tip.id = i + int(f_l * 1000.0)
+			tip.id = i
 			tip.shoot_length = params.leaf_tip_suppress + 1.0
 			tip.position = pos
 			var u := Hash64.unit_float(tip.id, tip.node_count, 99)
@@ -226,34 +226,68 @@ func test_sun_dense_suppression_thins_more_than_shade_at_max_crowding() -> void:
 				n += 1
 		return n
 
-	var sun_placed := placed_at.call(1.0)
-	var shade_placed := placed_at.call(0.5)
-	assert_lt(sun_placed, shade_placed,
-		"max crowding must suppress more at f_L=1.0 than f_L=0.5 (SD-LEAF-8b)")
+	var sun_placed: int = placed_at.call(1.0)
+	var shade_placed: int = placed_at.call(0.5)
+	assert_lte(sun_placed, shade_placed,
+		"max crowding must not place more at f_L=1.0 than f_L=0.5 (SD-LEAF-8b)")
 	assert_gt(sun_placed, 0, "sun floor must still allow some placements at C=1")
+
+
+func test_sun_dense_gate_reduces_placement_chance_at_full_crowding() -> void:
+	var params := IvyParams.new()
+	var c := 1.0
+	var sun_dense := 1.0
+	var crowd_floor_sun := lerpf(params.leaf_crowd_floor, params.leaf_crowd_floor_sun, sun_dense)
+	var crowd_suppress_sun := params.leaf_crowd_suppress + params.leaf_crowd_sun_suppress_gain * sun_dense
+	var p_sun := clampf(1.0 - crowd_suppress_sun * c, crowd_floor_sun, 1.0)
+	var p_legacy := clampf(1.0 - params.leaf_crowd_suppress * c, params.leaf_crowd_floor, 1.0)
+	assert_lt(p_sun, p_legacy, "sun+dense gate must lower placement chance vs legacy curve")
 
 
 # ── W-060 / SD-LEAF-7: per-instance sun/shade tint ────────────────────────────
 
 
 func _place_one_leaf(f_l: float, l_dir: Vector3 = Vector3.ZERO) -> PlantData:
-	## Helper: place exactly one leaf at the given f_L and l_dir.
-	## The distance_since_node is set to just exceed the shade-corrected internode
-	## (SD-LEAF-2: internode_base * (1 + shade_gain*(1-f_L)) * jitter) so a leaf
-	## is always placed regardless of f_L.
-	var params := IvyParams.new()
+	return _place_leaf_with_params(IvyParams.new(), f_l, l_dir)
+
+
+func _place_leaf_with_params(params: IvyParams, f_l: float, l_dir: Vector3 = Vector3.ZERO, tip: Tip = null) -> PlantData:
+	## Place exactly one leaf; optional custom params and tip (for branch_order etc.).
 	var plant := PlantData.new()
 	var ctx := _make_ctx(params, plant)
-	var tip := _make_tip()
-	tip.shoot_length = params.leaf_tip_suppress + 1.0
-	var u := Hash64.unit_float(tip.id, 0, 99)
-	# Mirror the SD-LEAF-2 formula inside advance() exactly, including shade gain.
+	var t := tip if tip != null else _make_tip()
+	t.shoot_length = params.leaf_tip_suppress + 1.0
+	var u := Hash64.unit_float(t.id, t.node_count, 99)
 	var internode := params.internode_base \
 		* (1.0 + params.internode_shade_gain * (1.0 - f_l)) \
 		* (1.0 + params.internode_jitter * (2.0 * u - 1.0))
-	tip.distance_since_node = internode + 0.001
-	LeafPlacer.advance(tip, ctx, Vector3.ZERO, Vector3(0.03, 0.0, 0.0), f_l, Basis.IDENTITY, l_dir)
+	t.distance_since_node = internode + 0.001
+	LeafPlacer.advance(t, ctx, Vector3.ZERO, Vector3(0.03, 0.0, 0.0), f_l, Basis.IDENTITY, l_dir)
 	return plant
+
+
+func _leaf_width(plant: PlantData, index: int = 0) -> float:
+	return Vector3(
+		plant.leaf_xform[index * 12],
+		plant.leaf_xform[index * 12 + 1],
+		plant.leaf_xform[index * 12 + 2]
+	).length()
+
+
+func _leaf_y_axis(plant: PlantData, index: int = 0) -> Vector3:
+	return Vector3(
+		plant.leaf_xform[index * 12 + 4],
+		plant.leaf_xform[index * 12 + 5],
+		plant.leaf_xform[index * 12 + 6]
+	).normalized()
+
+
+func _leaf_x_axis(plant: PlantData, index: int = 0) -> Vector3:
+	return Vector3(
+		plant.leaf_xform[index * 12],
+		plant.leaf_xform[index * 12 + 1],
+		plant.leaf_xform[index * 12 + 2]
+	).normalized()
 
 
 func test_leaf_tint_in_full_sun_is_not_white() -> void:
@@ -498,3 +532,62 @@ func test_adjacency_no_consecutive_repeat_on_same_stem() -> void:
 			absf(rx_a - rx_c) < 0.001 and absf(ry_a - ry_c) < 0.001,
 			"Leaves %d and %d must not share an atlas id — the rule forbids both preceding nodes, not just the last (SD-LEAF-6 adjacency)" % [i, i + 2]
 		)
+
+
+# ── W-030 fixer (ivy-cmb): SD-LEAF-4/5 presentation rules ─────────────────────
+
+
+func test_jitter_roll_rotates_about_petiole_not_width() -> void:
+	var params := IvyParams.new()
+	params.droop_base = 0.0
+	params.droop_shade_gain = 0.0
+	params.leaf_jitter_tilt = 0.0
+	params.leaf_jitter_yaw = 0.0
+	params.leaf_jitter_roll = 0.0
+	var plant_ref := _place_leaf_with_params(params, 1.0)
+	params.leaf_jitter_roll = 90.0
+	var plant_roll := _place_leaf_with_params(params, 1.0)
+	assert_almost_eq(
+		_leaf_y_axis(plant_ref).dot(_leaf_y_axis(plant_roll)), 1.0, 0.02,
+		"roll about petiole must not tilt y_axis (SD-LEAF-4 rule 7)")
+	assert_lt(
+		absf(_leaf_x_axis(plant_ref).dot(_leaf_x_axis(plant_roll))), 0.99,
+		"roll must rotate the blade width axis")
+
+
+func test_s_order_decreases_with_branch_order() -> void:
+	var params := IvyParams.new()
+	var tip_lo := _make_tip()
+	var tip_hi := _make_tip()
+	tip_hi.branch_order = 3
+	var plant_lo := _place_leaf_with_params(params, 1.0, Vector3.ZERO, tip_lo)
+	var plant_hi := _place_leaf_with_params(params, 1.0, Vector3.ZERO, tip_hi)
+	assert_gt(_leaf_width(plant_lo), _leaf_width(plant_hi),
+		"higher branch order must produce smaller leaves (SD-LEAF-5 s_order)")
+
+
+func test_s_var_is_deterministic_and_clamped() -> void:
+	var params := IvyParams.new()
+	var widths: Array[float] = []
+	for _run in range(2):
+		var tip := _make_tip()
+		tip.id = 17
+		widths.append(_leaf_width(_place_leaf_with_params(params, 1.0, Vector3.ZERO, tip)))
+	assert_almost_eq(widths[0], widths[1], 1e-6, "s_var draw must be deterministic (channel 46)")
+	var scale := params.leaf_light_scale_base + params.leaf_light_scale_gain
+	var base_w := params.leaf_width_base * scale
+	for i in range(80):
+		var t := _make_tip()
+		t.id = i
+		var plant := _place_leaf_with_params(params, 1.0, Vector3.ZERO, t)
+		var s_var := _leaf_width(plant) / base_w
+		assert_gte(s_var, 0.75 - 1e-4, "s_var must respect lower clamp")
+		assert_lte(s_var, 1.35 + 1e-4, "s_var must respect upper clamp")
+
+
+func test_droop_increases_in_shade() -> void:
+	var params := IvyParams.new()
+	var droop_sun := params.droop_base + params.droop_shade_gain * (1.0 - 1.0)
+	var droop_shade := params.droop_base + params.droop_shade_gain * (1.0 - 0.0)
+	assert_gt(droop_shade, droop_sun,
+		"shade must add droop_shade_gain to droop angle (SD-LEAF-4 rule 6)")

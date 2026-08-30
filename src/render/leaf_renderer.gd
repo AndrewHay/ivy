@@ -33,11 +33,15 @@ static func should_freeze(stem_past_node: float, expand_distance: float) -> bool
 	return stem_past_node >= expand_distance
 
 
-func sync_static_from(plant: PlantData, from_index: int) -> void:
+func sync_static_from(plant: PlantData, from_index: int, tip_shoot: Dictionary = {}) -> void:
 	assert(not _is_growing_buffer)
 	multimesh.visible_instance_count = plant.leaf_frozen_count
+	var expand := _params.leaf_expand_distance
 	for i in range(from_index, plant.leaf_frozen_count):
-		_write_instance(i, plant, i, 1.0)
+		var shoot: float = tip_shoot.get(plant.leaf_tip[i], plant.leaf_s_at_node[i] + expand)
+		var past := shoot - plant.leaf_s_at_node[i]
+		var age := s_age_for(past, expand)
+		_write_instance(i, plant, i, age)
 
 
 func sync_growing_from(plant: PlantData, tip_shoot: Dictionary, frozen_count: int) -> void:

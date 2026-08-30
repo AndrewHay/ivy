@@ -157,7 +157,9 @@ static func advance(
 	var tilt := deg_to_rad(params.leaf_jitter_tilt) * (2.0 * u_tilt - 1.0)
 	var roll := deg_to_rad(params.leaf_jitter_roll) * (2.0 * u_roll - 1.0)
 	var yaw := deg_to_rad(params.leaf_jitter_yaw) * (2.0 * u_yaw - 1.0)
-	y_axis = y_axis.rotated(x_axis, roll).normalized()
+	# Roll about blade long axis (petiole / y_axis), not width (SD-LEAF-4 rule 7).
+	x_axis = x_axis.rotated(y_axis, roll).normalized()
+	z_axis = x_axis.cross(y_axis).normalized()
 	x_axis = x_axis.rotated(y_axis, yaw).normalized()
 	z_axis = x_axis.cross(y_axis).normalized()
 	x_axis = x_axis.rotated(y_axis, tilt).normalized()
@@ -171,8 +173,7 @@ static func advance(
 
 	# ── SD-LEAF-7 M2.5 tint (W-060) ────────────────────────────────────────────
 	# color = lerp(leaf_shade_tint, leaf_sun_tint, f_L).
-	# Value jitter and age lightening are deferred to M4 (SD-RNG-6 reserves channel 46
-	# for value jitter when it lands).
+	# s_var uses hash channel 46 (SD-RNG-6); s_age animates in AR-RENDER-3.
 	var tint := params.leaf_shade_tint.lerp(params.leaf_sun_tint, f_l)
 
 	# SD-LEAF-8 / SD-PHYS-3: physiology deposits crowding for this leaf node (INV-1: sole writer).
