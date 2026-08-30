@@ -124,6 +124,12 @@ extends Resource
 @export var leaf_weathered_tint: Color = Color(0.82, 0.98, 0.86)
 @export var leaf_crowd_suppress: float = 0.70
 @export var leaf_crowd_floor: float = 0.30
+## SD-LEAF-8b (W-015): experienced-light floor for sun-saturated dense nodes only.
+@export var leaf_crowd_floor_sun: float = 0.22
+## Extra suppress (× sun_dense) when both C and f_L exceed the dense thresholds below.
+@export var leaf_crowd_sun_suppress_gain: float = 0.10
+@export var leaf_crowd_sun_dense_c: float = 0.85
+@export var leaf_crowd_sun_dense_f_l: float = 0.85
 ## SD-LEAF-8: deposit scale for the crowding channel. Deposit per node = k * leaf_area / cell_area.
 ## W-048 raised this to 0.85 and it was reverted: `deposit_crowding` clamps C to [0, 1], so a
 ## higher k cannot deepen suppression where the plant is already dense, it only makes sparse
@@ -183,7 +189,8 @@ func content_hash() -> String:
 		"leaf_expand_distance", "leaf_light_scale_base", "leaf_light_scale_gain", "leaf_size_sigma",
 		"leaf_healthy_base", "leaf_healthy_gain", "leaf_shade_tint", "leaf_sun_tint",
 		"leaf_weathered_tint",
-		"leaf_crowd_suppress", "leaf_crowd_floor",
+		"leaf_crowd_suppress", "leaf_crowd_floor", "leaf_crowd_floor_sun",
+		"leaf_crowd_sun_suppress_gain", "leaf_crowd_sun_dense_c", "leaf_crowd_sun_dense_f_l",
 		"leaf_crowd_k", "leaf_cap", "stem_radius_base", "stem_order_falloff", "stem_tip_taper",
 		"diel_gate_enabled", "dev_build",
 	]

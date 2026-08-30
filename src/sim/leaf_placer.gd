@@ -44,7 +44,17 @@ static func advance(
 	# Suppression channel 42 is distinct from field-jitter channels (0–14) and internode (99).
 	if ctx.env != null:
 		var c_at_node := ctx.env.sample_crowding(node_pos, tip.id, tip.node_count)
-		var p_place := clampf(1.0 - params.leaf_crowd_suppress * c_at_node, params.leaf_crowd_floor, 1.0)
+		var crowd_floor := params.leaf_crowd_floor
+		var crowd_suppress := params.leaf_crowd_suppress
+		# SD-LEAF-8b (W-015): thin only sun-saturated dense nodes (high f_L AND high C).
+		# Shade mats stay on the legacy curve so the AS-1 shaded floor is preserved.
+		if c_at_node > params.leaf_crowd_sun_dense_c and f_l > params.leaf_crowd_sun_dense_f_l:
+			var c_dense := inverse_lerp(params.leaf_crowd_sun_dense_c, 1.0, c_at_node)
+			var l_dense := inverse_lerp(params.leaf_crowd_sun_dense_f_l, 1.0, f_l)
+			var sun_dense := c_dense * l_dense
+			crowd_floor = lerpf(params.leaf_crowd_floor, params.leaf_crowd_floor_sun, sun_dense)
+			crowd_suppress += params.leaf_crowd_sun_suppress_gain * sun_dense
+		var p_place := clampf(1.0 - crowd_suppress * c_at_node, crowd_floor, 1.0)
 		var suppress_u := Hash64.unit_float(tip.id, tip.node_count, 42)
 		if suppress_u >= p_place:
 			return

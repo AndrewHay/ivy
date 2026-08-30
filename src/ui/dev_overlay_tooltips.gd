@@ -112,7 +112,11 @@ const _TIPS: Dictionary = {
 	"leaf_shade_tint": "Colour multiplier for shaded leaves. Cooler/darker = more muted north side; warmer = less contrast.",
 	"leaf_sun_tint": "Colour multiplier for sunlit leaves. Warmer/brighter = sunnier read on south face.",
 	"leaf_crowd_suppress": "How strongly high crowding blocks new leaves. Higher = thinner mats in dense zones.",
-	"leaf_crowd_floor": "Minimum leaf placement chance even in dense crowding. Prevents total bald patches in thick growth.",
+	"leaf_crowd_floor": "Minimum leaf placement chance in dense shade (low f_L).",
+	"leaf_crowd_floor_sun": "Floor in sun-saturated dense nodes (W-015 SD-LEAF-8b).",
+	"leaf_crowd_sun_suppress_gain": "Extra suppress in sun+dense nodes only.",
+	"leaf_crowd_sun_dense_c": "Crowding threshold before sun thinning applies.",
+	"leaf_crowd_sun_dense_f_l": "f_L threshold before sun thinning applies.",
 	"leaf_crowd_k": "How much each leaf deposits into the crowding field. Higher = faster self-thinning in thick areas.",
 	"leaf_cap": "Maximum leaf instances. Lower = lighter render and sparser plant; higher = denser but costlier.",
 

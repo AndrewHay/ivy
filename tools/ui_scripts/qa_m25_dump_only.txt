@@ -2,6 +2,7 @@
 # Run this to get LG-2a and LG-2b numbers and AS-1 precise figures without waiting
 # for Metal PSO compilation.
 SPEED pause
+SEED s
 ADVANCE_DAYS 150
 ADVANCE_DAYS 0.25
 DUMP_LEAF_COLOUR 180

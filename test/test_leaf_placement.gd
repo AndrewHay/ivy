@@ -195,6 +195,44 @@ func test_leaf_suppression_fires_at_high_crowding() -> void:
 	assert_gt(placed, 0, "floor probability (%.2f) must still allow some placements" % params.leaf_crowd_floor)
 
 
+func test_sun_dense_suppression_thins_more_than_shade_at_max_crowding() -> void:
+	# SD-LEAF-8b (W-015): only nodes with high f_L AND high C get the sun floor/suppress boost.
+	var params := IvyParams.new()
+	var pos := Vector3(0.0, 1.53, 1.95)
+	var c := params.field_cell
+
+	var placed_at := func(f_l: float) -> int:
+		var plant := PlantData.new()
+		var ctx := _make_env_ctx(params, plant)
+		for dxi in range(-1, 2):
+			for dyi in range(-1, 2):
+				for dzi in range(-1, 2):
+					ctx.env.deposit_crowding(pos + Vector3(dxi, dyi, dzi) * c, 100.0)
+		var n := 0
+		for i in range(40):
+			var tip := _make_tip()
+			tip.id = i + int(f_l * 1000.0)
+			tip.shoot_length = params.leaf_tip_suppress + 1.0
+			tip.position = pos
+			var u := Hash64.unit_float(tip.id, tip.node_count, 99)
+			var internode := params.internode_base \
+				* (1.0 + params.internode_shade_gain * (1.0 - f_l)) \
+				* (1.0 + params.internode_jitter * (2.0 * u - 1.0))
+			tip.distance_since_node = internode + 0.001
+			var pre := plant.leaf_count()
+			LeafPlacer.advance(tip, ctx,
+				pos - Vector3(0.0, params.segment_length, 0.0), pos, f_l, Basis.IDENTITY)
+			if plant.leaf_count() > pre:
+				n += 1
+		return n
+
+	var sun_placed := placed_at.call(1.0)
+	var shade_placed := placed_at.call(0.5)
+	assert_lt(sun_placed, shade_placed,
+		"max crowding must suppress more at f_L=1.0 than f_L=0.5 (SD-LEAF-8b)")
+	assert_gt(sun_placed, 0, "sun floor must still allow some placements at C=1")
+
+
 # ── W-060 / SD-LEAF-7: per-instance sun/shade tint ────────────────────────────
 
 
