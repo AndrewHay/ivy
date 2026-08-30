@@ -99,6 +99,28 @@ untracked library under `assets/_local/medieval_village_megakit/`.
 
 ---
 
+## M4 climbing-plant reference photographs (`assets/reference/climbing-plants/`)
+
+Inspiration-only stock photos for rubric comparison. **CC0 / Public Domain only.**
+
+### `hedera-helix/` (`ivy-mx5.5`)
+
+| File | Source | Author | License | Retrieved |
+|------|--------|--------|---------|-----------|
+| `mat_edge.jpg` | https://skitterphoto.com/photos/2979/climbing-ivy | Peter Heeling | CC0 1.0 (Skitterphoto) | 2026-08-30 |
+| `leaf_detail.jpg` | https://commons.wikimedia.org/wiki/File:Climbing_ivy_on_fence.jpg | Ron Clausen | CC0 1.0 | 2026-08-30 |
+| `silhouette.jpg` | Owner-provided (brick facade, ivy mat + window awnings) | Andrew Hay | CC0 1.0 (author dedication) | 2026-08-30 |
+
+### `vitis-vinifera/` (`ivy-mx5.6`)
+
+| File | Source | Author | License | Retrieved |
+|------|--------|--------|---------|-----------|
+| `mat_edge.jpg` | https://commons.wikimedia.org/wiki/File:Grape_Vine_on_rock_wall.jpg | Almapayokels | CC0 1.0 | 2026-08-30 |
+| `leaf_detail.jpg` | https://commons.wikimedia.org/wiki/File:Young_grapevine_leaves_1.jpg | W.carter | CC0 1.0 | 2026-08-30 |
+| `silhouette.jpg` | https://commons.wikimedia.org/wiki/File:Small_greenhouse_with_grapevines_escaping.jpg | W.carter | CC0 1.0 | 2026-08-30 |
+
+---
+
 ## Not used
 
 - **HDRI skies** were considered and rejected. The simulator computes true solar

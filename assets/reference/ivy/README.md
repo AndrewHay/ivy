@@ -1,15 +1,13 @@
-# M4 reference photographs (W-024)
+# M4 reference photographs — legacy path
 
-Owner action required — agents cannot download images.
+**Use [`../climbing-plants/`](../climbing-plants/README.md)** for any committed inspiration shots.
 
-Commit three CC0 / Public Domain ivy-on-brick photographs here:
+As of 2026-08-30 there is **no requirement** to commit reference photos or track licenses. Reference look-dev is informal (any source, outside the repo is fine).
 
-| File | Rubric slot |
-|------|-------------|
-| `slot1_mat_edge.jpg` | Mid elevation: thick interior mat + sparse leading edge (≥30% brick, ≥30% ivy) |
-| `slot2_leaf_detail.jpg` | Close range: ≥10 individual leaves readable |
-| `slot3_silhouette.jpg` | Backlit / low angle: ivy breaking a roofline against open sky |
+If you do commit ivy shots here or under `../climbing-plants/hedera-helix/`, optional filenames:
 
-Each file needs a matching entry in `assets/CREDITS.md` (filename, source URL, author, license, retrieval date).
-
-Gates M4 Director rubric scoring only. W-015 and W-030 are blocked until this lands.
+| File | Role |
+|------|------|
+| `mat_edge.jpg` | Mat + leading edge on masonry |
+| `leaf_detail.jpg` | Close leaf read |
+| `silhouette.jpg` | Foliage vs sky / roofline |
