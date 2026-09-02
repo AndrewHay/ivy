@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://civy_profile_as5"]
+
+[ext_resource type="Script" path="res://tools/profile_as5.gd" id="1_profile"]
+
+[node name="ProfileAs5" type="Node"]
+script = ExtResource("1_profile")
