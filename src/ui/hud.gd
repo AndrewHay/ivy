@@ -13,12 +13,33 @@ var _speed_buttons: Dictionary = {}
 var _date_label: Label = null
 var _timelapse_label: Label = null
 var _scenario_seed_count: int = 0
+var _free_plant_mode: bool = false
+var _anchor_row: HBoxContainer = null
+var _clear_button: Button = null
+var _plant_debug: Label = null
+var _sim_status: Label = null
+var _planting_tool: PlantingTool = null
 
 
-func setup(world: Node, sim: Node, params: IvyParams) -> void:
+func set_planting_tool(tool: PlantingTool) -> void:
+	_planting_tool = tool
+
+
+func finish_planting_mode() -> void:
+	_planting_tool = null
+	if _plant_debug != null:
+		_plant_debug.visible = false
+	if _anchor_row != null:
+		for child in _anchor_row.get_children():
+			if child is Label:
+				(child as Label).text = "Left-drag to orbit · scroll to zoom"
+
+
+func setup(world: Node, sim: Node, params: IvyParams, free_plant_mode: bool = false) -> void:
 	_world = world
 	_sim = sim
 	_params = params
+	_free_plant_mode = free_plant_mode
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	_build_ui()
@@ -27,11 +48,24 @@ func setup(world: Node, sim: Node, params: IvyParams) -> void:
 
 func refresh(clock: SimClock, sky_sun: SkySun) -> void:
 	if _date_label != null and clock != null and _params != null:
-		var hour := clock.game_day * 24.0 + _params.start_hour
-		var day_num := int(floor(clock.game_day)) + 1
+		var display_day := clock.display_game_day()
+		var hour := display_day * 24.0 + _params.start_hour
+		var day_num := int(floor(display_day)) + 1
 		var hour_i := int(floor(fposmod(hour, 24.0)))
 		var minute_i := int(floor(fposmod(hour * 60.0, 60.0)))
 		_date_label.text = "Day %d  %02d:%02d" % [day_num, hour_i, minute_i]
+	if _plant_debug != null and _planting_tool != null:
+		_plant_debug.text = _planting_tool.debug_status()
+	if _sim_status != null and _sim != null and clock != null:
+		var tips_n := 0
+		var segs := 0
+		if _sim.get("tips") != null:
+			tips_n = (_sim.tips as TipManager).tips.size()
+		if _sim.get("plant") != null:
+			segs = (_sim.plant as PlantData).segment_count()
+		_sim_status.text = "tips=%d  segments=%d  speed=%s" % [
+			tips_n, segs, _speed_label(clock.speed)
+		]
 	if _timelapse_label != null and sky_sun != null and clock != null:
 		var show := sky_sun.is_time_lapse(clock.seconds_per_game_day())
 		_timelapse_label.visible = show
@@ -40,6 +74,7 @@ func refresh(clock: SimClock, sky_sun: SkySun) -> void:
 func _build_ui() -> void:
 	var margin := MarginContainer.new()
 	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
+	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	margin.add_theme_constant_override("margin_left", 12)
 	margin.add_theme_constant_override("margin_top", 12)
 	margin.add_theme_constant_override("margin_right", 12)
@@ -47,43 +82,79 @@ func _build_ui() -> void:
 	add_child(margin)
 
 	var root := VBoxContainer.new()
-	root.mouse_filter = Control.MOUSE_FILTER_PASS
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	margin.add_child(root)
 
 	_build_anchor_row(root)
 	_build_speed_row(root)
-	_date_label = Label.new()
-	_date_label.text = "Day 1  06:00"
+	_date_label = _make_passthrough_label("Day 1  06:00")
 	root.add_child(_date_label)
-	_timelapse_label = Label.new()
-	_timelapse_label.text = "time-lapse — average daylight"
+	_timelapse_label = _make_passthrough_label("time-lapse — average daylight")
 	_timelapse_label.visible = false
 	root.add_child(_timelapse_label)
+	if _free_plant_mode:
+		_plant_debug = _make_passthrough_label("")
+		_plant_debug.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		_plant_debug.add_theme_font_size_override("font_size", 12)
+		root.add_child(_plant_debug)
+		_sim_status = _make_passthrough_label("tips=0  segments=0  speed=pause")
+		_sim_status.add_theme_font_size_override("font_size", 12)
+		root.add_child(_sim_status)
+
+
+func _make_passthrough_label(text: String) -> Label:
+	var label := Label.new()
+	label.text = text
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return label
+
+
+func _speed_label(speed: SimClock.Speed) -> String:
+	match speed:
+		SimClock.Speed.PAUSE:
+			return "pause"
+		SimClock.Speed.WATCH:
+			return "watch"
+		SimClock.Speed.FAST:
+			return "fast"
+		SimClock.Speed.GROW:
+			return "grow"
+		_:
+			return "?"
 
 
 func _build_anchor_row(parent: Control) -> void:
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 6)
-	parent.add_child(row)
+	_anchor_row = HBoxContainer.new()
+	_anchor_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_anchor_row.add_theme_constant_override("separation", 6)
+	parent.add_child(_anchor_row)
+	if _free_plant_mode:
+		var hint := _make_passthrough_label("Left-click glow to plant · right-drag to orbit camera")
+		_anchor_row.add_child(hint)
+		_clear_button = _make_button("Clear ivy")
+		_clear_button.pressed.connect(_on_clear_pressed)
+		_anchor_row.add_child(_clear_button)
+		return
 	var scenario = _world.get_mesh_scenario() if _world.has_method("get_mesh_scenario") else null
 	if scenario != null:
 		_scenario_seed_count = scenario.seed_positions.size()
 		for i in _scenario_seed_count:
 			var btn := _make_button("Seed %d" % i)
 			btn.pressed.connect(_on_scenario_seed_pressed.bind(i))
-			row.add_child(btn)
+			_anchor_row.add_child(btn)
 			_anchor_buttons.append(btn)
 	else:
 		for compass in 4:
 			var label := SeedAnchorsScript.compass_label(compass)
 			var btn := _make_button(label)
 			btn.pressed.connect(_on_compass_pressed.bind(compass))
-			row.add_child(btn)
+			_anchor_row.add_child(btn)
 			_anchor_buttons.append(btn)
 
 
 func _build_speed_row(parent: Control) -> void:
 	var row := HBoxContainer.new()
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_theme_constant_override("separation", 6)
 	parent.add_child(row)
 	for spec in [
@@ -106,7 +177,7 @@ func _make_button(text: String) -> Button:
 
 
 func _refresh_anchor_buttons() -> void:
-	if _world == null:
+	if _free_plant_mode or _world == null:
 		return
 	var scenario = _world.get_mesh_scenario() if _world.has_method("get_mesh_scenario") else null
 	if scenario != null:
@@ -119,6 +190,11 @@ func _refresh_anchor_buttons() -> void:
 	var anchors: Array = anchors_obj.get_anchors()
 	for i in mini(_anchor_buttons.size(), anchors.size()):
 		_anchor_buttons[i].disabled = not anchors[i].available
+
+
+func _on_clear_pressed() -> void:
+	if _sim != null and _sim.has_method("clear_plants"):
+		_sim.clear_plants()
 
 
 func _on_compass_pressed(compass: int) -> void:

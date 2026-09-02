@@ -186,6 +186,20 @@ func bake(surface: SurfaceQuery, bounds: AABB) -> void:
 	rebake_region(surface, bounds)
 
 
+func bake_interactive(
+	surface: SurfaceQuery,
+	bounds: AABB,
+	tree: SceneTree,
+	on_step: Callable = Callable()
+) -> void:
+	_slot_of.clear()
+	_svf = PackedFloat32Array()
+	_vis = PackedInt32Array()
+	_leak = PackedFloat32Array()
+	_bake_normal = PackedVector3Array()
+	await rebake_region_interactive(surface, bounds, tree, on_step)
+
+
 ## Re-bakes the coarse cells intersecting `bounds`, leaving the rest untouched. This is
 ## the SD-ENV-7 seam Phase 2's moving geometry calls through.
 func rebake_region(surface: SurfaceQuery, bounds: AABB) -> void:
@@ -195,6 +209,31 @@ func rebake_region(surface: SurfaceQuery, bounds: AABB) -> void:
 		for yi in range(lo.y, hi.y + 1):
 			for zi in range(lo.z, hi.z + 1):
 				_bake_coarse_cell(surface, Vector3i(xi, yi, zi))
+
+
+## Yields to the scene tree periodically so a loading UI can repaint during long bakes.
+func rebake_region_interactive(
+	surface: SurfaceQuery,
+	bounds: AABB,
+	tree: SceneTree,
+	on_step: Callable = Callable()
+) -> void:
+	var lo := _coarse.cell_of(bounds.position)
+	var hi := _coarse.cell_of(bounds.end)
+	var total := maxi(
+		1,
+		(hi.x - lo.x + 1) * (hi.y - lo.y + 1) * (hi.z - lo.z + 1)
+	)
+	var n := 0
+	for xi in range(lo.x, hi.x + 1):
+		for yi in range(lo.y, hi.y + 1):
+			for zi in range(lo.z, hi.z + 1):
+				_bake_coarse_cell(surface, Vector3i(xi, yi, zi))
+				n += 1
+				if n % 48 == 0 or n == total:
+					if on_step.is_valid():
+						on_step.call(float(n) / float(total))
+					await tree.process_frame
 
 
 func coarse_count() -> int:
@@ -294,6 +333,50 @@ func fill_field(
 			if count > 0 and _direct_elevation[hour] > 0.0 and n.dot(_sun_dir[hour]) > 0.0:
 				v = _corner_visibility(count, hour)
 			field.set_p_hour(slot, hour, p_at(n, svf, v, hour, leak))
+
+
+func fill_field_interactive(
+	surface: SurfaceQuery,
+	field: SparseHashField,
+	grid: CellGrid,
+	tree: SceneTree,
+	on_step: Callable = Callable(),
+	region: AABB = AABB()
+) -> void:
+	var limited := region.size.length_squared() > 0.0
+	field.ensure_p_hour()
+	var total := maxi(1, field.slot_count())
+	var n := 0
+	for slot in field.slot_count():
+		var cell := CellGrid.unpack_key(field.cell_key(slot))
+		var p := grid.cell_point(cell)
+		if limited and not region.has_point(p):
+			continue
+		var surf_n := surface.surface_normal(p)
+		var on_surface := surface.project_to_shell(p)
+		var count := _gather_corners(on_surface, surf_n)
+		var svf := 1.0
+		var leak := 0.0
+		if count > 0:
+			svf = 0.0
+			leak = 0.0
+			for k in count:
+				svf += _corner_weight[k] * _svf[_corner_slot[k]]
+				leak += _corner_weight[k] * _leak[_corner_slot[k]]
+			svf = clampf(svf, 0.0, 1.0)
+			leak = clampf(leak, 0.0, 1.0)
+		field.write_slot(SparseHashField.Channel.SVF, slot, svf)
+		field.write_slot(SparseHashField.Channel.F_M, slot, 1.0)
+		for hour in HOURS:
+			var v := 0.0
+			if count > 0 and _direct_elevation[hour] > 0.0 and surf_n.dot(_sun_dir[hour]) > 0.0:
+				v = _corner_visibility(count, hour)
+			field.set_p_hour(slot, hour, p_at(surf_n, svf, v, hour, leak))
+		n += 1
+		if n % 4096 == 0 or n == total:
+			if on_step.is_valid():
+				on_step.call(float(n) / float(total))
+			await tree.process_frame
 
 
 func _precompute_sun_path() -> void:

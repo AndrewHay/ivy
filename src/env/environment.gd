@@ -59,6 +59,79 @@ func build(p: IvyParams, surf: SurfaceQuery, sun: Solar = null) -> void:
 	warm_up(params.light_warmup_days)
 
 
+## Interactive bootstrap: yields during ray bake / fill so the loading overlay can repaint.
+func build_interactive(
+	p: IvyParams,
+	surf: SurfaceQuery,
+	tree: SceneTree,
+	on_progress: Callable,
+	sun: Solar = null
+) -> void:
+	const P_ALLOC := 0.06
+	const P_CACHE := 0.10
+	const P_RAY_START := 0.12
+	const P_RAY_END := 0.50
+	const P_FILL_START := 0.52
+	const P_FILL_END := 0.98
+
+	params = p
+	surface = surf
+	solar = sun if sun != null else Solar.new(p)
+	on_progress.call("Allocating environment field…", P_ALLOC * 0.5)
+	await tree.process_frame
+	_grid = CellGrid.new(params.field_cell)
+	_field = SparseHashField.new(params.field_cell)
+	var bounds := surface.shell_bounds(params.field_shell_halfwidth + params.field_cell)
+	_field.allocate_shell(surface, params.field_shell_halfwidth, bounds)
+	_field.set_all(SparseHashField.Channel.CROWDING, 0.0)
+	_field.set_all(SparseHashField.Channel.MATERIAL_ID, float(MaterialRegistry.BRICK_WALL))
+	_bake = LightBake.new(params, solar)
+	on_progress.call("Allocating environment field…", P_ALLOC)
+	var coarse_loaded := false
+	if surface.backend_tag() == "MeshSdf":
+		on_progress.call("Checking sunlight cache…", P_CACHE * 0.5)
+		await tree.process_frame
+		var prov := surface.mesh_provenance()
+		var ph := LightBakeCache.params_hash(params)
+		coarse_loaded = LightBakeCache.try_load(_bake, bounds, prov, ph)
+		on_progress.call(
+			"Sunlight cache hit — skipping ray trace" if coarse_loaded else "Sunlight cache miss",
+			P_CACHE
+		)
+	if not coarse_loaded:
+		on_progress.call("Ray-tracing sunlight (first run ~30–60s)…", P_RAY_START)
+		await tree.process_frame
+		var ray_span := P_RAY_END - P_RAY_START
+		await _bake.bake_interactive(
+			surface,
+			bounds,
+			tree,
+			func(local: float) -> void:
+				on_progress.call(
+					"Ray-tracing sunlight (first run ~30–60s)…",
+					P_RAY_START + ray_span * local
+				)
+		)
+		if surface.backend_tag() == "MeshSdf":
+			var prov := surface.mesh_provenance()
+			var ph := LightBakeCache.params_hash(params)
+			LightBakeCache.save(_bake, bounds, prov, ph)
+	on_progress.call("Filling light field…", P_FILL_START)
+	await tree.process_frame
+	var fill_span := P_FILL_END - P_FILL_START
+	await _bake.fill_field_interactive(
+		surface,
+		_field,
+		_grid,
+		tree,
+		func(local: float) -> void:
+			on_progress.call("Filling light field…", P_FILL_START + fill_span * local)
+	)
+	_baseline_p_bar = _bake.diffuse_baseline_p_bar()
+	warm_up(params.light_warmup_days)
+	on_progress.call("Ready", 1.0)
+
+
 func set_writer_guard(guard: Object) -> void:
 	_writer_guard = guard
 

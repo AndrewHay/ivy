@@ -6,6 +6,7 @@ const SurfaceQueryScript = preload("res://src/world/surface_query.gd")
 const StructureBodyScript = preload("res://src/world/structure_body.gd")
 const StructureScenarioScript = preload("res://src/world/structure_scenario.gd")
 const SeedAnchorsScript = preload("res://src/world/seed_anchors.gd")
+const BuildingCatalog = preload("res://src/world/building_catalog.gd")
 
 @onready var _tower: Tower = $Tower
 @onready var sky_sun: SkySun = $SkySun
@@ -27,7 +28,7 @@ const _CANONICAL_CAM_AIM_Y := 2.0
 
 func _ready() -> void:
 	tower_spec = load("res://src/world/tower_spec_default.tres") as TowerSpec
-	ensure_mesh_scenario_loaded()
+	# Tower/structure geometry is built when the player picks a building (M6 picker).
 
 
 func ensure_mesh_scenario_loaded() -> void:
@@ -40,6 +41,42 @@ func ensure_mesh_scenario_loaded() -> void:
 	# `main.gd` has already awaited its physics frame — the light bake then raycasts
 	# a shape the physics server has not committed, and the canonical run loses ~4%
 	# of its growth.
+	if not _tower_built:
+		_tower_built = true
+		_tower.build_from_spec(tower_spec, true)
+
+
+func load_building(building_id: String) -> void:
+	_teardown_active_building()
+	if BuildingCatalog.is_procedural(building_id):
+		_show_procedural_tower()
+		_camera_rig.position = Vector3.ZERO
+		return
+	var scenario := BuildingCatalog.scenario_for(building_id)
+	if scenario == null:
+		push_error("World: unknown building '%s'" % building_id)
+		_show_procedural_tower()
+		return
+	_activate_mesh_scenario(scenario)
+
+
+func _teardown_active_building() -> void:
+	surface = null
+	_mesh_sdf = null
+	_seed_anchors = null
+	if _structure != null:
+		_structure.queue_free()
+		_structure = null
+	mesh_scenario = null
+	seed_index = 0
+
+
+func _show_procedural_tower() -> void:
+	_tower.visible = true
+	_tower.collision_layer = 1
+	for child in _tower.get_children():
+		if child is CollisionShape3D:
+			(child as CollisionShape3D).disabled = false
 	if not _tower_built:
 		_tower_built = true
 		_tower.build_from_spec(tower_spec, true)
@@ -65,6 +102,12 @@ func get_seed_anchors():
 	return _seed_anchors
 
 
+func get_orbit_pivot() -> Vector3:
+	if mesh_scenario != null:
+		return mesh_scenario.resolve_camera_pivot()
+	return Vector3(0.0, tower_spec.height * 0.5, 0.0)
+
+
 func set_seed_index(index: int) -> void:
 	seed_index = index
 
@@ -76,15 +119,16 @@ func get_surface_query(params: IvyParams) -> SurfaceQuery:
 	if _structure == null and mesh_scenario != null:
 		push_error("World: mesh scenario failed to load")
 		return null
-	surface = SurfaceQueryScript.new()
+	var sq: SurfaceQuery = SurfaceQueryScript.new()
 	var space := get_world_3d().direct_space_state
 	if mesh_scenario != null:
 		var sdf := MeshSdfScript.new()
 		sdf.load_from_file(mesh_scenario.sdf_path)
 		if not sdf.verify_provenance(mesh_scenario.collision_glb):
+			push_error("World: SDF provenance mismatch for %s" % mesh_scenario.collision_glb)
 			return null
 		_mesh_sdf = sdf
-		surface.setup(
+		sq.setup(
 			space,
 			_structure,
 			sdf,
@@ -92,7 +136,7 @@ func get_surface_query(params: IvyParams) -> SurfaceQuery:
 			params
 		)
 	else:
-		surface.setup(
+		sq.setup(
 			space,
 			_tower,
 			TowerSdfScript.new(tower_spec),
@@ -101,7 +145,8 @@ func get_surface_query(params: IvyParams) -> SurfaceQuery:
 		)
 		if _seed_anchors == null:
 			_seed_anchors = SeedAnchorsScript.new()
-			_seed_anchors.build(surface, tower_spec)
+			_seed_anchors.build(sq, tower_spec)
+	surface = sq
 	return surface
 
 

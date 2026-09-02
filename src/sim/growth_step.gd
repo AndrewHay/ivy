@@ -1,6 +1,13 @@
 class_name GrowthStep
 extends RefCounted
 
+static func apply_direction_memory(prev: Vector3, d_actual: Vector3, memory: float) -> Vector3:
+	var blended := prev * memory + d_actual * (1.0 - memory)
+	if blended.length_squared() < 1e-8:
+		return prev
+	return blended.normalized()
+
+
 static func step_tip(tip: Tip, ctx: SimContext) -> void:
 	var params := ctx.params
 	# 1. correlated random
@@ -84,7 +91,7 @@ static func step_tip(tip: Tip, ctx: SimContext) -> void:
 	# blend this replaces was numerically identical at the default 0.50 (normalisation cancels the
 	# common factor), which is what let the parameter sit dead without any test noticing.
 	var mem := params.direction_memory
-	tip.direction = (tip.direction * mem + d_actual * (1.0 - mem)).normalized()
+	tip.direction = apply_direction_memory(tip.direction, d_actual, mem)
 	tip.shoot_length += params.segment_length
 	tip.segment_count += 1
 	tip.distance_since_node += params.segment_length

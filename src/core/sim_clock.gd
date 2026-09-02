@@ -70,3 +70,10 @@ func _ticks_per_second() -> float:
 
 func _update_game_day() -> void:
 	game_day = float(tick_index) * params.sim_tick
+
+
+## Sub-tick time for rendering only — simulation stays on hourly ticks (SD-TIME-1).
+func display_game_day() -> float:
+	if speed == Speed.PAUSE:
+		return game_day
+	return game_day + _accumulator * params.sim_tick

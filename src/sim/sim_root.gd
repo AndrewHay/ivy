@@ -20,7 +20,8 @@ func setup(
 	surf: SurfaceQuery,
 	scenario = null,
 	seed_index: int = 0,
-	anchors = null
+	anchors = null,
+	auto_seed: bool = true
 ) -> void:
 	params = p
 	for problem in params.validate():
@@ -42,9 +43,86 @@ func setup(
 	tips = TipManager.new()
 	ctx = SimContext.new(params, env, surface, plant, tips, clock)
 	if _scenario != null:
-		_seed_all_scenario()
+		if auto_seed:
+			_seed_all_scenario()
 	else:
-		_seed_tower(_seed_index)
+		if auto_seed:
+			_seed_tower(_seed_index)
+
+
+func setup_interactive(
+	p: IvyParams,
+	surf: SurfaceQuery,
+	tree: SceneTree,
+	on_progress: Callable,
+	scenario = null,
+	seed_index: int = 0,
+	anchors = null,
+	auto_seed: bool = false
+) -> void:
+	params = p
+	for problem in params.validate():
+		push_error("IvyParams: %s" % problem)
+	surface = surf
+	_scenario = scenario
+	_seed_index = seed_index
+	_seed_anchors = anchors
+	clock = SimClock.new(params)
+	clock.set_speed(SimClock.Speed.PAUSE)
+	solar = Solar.new(params)
+	plant = PlantData.new()
+	tips = TipManager.new()
+	env = IvyEnvironment.new()
+	await env.build_interactive(params, surface, tree, on_progress, solar)
+	env.set_writer_guard(Physiology)
+	ctx = SimContext.new(params, env, surface, plant, tips, clock)
+	if _scenario != null:
+		if auto_seed:
+			_seed_all_scenario()
+	else:
+		if auto_seed:
+			_seed_tower(_seed_index)
+
+
+func rebind_surface(
+	surf: SurfaceQuery,
+	scenario = null,
+	anchors = null,
+	auto_seed: bool = false
+) -> void:
+	surface = surf
+	_scenario = scenario
+	_seed_anchors = anchors
+	clock.tick_index = 0
+	clock._update_game_day()
+	plant = PlantData.new()
+	tips = TipManager.new()
+	ctx = SimContext.new(params, env, surface, plant, tips, clock)
+	env.build(params, surface, solar)
+	env.set_writer_guard(Physiology)
+	if auto_seed:
+		if _scenario != null:
+			_seed_all_scenario()
+		else:
+			_seed_tower(_seed_index)
+	else:
+		env.warm_up(params.light_warmup_days)
+	_sync_plant_render()
+
+
+func plant_at(position: Vector3, normal: Vector3) -> void:
+	var pos := position + normal * 0.01
+	var stream_seed := 12345 + tips.tips.size()
+	tips.add_seed(pos, normal, stream_seed, params)
+	_sync_plant_render()
+
+
+func clear_plants() -> void:
+	plant = PlantData.new()
+	tips = TipManager.new()
+	ctx = SimContext.new(params, env, surface, plant, tips, clock)
+	env.reset_crowding()
+	_sync_plant_render()
 
 
 func set_seed_index(index: int) -> void:
@@ -121,7 +199,7 @@ func _seed_tower(compass: int) -> void:
 
 
 func _process(delta: float) -> void:
-	if clock == null:
+	if clock == null or ctx == null:
 		return
 	var n := clock.advance_real(delta)
 	for _i in range(n):
@@ -133,7 +211,7 @@ func _sync_plant_render() -> void:
 	# Guard: advance_ticks() is used in headless test contexts where SimRoot is not
 	# added to a scene tree; get_parent() would be null there (and there is nothing
 	# to render to anyway).
-	if not is_inside_tree():
+	if not is_inside_tree() or plant == null or tips == null:
 		return
 	var pr := get_parent().get_node_or_null("PlantRender")
 	if pr != null and pr.has_method("sync"):

@@ -45,6 +45,17 @@ func test_pause_advances_nothing() -> void:
 	var n := _clock.advance_real(10.0)
 	assert_eq(n, 0)
 	assert_eq(_clock.tick_index, 0)
+	assert_almost_eq(_clock.display_game_day(), 0.0, 1e-9)
+
+
+func test_display_game_day_interpolates_between_ticks() -> void:
+	_clock.set_speed(SimClock.Speed.WATCH)
+	_clock.advance_ticks(5)
+	var base := _clock.display_game_day()
+	_clock.advance_real(_params.speed_watch / 48.0)
+	var mid := _clock.display_game_day()
+	assert_gt(mid, base)
+	assert_lt(mid, base + _params.sim_tick)
 
 
 func test_advance_ticks_deterministic() -> void:

@@ -71,6 +71,28 @@ func setup(tower_spec: TowerSpec) -> void:
 			_yaw    = atan2(offset.x, offset.z)
 
 
+## Interactive-only entry for M6 ground planting. Automated runners never call this.
+var _orbit_pivot_override: Variant = null
+var _planting_mode: bool = false
+
+
+func set_orbit_pivot(p: Vector3) -> void:
+	_orbit_pivot_override = p
+
+
+func activate_for_planting() -> void:
+	if script_driven or spec == null:
+		return
+	_planting_mode = true
+	current = true
+	global_transform = solve(_pivot(), _yaw, _pitch, _radius)
+
+
+func finish_planting() -> void:
+	_planting_mode = false
+	_dragging = false
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	# ALL writes to [current] and to the transform live exclusively in this function
 	# (AR-DBGCAM-5a). No automated runner (take_screenshot.gd, run_ui_script.gd, GUT)
@@ -98,7 +120,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif mb.button_index == MOUSE_BUTTON_WHEEL_DOWN and mb.pressed:
 			_zoom_by_notches(-_NOTCHES_PER_KEY_PRESS)
 			moved = true
-		elif mb.button_index == MOUSE_BUTTON_LEFT:
+		elif mb.button_index == MOUSE_BUTTON_LEFT and not _planting_mode:
+			_dragging = mb.pressed
+		elif mb.button_index == MOUSE_BUTTON_RIGHT and _planting_mode:
 			_dragging = mb.pressed
 	elif event is InputEventPanGesture:
 		# A trackpad two-finger scroll on macOS arrives here, never as a wheel button.
@@ -139,6 +163,8 @@ func _notification(what: int) -> void:
 
 
 func _pivot() -> Vector3:
+	if _orbit_pivot_override != null:
+		return _orbit_pivot_override
 	# AR-DBGCAM-3: pivot at tower mid-height derived from TowerSpec, never hardcoded.
 	return Vector3(0.0, spec.height * 0.5, 0.0)
 
