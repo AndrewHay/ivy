@@ -2,7 +2,10 @@ class_name SurfaceQuery
 extends RefCounted
 
 const MeshSdfScript = preload("res://src/world/mesh_sdf.gd")
+const WallSdfScript = preload("res://src/world/wall_sdf.gd")
 const StructureBodyScript = preload("res://src/world/structure_body.gd")
+const TowerSdfScript = preload("res://src/world/tower_sdf.gd")
+const OpeningFootprintScript = preload("res://src/world/opening_footprint.gd")
 
 class Hit:
 	var hit: bool = false
@@ -33,7 +36,12 @@ func setup(
 	_space = space
 	_body = body
 	_backend = backend
-	_backend_tag = "MeshSdf" if backend.get_script() == MeshSdfScript else "TowerSdf"
+	if backend.get_script() == MeshSdfScript:
+		_backend_tag = "MeshSdf"
+	elif backend.get_script() == WallSdfScript:
+		_backend_tag = "WallSdf"
+	else:
+		_backend_tag = "TowerSdf"
 	_face_material = face_material
 	_material_by_shape_index = body != null and body.get_script() == StructureBodyScript
 	_params = params
@@ -267,4 +275,8 @@ func project_to_shell(p: Vector3, _offset: float = 0.0) -> Vector3:
 		var phi: float = _backend.signed_distance(q)
 		var n: Vector3 = _backend.gradient_normalized(q)
 		q = q - n * phi
+	if _backend_tag == "TowerSdf":
+		var spec := (_backend as TowerSdfScript).spec
+		if OpeningFootprintScript.in_any_opening(q, spec) or OpeningFootprintScript.in_any_opening(p, spec):
+			q = OpeningFootprintScript.snap_to_exterior_shell(p, spec)
 	return q

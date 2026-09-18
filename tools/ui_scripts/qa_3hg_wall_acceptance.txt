@@ -1,0 +1,11 @@
+# ivy-3hg QA acceptance — Test wall end-to-end playtest.
+# Picker / free-plant / click-to-plant verbs are not yet in run_ui_script.gd;
+# execute the equivalent flow via:
+#   Godot res://tools/qa_wall_acceptance.tscn
+#
+# Step map (harness screenshots land in res://.tmp/ui_scripts/qa_3hg_wall/):
+#   1. picker.png          — building picker with "Test wall" option
+#   2. wall_sun.png        — sun-facing brick wall after load (free-plant camera)
+#   3. wall_planted.png    — immediately after ground click to plant ivy
+#   4. wall_growth_d30.png — 30 game-days growth at local noon
+#   5. cylinder_regression.png — reload "Test cylinder" via same dispatch path

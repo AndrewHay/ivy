@@ -36,6 +36,42 @@ func test_setup_sources_tower_spec_from_composition_root() -> void:
 		"orbit pivot must derive from the setup() spec")
 
 
+## ivy-3hg.16 — wall zoom bounds must exceed the cylinder ceiling so the 100 m wall
+## can be framed. Catches main.gd always passing tower_spec to DebugCamera.setup().
+func test_wall_zoom_bounds_allow_full_wall_framing() -> void:
+	var wall := WallSpec.new()
+	wall.length = 100.0
+	wall.height = 20.0
+	wall.thickness = 0.35
+	var bounds: Vector2 = DebugCameraScript.wall_zoom_bounds(wall)
+	assert_gt(bounds.y, 80.0,
+		"wall max zoom-out must far exceed cylinder ceiling (~12 m)")
+	assert_almost_eq(
+		DebugCameraScript.clamp_radius_with_bounds(999.0, bounds.x, bounds.y),
+		bounds.y, 1e-6,
+		"clamp_radius_with_bounds must honour wall max zoom-out")
+
+
+## Wall free-plant session must start pulled back enough to frame the wall, not at
+## CamSun's cylinder-scale ~8 m default.
+func test_setup_wall_bounds_use_readable_default_radius() -> void:
+	var cam := DebugCameraScript.new()
+	cam.script_driven = true
+	var wall_bounds: Vector2 = DebugCameraScript.wall_zoom_bounds(WallSpec.new())
+	add_child(cam)
+	cam.setup(TowerSpec.new(), wall_bounds)
+	assert_gt(cam._radius, 60.0,
+		"wall session must default to a pull-back orbit radius, not cylinder-scale ~8 m")
+
+
+## Tower zoom bounds must stay at the cylinder defaults (no regression).
+func test_tower_zoom_bounds_unchanged_for_cylinder() -> void:
+	var spec := TowerSpec.new()
+	var bounds: Vector2 = DebugCameraScript.tower_zoom_bounds(spec)
+	assert_almost_eq(bounds.x, 3.0, 1e-6, "cylinder min zoom-out unchanged")
+	assert_almost_eq(bounds.y, 12.0, 1e-6, "cylinder max zoom-out unchanged")
+
+
 ## AR-DBGCAM-6 Test 1 — out-of-range values must clamp into [3.0, 12.0] and [-5°, +85°].
 ## Catches someone widening min_radius, max_radius, or the pitch bounds so the camera
 ## can pass through the wall, drop below ground, or reach the look_at pole singularity.

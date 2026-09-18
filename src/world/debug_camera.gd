@@ -22,6 +22,8 @@ var script_driven: bool = false
 var _yaw: float = 0.0
 var _pitch: float = 0.031415927  # ~1.8°, matches CamSun authored default
 var _radius: float = 8.01        # ~distance of CamSun authored (0,2,8) from pivot (0,1.75,0)
+var _zoom_min_r: float = 3.0
+var _zoom_max_r: float = 12.0
 var _dragging: bool = false
 
 const _DRAG_DEG_PER_PIXEL := 0.3
@@ -53,22 +55,30 @@ func _ready() -> void:
 ## Called from Main._ready() after World has assigned tower_spec (W-055).
 ## AR-DBGCAM-2 seeding lives here, not in _ready — children run before parent, so
 ## Main cannot inject spec before DebugCamera._ready() without racing the seed.
-func setup(tower_spec: TowerSpec) -> void:
+func setup(tower_spec: TowerSpec, zoom_bounds: Vector2 = Vector2(-1.0, -1.0)) -> void:
 	spec = tower_spec
-	if script_driven:
-		return
-	# Seed orbit state from CamSun's authored transform so that first activation
-	# produces no visible jump (AR-DBGCAM-2). Only the private floats are written here —
-	# current and the camera transform are never touched outside _unhandled_input.
-	var cam_sun := get_node_or_null("../CameraRig/CamSun") as Camera3D
-	if cam_sun != null:
-		var pivot := _pivot()
-		var offset := cam_sun.global_position - pivot
-		var raw_r := offset.length()
-		if raw_r > 1e-4:
-			_radius = clamp_radius(raw_r, spec)
-			_pitch  = clamp_pitch(asin(clampf(offset.y / raw_r, -1.0, 1.0)))
-			_yaw    = atan2(offset.x, offset.z)
+	var bounds := zoom_bounds
+	if bounds.x < 0.0:
+		bounds = tower_zoom_bounds(tower_spec)
+	_zoom_min_r = bounds.x
+	_zoom_max_r = bounds.y
+	# Large buildings (test wall) need a pull-back default; CamSun seeding is cylinder-scale.
+	if _zoom_max_r > 20.0:
+		_radius = clamp_radius_with_bounds(
+			(_zoom_min_r + _zoom_max_r) * 0.35, _zoom_min_r, _zoom_max_r)
+	elif not script_driven:
+		# Seed orbit state from CamSun's authored transform so that first activation
+		# produces no visible jump (AR-DBGCAM-2). Only the private floats are written here —
+		# current and the camera transform are never touched outside _unhandled_input.
+		var cam_sun := get_node_or_null("../CameraRig/CamSun") as Camera3D
+		if cam_sun != null:
+			var pivot := _pivot()
+			var offset := cam_sun.global_position - pivot
+			var raw_r := offset.length()
+			if raw_r > 1e-4:
+				_radius = clamp_radius_with_bounds(raw_r, _zoom_min_r, _zoom_max_r)
+				_pitch  = clamp_pitch(asin(clampf(offset.y / raw_r, -1.0, 1.0)))
+				_yaw    = atan2(offset.x, offset.z)
 
 
 ## Interactive-only entry for M6 ground planting. Automated runners never call this.
@@ -151,7 +161,8 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _zoom_by_notches(notches: float) -> void:
-	_radius = zoom(_radius, notches, spec)
+	_radius = clamp_radius_with_bounds(
+		_radius * pow(_ZOOM_PER_NOTCH, notches), _zoom_min_r, _zoom_max_r)
 
 
 func _notification(what: int) -> void:
@@ -169,19 +180,36 @@ func _pivot() -> Vector3:
 	return Vector3(0.0, spec.height * 0.5, 0.0)
 
 
+## Orbit zoom bounds for a tower/cylinder from TowerSpec (AR-DBGCAM-4).
+static func tower_zoom_bounds(s: TowerSpec) -> Vector2:
+	return Vector2(s.radius_outer + 1.0, (s.height + 2.0 * s.radius_outer) * 1.6)
+
+
+## Orbit zoom bounds for the procedural test wall — same formula shape as the tower
+## path, with half-diagonal of the wall rectangle as the analogous radial extent.
+static func wall_zoom_bounds(s: WallSpec) -> Vector2:
+	var radial_extent := sqrt(s.length * s.length + s.height * s.height) * 0.5
+	return Vector2(s.thickness * 0.5 + 1.0, (s.height + 2.0 * radial_extent) * 1.6)
+
+
+## Clamp radius to explicit bounds. Pure — no side effects, safe for headless tests.
+static func clamp_radius_with_bounds(r: float, min_r: float, max_r: float) -> float:
+	return clampf(r, min_r, max_r)
+
+
 ## Clamp radius to [radius_outer + 1.0, (height + 2·radius_outer)·1.6] (AR-DBGCAM-4).
 ## Pure — no side effects, safe to call from tests headlessly.
 static func clamp_radius(r: float, s: TowerSpec) -> float:
-	var min_r := s.radius_outer + 1.0
-	var max_r := (s.height + 2.0 * s.radius_outer) * 1.6
-	return clampf(r, min_r, max_r)
+	var b := tower_zoom_bounds(s)
+	return clamp_radius_with_bounds(r, b.x, b.y)
 
 
 ## Scale radius by `notches` multiplicative zoom steps, positive being closer, then clamp.
 ## Multiplicative rather than additive so N notches feel the same at 3 m and at 12 m.
 ## Pure — no side effects, safe to call from tests headlessly.
 static func zoom(r: float, notches: float, s: TowerSpec) -> float:
-	return clamp_radius(r * pow(_ZOOM_PER_NOTCH, notches), s)
+	var b := tower_zoom_bounds(s)
+	return clamp_radius_with_bounds(r * pow(_ZOOM_PER_NOTCH, notches), b.x, b.y)
 
 
 ## Clamp pitch to [-5°, +85°] (AR-DBGCAM-4).

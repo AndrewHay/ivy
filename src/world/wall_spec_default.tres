@@ -1,0 +1,10 @@
+[gd_resource type="Resource" script_class="WallSpec" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/world/wall_spec.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+length = 100.0
+height = 20.0
+thickness = 0.35
+brick_physical_size = Vector2(1.8, 0.9)

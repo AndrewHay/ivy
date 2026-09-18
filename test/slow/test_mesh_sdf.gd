@@ -479,7 +479,9 @@ func test_mesh_sdf_source_does_not_reference_tower_sdf() -> void:
 func test_world_mesh_branch_does_not_construct_tower_sdf() -> void:
 	# SD-MESH-15 source scan: mesh scenario path must not construct TowerSdf.
 	var text := FileAccess.get_file_as_string(WORLD_PATH)
-	var mesh_start := text.find("if mesh_scenario != null:")
+	var func_start := text.find("func get_surface_query")
+	assert_gt(func_start, 0, "world.gd must define get_surface_query")
+	var mesh_start := text.find("if mesh_scenario != null:", func_start)
 	assert_gt(mesh_start, 0, "world.gd must have mesh_scenario branch")
 	var else_start := text.find("else:", mesh_start)
 	assert_gt(else_start, mesh_start, "world.gd must have tower else branch")
