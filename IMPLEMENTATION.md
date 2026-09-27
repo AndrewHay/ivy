@@ -259,8 +259,9 @@ a ten-second load stall and a sluggish tick.
 The backend is chosen **once, at load, by the scenario loader (W-089)** and never switched at
 runtime; a scenario is either analytic or mesh, never both, and two backends are never live at once
 (M2.6 non-goal: multiple structures in one scene). This is the whole of the SG-1 guarantee: the
-tower scenario touches no mesh code, so adding `MeshSdf` cannot perturb the 43,870 / 18,390 /
-1288.816543 m canonical run. The `SurfaceQuery` refactor that introduces the seam **must be a pure
+tower scenario touches no mesh code, so adding `MeshSdf` cannot perturb the 41,961 / 17,300 /
+1232.427169 m canonical run (re-baselined 2026-09-27, ivy-c0z — see `DESIGN.md`'s ratification log).
+The `SurfaceQuery` refactor that introduces the seam **must be a pure
 refactor for the analytic path** — same call order, same arithmetic — and SG-1's dual-run exact
 check is the guard that it was. Concretely the seam is `SurfaceQuery.setup()`, whose `sdf` parameter
 is statically typed `TowerSdf` today; widening that type, and the `_sdf` field behind it, is the
@@ -668,7 +669,8 @@ is perfect, the SDF tests pass, and the plant is simply wrong.
 **SG-1 warning, and it generalises.** `LightBake`, `SparseHashField` and `IvyEnvironment` are
 **shared code**: the tower runs through them too. Any change made to accommodate meshes — including
 rule 4 above — must be either provably behaviour-preserving for the analytic path or gated on the
-selected backend, or the canonical 43,870 / 18,390 / 1288.816543 m run moves and SG-1 fails. SG-1 is
+selected backend, or the canonical 41,961 / 17,300 / 1232.427169 m run (re-baselined 2026-09-27,
+ivy-c0z) moves and SG-1 fails. SG-1 is
 not a constraint on `SurfaceQuery` alone; it is a constraint on the whole environment layer, and it
 is the reason a tempting one-line improvement to `_gather_corners` is not free.
 
