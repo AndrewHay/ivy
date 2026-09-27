@@ -491,6 +491,15 @@ func test_world_mesh_branch_does_not_construct_tower_sdf() -> void:
 		"mesh branch must not construct TowerSdf (SD-MESH-15)")
 
 
+## ivy-yqb: since the M6 building picker (7b325e7), main._ready() shows the picker
+## instead of eagerly calling ensure_mesh_scenario_loaded() when an @export mesh_scenario
+## is preset — that eager call only happens via the picker's _load_building()/
+## _bootstrap_simulation() flow, or script_driven=true. A plain add_child_autofree(main)
+## with mesh_scenario preset (default script_driven=false, no picker interaction) now
+## leaves _structure null after one process_frame; the old "before _ready" assumption
+## was invalidated by that refactor, not by an ordering bug. test_scenario_camera.gd
+## (W-090) already adopted the fix below: call ensure_mesh_scenario_loaded() explicitly,
+## matching how the picker flow activates a scenario.
 func test_main_mesh_scenario_active_before_surface_query() -> void:
 	var scenario: StructureScenario = load(
 		"res://assets/structures/scenarios/square.tres"
@@ -500,7 +509,9 @@ func test_main_mesh_scenario_active_before_surface_query() -> void:
 	add_child_autofree(main)
 	await get_tree().process_frame
 	var world: Node = main.get_node("World")
-	assert_not_null(world.get_node_or_null("Structure"), "StructureBody must exist before _ready surface query")
+	world.call("ensure_mesh_scenario_loaded")
+	await get_tree().process_frame
+	assert_not_null(world.get_node_or_null("Structure"), "StructureBody must exist before surface query")
 	var surface: SurfaceQuery = world.call("get_surface_query", IvyParams.new())
 	assert_not_null(surface, "surface query should build when provenance matches")
 	assert_eq(surface.backend_tag(), "MeshSdf", "square scenario must use MeshSdf backend")
