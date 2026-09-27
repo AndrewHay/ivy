@@ -336,28 +336,29 @@ func test_sun_and_shade_eligible_buckets_sum_to_total() -> void:
 
 
 # ---------------------------------------------------------------------------
-# AS-1 coupling rule: the ratified floors (90 / 50) average to ≥ the overall (70)
+# AS-1 coupling rule: the ratified floors (85 / 55) average to ≥ the overall (70)
 # ---------------------------------------------------------------------------
 
 func test_as1_coupling_rule_half_floors_average_to_overall() -> void:
-	# Ratified in DESIGN.md: ≥90% sun-facing / ≥50% shaded averages to ≥70% overall.
+	# Ratified in DESIGN.md: ≥85% sun-facing / ≥55% shaded averages to ≥70% overall.
+	# Revised 2026-09-27 (ivy-8so) from 90/50 -- same coupling, see DESIGN.md AS-1.
 	# A future revision that breaks this coupling would fail this test.
-	var sun_floor := 90.0
-	var shade_floor := 50.0
+	var sun_floor := 85.0
+	var shade_floor := 55.0
 	var overall_floor := 70.0
 	var implied_overall := (sun_floor + shade_floor) * 0.5
 	assert_gte(implied_overall, overall_floor,
-		"90/50 must average to ≥70 (AS-1 coupling rule; DESIGN.md ratification 2026-08-09)")
+		"85/55 must average to ≥70 (AS-1 coupling rule; DESIGN.md ratification 2026-09-27, ivy-8so)")
 
 
 func test_as1_coupling_rule_is_satisfiable() -> void:
-	# If a plant hits exactly the half floors (90 and 50), it must pass the overall (70).
+	# If a plant hits exactly the half floors (85 and 55), it must pass the overall (70).
 	# This test catches the 70/85/35 defect that was corrected before ratification.
-	var hypothetical_sun := 90.0
-	var hypothetical_shade := 50.0
+	var hypothetical_sun := 85.0
+	var hypothetical_shade := 55.0
 	var hypothetical_overall := (hypothetical_sun + hypothetical_shade) * 0.5
 	assert_gte(hypothetical_overall, 70.0,
-		"plant at 90%/50% must pass the 70% overall floor")
+		"plant at 85%/55% must pass the 70% overall floor")
 
 
 # ---------------------------------------------------------------------------

@@ -239,8 +239,8 @@ static func _dump_metrics(main: Node, line: String, step: int) -> int:
 	var dm_day: float = dm_clock.game_day if dm_clock != null else 0.0
 	print("[ui-script]   DUMP_METRICS day=%.1f seed_az=%.1f" % [dm_day, dm_seed_az])
 	print("[ui-script]   COVERAGE overall=%.2f%% (target >=70%%)" % [dm_result.get("overall_pct", 0.0)])
-	print("[ui-script]   COVERAGE sun_half=%.2f%% (target >=90%%)" % [dm_result.get("sun_half_pct", 0.0)])
-	print("[ui-script]   COVERAGE shade_half=%.6f%% (target >=50%%)" % [dm_result.get("shade_half_pct", 0.0)])
+	print("[ui-script]   COVERAGE sun_half=%.2f%% (target >=85%%)" % [dm_result.get("sun_half_pct", 0.0)])
+	print("[ui-script]   COVERAGE shade_half=%.6f%% (target >=55%%)" % [dm_result.get("shade_half_pct", 0.0)])
 	print("[ui-script]   LIP_REACHED=%s" % [str(dm_result.get("lip_reached", false))])
 	print("[ui-script]   AS2 asymmetry=%.2f%%" % [dm_result.get("stem_asymmetry_pct", 0.0)])
 	var dm_total_len: float = dm_plant.total_length if dm_plant != null else 0.0
