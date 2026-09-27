@@ -43,8 +43,9 @@ func _run_wall_flow(outdir: String) -> PackedStringArray:
 	await _capture(outdir.path_join("picker.png"))
 	print("[qa-wall] picker shows Test wall")
 
-	await _select_building(main, "wall")
-	# 100 m wall light-field bake can exceed 5 min on first run (review ivy-3hg.13).
+	await _select_building(main, "test_wall")
+	# Wall light-field bake is uncached on procedural buildings, so the first run stalls
+	# here for as long as the shell takes to bake (review ivy-3hg.13).
 	var load_ok := await _wait_for_free_plant(main, 600000)
 	if not load_ok:
 		failures.append("wall load timed out or free-plant session failed")

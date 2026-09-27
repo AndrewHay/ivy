@@ -79,7 +79,6 @@ const _TIPS: Dictionary = {
 	"branch_scale_floor": "Minimum branch rate when at cap. Keeps slow branching/retirement churn instead of freezing solid.",
 	"stall_rate": "Daily elongation below this counts as 'stalled'. Higher = more tips go dormant in slow shade.",
 	"stall_days": "Consecutive stall days before a tip sleeps. Fewer = tips give up faster in poor light.",
-	"tip_cap_m1": "M1-era tip cap (not wired). Shown for reference only; changing has no effect yet.",
 	"silhouette_height_frac": "Height fraction where top tips are protected from retirement. Keeps a crown on tall towers.",
 	"silhouette_min_tips": "Minimum tips allowed above silhouette before retirement can cull them. Preserves lip/silhouette break.",
 

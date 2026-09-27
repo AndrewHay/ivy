@@ -30,6 +30,17 @@ Positional / flag arguments (after the ``--`` separator Blender requires):
                falsifiability check (that panel then reads UNSEALED).
   [structure]  One or more structure names to build (``square`` / ``tower``);
                default is every structure in ``structure_configs.json``.
+  --emit-blend Write ``<out dir>/{name}.blend`` after each structure build
+               (one structure per invocation recommended for canonical blends).
+  --draft      With ``--emit-blend``, write blends under ``<out dir>/_draft/``
+               instead of overwriting canonical ``<out dir>/{name}.blend``.
+  --force      With ``--emit-blend`` (without ``--draft``), allow overwriting
+               an existing canonical ``<out dir>/{name}.blend``.
+  --export-from-blend <path>  Export hero/sim GLBs from an existing blend
+               (requires trailing structure name; ``<out dir>`` is argv[1]).
+  --rebuild-sim-from-blend <path>  Rebuild ``Sim_{name}`` wall solids from
+               ``Hero_{name}`` transforms, regenerate sim extras from JSON,
+               save the blend (requires trailing structure name).
 
 After building, re-bake the SDFs and re-measure the Director gates:
   python3 tools/bake_mesh_sdf.py assets/structures/square_sim.glb assets/structures/square_sim.sdf
@@ -45,6 +56,7 @@ sim build never runs bmesh bridging after Cycles renders.
 import json
 import math
 import os
+import re
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -60,6 +72,11 @@ TARGET_T = 0.45
 structures = ["square", "tower"]
 NO_RENDER = False
 OMIT_SEAL = None
+EMIT_BLEND = False
+DRAFT = False
+FORCE = False
+EXPORT_BLEND = None
+REBUILD_BLEND = None
 if len(argv) > 2:
     rest = []
     i = 0
@@ -67,6 +84,18 @@ if len(argv) > 2:
         a = argv[2 + i]
         if a == "--no-render":
             NO_RENDER = True
+        elif a == "--emit-blend":
+            EMIT_BLEND = True
+        elif a == "--draft":
+            DRAFT = True
+        elif a == "--force":
+            FORCE = True
+        elif a == "--export-from-blend" and i + 1 < len(argv[2:]):
+            EXPORT_BLEND = argv[3 + i]
+            i += 1
+        elif a == "--rebuild-sim-from-blend" and i + 1 < len(argv[2:]):
+            REBUILD_BLEND = argv[3 + i]
+            i += 1
         elif a == "--omit-seal" and i + 1 < len(argv[2:]):
             OMIT_SEAL = argv[3 + i]
             i += 1
@@ -123,6 +152,8 @@ _OPTIONAL_KEYS = {
     "hero_end_overlap": (bool,),
     "corner_chamfer": (int, float),
     "open_apertures": (list,),
+    "merge_straight_runs": (bool,),
+    "hero_corner_pieces": (bool,),
 }
 
 
@@ -393,6 +424,80 @@ def side_vectors(yaw_deg):
     return Vector((math.sin(yr), -math.cos(yr), 0.0)), Vector((math.cos(yr), math.sin(yr), 0.0))
 
 
+def face_tangential_span(d, cfg):
+    """Tangential exterior wall length for merged straight placement.
+
+    When hero decorative corner kit pieces are omitted, walls run corner-to-
+    corner on the exterior ring (perpendicular runs overlap at corners).
+    Otherwise span the face between sim corner-column inner faces.
+    """
+    if cfg.get("merge_straight_runs", False) and not cfg.get("hero_corner_pieces", True):
+        return 2.0 * d["wall_exterior"]
+    return 2.0 * d["corner_xy"] - d["corner_size"]
+
+
+def resolve_wall_placements(cfg, d, names, end_overlap=False):
+    """Map recipe wall names to tangential centre offsets and X scales.
+
+    When ``merge_straight_runs`` is enabled, solid faces become one scaled
+    straight piece; mixed faces keep the aperture kit piece at its bay offset
+    and scale each flanking straight to the corner-to-aperture span.
+    """
+    offsets = cfg["module_offsets"]
+    if len(names) != len(offsets):
+        raise ValueError(
+            f"structure '{cfg['name']}': side has {len(names)} wall pieces "
+            f"but 'module_offsets' defines {len(offsets)} bays"
+        )
+
+    if not cfg.get("merge_straight_runs", False):
+        placements = []
+        ext_scale = (MODULE + END_OVERLAP) / MODULE
+        for i, nm in enumerate(names):
+            off = offsets[i]
+            sx = 1.0
+            if end_overlap and "Straight" in nm and i == 0:
+                sx = ext_scale
+                off -= END_OVERLAP / 2.0
+            elif end_overlap and "Straight" in nm and i == len(names) - 1:
+                sx = ext_scale
+                off += END_OVERLAP / 2.0
+            placements.append((nm, off, sx))
+        return placements
+
+    span = face_tangential_span(d, cfg)
+    half_span = span / 2.0
+
+    if all("Straight" in n for n in names):
+        return [(names[0], 0.0, span / MODULE)]
+
+    placements = []
+    for i, nm in enumerate(names):
+        if "Door" in nm or "Window" in nm:
+            placements.append((nm, offsets[i], 1.0))
+        elif "Straight" in nm:
+            if i == 0:
+                left = -half_span
+                right = offsets[i + 1] - MODULE / 2.0
+            elif i == len(names) - 1:
+                left = offsets[i - 1] + MODULE / 2.0
+                right = half_span
+            else:
+                left = offsets[i - 1] + MODULE / 2.0
+                right = offsets[i + 1] - MODULE / 2.0
+            width = right - left
+            if width <= 1e-6:
+                raise ValueError(
+                    f"structure '{cfg['name']}': straight flank at index {i} has "
+                    f"non-positive width {width:.4f} m — increase 'half' or reduce bays"
+                )
+            centre = (left + right) / 2.0
+            placements.append((nm, centre, width / MODULE))
+        else:
+            placements.append((nm, offsets[i], 1.0))
+    return placements
+
+
 def apply_transform(obj):
     bpy.ops.object.select_all(action="DESELECT")
     obj.select_set(True)
@@ -540,24 +645,15 @@ def place_wall_run(names, yaw_deg, collection, data_fn, prefix, cfg, d, z_base=0
     yr = math.radians(yaw_deg)
     half = d["half"]
     placed = []
-    offsets = cfg["module_offsets"]
-    ext_scale = (MODULE + END_OVERLAP) / MODULE
-    for i, nm in enumerate(names):
+    placements = resolve_wall_placements(cfg, d, names, end_overlap=end_overlap)
+    for i, (nm, tang_off, sx) in enumerate(placements):
         if skip_wall is not None and skip_wall(yaw_deg, i, nm):
             continue
         obj = bpy.data.objects.new(f"{prefix}{nm}_{int(yaw_deg)}_{i}", data_fn(nm).copy())
         collection.objects.link(obj)
         obj.rotation_euler = (0.0, 0.0, yr)
-        loc = n * (half - EXT_OFFSET) + tang * offsets[i]
+        loc = n * (half - EXT_OFFSET) + tang * tang_off
         loc.z = z_base
-        sx = 1.0
-        straight = "Straight" in nm
-        if end_overlap and straight and i == 0:
-            sx = ext_scale
-            loc -= tang * (END_OVERLAP / 2.0)
-        elif end_overlap and straight and i == len(names) - 1:
-            sx = ext_scale
-            loc += tang * (END_OVERLAP / 2.0)
         if sx != 1.0:
             obj.scale = (sx, 1.0, 1.0)
         obj.location = loc + world_offset
@@ -847,6 +943,18 @@ def piece_y_min(name):
     return _piece_centre[key]
 
 
+def piece_axis_extent(name, axis):
+    """Native kit bounds on local x/y/z before placement (axis: 0=x, 1=y, 2=z)."""
+    lo_key = f"kit:{name}:a{axis}:lo"
+    hi_key = f"kit:{name}:a{axis}:hi"
+    if lo_key not in _piece_centre:
+        data = hero_data(name)
+        coords = [v.co[axis] for v in data.vertices]
+        _piece_centre[lo_key] = min(coords)
+        _piece_centre[hi_key] = max(coords)
+    return _piece_centre[lo_key], _piece_centre[hi_key]
+
+
 def place_wall_local_box(ap, hero_col, prefix, world_offset, suffix, local_center, local_scale, material):
     """Axis-aligned box in wall-local coords (x along wall, y into room, z up)."""
     root = hero_col.name.split("_")[0]
@@ -901,7 +1009,6 @@ def place_hero_open_reveal(ap, hero_col, prefix, world_offset, d, floor_mat, int
 
 def place_hero_seals(ap, hero_col, prefix, world_offset, glass_mat, wood_mat=None, open_ids=None, d=None):
     open_ids = open_ids or set()
-    oc = opening_center_local(ap)
     parts = []
     if ap["kind"] == "door":
         if ap["id"] in open_ids and d is not None:
@@ -909,14 +1016,29 @@ def place_hero_seals(ap, hero_col, prefix, world_offset, glass_mat, wood_mat=Non
                 ap, hero_col, prefix, world_offset, d, _interior_floor, _interior,
             )
         elif ap["id"] not in open_ids:
+            spec = ap["spec"]
+            open_w = spec["x1"] - spec["x0"]
+            open_h = spec["z1"] - spec["z0"]
+            dx0, dx1 = piece_axis_extent("Door_2_Round", 0)
+            dz0, dz1 = piece_axis_extent("Door_2_Round", 2)
+            door_w = dx1 - dx0
+            door_h = dz1 - dz0
             dc = piece_centre("Door_2_Round")
+            inset = 0.02
             door_off = Vector((
-                oc.x - dc.x,
+                (spec["x0"] + spec["x1"]) / 2.0 - dc.x,
                 -piece_y_min("Door_2_Round") - DOOR_HERO_OUTSET,
-                oc.z - dc.z,
+                spec["z0"] - dz0 + inset,
             ))
-            parts.append(place_kit_seal(ap, hero_col, prefix, world_offset,
-                                        "Door_2_Round", "door", door_off, wood_mat))
+            door = place_kit_seal(ap, hero_col, prefix, world_offset,
+                                    "Door_2_Round", "door", door_off, wood_mat)
+            if door_w > 1e-6 and door_h > 1e-6:
+                door.scale = (
+                    (open_w - 2.0 * inset) / door_w,
+                    1.0,
+                    (open_h - 2.0 * inset) / door_h,
+                )
+            parts.append(door)
     else:
         spec = ap["spec"]
         width = spec["x1"] - spec["x0"]
@@ -1011,12 +1133,13 @@ def assemble_hero(cfg, hero_col, hero_roof_mat, glass_mat, world_offset):
                 names, yaw, hero_col, hero_data, prefix, cfg, d, z_base=z_base,
                 end_overlap=cfg.get("hero_end_overlap", False), world_offset=world_offset,
             )
-    for si in range(cfg["storeys"]):
-        z_base = si * WALL_H
-        for yaw in (0.0, 90.0, 180.0, 270.0):
-            parts.append(place_corner_trim(yaw, hero_col, d, prefix, z_base, world_offset))
-        for i, xy in enumerate(d["corner_centers"]):
-            parts.append(hero_corner_block(f"{prefix}CornerBlock_{si}_{i}", xy, hero_col, d, z_base, world_offset))
+    if cfg.get("hero_corner_pieces", True):
+        for si in range(cfg["storeys"]):
+            z_base = si * WALL_H
+            for yaw in (0.0, 90.0, 180.0, 270.0):
+                parts.append(place_corner_trim(yaw, hero_col, d, prefix, z_base, world_offset))
+            for i, xy in enumerate(d["corner_centers"]):
+                parts.append(hero_corner_block(f"{prefix}CornerBlock_{si}_{i}", xy, hero_col, d, z_base, world_offset))
     total_h = d["total_h"]
     add_roof_cap(parts, prefix, cfg, d, hero_col, hero_roof_mat, world_offset)
     if cfg.get("intermediate_floor"):
@@ -1030,37 +1153,11 @@ def assemble_hero(cfg, hero_col, hero_roof_mat, glass_mat, world_offset):
 
 
 def assemble_sim(cfg, sim_col, clay, world_offset, omit_seal=None):
-    d = cfg_derived(cfg)
     name = cfg["name"]
-    prefix = f"{name}_sim_"
     print(f"\n[{name}] assembling simulation mesh", flush=True)
-    parts = []
-    for si, sides in enumerate(cfg["storey_sides"]):
-        z_base = si * WALL_H
-        for yaw, names in sides:
-            parts += place_wall_run(
-                names, yaw, sim_col, solid_data, prefix, cfg, d, z_base=z_base,
-                end_overlap=False, world_offset=world_offset,
-            )
-    for obj in parts:
-        assign_material(obj, clay)
-    chamfer = cfg.get("corner_chamfer", 0.0)
-    for i, xy in enumerate(d["corner_centers"]):
-        parts.append(corner_column(f"{prefix}CornerColumn_{i}", xy, sim_col, d, 0.0, d["total_h"], clay, world_offset, chamfer=chamfer))
-    parts.append(solid_box(f"{prefix}FloorSlab", -CAP, 0.05, d["envelope_half"], sim_col, clay, world_offset))
-    if cfg.get("intermediate_floor"):
-        parts.append(solid_box(f"{prefix}MidFloorSlab", WALL_H - 0.10, WALL_H + 0.02,
-                               d["interior_half"], sim_col, clay, world_offset))
-    add_roof_cap(parts, prefix, cfg, d, sim_col, clay, world_offset)
-    open_ids = set(cfg.get("open_apertures", []))
-    apertures = enumerate_apertures(cfg, d)
-    for ap in apertures:
-        omit = ap["id"] == omit_seal or ap["id"] in open_ids
-        panel = place_sim_panel(ap, sim_col, prefix, world_offset, clay, omit=omit)
-        if panel is not None:
-            parts.append(panel)
-        # Open apertures must stay ray-permeable for light bake (W-096); interior brick
-        # faces come from the wall mesh collision, not a quad across the hole.
+    parts, d = assemble_sim_walls(cfg, sim_col, clay, world_offset)
+    extra, apertures = assemble_sim_extras(cfg, sim_col, clay, world_offset, omit_seal=omit_seal)
+    parts += extra
     return parts, d, apertures
 
 
@@ -1081,7 +1178,6 @@ def mesh_stats(objects, label):
     mins = Vector((1e9, 1e9, 1e9))
     maxs = Vector((-1e9, -1e9, -1e9))
     for obj in objects:
-        apply_transform(obj)
         for corner in obj.bound_box:
             wc = obj.matrix_world @ Vector(corner)
             mins = Vector((min(mins[i], wc[i]) for i in range(3)))
@@ -1379,72 +1475,251 @@ def verify_structure(name, sim_parts, hero_parts, d, wo, cfg, apertures):
     mesh_stats(list(sim_parts), f"{name} sim")
 
 
+def restore_export_hierarchy(objects, original_parents, empty):
+    for obj in objects:
+        obj.parent = original_parents[obj]
+    bpy.data.objects.remove(empty, do_unlink=True)
+
+
+def _hero_has_baked_geometry(obj):
+    """True when wall geometry lives in mesh local space with an identity object transform."""
+    if obj.type != "MESH" or not obj.data.vertices:
+        return False
+    loc, rot, scale = obj.matrix_world.decompose()
+    if loc.length > 1e-4 or abs(rot.angle) > 1e-4:
+        return False
+    if (Vector(scale) - Vector((1.0, 1.0, 1.0))).length > 1e-4:
+        return False
+    centroid = sum((v.co for v in obj.data.vertices), Vector()) / len(obj.data.vertices)
+    return centroid.length > 0.25
+
+
+def wall_storey_z_base(cfg, yaw_deg):
+    for si, sides in enumerate(cfg["storey_sides"]):
+        for side_yaw, _names in sides:
+            if float(side_yaw) == float(yaw_deg):
+                return si * WALL_H
+    return 0.0
+
+
+def wall_placement_matrix(cfg, d, world_offset, yaw_deg, idx, z_base=0.0):
+    """World matrix for a sim wall piece matching ``place_wall_run`` placement."""
+    yaw_deg = float(yaw_deg)
+    idx = int(idx)
+    half = d["half"]
+    n, tang = side_vectors(yaw_deg)
+    yr = math.radians(yaw_deg)
+    for si, sides in enumerate(cfg["storey_sides"]):
+        storey_z = si * WALL_H
+        for side_yaw, names in sides:
+            if float(side_yaw) != yaw_deg:
+                continue
+            placements = resolve_wall_placements(cfg, d, names)
+            if idx < 0 or idx >= len(placements):
+                raise ValueError(
+                    f"structure '{cfg['name']}': wall index {idx} out of range for yaw {yaw_deg}"
+                )
+            _nm, tang_off, sx = placements[idx]
+            loc = n * (half - EXT_OFFSET) + tang * tang_off
+            loc.z = z_base + storey_z
+            mat = Matrix.Translation(loc + world_offset) @ Matrix.Rotation(yr, 4, "Z")
+            if sx != 1.0:
+                mat @= Matrix.Scale(sx, 4, Vector((1.0, 0.0, 0.0)))
+            return mat
+    raise ValueError(f"structure '{cfg['name']}': no storey side with yaw {yaw_deg}")
+
+
+def hero_wall_sim_matrix(hero_obj, cfg, d, world_offset, yaw_deg, idx):
+    mw = hero_obj.matrix_world.copy()
+    if not _hero_has_baked_geometry(hero_obj):
+        return mw
+    z_base = wall_storey_z_base(cfg, yaw_deg)
+    return wall_placement_matrix(cfg, d, world_offset, yaw_deg, idx, z_base=z_base)
+
+
 def export_collection(objects, path, root_name):
     bpy.ops.object.select_all(action="DESELECT")
-    for o in objects:
-        o.select_set(True)
+    original_parents = {obj: obj.parent for obj in objects}
+    mesh_backups = {}
+    matrix_backups = {}
+    for obj in objects:
+        matrix_backups[obj] = obj.matrix_world.copy()
+        if obj.type == "MESH":
+            mesh_backups[obj] = obj.data.copy()
     empty = bpy.data.objects.new(root_name, None)
     bpy.context.collection.objects.link(empty)
-    for o in objects:
-        o.parent = empty
-    empty.select_set(True)
-    bpy.context.view_layer.objects.active = empty
-    bpy.ops.export_scene.gltf(filepath=path, export_format="GLB", use_selection=True, export_apply=True)
-    print(f"exported {path}")
+    try:
+        for o in objects:
+            o.select_set(True)
+            o.parent = empty
+        empty.select_set(True)
+        bpy.context.view_layer.objects.active = empty
+        bpy.ops.export_scene.gltf(filepath=path, export_format="GLB", use_selection=True, export_apply=True)
+        print(f"exported {path}")
+    finally:
+        restore_export_hierarchy(objects, original_parents, empty)
+        for obj in objects:
+            obj.matrix_world = matrix_backups[obj]
+            if obj.type == "MESH" and obj in mesh_backups:
+                baked_mesh = obj.data
+                obj.data = mesh_backups[obj]
+                if baked_mesh != mesh_backups[obj] and baked_mesh.users == 0:
+                    bpy.data.meshes.remove(baked_mesh)
+        bpy.ops.object.select_all(action="DESELECT")
 
 
-def hide_collection(col, hide):
-    for obj in list(col.all_objects):
-        obj.hide_render = hide
+def blend_out_path(name):
+    base = os.path.join(OUT_DIR, "_draft") if DRAFT else OUT_DIR
+    os.makedirs(base, exist_ok=True)
+    return os.path.join(base, f"{name}.blend")
 
 
-# ---------------------------------------------------------------- main
-hero_root = bpy.data.collections.new("Hero")
-sim_root = bpy.data.collections.new("Simulation")
-bpy.context.scene.collection.children.link(hero_root)
-bpy.context.scene.collection.children.link(sim_root)
-
-_hero_roof = make_hero_roof_material(Path(__file__).resolve().parent.parent)
-
-_clay = bpy.data.materials.new("SimClay")
-_clay.use_nodes = True
-_bsdf = _clay.node_tree.nodes["Principled BSDF"]
-_bsdf.inputs["Base Color"].default_value = (0.62, 0.58, 0.52, 1.0)
-_bsdf.inputs["Roughness"].default_value = 0.92
-_bsdf.inputs["Specular IOR Level"].default_value = 0.15
-
-_glass = bpy.data.materials.new("HeroGlass")
-_glass.use_nodes = True
-_gbsdf = _glass.node_tree.nodes["Principled BSDF"]
-_gbsdf.inputs["Base Color"].default_value = (0.72, 0.82, 0.88, 1.0)
-_gbsdf.inputs["Roughness"].default_value = 0.05
-_gbsdf.inputs["Specular IOR Level"].default_value = 0.8
-_gbsdf.inputs["Transmission Weight"].default_value = 0.35
-
-_wood = bpy.data.materials.new("HeroWood")
-_wood.use_nodes = True
-_wbsdf = _wood.node_tree.nodes["Principled BSDF"]
-_wbsdf.inputs["Base Color"].default_value = (0.42, 0.28, 0.18, 1.0)
-_wbsdf.inputs["Roughness"].default_value = 0.75
-_wbsdf.inputs["Specular IOR Level"].default_value = 0.2
-
-_interior = bpy.data.materials.new("HeroInterior")
-_interior.use_nodes = True
-_ib = _interior.node_tree.nodes["Principled BSDF"]
-_ib.inputs["Base Color"].default_value = (0.18, 0.16, 0.14, 1.0)
-_ib.inputs["Roughness"].default_value = 0.92
-
-_interior_floor = bpy.data.materials.new("HeroInteriorFloor")
-_interior_floor.use_nodes = True
-_ifb = _interior_floor.node_tree.nodes["Principled BSDF"]
-_ifb.inputs["Base Color"].default_value = (0.11, 0.10, 0.09, 1.0)
-_ifb.inputs["Roughness"].default_value = 0.95
+def canonical_blend_stomp_error(path):
+    if DRAFT or FORCE:
+        return None
+    if os.path.isfile(path):
+        return (
+            f"refusing to overwrite existing canonical blend: {path} "
+            f"(use --force or --draft)"
+        )
+    return None
 
 
-def hide_roof_caps(parts, hide):
+def orphan_export_empty_names(name):
+    return {f"Hero_{name}", f"Sim_{name}"}
+
+
+def clear_collection_objects(col):
+    for obj in list(col.objects):
+        bpy.data.objects.remove(obj, do_unlink=True)
+
+
+def collection_mesh_objects(col):
+    return [obj for obj in col.all_objects if obj.type == "MESH"]
+
+
+def sync_sim_walls_from_hero(name, hero_col, sim_col, clay, cfg, d, world_offset):
+    """Place sim wall solids at the same world transforms as hero wall pieces."""
+    hero_prefix = f"{name}_hero_"
+    parts = []
+    wall_re = re.compile(r"^Wall_UnevenBrick_.+_(\d+)_(\d+)$")
+    for obj in hero_col.all_objects:
+        if obj.type != "MESH" or not obj.name.startswith(hero_prefix):
+            continue
+        suffix = obj.name[len(hero_prefix):]
+        if not suffix.startswith("Wall_UnevenBrick_"):
+            continue
+        m = wall_re.match(suffix)
+        if m is None:
+            print(f"  skip hero wall with unexpected name: {obj.name}", flush=True)
+            continue
+        yaw_s, idx_s = m.group(1), m.group(2)
+        kit_nm = suffix[: -(len(yaw_s) + len(idx_s) + 2)]
+        sim_name = f"{name}_sim_{kit_nm}_{yaw_s}_{idx_s}"
+        sim_obj = bpy.data.objects.new(sim_name, solid_data(kit_nm).copy())
+        sim_col.objects.link(sim_obj)
+        sim_obj.matrix_world = hero_wall_sim_matrix(
+            obj, cfg, d, world_offset, float(yaw_s), int(idx_s),
+        )
+        assign_material(sim_obj, clay)
+        parts.append(sim_obj)
+    print(f"  synced {len(parts)} sim wall pieces from hero", flush=True)
+    return parts
+
+
+def assemble_sim_walls(cfg, sim_col, clay, world_offset):
+    d = cfg_derived(cfg)
+    name = cfg["name"]
+    prefix = f"{name}_sim_"
+    parts = []
+    for si, sides in enumerate(cfg["storey_sides"]):
+        z_base = si * WALL_H
+        for yaw, names in sides:
+            parts += place_wall_run(
+                names, yaw, sim_col, solid_data, prefix, cfg, d, z_base=z_base,
+                end_overlap=False, world_offset=world_offset,
+            )
     for obj in parts:
-        if "RoofCap" in obj.name or "RoofCone" in obj.name:
-            obj.hide_render = hide
+        assign_material(obj, clay)
+    return parts, d
+
+
+def assemble_sim_extras(cfg, sim_col, clay, world_offset, omit_seal=None):
+    d = cfg_derived(cfg)
+    name = cfg["name"]
+    prefix = f"{name}_sim_"
+    parts = []
+    chamfer = cfg.get("corner_chamfer", 0.0)
+    for i, xy in enumerate(d["corner_centers"]):
+        parts.append(corner_column(
+            f"{prefix}CornerColumn_{i}", xy, sim_col, d, 0.0, d["total_h"], clay, world_offset, chamfer=chamfer,
+        ))
+    parts.append(solid_box(f"{prefix}FloorSlab", -CAP, 0.05, d["envelope_half"], sim_col, clay, world_offset))
+    if cfg.get("intermediate_floor"):
+        parts.append(solid_box(
+            f"{prefix}MidFloorSlab", WALL_H - 0.10, WALL_H + 0.02,
+            d["interior_half"], sim_col, clay, world_offset,
+        ))
+    add_roof_cap(parts, prefix, cfg, d, sim_col, clay, world_offset)
+    open_ids = set(cfg.get("open_apertures", []))
+    apertures = enumerate_apertures(cfg, d)
+    for ap in apertures:
+        omit = ap["id"] == omit_seal or ap["id"] in open_ids
+        panel = place_sim_panel(ap, sim_col, prefix, world_offset, clay, omit=omit)
+        if panel is not None:
+            parts.append(panel)
+    return parts, apertures
+
+
+def sync_sim_roof_from_hero(name, hero_col, sim_parts):
+    """Match sim roof piece to hero roof after owner placement edits."""
+    hero_prefix = f"{name}_hero_"
+    sim_prefix = f"{name}_sim_"
+    hero_roof = None
+    roof_suffix = None
+    for obj in hero_col.all_objects:
+        if obj.type != "MESH" or not obj.name.startswith(hero_prefix):
+            continue
+        suffix = obj.name[len(hero_prefix):]
+        if suffix in ("RoofCap", "RoofCone"):
+            hero_roof = obj
+            roof_suffix = suffix
+            break
+    if hero_roof is None:
+        return
+    target = f"{sim_prefix}{roof_suffix}"
+    for sim_obj in sim_parts:
+        if sim_obj.name == target:
+            sim_obj.matrix_world = hero_roof.matrix_world.copy()
+            return
+
+
+def rebuild_sim_from_hero(name, hero_col, sim_col, cfg, clay, world_offset, omit_seal=None):
+    print(f"\n[{name}] rebuilding simulation mesh from hero transforms", flush=True)
+    clear_collection_objects(sim_col)
+    d = cfg_derived(cfg)
+    parts = sync_sim_walls_from_hero(name, hero_col, sim_col, clay, cfg, d, world_offset)
+    extra, apertures = assemble_sim_extras(cfg, sim_col, clay, world_offset, omit_seal=omit_seal)
+    parts += extra
+    sync_sim_roof_from_hero(name, hero_col, parts)
+    return parts, d, apertures
+
+
+def export_structure_glbs(name, hero_col, sim_col, out_dir):
+    hero_parts = collection_mesh_objects(hero_col)
+    sim_parts = collection_mesh_objects(sim_col)
+    export_collection(hero_parts, os.path.join(out_dir, f"{name}_hero.glb"), f"Hero_{name}")
+    export_collection(sim_parts, os.path.join(out_dir, f"{name}_sim.glb"), f"Sim_{name}")
+
+
+def save_structure_blend(name):
+    path = blend_out_path(name)
+    err = canonical_blend_stomp_error(path)
+    if err:
+        raise SystemExit(err)
+    bpy.ops.wm.save_as_mainfile(filepath=path)
+    print(f"saved blend {path}", flush=True)
+    return path
 
 
 def kit_piece_names(cfg):
@@ -1455,104 +1730,225 @@ def kit_piece_names(cfg):
     return names
 
 
-built = {}
-for sname in structures:
-    if sname not in CONFIGS:
-        continue
-    cfg = CONFIGS[sname]
+def hide_roof_caps(parts, hide):
+    for obj in parts:
+        if "RoofCap" in obj.name or "RoofCone" in obj.name:
+            obj.hide_render = hide
+
+
+def run_export_from_blend(blend_path, structure_name):
+    if structure_name not in CONFIGS:
+        raise SystemExit(f"unknown structure '{structure_name}'")
+    bpy.ops.wm.open_mainfile(filepath=blend_path)
+    hero_col = bpy.data.collections.get(f"Hero_{structure_name}")
+    sim_col = bpy.data.collections.get(f"Sim_{structure_name}")
+    if hero_col is None or sim_col is None:
+        raise SystemExit(f"missing Hero_{structure_name} or Sim_{structure_name} in {blend_path}")
+    export_structure_glbs(structure_name, hero_col, sim_col, OUT_DIR)
+
+
+def run_rebuild_sim_from_blend(blend_path, structure_name):
+    if structure_name not in CONFIGS:
+        raise SystemExit(f"unknown structure '{structure_name}'")
+    cfg = CONFIGS[structure_name]
     wo = cfg["scene_offset"]
-    hcol = bpy.data.collections.new(f"Hero_{sname}")
-    scol = bpy.data.collections.new(f"Sim_{sname}")
-    hero_root.children.link(hcol)
-    sim_root.children.link(scol)
-    built[sname] = {"wo": wo, "cfg": cfg, "hero_col": hcol, "sim_col": scol, "d": cfg_derived(cfg)}
+    bpy.ops.wm.open_mainfile(filepath=blend_path)
+    hero_col = bpy.data.collections.get(f"Hero_{structure_name}")
+    sim_col = bpy.data.collections.get(f"Sim_{structure_name}")
+    if hero_col is None or sim_col is None:
+        raise SystemExit(f"missing Hero_{structure_name} or Sim_{structure_name} in {blend_path}")
+    needed = kit_piece_names(cfg)
+    print(f"\npre-conditioning {len(needed)} kit pieces at {TARGET_T:.2f} m", flush=True)
+    for nm in sorted(needed):
+        hero_data(nm)
+        if nm not in HERO_SEAL_PIECES and nm not in HERO_CORNER_PIECES:
+            solid_data(nm)
+    _init_materials()
+    hero_parts = collection_mesh_objects(hero_col)
+    sim_parts, d, apertures = rebuild_sim_from_hero(
+        structure_name, hero_col, sim_col, cfg, _clay, wo, omit_seal=OMIT_SEAL,
+    )
+    verify_structure(structure_name, sim_parts, hero_parts, d, wo, cfg, apertures)
+    export_structure_glbs(structure_name, hero_col, sim_col, OUT_DIR)
+    bpy.ops.wm.save_mainfile(filepath=blend_path)
+    print(f"updated blend {blend_path}", flush=True)
 
-needed = set()
-for sname in structures:
-    if sname in CONFIGS:
-        needed |= kit_piece_names(CONFIGS[sname])
-print(f"\npre-conditioning {len(needed)} kit pieces at {TARGET_T:.2f} m", flush=True)
-for nm in sorted(needed):
-    hero_data(nm)
-    if nm not in HERO_SEAL_PIECES and nm not in HERO_CORNER_PIECES:
-        solid_data(nm)
 
-all_apertures = []
-for sname in structures:
-    if sname not in built:
-        continue
-    hp, d, aps = assemble_hero(built[sname]["cfg"], built[sname]["hero_col"], _hero_roof, _glass, built[sname]["wo"])
-    built[sname]["hero"] = hp
-    built[sname]["d"] = d
-    built[sname]["apertures"] = aps
-    all_apertures += aps
+def hide_collection(col, hide):
+    for obj in list(col.all_objects):
+        obj.hide_render = hide
 
-for sname in structures:
-    if sname not in built:
-        continue
-    sp, d, aps = assemble_sim(built[sname]["cfg"], built[sname]["sim_col"], _clay, built[sname]["wo"], omit_seal=OMIT_SEAL)
-    built[sname]["sim"] = sp
-    built[sname]["d"] = d
-    built[sname]["apertures"] = aps
 
-if not NO_RENDER:
-    hide_collection(sim_root, True)
-    if "square" in built:
-        sd, wo = built["square"]["d"], built["square"]["wo"]
-        sh = built["square"]["hero"]
-        loc, tgt = frame_exterior(sh, sd, wo)
-        render("square_hero_exterior", loc, tgt)
-    if "tower" in built:
-        td, wo = built["tower"]["d"], built["tower"]["wo"]
-        th = built["tower"]["hero"]
-        loc, tgt = frame_exterior(th, td, wo)
-        render("tower_hero_exterior", loc, tgt)
-    if "square" in built and "tower" in built:
-        both = built["square"]["hero"] + built["tower"]["hero"]
-        mins, maxs = parts_bounds(both)
-        center = (mins + maxs) / 2.0
-        span = max(maxs.x - mins.x, maxs.y - mins.y, maxs.z - mins.z)
-        loc = center + Vector((0, -span * 1.05, span * 0.42))
-        render("both_hero_wide", loc, center, lens=28.0)
-    hide_collection(sim_root, False)
+# ---------------------------------------------------------------- materials / scene roots
+_hero_roof = None
+_clay = None
+_glass = None
+_wood = None
+_interior = None
+_interior_floor = None
 
-    hide_collection(hero_root, True)
-    if "tower" in built:
-        td, wo = built["tower"]["d"], built["tower"]["wo"]
-        ts = built["tower"]["sim"]
-        hide_roof_caps(ts, True)
-        loc, tgt, ortho = frame_plan(ts, td, wo, margin=1.45)
-        render("tower_sim_plan", loc, tgt, ortho_scale=ortho * 1.08)
-        hide_roof_caps(ts, False)
-    if "square" in built:
-        sd, wo = built["square"]["d"], built["square"]["wo"]
-        ss = built["square"]["sim"]
-        hide_roof_caps(ss, True)
-        loc, tgt, ortho = frame_plan(ss, sd, wo, margin=1.45)
-        render("square_sim_plan", loc, tgt, ortho_scale=ortho * 1.08)
-        hide_roof_caps(ss, False)
-    hide_collection(hero_root, False)
 
-for sname, data in built.items():
-    verify_structure(sname, data["sim"], data["hero"], data["d"], data["wo"], data["cfg"], data["apertures"])
-    export_collection(data["hero"], os.path.join(OUT_DIR, f"{sname}_hero.glb"), f"Hero_{sname}")
-    export_collection(data["sim"], os.path.join(OUT_DIR, f"{sname}_sim.glb"), f"Sim_{sname}")
+def _init_materials():
+    global _hero_roof, _clay, _glass, _wood, _interior, _interior_floor
+    if _clay is not None:
+        return
+    _hero_roof = make_hero_roof_material(Path(__file__).resolve().parent.parent)
 
-if all_apertures:
-    falsify = all_apertures[0]
-    print(f"\n=== FALSIFIABILITY: omit sim panel '{falsify['id']}' ===")
-    for sname, data in built.items():
-        if not falsify["id"].startswith(sname + "_"):
+    _clay = bpy.data.materials.new("SimClay")
+    _clay.use_nodes = True
+    _bsdf = _clay.node_tree.nodes["Principled BSDF"]
+    _bsdf.inputs["Base Color"].default_value = (0.62, 0.58, 0.52, 1.0)
+    _bsdf.inputs["Roughness"].default_value = 0.92
+    _bsdf.inputs["Specular IOR Level"].default_value = 0.15
+
+    _glass = bpy.data.materials.new("HeroGlass")
+    _glass.use_nodes = True
+    _gbsdf = _glass.node_tree.nodes["Principled BSDF"]
+    _gbsdf.inputs["Base Color"].default_value = (0.72, 0.82, 0.88, 1.0)
+    _gbsdf.inputs["Roughness"].default_value = 0.05
+    _gbsdf.inputs["Specular IOR Level"].default_value = 0.8
+    _gbsdf.inputs["Transmission Weight"].default_value = 0.35
+
+    _wood = bpy.data.materials.new("HeroWood")
+    _wood.use_nodes = True
+    _wbsdf = _wood.node_tree.nodes["Principled BSDF"]
+    _wbsdf.inputs["Base Color"].default_value = (0.42, 0.28, 0.18, 1.0)
+    _wbsdf.inputs["Roughness"].default_value = 0.75
+    _wbsdf.inputs["Specular IOR Level"].default_value = 0.2
+
+    _interior = bpy.data.materials.new("HeroInterior")
+    _interior.use_nodes = True
+    _ib = _interior.node_tree.nodes["Principled BSDF"]
+    _ib.inputs["Base Color"].default_value = (0.18, 0.16, 0.14, 1.0)
+    _ib.inputs["Roughness"].default_value = 0.92
+
+    _interior_floor = bpy.data.materials.new("HeroInteriorFloor")
+    _interior_floor.use_nodes = True
+    _ifb = _interior_floor.node_tree.nodes["Principled BSDF"]
+    _ifb.inputs["Base Color"].default_value = (0.11, 0.10, 0.09, 1.0)
+    _ifb.inputs["Roughness"].default_value = 0.95
+
+
+if EXPORT_BLEND is None and REBUILD_BLEND is None:
+    # ---------------------------------------------------------------- main
+    hero_root = bpy.data.collections.new("Hero")
+    sim_root = bpy.data.collections.new("Simulation")
+    bpy.context.scene.collection.children.link(hero_root)
+    bpy.context.scene.collection.children.link(sim_root)
+
+    _init_materials()
+
+    built = {}
+    for sname in structures:
+        if sname not in CONFIGS:
             continue
-        sim_without = [p for p in data["sim"] if falsify["id"] not in p.name or "Panel_" not in p.name]
-        origin, direc = aperture_probe_ray(falsify, data["wo"])
-        n_hits, state = probe_aperture_state(
-            falsify["label"], origin, direc, sim_without, "sealed", panel_id=falsify["id"])
-        print(f"  without panel: {falsify['label']:18s} n={n_hits}  {state}")
-        break
+        cfg = CONFIGS[sname]
+        wo = cfg["scene_offset"]
+        hcol = bpy.data.collections.new(f"Hero_{sname}")
+        scol = bpy.data.collections.new(f"Sim_{sname}")
+        hero_root.children.link(hcol)
+        sim_root.children.link(scol)
+        built[sname] = {"wo": wo, "cfg": cfg, "hero_col": hcol, "sim_col": scol, "d": cfg_derived(cfg)}
 
-print(f"\nstructures built: {list(built.keys())}")
-for sname, data in built.items():
-    d = data["d"]
-    print(f"  {sname}: half={d['half']} envelope={2*d['envelope_half']:.2f} m  "
-          f"height={d['total_h'] + CAP:.2f} m  storeys={d['storeys']}")
+    needed = set()
+    for sname in structures:
+        if sname in CONFIGS:
+            needed |= kit_piece_names(CONFIGS[sname])
+    print(f"\npre-conditioning {len(needed)} kit pieces at {TARGET_T:.2f} m", flush=True)
+    for nm in sorted(needed):
+        hero_data(nm)
+        if nm not in HERO_SEAL_PIECES and nm not in HERO_CORNER_PIECES:
+            solid_data(nm)
+
+    all_apertures = []
+    for sname in structures:
+        if sname not in built:
+            continue
+        hp, d, aps = assemble_hero(built[sname]["cfg"], built[sname]["hero_col"], _hero_roof, _glass, built[sname]["wo"])
+        built[sname]["hero"] = hp
+        built[sname]["d"] = d
+        built[sname]["apertures"] = aps
+        all_apertures += aps
+
+    for sname in structures:
+        if sname not in built:
+            continue
+        sp, d, aps = assemble_sim(built[sname]["cfg"], built[sname]["sim_col"], _clay, built[sname]["wo"], omit_seal=OMIT_SEAL)
+        built[sname]["sim"] = sp
+        built[sname]["d"] = d
+        built[sname]["apertures"] = aps
+
+    if not NO_RENDER:
+        hide_collection(sim_root, True)
+        if "square" in built:
+            sd, wo = built["square"]["d"], built["square"]["wo"]
+            sh = built["square"]["hero"]
+            loc, tgt = frame_exterior(sh, sd, wo)
+            render("square_hero_exterior", loc, tgt)
+        if "tower" in built:
+            td, wo = built["tower"]["d"], built["tower"]["wo"]
+            th = built["tower"]["hero"]
+            loc, tgt = frame_exterior(th, td, wo)
+            render("tower_hero_exterior", loc, tgt)
+        if "square" in built and "tower" in built:
+            both = built["square"]["hero"] + built["tower"]["hero"]
+            mins, maxs = parts_bounds(both)
+            center = (mins + maxs) / 2.0
+            span = max(maxs.x - mins.x, maxs.y - mins.y, maxs.z - mins.z)
+            loc = center + Vector((0, -span * 1.05, span * 0.42))
+            render("both_hero_wide", loc, center, lens=28.0)
+        hide_collection(sim_root, False)
+
+        hide_collection(hero_root, True)
+        if "tower" in built:
+            td, wo = built["tower"]["d"], built["tower"]["wo"]
+            ts = built["tower"]["sim"]
+            hide_roof_caps(ts, True)
+            loc, tgt, ortho = frame_plan(ts, td, wo, margin=1.45)
+            render("tower_sim_plan", loc, tgt, ortho_scale=ortho * 1.08)
+            hide_roof_caps(ts, False)
+        if "square" in built:
+            sd, wo = built["square"]["d"], built["square"]["wo"]
+            ss = built["square"]["sim"]
+            hide_roof_caps(ss, True)
+            loc, tgt, ortho = frame_plan(ss, sd, wo, margin=1.45)
+            render("square_sim_plan", loc, tgt, ortho_scale=ortho * 1.08)
+            hide_roof_caps(ss, False)
+        hide_collection(hero_root, False)
+
+    for sname, data in built.items():
+        verify_structure(sname, data["sim"], data["hero"], data["d"], data["wo"], data["cfg"], data["apertures"])
+        export_collection(data["hero"], os.path.join(OUT_DIR, f"{sname}_hero.glb"), f"Hero_{sname}")
+        export_collection(data["sim"], os.path.join(OUT_DIR, f"{sname}_sim.glb"), f"Sim_{sname}")
+        if EMIT_BLEND:
+            save_structure_blend(sname)
+
+    if all_apertures:
+        falsify = all_apertures[0]
+        print(f"\n=== FALSIFIABILITY: omit sim panel '{falsify['id']}' ===")
+        for sname, data in built.items():
+            if not falsify["id"].startswith(sname + "_"):
+                continue
+            sim_without = [p for p in data["sim"] if falsify["id"] not in p.name or "Panel_" not in p.name]
+            origin, direc = aperture_probe_ray(falsify, data["wo"])
+            n_hits, state = probe_aperture_state(
+                falsify["label"], origin, direc, sim_without, "sealed", panel_id=falsify["id"])
+            print(f"  without panel: {falsify['label']:18s} n={n_hits}  {state}")
+            break
+
+    print(f"\nstructures built: {list(built.keys())}")
+    for sname, data in built.items():
+        d = data["d"]
+        print(f"  {sname}: half={d['half']} envelope={2*d['envelope_half']:.2f} m  "
+              f"height={d['total_h'] + CAP:.2f} m  storeys={d['storeys']}")
+else:
+    if EXPORT_BLEND is not None:
+        if len(structures) != 1:
+            raise SystemExit("--export-from-blend requires exactly one trailing structure name")
+        run_export_from_blend(EXPORT_BLEND, structures[0])
+    elif REBUILD_BLEND is not None:
+        if len(structures) != 1:
+            raise SystemExit("--rebuild-sim-from-blend requires exactly one trailing structure name")
+        run_rebuild_sim_from_blend(REBUILD_BLEND, structures[0])
+    else:
+        raise SystemExit("internal: SKIP_DEFAULT_BUILD without export/rebuild mode")

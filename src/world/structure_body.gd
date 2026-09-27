@@ -4,6 +4,7 @@ extends StaticBody3D
 ## Collision proxy (+ optional hero visual) for an imported M2.6 structure (SD-MESH-12).
 
 const _BRICK_MAT := preload("res://assets/materials/brick/Bricks094/Bricks094_2K-JPG.tres")
+const _ROOF_MAT := preload("res://assets/materials/roof/RoofingTiles014B/RoofingTiles014B_2K-JPG.tres")
 
 var face_material: PackedByteArray = PackedByteArray()
 
@@ -107,7 +108,13 @@ static func _apply_hero_materials(node: Node) -> void:
 		var name_lower := node.name.to_lower()
 		if "glass" in name_lower:
 			mi.material_override = _glass_material()
-		elif "_door" in name_lower or "door_2" in name_lower:
+		elif "wall_unevenbrick" in name_lower:
+			mi.material_override = _BRICK_MAT
+		elif "roof" in name_lower:
+			mi.material_override = _ROOF_MAT
+		elif name_lower.ends_with("_door") and "_seal_" in name_lower:
+			mi.material_override = _wood_material()
+		elif "door_2_round" in name_lower:
 			mi.material_override = _wood_material()
 		elif "reveal" in name_lower and "floor" in name_lower:
 			mi.material_override = _interior_floor_material()

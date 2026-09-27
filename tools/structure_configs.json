@@ -13,14 +13,16 @@
       ]
     ],
     "scene_offset": [-7.0, 0.0, 0.0],
-    "hero_end_overlap": false
+    "hero_end_overlap": false,
+    "merge_straight_runs": true,
+    "hero_corner_pieces": false
   },
   "tower": {
     "name": "tower",
-    "half": 1.6,
+    "half": 1.85,
     "storeys": 2,
     "module_offsets": [-1.0, 0.0, 1.0],
-    "roof_half": 1.51,
+    "roof_half": 1.76,
     "storey_sides": [
       [
         [0.0, ["Wall_UnevenBrick_Straight", "Wall_UnevenBrick_Door_Round", "Wall_UnevenBrick_Straight"]],
@@ -37,6 +39,8 @@
     ],
     "scene_offset": [7.0, 0.0, 0.0],
     "hero_end_overlap": false,
+    "merge_straight_runs": true,
+    "hero_corner_pieces": false,
     "intermediate_floor": true,
     "corner_chamfer": 0.15
   },

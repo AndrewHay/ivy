@@ -1,0 +1,5 @@
+# ivy-hsu — bootstrap-only (no SEED verb), day 10.25
+SPEED pause
+ADVANCE_DAYS 10.25
+DUMP
+SCREENSHOT hsu_bootstrap_day10.png

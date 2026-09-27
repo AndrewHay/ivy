@@ -77,6 +77,23 @@ func test_seed_scenario_east_wall_seed1() -> void:
 ## flat mesh wall had a small outward-normal component that slowly pushed the tip beyond
 ## contact_distance, causing perpetual FLOATING and eventual death.
 ## Gate: ≥1 m stem length, tip not DEAD from max_float, at default params, seed 0.
+func test_both_square_seeds_grow_by_day10() -> void:
+	var scenario: StructureScenario = load(
+		"res://assets/structures/scenarios/square.tres"
+	) as StructureScenario
+	var sim := await _make_square_sim(scenario, 0)
+	assert_eq(sim.tips.tips.size(), 2, "setup must plant every authored scenario seed")
+	sim.advance_ticks(int(10.25 * 24.0))
+	assert_gt(sim.plant.total_length, 0.0,
+		"both seeds must produce stem length by day 10.25; got %.3f m" % sim.plant.total_length)
+	assert_gt(sim.plant.segment_count(), 0,
+		"both seeds must produce segments by day 10.25; got %d" % sim.plant.segment_count())
+	for i in 2:
+		var tip: Tip = sim.tips.tips[i]
+		assert_ne(tip.state, Tip.State.DEAD,
+			"authored seed %d tip must be alive at day 10.25" % i)
+
+
 func test_sg3_no_float_death_day30_seed0() -> void:
 	var scenario: StructureScenario = load(
 		"res://assets/structures/scenarios/square.tres"

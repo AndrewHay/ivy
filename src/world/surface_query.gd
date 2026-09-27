@@ -51,10 +51,26 @@ func backend_tag() -> String:
 	return _backend_tag
 
 
-func mesh_provenance() -> PackedByteArray:
-	if _backend_tag == "MeshSdf":
-		return (_backend as MeshSdf).provenance
-	return PackedByteArray()
+## Content identity of the geometry this query answers against, for cache keys (ivy-9xp).
+## Every backend must answer with 32 bytes: a GLB hash for MeshSdf, a spec hash for the
+## analytic backends. An empty return means a backend forgot to implement it, which callers
+## must treat as a defect — not as permission to skip caching, which is how procedural
+## buildings silently went uncached for a whole milestone.
+func bake_identity() -> PackedByteArray:
+	if _backend == null or not _backend.has_method("bake_identity"):
+		return PackedByteArray()
+	var geometry: PackedByteArray = _backend.bake_identity()
+	if geometry.size() != SpecHash.HASH_BYTES:
+		return PackedByteArray()
+	# Occlusion is answered by the physics space, so its absence is itself a bake input:
+	# `raycast` reports no hit when `_space` is null, which bakes a world where every ray
+	# escapes. Unit tests run that way deliberately. Namespacing the key keeps those bakes
+	# from ever being handed to a session that does have collision geometry attached.
+	var ctx := HashingContext.new()
+	ctx.start(HashingContext.HASH_SHA256)
+	ctx.update(geometry)
+	ctx.update(("space" if _space != null else "nospace").to_utf8_buffer())
+	return ctx.finish()
 
 
 func raycast(from: Vector3, to: Vector3) -> Hit:

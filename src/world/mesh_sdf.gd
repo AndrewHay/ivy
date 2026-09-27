@@ -70,6 +70,12 @@ func load_from_file(path: String) -> void:
 		return
 
 
+## Cache identity (ivy-9xp). The baked volume already carries a hash of the collision GLB's
+## bytes (SD-MESH-9), which is exactly the content identity a cache key needs.
+func bake_identity() -> PackedByteArray:
+	return provenance
+
+
 func verify_provenance(collision_glb_path: String) -> bool:
 	if provenance.size() != 32:
 		push_error("MeshSdf: missing provenance header")

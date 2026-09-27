@@ -84,7 +84,6 @@ extends Resource
 @export var branch_scale_floor: float = 0.02
 @export var stall_rate: float = 0.01
 @export var stall_days: int = 3
-@export var tip_cap_m1: int = 64
 ## SD-TIP-6 (W-038): fraction of tower height above which tips are protected from
 ## retirement when the silhouette count is below silhouette_min_tips.
 @export var silhouette_height_frac: float = 0.8
@@ -147,9 +146,51 @@ extends Resource
 @export var dev_build: bool = true
 
 ## W-086 / W-013: declared in IvyParams but not read by simulation — overlay shows
-## these as inert (disabled) so tuning sessions are not misled.
-const OVERLAY_INERT := [
-	"tip_cap_m1",
+## these as inert (disabled) so tuning sessions are not misled. Empty after W-086
+## (tip_cap_m1 deleted; the ten §30 presentation knobs are wired).
+const OVERLAY_INERT: Array[String] = []
+
+## Parameters the *coarse* light bake's output depends on (ivy-9xp). `LightBakeCache` keys on
+## these, so a cached bake is only reused when every one of them matches.
+##
+## Under-listing a parameter here is the stale-read failure: the cache would hand back ray
+## products computed under different inputs and every test would still pass. Over-listing only
+## costs an unnecessary re-bake. So when a new parameter is genuinely ambiguous, put it here.
+## `test_light_bake_cache_conformance.gd` fails until every exported parameter is classified,
+## which is what stops this list from silently falling behind the declarations.
+##
+## What the coarse bake actually computes, per cell: SVF, the 24-bit direct-sun visibility
+## mask, the horizon-escape leak fraction, and the surface normal. Hence:
+##
+## - shell/grid extent decides which cells are baked at all: `field_cell`,
+##   `field_shell_halfwidth`, `vis_cell`
+## - the rays themselves: `svf_rays`, `bake_ray_length`, `bake_ray_offset`
+## - the sun path feeding the visibility mask, via `Solar`: `latitude`, `longitude`,
+##   `day_of_year`. These were missing from the pre-ivy-9xp hand-written hash, so moving the
+##   site or the date silently reused another location's shadows.
+## - `light_elevation_exponent_direct`, because `LightBake._precompute_sun_path` gates the mask
+##   on `pow(sin_elevation, exponent) > 0` and at exponent 0 that flips every hour on.
+##
+## Deliberately absent: everything that only scales the *fine* P(cell, hour) table computed in
+## `fill_field`, which is not cached — `light_p_max`, `light_p_sky`, `weather_*`,
+## `light_elevation_exponent_diffuse`. If a future change caches the fine grid, those move here.
+##
+## `light_p_leak` is absent for the same reason and is the one worth explaining, since it was
+## listed at first: `horizon_escape_factor` returns a purely geometric escape fraction and never
+## reads it, so including it only taxed every leak-tuning tweak with a full re-bake. If the bake
+## ever skips its leak rays when `light_p_leak == 0`, as an optimisation would, it becomes
+## bake-affecting and must come back here.
+const BAKE_AFFECTING: Array[String] = [
+	"bake_ray_length",
+	"bake_ray_offset",
+	"day_of_year",
+	"field_cell",
+	"field_shell_halfwidth",
+	"latitude",
+	"light_elevation_exponent_direct",
+	"longitude",
+	"svf_rays",
+	"vis_cell",
 ]
 
 
@@ -181,7 +222,7 @@ func content_hash() -> String:
 		"contact_distance", "max_segments_per_tick", "branch_angle_min", "branch_angle_max",
 		"branch_offset", "ground_y_min", "tip_cap_soft", "tip_cap_hard", "retire_margin",
 		"branch_scale_floor", "silhouette_height_frac", "silhouette_min_tips",
-		"stall_rate", "stall_days", "tip_cap_m1", "internode_base", "internode_shade_gain",
+		"stall_rate", "stall_days", "internode_base", "internode_shade_gain",
 		"internode_jitter", "leaf_tip_suppress", "phyllotaxy_divergence", "phyllotaxy_flatten",
 		"leaf_out_of_plane", "leaf_photo_cant", "droop_base", "droop_shade_gain",
 		"leaf_jitter_tilt", "leaf_jitter_roll", "leaf_jitter_yaw", "leaf_offset_base",

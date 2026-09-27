@@ -24,6 +24,12 @@ func bounds() -> AABB:
 	)
 
 
+## Cache identity (ivy-9xp). The shape is entirely determined by `spec`, so its exported
+## fields are the content — there is no file to hash as there is for MeshSdf.
+func bake_identity() -> PackedByteArray:
+	return SpecHash.of("WallSdf", spec)
+
+
 func gradient(p: Vector3) -> Vector3:
 	const EPS := 0.001
 	return Vector3(

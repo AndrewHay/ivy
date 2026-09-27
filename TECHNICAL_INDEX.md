@@ -1,6 +1,6 @@
 # Ivy — Technical Index
 
-Last updated: 2026-08-11
+Last updated: 2026-09-02
 
 > Update this file whenever files are added, removed, renamed, or change responsibility.
 > See `.cursor/rules/technical-index-maintenance.mdc`.
@@ -25,53 +25,62 @@ implemented. Remove the marker as each file lands.
 
 | Path | Summary |
 |------|---------|
-| `src/params/ivy_params.gd` | **[planned]** `IvyParams : Resource` — every spec §30 default plus every `SD-PARAM` row, the single authoritative parameter table (INV-6). Exposes `content_hash()` for the acceptance-harness integrity guard. |
-| `src/params/ivy_params_default.tres` | **[planned]** Committed default parameter resource. |
+| `src/params/ivy_params.gd` | `IvyParams : Resource` — every spec §30 default plus every `SD-PARAM` row, the single authoritative parameter table (INV-6). Exposes `content_hash()` for the acceptance-harness integrity guard. |
+| `src/params/ivy_params_default.tres` | Committed default parameter resource. |
 
 ### Core (conventions, determinism, clock)
 
 | Path | Summary |
 |------|---------|
-| `src/core/conv.gd` | **[planned]** `Conv` — every coordinate convention in `SD-CONV` as constants and static helpers (gravity, up, compass axes, sun vector, tangent basis with the horizontal-surface fallback). No basis may be constructed anywhere else. |
-| `src/core/hash64.gd` | **[planned]** `Hash64` — splitmix64 mixing, `unit_float`, and `jitter_vec3` for deterministic field-sample jitter (`SD-ENV-4`, `SD-RNG-4`) and all stochastic leaf attributes in `LeafPlacer` (`SD-RNG-6`). |
-| `src/core/rng_stream.gd` | **[planned]** `RngStream` — per-tip event-advanced RNG with `derive(branch_index)` substreams and a dev-build draw counter (`SD-RNG-1/2`). Leaf attribute draws are excluded — `LeafPlacer` is hash-only (`SD-RNG-6`). |
-| `src/core/sim_clock.gd` | **[planned]** `SimClock` — fixed one-game-hour tick at every speed, speed→ticks/s mapping, and `advance_ticks()` for deterministic test/harness/UI-script driving (`SD-TIME-1/2`). |
+| `src/core/conv.gd` | `Conv` — every coordinate convention in `SD-CONV` as constants and static helpers (gravity, up, compass axes, sun vector, tangent basis with the horizontal-surface fallback). No basis may be constructed anywhere else. |
+| `src/core/hash64.gd` | `Hash64` — splitmix64 mixing, `unit_float`, and `jitter_vec3` for deterministic field-sample jitter (`SD-ENV-4`, `SD-RNG-4`) and all stochastic leaf attributes in `LeafPlacer` (`SD-RNG-6`). |
+| `src/core/rng_stream.gd` | `RngStream` — per-tip event-advanced RNG with `derive(branch_index)` substreams and a dev-build draw counter (`SD-RNG-1/2`). Leaf attribute draws are excluded — `LeafPlacer` is hash-only (`SD-RNG-6`). |
+| `src/core/sim_clock.gd` | `SimClock` — fixed one-game-hour tick at every speed, speed→ticks/s mapping, and `advance_ticks()` for deterministic test/harness/UI-script driving (`SD-TIME-1/2`). |
+| `src/core/spec_hash.gd` | `SpecHash` — 32-byte content identity over a spec resource's exported fields, read reflectively so a new `@export` changes the hash without anyone maintaining a list (`ivy-9xp`). Gives procedural buildings the cache key that mesh buildings get from their GLB provenance; object-valued fields are refused loudly rather than hashed as unstable instance ids. |
 
 ### World (static geometry, surface queries, lighting, cameras)
 
 | Path | Summary |
 |------|---------|
-| `src/world/world.tscn` / `world.gd` | **[planned]** `World` — builds the tower at load, owns `SurfaceQuery`, `SeedAnchors`, `SkySun`, and `CameraRig`. |
-| `src/world/tower_spec.gd` | **[planned]** `TowerSpec : Resource` — parametric tower description; single source of truth for mesh, collision, SDF, seed anchors, and the coverage-metric opening mask. `brick_physical_size: Vector2` records the material’s real-world patch size in metres (width × height); both axes are used independently to derive UV scale (W-065). |
-| `src/world/tower_spec_default.tres` | **[planned]** Committed tower defaults (3.5 m tall, 2.0 m radius, north doorway, east window recess, top lip). |
-| `src/world/tower_builder.gd` | **[planned]** `TowerBuilder` — generates the `ArrayMesh` with cylindrical UVs (AR-TOWER-1: horizontal repeat count = `roundi(TAU·r / brick_physical_size.x)` so the wrap seam disappears; vertical scale = `y / brick_physical_size.y`; lip top continues from wall crown), the `ConcavePolygonShape3D` from the *same* triangles, and the per-face material array; runs the `SD-CONV-3` outward-normal assertions including the SDF cross-check. |
-| `src/world/tower.gd` | **[planned]** `Tower : StaticBody3D` — hosts the generated mesh and collision on physics layer 1 (SURFACE); applies the brick material with cylindrical UVs. |
-| `src/world/tower_sdf.gd` | **[planned]** `TowerSdf` — analytic signed distance and gradient derived from `TowerSpec`; backs nearest-surface adhesion queries and the field's shell projection. |
-| `src/world/surface_query.gd` | **[planned]** `SurfaceQuery` — the only interface the simulator has to the world: physics raycast (exact collision), analytic nearest-surface, tangent basis, per-face material lookup, shell projection. |
-| `src/world/material_registry.gd` | **[planned]** `MaterialRegistry` / `SurfaceMaterialDef : Resource` — `material_id → {name, A_m, in_coverage_denominator}` (INV-10). |
-| `src/world/seed_anchors.gd` | **[planned]** `SeedAnchors` — derives the four compass anchors by raycast at load with the deterministic azimuth search, caches them, marks unavailable ones (`SD-AGENCY-1/2/3`). |
+| `src/world/world.gd` | `World` — builds the tower at load, owns `SurfaceQuery`, `SeedAnchors`, `SkySun`, and `CameraRig`. |
+| `src/world/tower_spec.gd` | `TowerSpec : Resource` — parametric tower description; single source of truth for mesh, collision, SDF, seed anchors, and the coverage-metric opening mask. `brick_physical_size: Vector2` records the material’s real-world patch size in metres (width × height); both axes are used independently to derive UV scale (W-065). |
+| `src/world/tower_spec_default.tres` | Committed tower defaults (3.5 m tall, 2.0 m radius, north doorway, east window recess, top lip). |
+| `src/world/tower_builder.gd` | `TowerBuilder` — generates the `ArrayMesh` with cylindrical UVs (AR-TOWER-1: horizontal repeat count = `roundi(TAU·r / brick_physical_size.x)` so the wrap seam disappears; vertical scale = `y / brick_physical_size.y`; lip top continues from wall crown), the `ConcavePolygonShape3D` from the *same* triangles, and the per-face material array; runs the `SD-CONV-3` outward-normal assertions including the SDF cross-check. |
+| `src/world/tower.gd` | `Tower : StaticBody3D` — hosts the generated mesh and collision on physics layer 1 (SURFACE); applies the brick material with cylindrical UVs. |
+| `src/world/tower_sdf.gd` | `TowerSdf` — analytic signed distance and gradient derived from `TowerSpec`; backs nearest-surface adhesion queries and the field's shell projection. |
+| `src/world/surface_query.gd` | `SurfaceQuery` — the only interface the simulator has to the world: physics raycast (exact collision), analytic nearest-surface, tangent basis, per-face material lookup, shell projection. |
+| `src/world/material_registry.gd` | `MaterialRegistry` / `SurfaceMaterialDef : Resource` — `material_id → {name, A_m, in_coverage_denominator}` (INV-10). |
+| `src/world/seed_anchors.gd` | `SeedAnchors` — derives the four compass anchors by raycast at load with the deterministic azimuth search, caches them, marks unavailable ones (`SD-AGENCY-1/2/3`). |
 | `src/world/sky_sun.gd` | `SkySun` — `DirectionalLight3D` plus procedural sky driven by `Solar`; applies the SD-TIME-4 render blend. Light forward = `−S` (SD-CONV-9). Drives three `Environment` properties at runtime: `background_energy_multiplier` (0.02 night → 1.0 day), `ambient_light_energy` (0.06 → 1.0), `light_color` (warm orange → near-white with sun elevation). Pure static helpers carry the arithmetic and are unit-tested in `test/test_sky_sun.gd` (W-059). |
 | `src/world/camera_rig.gd` | `CameraRig` — four canonical `Camera3D`s (`CamSun`, `CamShade`, `CamTop`, `CamSilhouette`) with authored transforms; `select(index)` only toggles `current` — AR-SCENE-3. |
-| `src/world/debug_camera.gd` | `DebugCamera : Camera3D` — developer-only orbit/zoom affordance (AR-DBGCAM). Sibling of `CameraRig`, authored `current = false`; writes `current`/transform only from `_unhandled_input`, disabled under `script_driven`; excluded from AS-4 (AR-SCENE-3). Zooms within `[3, 12] m` of the tower's mid-height pivot; left-drag orbits (pitch clamped to `[-5°, +85°]`). Zoom is bound to the mouse wheel, `InputEventPanGesture` (macOS trackpads send only this — W-058) and `↑`/`W` / `↓`/`S`. Pure statics `solve`/`zoom`/`clamp_radius`/`clamp_pitch` carry the math so it is testable headlessly. |
+| `src/world/debug_camera.gd` | `DebugCamera : Camera3D` — developer-only orbit/zoom affordance (AR-DBGCAM). Sibling of `CameraRig`, authored `current = false`; writes `current`/transform only from `_unhandled_input`, disabled under `script_driven`; excluded from AS-4 (AR-SCENE-3). Left-drag orbits (pitch clamped to `[-5°, +85°]`); zoom bounds are per-building — `tower_zoom_bounds(spec)` clamps to `[3, 12] m` of the cylinder's mid-height pivot, `wall_zoom_bounds(spec)` widens the ceiling so the test wall is fully framable at any spec size (ivy-3hg.16) — `World.get_debug_camera_zoom_bounds()` picks the right one per `_procedural_id`. Zoom is bound to the mouse wheel, `InputEventPanGesture` (macOS trackpads send only this — W-058) and `↑`/`W` / `↓`/`S`. Pure statics `solve`/`zoom`/`clamp_radius`/`clamp_pitch` carry the math so it is testable headlessly. |
+| `src/world/building_catalog.gd` | `BuildingCatalog` — static registry of the M6 picker's playable building choices: `"cylinder"` / `"test_wall"` (procedural, analytic SDF, `is_procedural()==true`) and `"tower"` / `"square"` (Blender-kit mesh, resolved to a `StructureScenario` via `scenario_for(id)`). `World.load_building(id)` branches on `is_procedural()` to pick the procedural or mesh-backed path. |
+| `src/world/structure_scenario.gd` | `StructureScenario : Resource` — binds one Blender-kit structure's hero GLB, collision GLB, baked `MeshSdf` path, and seed points (`W-089`); `validate()` checks file existence and seed-count invariants (SG-5); `resolve_camera_pivot()` falls back to the baked SDF's mesh AABB centre when `camera_pivot` is unset. Committed instances: `assets/structures/scenarios/{square,tower}.tres`. |
+| `src/world/structure_body.gd` | `StructureBody : StaticBody3D` — collision proxy plus optional hero visual for an imported M2.6 mesh structure (SD-MESH-12); loads collision/hero GLBs, applies per-mesh-name material routing (`_apply_hero_materials`: brick for `Wall_UnevenBrick`/fallback, `RoofingTiles014B` for anything named `*roof*`, wood for door seals/`Door_2_Round`, glass, interior floor/wall reveals). |
+| `src/world/wall_spec.gd` | `WallSpec : Resource` — parametric flat wall description (`ivy-3hg`): `length=20.0` (X), `height=10.0` (Y), `thickness=0.35` (Z), reuses the tower's `brick_physical_size`. Resized down from 100×20 because shell cell count sets the whole environment cost. No apertures — the wall has no doors/windows by design. |
+| `src/world/wall_builder.gd` | `WallBuilder` — generates the wall's 5-face `ArrayMesh` (front/back/top/two ends, no bottom cap — underground, like the tower) with per-axis flat UV = `local_coord / brick_physical_size` (no wrap-seam repeat rounding, unlike the cylinder), the matching `ConcavePolygonShape3D`, and `SD-CONV-3`-style outward-normal assertions against `WallSdf` in dev builds. |
+| `src/world/wall_sdf.gd` | `WallSdf` — analytic box signed distance/gradient (center `(0, height/2, -thickness/2)`, half-extents `(length/2, height/2, thickness/2)`); `SurfaceQuery` tags it as `"WallSdf"` (`SD-ENV-11`'s opening-footprint snap in `project_to_shell` is scoped to `"TowerSdf"` only and does not apply here — the wall has no openings). |
+| `src/world/wall.gd` | `Wall : StaticBody3D` — hosts the generated wall mesh/collision on physics layer 1, mirroring `Tower`; `build_from_spec()` delegates to `WallBuilder` and applies the shared `Bricks094` brick material. |
 
 ### Environment layer
 
 | Path | Summary |
 |------|---------|
-| `src/env/cell_grid.gd` | **[planned]** `CellGrid` — cell addressing, 64-bit key packing, cell↔world conversion. |
+| `src/env/cell_grid.gd` | `CellGrid` — cell addressing, 64-bit key packing, cell↔world conversion. |
 | `src/env/sparse_field.gd` | `SparseHashField` — sparse allocation plus parallel `PackedFloat32Array` channels; trilinear read and central-difference gradient are the only read primitives (no nearest-cell accessor exists). `read_trilinear` renormalizes by realized weight so a partially allocated neighbourhood does not blend against `fallback` (AR-AMBIG-2), and returns a uniform neighbourhood's value directly, since `Σ(w·C)/Σw` lands ~1 ULP either side of `C` and SD-EDGE-12 requires a uniform field to yield *exactly* zero gradient (W-087). |
-| `src/env/environment.gd` | **[planned]** `IvyEnvironment` — public environment API, per-tick light EWMA, `deposit_crowding` (the sole write path from physiology), and `invalidate(aabb)`. |
-| `src/env/solar.gd` | **[planned]** `Solar` — NOAA solar position, sun direction and elevation, irradiance-weighted day-average direction, and the diel growth gate. |
-| `src/env/light_bake.gd` | **[planned]** `LightBake` — sky-view factor and 24-bit hourly visibility on a coarse grid, plus the full-resolution `P(cell, hour)` table. |
+| `src/env/environment.gd` | `IvyEnvironment` — public environment API, per-tick light EWMA, `deposit_crowding` (the sole write path from physiology), and `invalidate(aabb)`. |
+| `src/env/solar.gd` | `Solar` — NOAA solar position, sun direction and elevation, irradiance-weighted day-average direction, and the diel growth gate. |
+| `src/env/light_bake.gd` | `LightBake` — sky-view factor and 24-bit hourly visibility on a coarse grid, plus the full-resolution `P(cell, hour)` table. `compute_coarse_cell()` is the single per-cell ray computation, shared by the bake and by the cache's verification probe so the two can never drift apart. |
+| `src/env/light_bake_cache.gd` | `LightBakeCache` — disk cache for the coarse ray products under `res://.tmp/light_bake_cache/` (`W-097`, widened to every backend by `ivy-9xp`). Key = SHA256 of the backend identity (`SurfaceQuery.bake_identity()`), the `IvyParams.BAKE_AFFECTING` digest, and the contents of the scripts that compute the bake (`_CODE_FILES`; scripts that merely populate the physics space are excluded on purpose). `verify_against_surface()` then recomputes a 64-cell sample on load — SVF, mask, leak and normal — and rejects a mismatch, which is what closes `SD-OPEN-24`'s stale-pairing hazard: a miss and a rejection both re-bake, so a too-strict key costs time while a too-lax one would cost correctness. |
 
 ### Simulation layer
 
 | Path | Summary |
 |------|---------|
-| `src/sim/sim_root.gd` | **[planned]** `SimRoot : Node` — owns the clock, environment, tips, and plant data; runs the fixed-order tick loop. |
-| `src/sim/sim_context.gd` | **[planned]** `SimContext` — injected bundle of params, environment, surface, solar, plant data, tips, anchors. |
+| `src/sim/sim_root.gd` | `SimRoot : Node` — owns the clock, environment, tips, and plant data; runs the fixed-order tick loop. |
+| `src/sim/sim_context.gd` | `SimContext` — injected bundle of params, environment, surface, solar, plant data, tips, anchors. |
 | `src/sim/tip.gd` | `Tip` — per-tip state: spec §3 variables plus lifecycle, ring frame, leaf-node accumulators, and cached vigour. W-060: added `last_leaf_id: String` and `prev_leaf_id: String` for the SD-LEAF-6 adjacency rule. |
-| `src/sim/tip_manager.gd` | **[planned]** `TipManager` — lifecycle state machine, soft/hard tip cap, branch-probability taper, vigour-based retirement. |
+| `src/sim/tip_manager.gd` | `TipManager` — lifecycle state machine, soft/hard tip cap, branch-probability taper, vigour-based retirement. |
 | `src/sim/physiology.gd` | `Physiology` — pure static functions for `f_L`, `f_C`, `f_S`, `H`, all direction weights, growth rate, branch rate, and crowding deposits (stem and leaf). The only writer to the crowding field. `w_P(h, params)` takes `IvyParams` because it reads `persistence_base`; it previously hardcoded the default (W-039). |
 | `src/sim/growth_step.gd` | `GrowthStep` — one segment: the §21 direction sum, collision resolve, floating-length update, persistence update, branch draw (stream), then `LeafPlacer.advance` (hashed leaf attributes — `SD-RNG-6`, 0 stream draws), in the fixed `SD-RNG-3` order. The heading blend is weighted by `params.direction_memory`; it previously hardcoded a 50/50 blend, which left no literal to find because normalisation cancels the common factor (W-039). |
 | `src/sim/plant_data.gd` | `PlantData` — append-only structure-of-arrays for segments and leaf instances. Has no removal path (INV-2). W-075: `append_leaf` extended with `light`; stores it in `leaf_light` (`f_L` at placement, AR-METRIC-2). `leaf_area_canonical` removed (AR-METRIC-1 amendment: a single fixed `ref_area` in `CoverageMetric.setup()` replaces per-leaf storage). |
@@ -81,12 +90,12 @@ implemented. Remove the marker as each file lands.
 
 | Path | Summary |
 |------|---------|
-| `src/render/plant_render.tscn` / `plant_render.gd` | **[planned]** `PlantRender` — hosts the stem chunks and the two leaf `MultiMeshInstance3D`s; syncs from `PlantData` by high-water mark each frame. |
-| `src/render/stem_mesh.gd` | **[planned]** `StemMeshBuilder` — chunked incremental tube append; never rebuilds frozen geometry. |
-| `src/render/leaf_renderer.gd` | **[planned]** `LeafRenderer` — preallocated static and growing `MultiMesh` buffers with freeze migration. |
+| `src/render/plant_render.gd` | `PlantRender` — hosts the stem chunks and the two leaf `MultiMeshInstance3D`s; syncs from `PlantData` by high-water mark each frame. |
+| `src/render/stem_mesh.gd` | `StemMeshBuilder` — chunked incremental tube append; never rebuilds frozen geometry. |
+| `src/render/leaf_renderer.gd` | `LeafRenderer` — preallocated static and growing `MultiMesh` buffers with freeze migration. |
 | `src/render/leaf_atlas.gd` | `LeafAtlas` — parses `leaf_atlas.json` (rect, aspect, `alpha_fill`, `tier`, petiole anchor). Exposes `rect_for`, `aspect_for`, `alpha_fill_for`, `tier_for` (→ `"H"` / `"W"`), and `ids_in_tier` (fixed order H=`["a","c","e"]`, W=`["b","d","f"]`) (W-062). |
-| `src/render/shaders/leaf.gdshader` | **[planned]** Per-instance atlas sub-rect, alpha scissor with alpha-to-coverage, culling disabled, backlight transmittance. |
-| `src/render/materials/leaf_material.tres` | **[planned]** `ShaderMaterial` wiring the LeafSet017 colour / normal / roughness maps. |
+| `src/render/shaders/leaf.gdshader` | Per-instance atlas sub-rect, alpha scissor with alpha-to-coverage, culling disabled, backlight transmittance. |
+| `src/render/materials/leaf_material.tres` | `ShaderMaterial` wiring the LeafSet017 colour / normal / roughness maps. |
 | `src/render/materials/tower_brick.tres` | **[planned]** Project-side copy of the ambientCG brick material with cylinder UV scaling; the asset `.tres` stays untouched. |
 
 ### Metrics and UI
@@ -95,28 +104,29 @@ implemented. Remove the marker as each file lands.
 |------|---------|
 | `src/metrics/coverage.gd` | `CoverageMetric` — surface-bucket occupancy in tower-cylindrical coordinates (SD-METRIC-1/2/3/5/6), opening exclusion, stem-bucket diagnostic, 12-sector asymmetry, sun/shade split by seed azimuth. `setup(spec, params)` requires `IvyParams` to compute `_ref_area = alpha_fill("a")·leaf_width_base²/aspect("a")` (AR-METRIC-1 amendment). `measure()` weights every leaf by `_ref_area` alone — no orientation term (SD-OPEN-13 amendment, W-079) — so the gate is independent of variant, tier, `s_light` and cant alike: AS-1 measures placement occupancy. Also returns `*_nleaf` diagnostic keys (orientation-weighted, the pre-amendment basis) which gate nothing and exist so a change of basis reads as such rather than as a coverage regression. |
 | `src/metrics/leaf_colour_metric.gd` | `LeafColourMetric` — LG-2a (area-weighted mean `Color.g` delta, sun vs shade hemisphere) and LG-2b (healthy-tier area-fraction delta). Reuses `CoverageMetric` eligibility logic. `setup(spec, params)` requires `IvyParams`. SD-METRIC-7. W-075 (AR-METRIC-2): `decile_measure(plant, seed_az, az_sector_center, az_sector_half)` sorts eligible leaves by `leaf_light`, area-weights (rendered `leaf_area`, SD-METRIC-7c) mean `Color.g` and healthy-tier fraction in bottom/top deciles, asserts cross-check `|f_L' − leaf_light| < ε`. Pass predicate report-only pending W-077 ratification. |
-| `src/metrics/blacklist.gd` | **[planned]** `BlacklistAssertions` — automatable artifact checks and the numeric auto-screens for banding and coplanar leaves. |
+| `src/metrics/blacklist.gd` | `BlacklistAssertions` — automatable artifact checks and the numeric auto-screens for banding and coplanar leaves. |
 | `src/metrics/run_hash.gd` | **[planned]** `RunHash` — canonical determinism fingerprint used by the AS-4 test and the harness. |
-| `src/ui/hud.tscn` / `hud.gd` | **[planned]** `Hud` — four anchor buttons, pause and three speeds, date/time readout, time-lapse indicator. |
-| `src/ui/dev_overlay.tscn` / `dev_overlay.gd` | **[planned]** `DevOverlay` — reflection-driven live editing of every `IvyParams` property plus light/crowding field visualization. |
+| `src/ui/hud.gd` | `Hud` — four anchor buttons, pause and three speeds, date/time readout, time-lapse indicator. |
+| `src/ui/dev_overlay.gd` | `DevOverlay` — reflection-driven live editing of every `IvyParams` property plus light/crowding field visualization. |
 
 ### Tests
 
 | Path | Summary |
 |------|---------|
 | `test/test_gut_smoke.gd` | GUT smoke tests (infrastructure sanity check). |
-| `test/test_conv.gd` | **[planned]** Coordinate conventions: gravity, solar-noon sun vector, tangent basis including the horizontal-surface degenerate case. |
+| `test/test_conv.gd` | Coordinate conventions: gravity, solar-noon sun vector, tangent basis including the horizontal-surface degenerate case. |
 | `test/test_conv_light.gd` | **[planned]** Render/sun coupling — the directional light's forward equals `−S`. |
-| `test/test_solar.gd` | **[planned]** Day length, sunrise/sunset azimuths, night elevation for the fixed epoch. |
+| `test/test_solar.gd` | Day length, sunrise/sunset azimuths, night elevation for the fixed epoch. |
 | `test/test_tower_geometry.gd` | **[planned]** Outward-normal assertions over every triangle; mesh and collision built from identical triangles; doorway and window present in collision. |
 | `test/test_surface_query.gd` | **[planned]** SDF sign and raycast agreement, nearest-surface at creases, per-face material lookup, seed-anchor derivation and doorway avoidance. |
-| `test/test_params.gd` | **[planned]** Every parameter present with its specified default; `content_hash()` stability. |
-| `test/test_params_conformance.gd` | **[planned]** Source scan asserting no §30 literal appears outside `src/params/`. |
-| `test/test_rng.gd` | **[planned]** Stream reproducibility, substream independence, jitter bounds, and a source scan for stray random calls. |
+| `test/test_params.gd` | Every parameter present with its specified default; `content_hash()` stability. |
+| `test/test_params_conformance.gd` | Source scan asserting no §30 literal appears outside `src/params/`. |
+| `test/test_rng.gd` | Stream reproducibility, substream independence, jitter bounds, and a source scan for stray random calls. |
 | `test/test_field.gd` | W-042: trilinear exact on a linear ramp (±1e-5); central differences at ε=0.09 m recover slope 1/0/0; **uniform field yields exactly zero gradient** (SD-EDGE-12 — this one failed on arrival and found W-087); unallocated cells return the caller's fallback exactly (SD-EDGE-15); a point 0.35 m outside projects to \|Φ\| ≤ 1 mm (AR-FIELD-3); no nearest-cell accessor exists on the public API (SD-ENV-3, asserted by source scan). 6 tests. |
 | `test/test_physiology.gd` | **[planned]** All response functions and weights against the spec's worked values; bounded growth-budget loop. |
 | `test/test_geometry.gd` | **[planned]** Direction sum, degenerate fallbacks, adhesion-range vs contact-distance distinction, ground clamp and dormancy, no-penetration guarantee. |
-| `test/test_tip_lifecycle.gd` | **[planned]** State transitions, cap taper, retirement rules and exemptions. |
+| `test/test_growth_step.gd` | W-043: `apply_direction_memory` preserves the previous heading when the blend cancels (antiparallel reflection); non-degenerate blends normalize. |
+| `test/test_tip_lifecycle.gd` | State transitions, cap taper, retirement rules and exemptions. |
 | `test/test_time.gd` | Fixed tick at all speeds, pause, deterministic advance, render blend, speed mapping. Diel gate: mean unity over 24 ticks to `1e-6`, proportional scaling of `g_hat`, noon above / midnight below unity, no RNG, and the INV-3a guard that the gate never reaches direction code. `D_L` EWMA time constant, alpha, and no instant snap. |
 | `test/test_leaf_placement.gd` | Shade etiolation lengthens internodes and delays nodes, golden-angle phyllotaxy is not strict alternation, leaf deposit raises the crowding field, suppression fires at high crowding. W-060: sun tint not white, shade tint darker, sun–shade Color.g separation, s_light ratio, phototropic cant lifts origin, tier probability (sun vs shade), tier determinism, adjacency non-repeat. LG-2′ layer (a): `Color.g(f_L=0)=0.86`, `Color.g(f_L=1)=1.04`, span 0.18 monotone; healthy-tier fraction `0.25+0.65·f_L` at `f_L∈{0.4,1.0}`. |
 | `test/test_leaf_atlas.gd` | W-062: `tier_for` returns "H"/"W" for all six ids; `ids_in_tier` fixed order H=["a","c","e"] W=["b","d","f"]; round-trip consistency. 10 tests. W-061: `id_for_rect` round-trip for all six ids. |
@@ -127,7 +137,7 @@ implemented. Remove the marker as each file lands.
 | `test/test_metric.gd` | Bucket mapping round-trip, opening exclusion, synthetic 100% coverage, sun/shade split by seed azimuth, AS-1 coupling rule, 12-sector asymmetry, lip-reached, RNG independence. W-076 AR-METRIC-1 amendment: `_ref_area` formula + id-independence; AS-1 bit-identical across `leaf_light_scale_gain` (s_light invariance) and `leaf_healthy_gain` (tier-probability invariance). |
 | `test/test_debug_camera.gd` | Radius and pitch clamps hold; at the four bounds corners the solved camera stays above ground and outside the wall; under `script_driven` a synthetic mouse event leaves `current` false and the transform untouched (the AS-4 determinism guard). Zoom is multiplicative and clamped; the pan-gesture branch macOS trackpads require is present; key auto-repeat keeps zooming (W-058). Interactive feel is deliberately untested — see AR-DBGCAM-6. |
 | `test/test_sky_sun.gd` | SkySun pure-arithmetic helpers: `lit_for` twilight smoothstep, `light_color_for` warm-to-white temperature, `ambient_energy_for` night floor, `background_energy_for` sky dimming. 12 tests; each assertion fails on the concrete mutation it guards (W-059). |
-| `test/test_blacklist.gd` | **[planned]** Each automatable artifact check fires on a synthetic violation and stays quiet on a clean plant. |
+| `test/test_blacklist.gd` | Each automatable artifact check fires on a synthetic violation and stays quiet on a clean plant. |
 
 ### Dev tooling
 
@@ -137,13 +147,12 @@ implemented. Remove the marker as each file lands.
 | `tools/run_ui_script.gd` / `.tscn` | UI script runner. Verbs: `WAIT`, `SPEED`, `ADVANCE_DAYS`, `TRACE`, `DUMP`, `DUMP_LIGHT`, `DUMP_METRICS`, `DUMP_LEAF_COLOUR`, `SET_PARAM`, `CAMERA`, `SCREENSHOT`. `SCREENSHOT` renders synchronously via `RenderingServer.force_draw()` and fails loudly rather than saving a frame it cannot vouch for (W-067, W-071). Still to be added: `SEED`, `ASSERT` (`AR-UI-3`). |
 | `tools/dump_cameras.gd` | Prints every canonical camera's parsed origin, forward vector, pitch, and the height at which its view axis crosses the tower axis. Reads the `PackedScene`'s `SceneState` instead of instantiating, so it needs no rendering or simulation warm-up and runs under `--headless` in a second. Exists because reasoning about whether the `.tscn` 12-float `Transform3D` form is row- or column-major produced two contradictory answers (W-069); it is **row-major**, so `basis.z` is the column `(xz, yz, zz)` and view direction is `−basis.z`. Use it to check camera aim without waiting on a 75 s day-150 render. |
 | `tools/ui_scripts/smoke.txt` | Minimal UI script smoke test (wait + screenshot). Must stay green through the 3D conversion. |
-| `tools/ui_scripts/m1_growth.txt` | **[planned]** M1 exit gate — grow 30 game-days and capture. |
-| `tools/ui_scripts/canonical.txt` | **[planned]** All four canonical camera angles at a fixed game-day. |
-| `tools/ui_scripts/as6_silhouette.txt` | **[planned]** Ground-level silhouette-break capture. |
-| `tools/ui_scripts/reseed.txt` | **[planned]** Re-seed flow: plant reset, field warm-up, anchor greying. |
-| `tools/ui_scripts/time_controls.txt` | **[planned]** Speed and pause UI, time-lapse indicator. |
-| `tools/ui_scripts/dev_tuning.txt` | **[planned]** Live parameter change visible without a restart (M3 exit condition). |
-| `tools/acceptance_harness.gd` / `.tscn` | **[planned]** Headless acceptance runner for AS-1 through AS-6, recording the parameter content hash. |
+| `tools/ui_scripts/m1_growth.txt` | M1 exit gate — grow 30 game-days and capture. |
+| `tools/ui_scripts/qa_m25_canonical.txt` | M2.5/M4 four canonical camera angles at day 150.25 (local noon); supersedes the original `canonical.txt` sketch. |
+| `tools/ui_scripts/qa_silhouette_lip.txt` | AS-6 ground-level silhouette-break capture at lip reach and saturation. |
+| `tools/ui_scripts/m3_w012_agency.txt` | M3 seed-anchor and time-control flow. |
+| `tools/ui_scripts/m3_w013_dev_overlay.txt` | M3 live parameter change visible without a restart. |
+| `tools/acceptance_harness.gd` / `.tscn` | Headless acceptance runner for AS-1 through AS-6, recording the parameter content hash. |
 | `tools/fetch_assets.sh` | Re-downloads the ambientCG CC0 source archives. |
 | `tools/build_structures.py` | **Blender** assembler and sole source of the committed structure assets (`assets/structures/{square,tower}_{hero,sim}.glb`). Structure-agnostic engine: per-structure geometry is data in `tools/structure_configs.json`, so adding a structure is a config edit with no code change. Validates the config schema at load (unknown/mistyped keys, missing required keys, and storey/bay count mismatches all fail immediately). Run: `blender --background --python tools/build_structures.py -- <glTF dir> <out dir> [thickness] [--no-render] [--omit-seal <id>] [structure ...]`. Regenerate → re-bake → measure is byte-for-byte deterministic against the committed GLBs/SDFs (verified 2026-08-23). See `assets/ASSET_LIBRARIES.md` for the kit source/checksum. |
 | `tools/structure_configs.json` | Per-structure config data consumed by `build_structures.py`: `name`, `half`, `storeys`, `module_offsets`, `storey_sides` (list of `[yaw, [piece names]]` per storey), `scene_offset`, and optional `roof_half` / `intermediate_floor` / `hero_end_overlap`. The only file to edit to add a structure. |
@@ -177,6 +186,8 @@ implemented. Remove the marker as each file lands.
 | Time model | `src/core/sim_clock.gd`, `src/env/solar.gd`, `src/world/sky_sun.gd`, `test/test_time.gd` |
 | Parameters | `src/params/ivy_params.gd`, `src/params/ivy_params_default.tres`, `src/ui/dev_overlay.gd` |
 | Tower and surface queries | `src/world/tower_spec.gd`, `tower_builder.gd`, `tower_sdf.gd`, `tower.gd`, `surface_query.gd`, `material_registry.gd` |
+| Procedural wall | `src/world/wall_spec.gd`, `wall_builder.gd`, `wall_sdf.gd`, `wall.gd`, `test/test_wall_geometry.gd`, `test/slow/test_wall_growth.gd`, `tools/qa_wall_acceptance.gd` |
+| Building picker and mesh structures | `src/world/building_catalog.gd`, `structure_scenario.gd`, `structure_body.gd`, `assets/structures/scenarios/*.tres`, `.cursor/skills/modify-structure/SKILL.md` |
 | Environment field | `src/env/cell_grid.gd`, `sparse_field.gd`, `environment.gd`, `light_bake.gd` |
 | Plant physiology | `src/sim/physiology.gd` |
 | Growth geometry | `src/sim/growth_step.gd`, `src/sim/tip.gd`, `src/sim/tip_manager.gd`, `src/sim/plant_data.gd` |

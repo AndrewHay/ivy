@@ -29,6 +29,12 @@ func bounds() -> AABB:
 	)
 
 
+## Cache identity (ivy-9xp). The shape is entirely determined by `spec`, including its door
+## and window openings, so its exported fields are the content.
+func bake_identity() -> PackedByteArray:
+	return SpecHash.of("TowerSdf", spec)
+
+
 func gradient(p: Vector3) -> Vector3:
 	const EPS := 0.001
 	return Vector3(

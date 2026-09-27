@@ -33,11 +33,11 @@ func test_wall_builder_aabb_triangle_count_and_material() -> void:
 	var spec := load("res://src/world/wall_spec_default.tres") as WallSpec
 	var built := WallBuilder.build(spec, false)
 	var aabb := built.mesh.get_aabb()
-	assert_almost_eq(aabb.position.x, -50.0, 0.01)
+	assert_almost_eq(aabb.position.x, -10.0, 0.01)
 	assert_almost_eq(aabb.position.y, 0.0, 0.01)
 	assert_almost_eq(aabb.position.z, -0.35, 0.01)
-	assert_almost_eq(aabb.size.x, 100.0, 0.01)
-	assert_almost_eq(aabb.size.y, 20.0, 0.01)
+	assert_almost_eq(aabb.size.x, 20.0, 0.01)
+	assert_almost_eq(aabb.size.y, 10.0, 0.01)
 	assert_almost_eq(aabb.size.z, 0.35, 0.01)
 	assert_eq(built.triangle_count, 10)
 	for mat_id in built.face_material:
@@ -47,8 +47,8 @@ func test_wall_builder_aabb_triangle_count_and_material() -> void:
 func test_wall_sdf_sign_and_outward_normals() -> void:
 	var spec := load("res://src/world/wall_spec_default.tres") as WallSpec
 	var sdf := WallSdf.new(spec)
-	assert_lt(sdf.signed_distance(Vector3(0.0, 10.0, -0.1)), 0.0)
-	assert_gt(sdf.signed_distance(Vector3(0.0, 10.0, 1.0)), 0.0)
+	assert_lt(sdf.signed_distance(Vector3(0.0, 5.0, -0.1)), 0.0)
+	assert_gt(sdf.signed_distance(Vector3(0.0, 5.0, 1.0)), 0.0)
 	var built := WallBuilder.build(spec, false)
 	var arrays := built.mesh.surface_get_arrays(0)
 	var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
@@ -79,7 +79,7 @@ func test_wall_sdf_sign_and_outward_normals() -> void:
 func test_wall_sdf_gradient_faces_south_on_sun_face() -> void:
 	var spec := load("res://src/world/wall_spec_default.tres") as WallSpec
 	var sdf := WallSdf.new(spec)
-	var g := sdf.gradient_normalized(Vector3(0.0, 10.0, 0.5))
+	var g := sdf.gradient_normalized(Vector3(0.0, 5.0, 0.5))
 	assert_gt(g.dot(Conv.SOUTH), 0.9)
 
 
@@ -95,7 +95,7 @@ func test_wall_seed_nearest_midpoint_base() -> void:
 
 
 func test_building_catalog_wall_is_procedural() -> void:
-	assert_true(BuildingCatalog.is_procedural("wall"))
+	assert_true(BuildingCatalog.is_procedural("test_wall"))
 
 
 func test_world_wall_wiring_null_anchors_cylinder_regression() -> void:
@@ -104,7 +104,7 @@ func test_world_wall_wiring_null_anchors_cylinder_regression() -> void:
 	await get_tree().process_frame
 	await get_tree().physics_frame
 	var world: Node = main.get_node("World")
-	world.call("load_building", "wall")
+	world.call("load_building", "test_wall")
 	await get_tree().physics_frame
 	await get_tree().process_frame
 	var params: IvyParams = main.get("params")

@@ -1,0 +1,4 @@
+# ivy-hsu — tower bootstrap-only, day 10.25
+SPEED pause
+ADVANCE_DAYS 10.25
+DUMP

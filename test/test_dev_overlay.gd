@@ -10,9 +10,8 @@ const SurfaceQuery = preload("res://src/world/surface_query.gd")
 const IvyParams = preload("res://src/params/ivy_params.gd")
 
 
-func test_overlay_inert_list_covers_w086_knobs() -> void:
-	assert_eq(IvyParams.OVERLAY_INERT.size(), 1)
-	assert_true("tip_cap_m1" in IvyParams.OVERLAY_INERT)
+func test_overlay_inert_list_empty_after_w086() -> void:
+	assert_eq(IvyParams.OVERLAY_INERT.size(), 0, "W-086 resolved: no declared-but-unread knobs remain")
 
 
 func test_every_overlay_param_has_tooltip() -> void:

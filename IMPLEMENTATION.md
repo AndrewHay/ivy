@@ -814,7 +814,7 @@ disappears from screen.
 
 | ID | Rule |
 |---|---|
-| SD-TIP-1 | **`tip_cap_soft = 96`, `tip_cap_hard = 160`.** The hard cap is the documented, never-exceeded number AS-5 requires. |
+| SD-TIP-1 | **`tip_cap_soft = 96`, `tip_cap_hard = 160`.** The hard cap is the documented, never-exceeded number AS-5 requires. The M1-era `tip_cap_m1 = 64` export was deleted in W-086 — it was never read and is fully superseded by this pair plus SD-TIP-3's taper. |
 | SD-TIP-2 | Below the soft cap: branching per §26, unmodified. |
 | SD-TIP-3 | Between soft and hard, and at and above the hard cap, branch probability is scaled by a single continuous ramp that lands on a **positive floor** `branch_scale_floor` (not zero) rather than tapering to zero: `q = branch_scale_floor + (1 − branch_scale_floor) · clamp((N_hard − N)/(N_hard − N_soft), 0, 1)`. Hence `q = 1.0` for `N ≤ N_soft`, `q` falls linearly to `q = branch_scale_floor` at `N = N_hard`, and `q = branch_scale_floor` for all `N ≥ N_hard`. The function is continuous everywhere — the largest step between adjacent tip counts is `(1 − branch_scale_floor)/(N_hard − N_soft) ≈ 0.0153`, so there is **no pop when the cap is approached** (W-045). The floor is deliberately positive: a zero floor makes SD-TIP-4's swap structurally unreachable (that was the W-037 defect), and it is deliberately small so that churn at saturation stays a slow trickle. |
 | SD-TIP-4 | At and above the hard cap, `q` is held at `branch_scale_floor` (SD-TIP-3), so the per-segment branch draw still fires — at that reduced rate. When it fires, a new branch is created only by **retiring** (→ DORMANT) the least-vigorous live non-floating tip, where `vigour = f_L · f_C · f_S` sampled at that tip, and only if the branching parent's vigour exceeds the retiree's by a factor of `retire_margin` (1.25), which prevents thrash. **Intended steady state at saturation is a slow churn** — at most one retirement per *successful* branch, and successful branches are throttled to `branch_scale_floor` of the unthrottled rate — **not** the full-rate one-in-one-out churn that a floor of 1.0 would produce. Because SD-TIP-4 retires the least-vigorous (hence most-shaded) tip, keeping the floor low is what bounds shaded-tip retirement; `retire_margin` remains the designated lever for the AS-1 shaded-floor tension (see `DESIGN.md`), and `branch_scale_floor` is orthogonal to it (it sets *how often* a swap is attempted, not *which* tip is chosen). |
@@ -2335,12 +2335,34 @@ only"). The same applies to `gradient_epsilon = 1.5 · field_cell` and
 `field_sample_jitter = 0.35 · field_cell` — these are stored as *ratios* in the resource, so
 retuning `field_cell` cannot desync them.
 
-### AR-PARAM-3 — Enforcing "no §30 literal at a call site"
+### AR-PARAM-3 — INV-6 conformance (reference scan, not literal scan)
 
-A GUT test (`test_params_conformance.gd`) scans `src/sim/`, `src/env/`, and `src/world/` for the
-numeric literals of the §30 and SD-PARAM defaults and fails on any hit outside
-`src/params/`. Crude, and it will occasionally need an allowlist entry, but SD-PHYS-4 is a rule that
-decays silently otherwise, and a decayed INV-6 makes G6 impossible.
+**Ruling (W-085 / ivy-0jz, 2026-09-15):** the original rule — scan consumer source for the *numeric
+literals* of §30/SD-PARAM defaults and fail on any hit outside `src/params/` — is **withdrawn**. Measured
+while implementing W-042, it produced dozens of false positives (`0.03` is both `segment_length` and
+`light_seek_min` and unrelated constants elsewhere; `60.0` matches every minutes-per-hour conversion) and
+could not have caught W-039 anyway (`persistence_base`'s `0.5` is indistinguishable from a midpoint blend;
+`direction_memory` had no literal at all because normalisation cancels a 50/50 mix). Allowlisting each
+hit would have silenced the test into guarding nothing.
+
+**What enforces INV-6 instead:** `test_params_conformance.gd` scans consumer directories for *parameter
+name references* — every `@export` must be read by a consumer (or derived in an `IvyParams` helper) or
+appear in the `UNIMPLEMENTED` list exactly. That catches dead knobs (W-039, W-086) without attributing
+bare floats to parameters. SD-PHYS-4's "no §30 literal at a call site" is therefore interpreted as **no
+§30 value hardcoded at a call site when a named parameter exists** — enforced by the reference scan, not
+by matching float tokens.
+
+**Tunable vs spec-fixed vs implementation (classification rule):**
+
+| Tier | What | Rule | Examples in `src/sim/` |
+|---|---|---|---|
+| **A — Tunable** | Every §30 row and every SD-PARAM `@export` in `IvyParams` | Must be referenced **by name** at consumer call sites (or via an `IvyParams` helper). Never substitute the default numeric literal for a named parameter. | `params.segment_length`, `params.persistence_base`, `params.direction_memory`, `params.random_new_mix`, `params.crowding_decay`, … |
+| **B — Spec-fixed formula constants** | Structural coefficients inside the canonical formulas SD-PHYS-1 copies verbatim from spec §§10–25 | Remain as numeric literals in `src/sim/`. Changing them is a spec change, not a dev-overlay tuning session. Cite the spec section inline. | `w_P`: `(0.7 + 0.3 * h)` — spec §12; `w_R`: `(1.0 + 0.8 * (1.0 - h))` — spec §13; `w_C`: `(0.5 + 0.5 * h)`; `f_S`: `1.0 - 0.5 * r * r`; `(1.0 - params.random_new_mix)` complement of §14's mix |
+| **C — Implementation constants** | Numerical guards, geometric probes, hash channel IDs, clamp bounds from later SD-* decisions | Remain as literals; neither §30 params nor spec physics shape. | `1e-8` / `1e-5` / `1e-6` fallbacks (SD-GEO-2); reflection `2.0`; seed/probe offsets (`0.01`); `leaf_placer` size clamp `[0.75, 1.35]`; stem-deposit `0.02` (SD-PHYS-3 crowding writer, not a §30 row) |
+
+**Non-goals:** scanning `src/env/`, `src/world/`, or `src/render/` for float literals (too many
+coincidental matches); an exhaustive Tier-B/C allowlist audit test (optional future hardening, not
+required for INV-6 — the reference scan already covers the failure mode W-039 demonstrated).
 
 ### AR-PARAM-4 — `content_hash()`
 
@@ -2390,6 +2412,13 @@ SD-PARAM row appears in the overlay with no UI work. Edits write the live resour
 they affect future growth only, which is already guaranteed by AR-SIM-1 and AR-SIM-7 rather than by
 overlay logic. Field visualization renders `D_L` and `C` as a per-cell debug `MultiMesh` of small
 quads sampled at the shell, toggled with a key.
+
+Any declared-but-unread parameter must appear in `IvyParams.OVERLAY_INERT`; the overlay greys those
+rows out and disables their editors (`test_params_conformance`, INV-6 / W-042). **W-086 resolved
+2026-09-15:** the ten §30 leaf/stem presentation knobs (`droop_*`, `leaf_jitter_*`,
+`leaf_order_falloff`, `leaf_size_sigma`, `leaf_expand_distance`, `stem_order_falloff`,
+`stem_tip_taper`) are wired; the M1 scaffold `tip_cap_m1` was deleted (superseded by
+`tip_cap_soft`/`tip_cap_hard` per SD-TIP-1). `OVERLAY_INERT` is empty.
 
 ### AR-UI-3 — `run_ui_script.gd` verb extensions (new work item W-027)
 
@@ -2772,7 +2801,7 @@ the sunny-side rubric-2 symptom. Measured day-150: 74.58 / 96.23 / 50.62 — all
 | `test_tower_geometry.gd` | SD-CONV-3, AR-TOWER-3 | All four normal assertions over every triangle; mesh and collision triangle arrays identical; doorway and window present in the collision shape (raycast through the aperture misses) |
 | `test_surface_query.gd` | AR-TOWER-4/5/6 | Φ sign inside vs outside; Φ vs raycast distance agreement to 5 mm on 200 sampled rays; `nearest()` at the lip crease; `face_index` → material lookup; `SeedAnchors` yields 4 anchors with the north one deterministically offset off the doorway (SD-AGENCY-2, SD-EDGE-1) |
 | `test_params.gd` | INV-6, SD-PARAM | Every §30 and SD-PARAM key present with the specified default; `content_hash()` stable across two loads and changes when a value changes |
-| `test_params_conformance.gd` | SD-PHYS-4 | Source scan for §30 literals outside `src/params/` (AR-PARAM-3) |
+| `test_params_conformance.gd` | SD-PHYS-4, INV-6 | Reference scan: every `@export` read or listed `UNIMPLEMENTED` (AR-PARAM-3; literal scan withdrawn W-085) |
 | `test_rng.gd` | SD-RNG, W-018 | Stream reproducibility from a seed; `derive(i)` independence (adding a sibling does not perturb an existing stream); `jitter_vec3` determinism and `‖j‖ ≤ 0.35·cell`; source scan for stray `randf`/`randi` |
 | `test_field.gd` | SD-ENV-3/4/5, AR-FIELD | Trilinear exact on a linear ramp; central-difference gradient recovers a known slope; **uniform field ⇒ exactly zero gradient** (SD-EDGE-12); out-of-shell read returns the baseline (SD-EDGE-15); shell projection maps a point 0.35 m out onto the shell; no public nearest-cell accessor exists |
 | `test_physiology.gd` | SD-PHYS, §10–§18, §24–§26 | `f_L(12)=1`, `f_L(3)≈0.625`, `f_C(1)≈0.449`, `f_S(F_max)=0.5`; `w_P/w_R/w_L/w_C` at `H∈{0,1}`; `p_b≈0.0497` at ideal; budget loop emits `floor(B/h)` and is bounded at 8 (SD-PHYS-2) |

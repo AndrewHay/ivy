@@ -25,6 +25,10 @@ var _field: SparseHashField
 var _grid: CellGrid
 var _bake: LightBake
 var _writer_guard: Object = null
+## Whether this build read its coarse ray products from `LightBakeCache` instead of baking them
+## (ivy-9xp). Reported by the loading screen, and the only external evidence of which path a
+## build took — the field itself comes out identical either way, which is the point.
+var loaded_coarse_from_cache: bool = false
 ## Sky-only P̄_L, used as the out-of-shell read fallback (SD-EDGE-15). Reading zero
 ## there would fabricate a light gradient pointing back at the wall.
 var _baseline_p_bar: float = 0.0
@@ -43,17 +47,10 @@ func build(p: IvyParams, surf: SurfaceQuery, sun: Solar = null) -> void:
 	_field.set_all(SparseHashField.Channel.CROWDING, 0.0)
 	_field.set_all(SparseHashField.Channel.MATERIAL_ID, float(MaterialRegistry.BRICK_WALL))
 	_bake = LightBake.new(params, solar)
-	var coarse_loaded := false
-	if surface.backend_tag() == "MeshSdf":
-		var prov := surface.mesh_provenance()
-		var ph := LightBakeCache.params_hash(params)
-		coarse_loaded = LightBakeCache.try_load(_bake, bounds, prov, ph)
-	if not coarse_loaded:
+	var identity := _bake_identity()
+	if not _try_load_cached_bake(bounds, identity):
 		_bake.bake(surface, bounds)
-		if surface.backend_tag() == "MeshSdf":
-			var prov := surface.mesh_provenance()
-			var ph := LightBakeCache.params_hash(params)
-			LightBakeCache.save(_bake, bounds, prov, ph)
+		_save_cached_bake(bounds, identity)
 	_bake.fill_field(surface, _field, _grid)
 	_baseline_p_bar = _bake.diffuse_baseline_p_bar()
 	warm_up(params.light_warmup_days)
@@ -87,17 +84,14 @@ func build_interactive(
 	_field.set_all(SparseHashField.Channel.MATERIAL_ID, float(MaterialRegistry.BRICK_WALL))
 	_bake = LightBake.new(params, solar)
 	on_progress.call("Allocating environment field…", P_ALLOC)
-	var coarse_loaded := false
-	if surface.backend_tag() == "MeshSdf":
-		on_progress.call("Checking sunlight cache…", P_CACHE * 0.5)
-		await tree.process_frame
-		var prov := surface.mesh_provenance()
-		var ph := LightBakeCache.params_hash(params)
-		coarse_loaded = LightBakeCache.try_load(_bake, bounds, prov, ph)
-		on_progress.call(
-			"Sunlight cache hit — skipping ray trace" if coarse_loaded else "Sunlight cache miss",
-			P_CACHE
-		)
+	var identity := _bake_identity()
+	on_progress.call("Checking sunlight cache…", P_CACHE * 0.5)
+	await tree.process_frame
+	var coarse_loaded := _try_load_cached_bake(bounds, identity)
+	on_progress.call(
+		"Sunlight cache hit — skipping ray trace" if coarse_loaded else "Sunlight cache miss",
+		P_CACHE
+	)
 	if not coarse_loaded:
 		on_progress.call("Ray-tracing sunlight (first run ~30–60s)…", P_RAY_START)
 		await tree.process_frame
@@ -112,10 +106,7 @@ func build_interactive(
 					P_RAY_START + ray_span * local
 				)
 		)
-		if surface.backend_tag() == "MeshSdf":
-			var prov := surface.mesh_provenance()
-			var ph := LightBakeCache.params_hash(params)
-			LightBakeCache.save(_bake, bounds, prov, ph)
+		_save_cached_bake(bounds, identity)
 	on_progress.call("Filling light field…", P_FILL_START)
 	await tree.process_frame
 	var fill_span := P_FILL_END - P_FILL_START
@@ -130,6 +121,51 @@ func build_interactive(
 	_baseline_p_bar = _bake.diffuse_baseline_p_bar()
 	warm_up(params.light_warmup_days)
 	on_progress.call("Ready", 1.0)
+
+
+# --- Coarse-bake disk cache (ivy-9xp). Both build paths share these three steps. ---
+
+
+## Cache key for this building's geometry, or empty when the backend cannot supply one.
+func _bake_identity() -> PackedByteArray:
+	var identity := surface.bake_identity()
+	if identity.size() == LightBakeCache.HASH_BYTES:
+		return identity
+	# Not a shrug-worthy miss: an unidentifiable backend means *every* load of this building
+	# re-runs the full ray bake. Before ivy-9xp the cache was gated on `backend_tag() ==
+	# "MeshSdf"`, so procedural buildings skipped it silently and nobody noticed for a milestone.
+	if params.dev_build:
+		push_error(
+			("IvyEnvironment: backend %s supplies no bake_identity(), so its light bake cannot "
+			+ "be cached and will be re-run on every load") % surface.backend_tag()
+		)
+	return PackedByteArray()
+
+
+## True when `_bake` holds a cached coarse grid that this build has verified as its own.
+func _try_load_cached_bake(bounds: AABB, identity: PackedByteArray) -> bool:
+	loaded_coarse_from_cache = false
+	if identity.is_empty():
+		return false
+	if not LightBakeCache.try_load(_bake, bounds, identity, LightBakeCache.params_hash(params)):
+		return false
+	if LightBakeCache.verify_against_surface(_bake, surface):
+		loaded_coarse_from_cache = true
+		return true
+	# A rejection and a miss end the same way — re-bake — and differ only in that this one is
+	# loud. `LightBake.bake()` clears the partially loaded grid itself, so nothing to undo.
+	push_error(
+		("LightBakeCache: verification probe rejected the cached bake for %s; re-baking. The "
+		+ "cache key is missing an input that changed — see LightBakeCache's header.")
+		% surface.backend_tag()
+	)
+	return false
+
+
+func _save_cached_bake(bounds: AABB, identity: PackedByteArray) -> void:
+	if identity.is_empty():
+		return
+	LightBakeCache.save(_bake, bounds, identity, LightBakeCache.params_hash(params))
 
 
 func set_writer_guard(guard: Object) -> void:

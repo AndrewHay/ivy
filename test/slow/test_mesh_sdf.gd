@@ -583,9 +583,10 @@ func test_phase_a_cached_build_skips_ray_bake() -> void:
 	var fixture: Dictionary = await _make_square_surface_query()
 	var sq: SurfaceQuery = fixture.sq
 	var params := IvyParams.new()
-	var prov := sq.mesh_provenance()
+	# ivy-9xp: the key is the backend-agnostic identity now, not the raw GLB provenance.
+	var identity := sq.bake_identity()
 	var ph := LightBakeCache.params_hash(params)
-	var cache_path := LightBakeCache.cache_path(prov, ph)
+	var cache_path := LightBakeCache.cache_path(identity, ph)
 	if FileAccess.file_exists(cache_path):
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(cache_path))
 
@@ -594,11 +595,16 @@ func test_phase_a_cached_build_skips_ray_bake() -> void:
 	env1.build(params, sq)
 	var first_ms: int = Time.get_ticks_msec() - t0
 	assert_true(FileAccess.file_exists(cache_path), "first build must write cache file")
+	assert_false(env1.loaded_coarse_from_cache, "the first build has no cache to load")
 
 	var env2 := IvyEnvironment.new()
 	t0 = Time.get_ticks_msec()
 	env2.build(params, sq)
 	var second_ms: int = Time.get_ticks_msec() - t0
+	assert_true(
+		env2.loaded_coarse_from_cache,
+		"the second build must load and verify the entry the first one wrote"
+	)
 
 	print("[W-097 timing] first build (ray bake): %d ms; cached build: %d ms" % [first_ms, second_ms])
 	assert_lt(second_ms, first_ms, "cached build must be faster than full ray bake")

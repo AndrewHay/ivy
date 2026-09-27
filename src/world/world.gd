@@ -47,7 +47,7 @@ func ensure_mesh_scenario_loaded() -> void:
 	# shape after `main.gd` has already awaited its physics frame — the light bake
 	# then raycasts a shape the physics server has not committed, and the canonical
 	# run loses ~4% of its growth.
-	if _procedural_id == "wall":
+	if _procedural_id == "test_wall":
 		if not _wall_built:
 			_wall_built = true
 			_wall.build_from_spec(wall_spec, true)
@@ -61,7 +61,7 @@ func load_building(building_id: String) -> void:
 	_teardown_active_building()
 	if BuildingCatalog.is_procedural(building_id):
 		_procedural_id = building_id
-		if building_id == "wall":
+		if building_id == "test_wall":
 			_show_procedural_wall()
 		else:
 			_show_procedural_tower()
@@ -141,13 +141,13 @@ func get_seed_anchors():
 func get_orbit_pivot() -> Vector3:
 	if mesh_scenario != null:
 		return mesh_scenario.resolve_camera_pivot()
-	if _procedural_id == "wall":
+	if _procedural_id == "test_wall":
 		return Vector3(0.0, wall_spec.height * 0.5, 0.0)
 	return Vector3(0.0, tower_spec.height * 0.5, 0.0)
 
 
 func get_debug_camera_zoom_bounds() -> Vector2:
-	if _procedural_id == "wall":
+	if _procedural_id == "test_wall":
 		return DebugCamera.wall_zoom_bounds(wall_spec)
 	return DebugCamera.tower_zoom_bounds(tower_spec)
 
@@ -180,7 +180,7 @@ func get_surface_query(params: IvyParams) -> SurfaceQuery:
 			params
 		)
 	else:
-		if _procedural_id == "wall":
+		if _procedural_id == "test_wall":
 			sq.setup(
 				space,
 				_wall,

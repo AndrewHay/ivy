@@ -391,18 +391,38 @@ func _precompute_sun_path() -> void:
 		_diffuse_elevation[hour] = pow(s, params.light_elevation_exponent_diffuse)
 
 
-func _bake_coarse_cell(surface: SurfaceQuery, cell: Vector3i) -> void:
+## Ray products for one coarse cell, with no writes to baked state. Returns `in_band = false`
+## for cells too far from the surface to carry data.
+##
+## Split out of `_bake_coarse_cell` so `LightBakeCache`'s verification probe recomputes through
+## exactly the same code the bake used (ivy-9xp). A probe that reimplemented this would verify
+## its own copy of the arithmetic rather than the bake's.
+func compute_coarse_cell(surface: SurfaceQuery, cell: Vector3i) -> Dictionary:
 	var p := _coarse.cell_point(cell)
 	# A fine sample sits on the surface, so its eight coarse corners can be as far out
 	# as one coarse cell diagonal. Baking to that radius guarantees every fine sample
 	# has full trilerp support and never falls back to the unallocated defaults.
 	if absf(surface.signed_distance(p)) > params.vis_cell * sqrt(3.0):
-		return
+		return {"in_band": false}
 	var n := surface.surface_normal(p)
 	var on_surface := surface.project_to_shell(p)
-	var svf := sky_view_factor(surface, on_surface, n)
-	var mask := visibility_mask(surface, on_surface, n)
-	var leak := horizon_escape_factor(surface, on_surface, n)
+	return {
+		"in_band": true,
+		"svf": sky_view_factor(surface, on_surface, n),
+		"mask": visibility_mask(surface, on_surface, n),
+		"leak": horizon_escape_factor(surface, on_surface, n),
+		"normal": n,
+	}
+
+
+func _bake_coarse_cell(surface: SurfaceQuery, cell: Vector3i) -> void:
+	var products := compute_coarse_cell(surface, cell)
+	if not products["in_band"]:
+		return
+	var svf: float = products["svf"]
+	var mask: int = products["mask"]
+	var leak: float = products["leak"]
+	var n: Vector3 = products["normal"]
 	var key := CellGrid.pack_key(cell)
 	if _slot_of.has(key):
 		var slot: int = _slot_of[key]

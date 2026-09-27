@@ -89,7 +89,6 @@ const _DEFAULTS := {
 	"stem_order_falloff": 0.25,
 	"stem_tip_taper": 0.15,
 	"diel_gate_enabled": true,
-	"tip_cap_m1": 64,
 	"dev_build": true,
 }
 

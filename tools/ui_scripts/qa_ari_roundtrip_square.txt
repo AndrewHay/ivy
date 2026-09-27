@@ -1,0 +1,8 @@
+# QA ivy-ari.7 — square structure loads and ivy grows on sim surface.
+# Run: --scenario=res://assets/structures/scenarios/square.tres
+SPEED pause
+ADVANCE_DAYS 10
+ADVANCE_DAYS 0.25
+CAMERA sun
+SCREENSHOT ivy-ari-square-d10-sun.png
+DUMP

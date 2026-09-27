@@ -4,13 +4,51 @@ const IvyParams = preload("res://src/params/ivy_params.gd")
 const Solar = preload("res://src/env/solar.gd")
 const LightBake = preload("res://src/env/light_bake.gd")
 const LightBakeCache = preload("res://src/env/light_bake_cache.gd")
+const IvyEnvironment = preload("res://src/env/environment.gd")
+const SurfaceQuery = preload("res://src/world/surface_query.gd")
+const WallSpec = preload("res://src/world/wall_spec.gd")
+const WallSdf = preload("res://src/world/wall_sdf.gd")
+
+## Header layout, for the byte-level tamper test: magic, version, then the three key hashes.
+const CODE_HASH_OFFSET := 7 + 4 + 2 * LightBakeCache.HASH_BYTES
 
 
-func _fake_provenance(byte: int) -> PackedByteArray:
+func _fake_identity(byte: int) -> PackedByteArray:
 	var p := PackedByteArray()
-	for i in 32:
+	for _i in LightBakeCache.HASH_BYTES:
 		p.append(byte)
 	return p
+
+
+## Deliberately not the shipped `wall_spec_default.tres` dimensions: these tests write real
+## cache entries into the shared `res://.tmp` directory, and a distinct spec keeps their keys
+## clear of the buildings the game loads. `length` also separates one test's entries from
+## another's, so a file a tamper test leaves behind cannot reach the test next door.
+func _tiny_wall_surface(length: float = 1.2) -> SurfaceQuery:
+	var spec := WallSpec.new()
+	spec.length = length
+	spec.height = 0.8
+	spec.thickness = 0.35
+	var sq := SurfaceQuery.new()
+	sq.setup(null, null, WallSdf.new(spec), PackedByteArray(), IvyParams.new())
+	return sq
+
+
+## Cache entries outlive the process, which is the whole point of them — so any test asserting a
+## *miss* has to clear the entry a previous run left behind or it will see that run's hit.
+func _forget_cache_entry(identity: PackedByteArray, params: IvyParams) -> void:
+	var path := LightBakeCache.cache_path(identity, LightBakeCache.params_hash(params))
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+
+func _single_cell_bake(params: IvyParams) -> LightBake:
+	var bake := LightBake.new(params, Solar.new(params))
+	bake._slot_of[CellGrid.pack_key(Vector3i.ZERO)] = 0
+	bake._svf = PackedFloat32Array([0.5])
+	bake._vis = PackedInt32Array([0x00FFFFFF])
+	bake._leak = PackedFloat32Array([0.0])
+	bake._bake_normal = PackedVector3Array([Vector3.UP])
+	return bake
 
 
 func test_save_load_roundtrip_preserves_coarse_grid() -> void:
@@ -21,57 +59,292 @@ func test_save_load_roundtrip_preserves_coarse_grid() -> void:
 	bake._slot_of[key] = 0
 	bake._svf = PackedFloat32Array([0.42])
 	bake._vis = PackedInt32Array([0x00FF00FF])
-	var prov := _fake_provenance(0xAB)
+	bake._leak = PackedFloat32Array([0.25])
+	bake._bake_normal = PackedVector3Array([Vector3(0.0, 0.0, 1.0)])
+	var identity := _fake_identity(0xAB)
 	var ph := LightBakeCache.params_hash(params)
-	LightBakeCache.save(bake, bounds, prov, ph)
+	LightBakeCache.save(bake, bounds, identity, ph)
 	var bake2 := LightBake.new(params, Solar.new(params))
-	assert_true(LightBakeCache.try_load(bake2, bounds, prov, ph))
+	assert_true(LightBakeCache.try_load(bake2, bounds, identity, ph))
 	assert_eq(bake2._svf.size(), 1)
 	assert_almost_eq(bake2._svf[0], 0.42, 1e-6)
 	assert_eq(bake2._vis[0], 0x00FF00FF)
+	assert_almost_eq(bake2._leak[0], 0.25, 1e-6)
 	assert_true(bake2._slot_of.has(key))
 
 
-func test_mismatch_provenance_is_miss_not_stale_read() -> void:
+func test_mismatch_identity_is_miss_not_stale_read() -> void:
 	var params := IvyParams.new()
-	var bake := LightBake.new(params, Solar.new(params))
 	var bounds := AABB(Vector3.ZERO, Vector3.ONE)
-	var prov := _fake_provenance(1)
+	var identity := _fake_identity(1)
 	var ph := LightBakeCache.params_hash(params)
-	bake._slot_of[CellGrid.pack_key(Vector3i.ZERO)] = 0
-	bake._svf = PackedFloat32Array([0.5])
-	bake._vis = PackedInt32Array([0xFFFFFF])
-	LightBakeCache.save(bake, bounds, prov, ph)
+	LightBakeCache.save(_single_cell_bake(params), bounds, identity, ph)
 	var bake2 := LightBake.new(params, Solar.new(params))
-	assert_false(LightBakeCache.try_load(bake2, bounds, _fake_provenance(2), ph))
+	assert_false(LightBakeCache.try_load(bake2, bounds, _fake_identity(2), ph))
 	assert_eq(bake2._svf.size(), 0)
 
 
 func test_mismatch_params_hash_is_miss() -> void:
 	var params := IvyParams.new()
-	var bake := LightBake.new(params, Solar.new(params))
 	var bounds := AABB(Vector3.ZERO, Vector3.ONE)
-	var prov := _fake_provenance(3)
-	var ph := LightBakeCache.params_hash(params)
-	bake._slot_of[CellGrid.pack_key(Vector3i.ZERO)] = 0
-	bake._svf = PackedFloat32Array([0.5])
-	bake._vis = PackedInt32Array([0xFFFFFF])
-	LightBakeCache.save(bake, bounds, prov, ph)
+	var identity := _fake_identity(3)
+	LightBakeCache.save(
+		_single_cell_bake(params), bounds, identity, LightBakeCache.params_hash(params)
+	)
 	var other := IvyParams.new()
 	other.svf_rays = params.svf_rays + 1
 	var bake2 := LightBake.new(other, Solar.new(other))
-	assert_false(LightBakeCache.try_load(bake2, bounds, prov, LightBakeCache.params_hash(other)))
+	assert_false(
+		LightBakeCache.try_load(bake2, bounds, identity, LightBakeCache.params_hash(other))
+	)
 	assert_eq(bake2._svf.size(), 0)
 
 
 func test_corrupt_magic_fails_load() -> void:
 	var params := IvyParams.new()
-	var prov := _fake_provenance(4)
+	var identity := _fake_identity(4)
 	var ph := LightBakeCache.params_hash(params)
-	var path := LightBakeCache.cache_path(prov, ph)
+	var path := LightBakeCache.cache_path(identity, ph)
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(LightBakeCache.CACHE_DIR))
 	var f := FileAccess.open(path, FileAccess.WRITE)
 	f.store_string("BADMAGIC")
 	f.close()
 	var bake := LightBake.new(params, Solar.new(params))
-	assert_false(LightBakeCache.try_load(bake, AABB(Vector3.ZERO, Vector3.ONE), prov, ph))
+	assert_false(LightBakeCache.try_load(bake, AABB(Vector3.ZERO, Vector3.ONE), identity, ph))
+
+
+# --- Key totality (ivy-9xp layers 2 and 3) ---
+
+
+## Every declared bake-affecting parameter must actually move the hash. A name listed in
+## BAKE_AFFECTING but not read would advertise protection the cache does not have.
+func test_params_hash_responds_to_every_bake_affecting_parameter() -> void:
+	var base_hash := LightBakeCache.params_hash(IvyParams.new())
+	assert_gt(IvyParams.BAKE_AFFECTING.size(), 5, "the bake-affecting list must be non-trivial")
+	for name in IvyParams.BAKE_AFFECTING:
+		var perturbed := IvyParams.new()
+		var value: Variant = perturbed.get(name)
+		match typeof(value):
+			TYPE_INT:
+				perturbed.set(name, int(value) + 1)
+			TYPE_FLOAT:
+				perturbed.set(name, float(value) + 1.0)
+			TYPE_BOOL:
+				perturbed.set(name, not bool(value))
+			_:
+				fail_test("unhandled parameter type for %s" % name)
+				continue
+		assert_ne(
+			LightBakeCache.params_hash(perturbed), base_hash,
+			"changing %s must change the cache key, or a cached bake outlives it" % name
+		)
+
+
+## The mirror of the above: parameters that only scale the uncached fine grid must not
+## invalidate bakes, or every light-tuning tweak costs a full re-bake for nothing.
+func test_params_hash_ignores_parameters_the_coarse_bake_cannot_see() -> void:
+	var base := IvyParams.new()
+	var base_hash := LightBakeCache.params_hash(base)
+	var other := IvyParams.new()
+	other.light_p_max = base.light_p_max * 2.0
+	other.leaf_cap = base.leaf_cap + 1
+	other.branch_rate = base.branch_rate + 0.5
+	assert_eq(LightBakeCache.params_hash(other), base_hash)
+
+
+## Pre-ivy-9xp the key covered ray counts and cell sizes but not the sun path, so moving the
+## site or changing the date reused another location's shadow mask.
+func test_params_hash_covers_the_sun_path() -> void:
+	var base_hash := LightBakeCache.params_hash(IvyParams.new())
+	for name in ["latitude", "longitude", "day_of_year"]:
+		var moved := IvyParams.new()
+		var value: Variant = moved.get(name)
+		moved.set(name, int(value) + 1 if typeof(value) == TYPE_INT else float(value) + 1.0)
+		assert_ne(
+			LightBakeCache.params_hash(moved), base_hash,
+			"%s changes the baked visibility mask and must change the key" % name
+		)
+
+
+func test_code_hash_is_a_stable_digest() -> void:
+	var first := LightBakeCache.code_hash()
+	assert_eq(first.size(), LightBakeCache.HASH_BYTES)
+	assert_eq(LightBakeCache.code_hash(), first, "code hash must be stable within a run")
+
+
+## A file written by a build whose bake code differed must not be read back, even when the
+## geometry and the parameters match.
+func test_file_from_different_bake_code_is_a_miss() -> void:
+	var params := IvyParams.new()
+	var bounds := AABB(Vector3.ZERO, Vector3.ONE)
+	var identity := _fake_identity(5)
+	var ph := LightBakeCache.params_hash(params)
+	LightBakeCache.save(_single_cell_bake(params), bounds, identity, ph)
+	var f := FileAccess.open(LightBakeCache.cache_path(identity, ph), FileAccess.READ_WRITE)
+	f.seek(CODE_HASH_OFFSET)
+	f.store_buffer(_fake_identity(0x7E))
+	f.close()
+	var bake2 := LightBake.new(params, Solar.new(params))
+	assert_false(
+		LightBakeCache.try_load(bake2, bounds, identity, ph),
+		"a cache written by different bake code must not be loaded"
+	)
+
+
+# --- Verification probe (ivy-9xp layer 4) ---
+
+
+func test_probe_accepts_a_cache_this_build_produced() -> void:
+	var params := IvyParams.new()
+	var surface := _tiny_wall_surface()
+	var bounds := surface.shell_bounds(params.field_shell_halfwidth + params.field_cell)
+	var bake := LightBake.new(params, Solar.new(params))
+	bake.bake(surface, bounds)
+	assert_gt(bake.coarse_count(), 0, "the wall must bake cells for this test to mean anything")
+	var identity := surface.bake_identity()
+	assert_eq(identity.size(), LightBakeCache.HASH_BYTES, "WallSdf must supply a cache identity")
+	var ph := LightBakeCache.params_hash(params)
+	LightBakeCache.save(bake, bounds, identity, ph)
+	var loaded := LightBake.new(params, Solar.new(params))
+	assert_true(LightBakeCache.try_load(loaded, bounds, identity, ph))
+	assert_eq(loaded.coarse_count(), bake.coarse_count())
+	assert_true(
+		LightBakeCache.verify_against_surface(loaded, surface),
+		"a cache written from this surface must verify against it"
+	)
+
+
+## The hazard SD-OPEN-24 named: a file whose key matches but whose contents belong to another
+## bake. The load succeeds and nothing about the key is wrong, so only recomputing catches it —
+## without the probe this file would be used and every test would still pass.
+func test_probe_rejects_svf_values_this_build_would_not_produce() -> void:
+	var params := IvyParams.new()
+	var surface := _tiny_wall_surface()
+	var bounds := surface.shell_bounds(params.field_shell_halfwidth + params.field_cell)
+	var bake := LightBake.new(params, Solar.new(params))
+	bake.bake(surface, bounds)
+	# Every cell wrong, as a file belonging to another building would be, so the sampled probe
+	# rather than an exhaustive one has to catch it.
+	for slot in bake.coarse_count():
+		bake._svf[slot] = 1.0 - bake._svf[slot]
+	var identity := surface.bake_identity()
+	var ph := LightBakeCache.params_hash(params)
+	LightBakeCache.save(bake, bounds, identity, ph)
+	var loaded := LightBake.new(params, Solar.new(params))
+	assert_true(LightBakeCache.try_load(loaded, bounds, identity, ph), "the key still matches")
+	assert_false(
+		LightBakeCache.verify_against_surface(loaded, surface),
+		"recomputing must catch SVF the live surface cannot produce"
+	)
+
+
+## One wrong cell, verified exhaustively: proves the mask is compared at all, independently of
+## which cells the default sampling happens to visit.
+func test_probe_rejects_a_wrong_visibility_mask() -> void:
+	var params := IvyParams.new()
+	var surface := _tiny_wall_surface()
+	var bounds := surface.shell_bounds(params.field_shell_halfwidth + params.field_cell)
+	var bake := LightBake.new(params, Solar.new(params))
+	bake.bake(surface, bounds)
+	bake._vis[0] = ~bake._vis[0] & 0x00FFFFFF
+	var identity := surface.bake_identity()
+	var ph := LightBakeCache.params_hash(params)
+	LightBakeCache.save(bake, bounds, identity, ph)
+	var loaded := LightBake.new(params, Solar.new(params))
+	assert_true(LightBakeCache.try_load(loaded, bounds, identity, ph))
+	assert_false(
+		LightBakeCache.verify_against_surface(loaded, surface, loaded.coarse_count()),
+		"recomputing must catch an inverted direct-sun mask"
+	)
+
+
+## Normals are stored alongside the ray products and feed the trilerp face filter, so a file with
+## correct SVF, mask and leak but rotated normals still reads wrong.
+func test_probe_rejects_wrong_surface_normals() -> void:
+	var params := IvyParams.new()
+	var surface := _tiny_wall_surface(1.5)
+	var bounds := surface.shell_bounds(params.field_shell_halfwidth + params.field_cell)
+	var bake := LightBake.new(params, Solar.new(params))
+	bake.bake(surface, bounds)
+	bake._bake_normal[0] = -bake._bake_normal[0]
+	var identity := surface.bake_identity()
+	var ph := LightBakeCache.params_hash(params)
+	LightBakeCache.save(bake, bounds, identity, ph)
+	var loaded := LightBake.new(params, Solar.new(params))
+	assert_true(LightBakeCache.try_load(loaded, bounds, identity, ph))
+	assert_false(
+		LightBakeCache.verify_against_surface(loaded, surface, loaded.coarse_count()),
+		"an inverted surface normal must be caught even when the ray products match"
+	)
+
+
+## Refusing to verify is the safe answer when there is nothing to verify against: a caller that
+## cannot supply a surface must re-bake rather than trust the file.
+func test_probe_refuses_without_a_surface() -> void:
+	var params := IvyParams.new()
+	assert_false(LightBakeCache.verify_against_surface(_single_cell_bake(params), null))
+
+
+## A grid with no cells would otherwise pass by vacuum — nothing recomputed, nothing to disagree
+## with. Re-baking nothing is free, so there is no reason to accept it.
+func test_probe_refuses_an_empty_grid() -> void:
+	var params := IvyParams.new()
+	var empty := LightBake.new(params, Solar.new(params))
+	assert_eq(empty.coarse_count(), 0, "this test needs a genuinely empty bake")
+	assert_false(LightBakeCache.verify_against_surface(empty, _tiny_wall_surface()))
+
+
+# --- End to end (ivy-9xp: the reason any of this exists) ---
+
+
+## The headline change: a procedural building takes part in the cache at all. `build()` used to
+## gate it on `backend_tag() == "MeshSdf"`, so the wall and the cylinder re-ran the whole ray
+## bake on every load, for every test, forever.
+func test_environment_build_caches_a_procedural_building() -> void:
+	var params := IvyParams.new()
+	var surface := _tiny_wall_surface(1.3)
+	var identity := surface.bake_identity()
+	var path := LightBakeCache.cache_path(identity, LightBakeCache.params_hash(params))
+	_forget_cache_entry(identity, params)
+	assert_false(FileAccess.file_exists(path), "this test must start from a cold cache")
+
+	var cold := IvyEnvironment.new()
+	cold.build(params, surface, Solar.new(params))
+	assert_false(cold.loaded_coarse_from_cache, "a cold build has nothing to load")
+	assert_true(FileAccess.file_exists(path), "a procedural build must write a cache entry")
+
+	var warm := IvyEnvironment.new()
+	warm.build(params, surface, Solar.new(params))
+	assert_true(
+		warm.loaded_coarse_from_cache,
+		"the second build must load and verify the entry the first one wrote"
+	)
+
+
+## Same building, one bake-affecting parameter moved: a miss, so nothing stale is read. The warm
+## build in the middle is what gives the final assertion its teeth — it proves a hit is available
+## for this surface, so the miss that follows is caused by the parameter and not by a cache that
+## never worked.
+func test_environment_rebakes_when_a_bake_affecting_parameter_changes() -> void:
+	var params := IvyParams.new()
+	var moved := IvyParams.new()
+	moved.latitude = params.latitude + 10.0
+	var surface := _tiny_wall_surface(1.4)
+	var identity := surface.bake_identity()
+	_forget_cache_entry(identity, params)
+	_forget_cache_entry(identity, moved)
+
+	var cold := IvyEnvironment.new()
+	cold.build(params, surface, Solar.new(params))
+	assert_false(cold.loaded_coarse_from_cache, "a cold build has nothing to load")
+
+	var warm := IvyEnvironment.new()
+	warm.build(params, surface, Solar.new(params))
+	assert_true(warm.loaded_coarse_from_cache, "an unchanged rebuild must hit")
+
+	var relocated := IvyEnvironment.new()
+	relocated.build(moved, surface, Solar.new(moved))
+	assert_false(
+		relocated.loaded_coarse_from_cache,
+		"moving the site changes the sun path, so the previous bake must not be reused"
+	)

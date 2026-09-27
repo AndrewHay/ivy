@@ -36,16 +36,19 @@ func test_setup_sources_tower_spec_from_composition_root() -> void:
 		"orbit pivot must derive from the setup() spec")
 
 
-## ivy-3hg.16 — wall zoom bounds must exceed the cylinder ceiling so the 100 m wall
+## ivy-3hg.16 — wall zoom bounds must exceed the cylinder ceiling so the whole test wall
 ## can be framed. Catches main.gd always passing tower_spec to DebugCamera.setup().
+## Derived from the shipped spec rather than literals so a resized wall re-checks the
+## property instead of asserting a stale size.
 func test_wall_zoom_bounds_allow_full_wall_framing() -> void:
-	var wall := WallSpec.new()
-	wall.length = 100.0
-	wall.height = 20.0
-	wall.thickness = 0.35
+	var wall := load("res://src/world/wall_spec_default.tres") as WallSpec
 	var bounds: Vector2 = DebugCameraScript.wall_zoom_bounds(wall)
-	assert_gt(bounds.y, 80.0,
-		"wall max zoom-out must far exceed cylinder ceiling (~12 m)")
+	var cylinder_ceiling: float = DebugCameraScript.tower_zoom_bounds(TowerSpec.new()).y
+	var wall_diagonal := sqrt(wall.length * wall.length + wall.height * wall.height)
+	assert_gt(bounds.y, cylinder_ceiling,
+		"wall max zoom-out must exceed the cylinder ceiling")
+	assert_gt(bounds.y, wall_diagonal,
+		"wall max zoom-out must clear the wall's own diagonal so it fits in frame")
 	assert_almost_eq(
 		DebugCameraScript.clamp_radius_with_bounds(999.0, bounds.x, bounds.y),
 		bounds.y, 1e-6,
@@ -57,11 +60,15 @@ func test_wall_zoom_bounds_allow_full_wall_framing() -> void:
 func test_setup_wall_bounds_use_readable_default_radius() -> void:
 	var cam := DebugCameraScript.new()
 	cam.script_driven = true
-	var wall_bounds: Vector2 = DebugCameraScript.wall_zoom_bounds(WallSpec.new())
+	var wall := load("res://src/world/wall_spec_default.tres") as WallSpec
+	var wall_bounds: Vector2 = DebugCameraScript.wall_zoom_bounds(wall)
 	add_child(cam)
 	cam.setup(TowerSpec.new(), wall_bounds)
-	assert_gt(cam._radius, 60.0,
+	var cylinder_ceiling: float = DebugCameraScript.tower_zoom_bounds(TowerSpec.new()).y
+	assert_gt(cam._radius, cylinder_ceiling,
 		"wall session must default to a pull-back orbit radius, not cylinder-scale ~8 m")
+	assert_gt(cam._radius, wall.length * 0.5,
+		"default radius must be at least the wall's half-length to frame its full span")
 
 
 ## Tower zoom bounds must stay at the cylinder defaults (no regression).

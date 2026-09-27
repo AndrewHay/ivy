@@ -4,7 +4,7 @@
 
 [resource]
 script = ExtResource("1")
-length = 100.0
-height = 20.0
+length = 20.0
+height = 10.0
 thickness = 0.35
 brick_physical_size = Vector2(1.8, 0.9)

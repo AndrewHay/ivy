@@ -51,6 +51,7 @@ const SECTOR_COUNT: int = 12       # 30° each — SD-METRIC-6
 const COVERAGE_THRESHOLD: float = 0.5  # ≥50% of bucket area — SD-METRIC-3
 
 const _LeafAtlas = preload("res://src/render/leaf_atlas.gd")
+const OpeningFootprintScript = preload("res://src/world/opening_footprint.gd")
 
 var _spec: TowerSpec
 var _eligible: PackedByteArray  # AZIMUTH_BINS × HEIGHT_BINS; 1 = eligible, 0 = excluded
@@ -296,14 +297,11 @@ func _build_opening_mask(spec: TowerSpec) -> PackedByteArray:
 ## radius: outer wall radius used to convert linear width to angular half-width.
 func _mask_out_opening(mask: PackedByteArray, center_deg: float, width_m: float,
 		y_lo: float, y_hi: float, radius: float) -> void:
-	var half_deg := rad_to_deg(atan(width_m * 0.5 / maxf(radius, 1e-3)))
+	var half_deg := OpeningFootprintScript.half_azimuth_deg(width_m, radius)
 	var h_lo := maxi(0, int(floor(y_lo / HEIGHT_BIN_SIZE)))
 	var h_hi := mini(HEIGHT_BINS - 1, int(ceil(y_hi / HEIGHT_BIN_SIZE)) - 1)
 	for az in range(AZIMUTH_BINS):
 		var az_center := float(az) * 5.0 + 2.5
-		var diff := fposmod(az_center - center_deg, 360.0)
-		if diff > 180.0:
-			diff = 360.0 - diff
-		if diff <= half_deg:
+		if OpeningFootprintScript.angular_delta_deg(az_center, center_deg) <= half_deg:
 			for h in range(h_lo, h_hi + 1):
 				mask[az * HEIGHT_BINS + h] = 0

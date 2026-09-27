@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://civy_measure_wall_sparse"]
+
+[ext_resource type="Script" path="res://tools/measure_wall_sparse.gd" id="1_measure_sparse"]
+
+[node name="MeasureWallSparse" type="Node"]
+script = ExtResource("1_measure_sparse")

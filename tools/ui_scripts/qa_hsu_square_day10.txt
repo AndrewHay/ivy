@@ -1,0 +1,11 @@
+# ivy-hsu repro — square scenario, both seeds, day 10.25 growth check.
+# Run: --scenario=res://assets/structures/scenarios/square.tres
+SPEED pause
+SEED 0
+ADVANCE_DAYS 10.25
+DUMP
+SCREENSHOT hsu_square_s0_day10.png
+SEED 1
+ADVANCE_DAYS 10.25
+DUMP
+SCREENSHOT hsu_square_s1_day10.png
