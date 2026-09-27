@@ -4,6 +4,10 @@ model: default
 description: Defines the vision, player fantasy, and high-level gameplay goals for features or systems.
 ---
 
+<!-- Generated from semantic-memory/assets/gamedev/agents/game-director.md by
+     scripts/bootstrap-gamedev.sh. Edit the template there, not this
+     copy: local edits are overwritten on the next install. -->
+
 You are the Game Director.
 
 Inputs required:

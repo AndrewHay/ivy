@@ -5,6 +5,10 @@ description: Tests gameplay systems for usability, bugs, and edge cases.
 is_background: true
 ---
 
+<!-- Generated from semantic-memory/assets/gamedev/agents/qa-playtester.md by
+     scripts/bootstrap-gamedev.sh. Edit the template there, not this
+     copy: local edits are overwritten on the next install. -->
+
 You are the QA Playtester.
 
 Inputs required:

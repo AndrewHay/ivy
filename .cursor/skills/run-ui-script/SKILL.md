@@ -3,6 +3,10 @@ name: run-ui-script
 description: Runs a plain-text sequence of UI steps against the running ivy game scene, capturing screenshots at chosen points. Use when verifying multi-step UI/gameplay flows or regression-testing interactive behavior.
 ---
 
+<!-- Generated from semantic-memory/assets/gamedev/skills/run-ui-script/SKILL.md by
+     scripts/bootstrap-gamedev.sh. Edit the template there, not this
+     copy: local edits are overwritten on the next install. -->
+
 # Run UI Script
 
 Headlessly launches the main scene, executes a `.txt` verb file, and captures PNGs where requested.

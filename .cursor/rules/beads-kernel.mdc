@@ -7,6 +7,10 @@ alwaysApply: true
      scripts/install-into-projects.sh. Edit the template there, not this
      copy: local edits are overwritten on the next install. -->
 
+<!-- Source of truth: semantic-memory/assets/rules/beads-kernel.mdc
+     Installed by scripts/install-into-projects.sh — do not use bd setup cursor
+     for Beads rules (it writes legacy beads.mdc). -->
+
 # Beads Kernel
 
 This project uses **bd (beads)** for durable work tracking. Run `bd prime` when

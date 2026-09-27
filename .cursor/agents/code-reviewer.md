@@ -6,6 +6,10 @@ readonly: true
 is_background: true
 ---
 
+<!-- Generated from semantic-memory/assets/gamedev/agents/code-reviewer.md by
+     scripts/bootstrap-gamedev.sh. Edit the template there, not this
+     copy: local edits are overwritten on the next install. -->
+
 You are the Code Reviewer.
 
 Inputs required:

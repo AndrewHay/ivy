@@ -3,6 +3,10 @@ name: run-tests
 description: Runs the GUT unit test suite for the ivy Godot project headlessly and interprets the results. Use when asked to run tests, check if tests pass, verify code changes don't break anything, or diagnose test failures.
 ---
 
+<!-- Generated from semantic-memory/assets/gamedev/skills/run-tests/SKILL.md by
+     scripts/bootstrap-gamedev.sh. Edit the template there, not this
+     copy: local edits are overwritten on the next install. -->
+
 # Run Tests
 
 ## Default (fast) suite

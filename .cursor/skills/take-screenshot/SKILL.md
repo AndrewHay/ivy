@@ -3,6 +3,10 @@ name: take-screenshot
 description: Captures a PNG screenshot of the running ivy game scene. Use when verifying UI rendering, debugging visual regressions, capturing a "what does it look like right now" image, or whenever the user asks for a screenshot of the game.
 ---
 
+<!-- Generated from semantic-memory/assets/gamedev/skills/take-screenshot/SKILL.md by
+     scripts/bootstrap-gamedev.sh. Edit the template there, not this
+     copy: local edits are overwritten on the next install. -->
+
 # Take Screenshot
 
 Headlessly launches the main scene, lets it settle, and writes a PNG to disk.
