@@ -1,0 +1,17 @@
+# ivy-2ey QA: script-driven procedural boot path must grow ivy (post physics-frame fix).
+# Shorter than day-150 canonical; shows visible growth at midday.
+#
+# SEED s is required: without it the auto-seed anchor (index 0) grows on a face
+# that CamSun does not look at, so the capture shows a bare tower even when the
+# sim has real growth (orchestrator caught this via pixel analysis on 2026-09-27
+# — DUMP said 1205 segments / 545 leaves, the unseeded screenshot showed zero
+# green pixels inside the tower's bounding box). SEED s aligns growth with CamSun
+# ("sun-facing (south) elevation" per run_ui_script.gd) so the capture is meaningful.
+SPEED pause
+SEED s
+DUMP
+ADVANCE_DAYS 30
+DUMP
+ADVANCE_DAYS 0.25
+CAMERA sun
+SCREENSHOT qa_2ey_day30_noon.png

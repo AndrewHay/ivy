@@ -97,7 +97,22 @@ func _bootstrap_simulation(auto_seed: bool) -> bool:
 	var t0 := Time.get_ticks_msec()
 	if mesh_scenario != null and _world.mesh_scenario == null:
 		_world.mesh_scenario = mesh_scenario
-		_world.ensure_mesh_scenario_loaded()
+	_world.ensure_mesh_scenario_loaded()
+	# Collision shapes — ConcavePolygonShape3D trimeshes from StructureBody.build() on the
+	# mesh path, the Tower/Wall trimeshes on the procedural path, and the WorldBoundaryShape3D
+	# Ground plane present in all paths — are not queryable until the physics server commits
+	# them. One physics_frame unconditionally covers all paths.
+	#
+	# ivy-hsu: the mesh-scenario path previously had this await; ivy-2ey: the procedural path
+	# (mesh_scenario == null, script_driven=true via run_ui_script.gd) skipped it entirely
+	# because the whole block was guarded by `if mesh_scenario != null`. Without the await the
+	# light bake's horizon-escape raycasts ran against uncommitted geometry — near-ground cells
+	# baked leak=1.0 (all rays escaped) instead of the correct ~0.917.
+	#
+	# ensure_mesh_scenario_loaded() is idempotent (_tower_built/_wall_built/_structure guards),
+	# so calling it here is safe even when _load_building has already called it (interactive
+	# picker path). The extra physics_frame on that path is a harmless single-frame wait.
+	await get_tree().physics_frame
 	await get_tree().process_frame
 	var surface: SurfaceQuery = _world.get_surface_query(params)
 	if surface == null:
