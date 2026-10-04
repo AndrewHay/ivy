@@ -184,4 +184,6 @@ func _strip_physics(node: Node) -> void:
 func _shape_aabb(col: CollisionShape3D) -> AABB:
 	if col.shape == null:
 		return AABB()
-	return col.transform * col.shape.get_aabb()
+	# Shape3D.get_aabb() does not exist on ConcavePolygonShape3D, and every shape build() makes
+	# is a trimesh. get_debug_mesh() is implemented by every Shape3D subtype (ivy-fs0).
+	return col.transform * col.shape.get_debug_mesh().get_aabb()
