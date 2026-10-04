@@ -603,3 +603,160 @@ func test_environment_refills_when_a_fine_bake_affecting_parameter_changes() -> 
 		"light_p_max cannot move a single SVF/visibility/leak value, so the coarse cache "
 		+ "(and its far more expensive ray bake) must still hit"
 	)
+
+
+# --- Cache directory eviction (ivy-1or) ---
+##
+## `_evict_lru` takes an explicit `max_bytes`/`dir_path` precisely so these tests never touch
+## the real `CACHE_DIR` or its 512 MiB cap — doing either would mean writing hundreds of
+## megabytes of fixtures, or risking eviction of real entries other tests and tools in the
+## same run depend on. Everything below runs against a scratch directory this file owns.
+
+
+const _EVICT_TEST_DIR := "res://.tmp/light_bake_cache_evict_test/"
+
+
+func _evict_scratch_dir_setup() -> void:
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(_EVICT_TEST_DIR))
+
+
+## GUT does not call this automatically for every test in the file (only `before_each`/
+## `after_each` do that); each eviction test calls it explicitly on the way out so a failed
+## assertion in one test cannot leave fixtures for the next to trip over.
+func _evict_scratch_dir_teardown() -> void:
+	var dir := DirAccess.open(_EVICT_TEST_DIR)
+	if dir == null:
+		return
+	dir.list_dir_begin()
+	var name := dir.get_next()
+	while name != "":
+		if not dir.current_is_dir():
+			DirAccess.remove_absolute(
+				ProjectSettings.globalize_path(_EVICT_TEST_DIR + name)
+			)
+		name = dir.get_next()
+	dir.list_dir_end()
+
+
+## Writes `byte_count` zero bytes under `_EVICT_TEST_DIR` and returns the `res://` path.
+func _write_fake_cache_file(name: String, byte_count: int) -> String:
+	var path := _EVICT_TEST_DIR + name
+	var buf := PackedByteArray()
+	buf.resize(byte_count)
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	f.store_buffer(buf)
+	f.close()
+	return path
+
+
+func _total_bytes(paths: Array) -> int:
+	var total := 0
+	for path in paths:
+		if FileAccess.file_exists(path):
+			var f := FileAccess.open(path, FileAccess.READ)
+			total += f.get_length()
+			f.close()
+	return total
+
+
+func test_evict_lru_is_a_no_op_when_under_the_cap() -> void:
+	_evict_scratch_dir_setup()
+	var a := _write_fake_cache_file("under_cap_a.bin", 50)
+	var b := _write_fake_cache_file("under_cap_b.bin", 50)
+
+	LightBakeCache._evict_lru("", 1000, _EVICT_TEST_DIR)
+
+	assert_true(FileAccess.file_exists(a), "nothing should be deleted while under the cap")
+	assert_true(FileAccess.file_exists(b), "nothing should be deleted while under the cap")
+	_evict_scratch_dir_teardown()
+
+
+## The core contract: once over the cap, the entry nothing has touched since it was written
+## goes first, and recently-written entries survive as long as the cap allows room for them.
+##
+## `FileAccess.get_modified_time` only has one-second resolution on at least one filesystem
+## this project tests on, so writing three files milliseconds apart is not enough to separate
+## their mtimes — `_evict_lru` breaks mtime ties by path (see its doc comment), which is what
+## makes "oldest" assertable here without a real multi-second sleep per test.
+func test_evict_lru_deletes_oldest_entry_first_when_over_the_cap() -> void:
+	_evict_scratch_dir_setup()
+	var oldest := _write_fake_cache_file("ordered_a.bin", 100)
+	var middle := _write_fake_cache_file("ordered_b.bin", 100)
+	var newest := _write_fake_cache_file("ordered_c.bin", 100)
+
+	# 300 bytes on disk, cap of 200: exactly one entry (the oldest) must go.
+	LightBakeCache._evict_lru("", 200, _EVICT_TEST_DIR)
+
+	assert_false(FileAccess.file_exists(oldest), "the oldest entry must be evicted first")
+	assert_true(FileAccess.file_exists(middle), "the middle entry fits under the cap and must survive")
+	assert_true(FileAccess.file_exists(newest), "the newest entry fits under the cap and must survive")
+	_evict_scratch_dir_teardown()
+
+
+## A save's own entry must never be evicted by that same save's cleanup, even if the directory
+## was already over the cap before this save ran — otherwise every save-while-over-cap would
+## write a file only to immediately delete it, re-baking forever without ever caching anything.
+func test_evict_lru_never_deletes_the_keep_path_even_if_it_is_the_oldest() -> void:
+	_evict_scratch_dir_setup()
+	# "a" sorts before "e", so without the keep_path exemption this would be the first
+	# candidate evicted on an mtime tie.
+	var kept := _write_fake_cache_file("a_kept.bin", 500)
+	var newer_but_expendable := _write_fake_cache_file("e_expendable.bin", 100)
+
+	# Cap smaller than even the kept entry alone: everything else must go, but `kept` survives.
+	LightBakeCache._evict_lru(kept, 10, _EVICT_TEST_DIR)
+
+	assert_true(FileAccess.file_exists(kept), "keep_path must never be evicted by its own save")
+	assert_false(
+		FileAccess.file_exists(newer_but_expendable),
+		"a non-keep entry must still be evicted even though it is newer than keep_path"
+	)
+	_evict_scratch_dir_teardown()
+
+
+## Eviction continues past the first deletion when a single entry is not enough to clear the
+## cap — the loop must re-check the running total, not just fire once.
+func test_evict_lru_deletes_multiple_entries_until_under_the_cap() -> void:
+	_evict_scratch_dir_setup()
+	var paths: Array[String] = []
+	for i in 5:
+		# Zero-padded so lexicographic order matches numeric/creation order.
+		paths.append(_write_fake_cache_file("many_%02d.bin" % i, 100))
+
+	# 500 bytes on disk, cap of 150: four of the five oldest entries must go, leaving the one
+	# newest entry (100 bytes), which is under the cap on its own.
+	LightBakeCache._evict_lru("", 150, _EVICT_TEST_DIR)
+
+	assert_eq(
+		_total_bytes(paths), 100, "eviction must keep deleting until the total is under the cap"
+	)
+	assert_true(FileAccess.file_exists(paths[4]), "the single newest entry must be the survivor")
+	_evict_scratch_dir_teardown()
+
+
+## End-to-end: `save()` on the real cache path must trigger eviction against the real
+## `CACHE_DIR`/`MAX_CACHE_BYTES`, not just the test-only parameters exercised above. This test
+## only has to prove the wiring runs without starving the just-written entry — it is not
+## expected to fill 512 MiB, so this is really asserting `save()` still leaves its own entry
+## readable afterward.
+func test_save_still_leaves_its_own_entry_readable_after_eviction_runs() -> void:
+	var params := IvyParams.new()
+	var bake := LightBake.new(params, Solar.new(params))
+	var bounds := AABB(Vector3(-1, 0, -1), Vector3(2, 3, 2))
+	bake._slot_of[CellGrid.pack_key(Vector3i.ZERO)] = 0
+	bake._svf = PackedFloat32Array([0.5])
+	bake._vis = PackedInt32Array([0x00FFFFFF])
+	bake._leak = PackedFloat32Array([0.0])
+	bake._bake_normal = PackedVector3Array([Vector3.UP])
+	var identity := _fake_identity(201)
+	var ph := LightBakeCache.params_hash(params)
+	_forget_cache_entry(identity, params)
+
+	LightBakeCache.save(bake, bounds, identity, ph)
+
+	var path := LightBakeCache.cache_path(identity, ph)
+	assert_true(
+		FileAccess.file_exists(path),
+		"the entry save() just wrote must still exist once its own eviction call returns"
+	)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))

@@ -59,6 +59,16 @@ const _CODE_FILES: Array[String] = [
 ## cells — cheap enough to run on every load, which is the only way a probe catches anything.
 const VERIFY_SAMPLES := 64
 
+## Caps `CACHE_DIR`'s total size (ivy-1or): every edit to a hashed source file, spec, or
+## bake-affecting parameter orphans the previous generation of entries, and nothing deleted
+## them before this, so a long edit history grows the directory without bound. Bounded by
+## total bytes rather than entry count because entries vary over two orders of magnitude —
+## coarse grids run tens of KB, fine grids run tens of MB (see the ivy-k99 section below) — so
+## a count cap would starve whichever kind writes last while a byte cap bounds the thing that
+## actually costs disk space. Safe to evict anything: the directory is gitignored and every
+## entry is reconstructible from source, so losing one just costs a re-bake, never correctness.
+const MAX_CACHE_BYTES := 512 * 1024 * 1024  # 512 MiB
+
 static var _code_hash_cache: PackedByteArray = PackedByteArray()
 
 
@@ -213,6 +223,8 @@ static func save(
 		f.store_float(bn.x)
 		f.store_float(bn.y)
 		f.store_float(bn.z)
+	f.close()
+	_evict_lru(path)
 
 
 ## Recomputes a deterministic sample of the loaded cells against the live surface and reports
@@ -475,6 +487,8 @@ static func save_fine(
 		f.store_float(field.read_slot(SparseHashField.Channel.SVF, slot))
 		for hour in FINE_HOURS:
 			f.store_float(field.p_hour(slot, hour))
+	f.close()
+	_evict_lru(path)
 
 
 ## Recomputes a deterministic sample of the loaded fine cells against the live surface and
@@ -531,6 +545,64 @@ static func _ensure_cache_dir() -> void:
 	var abs := ProjectSettings.globalize_path(CACHE_DIR)
 	if not DirAccess.dir_exists_absolute(abs):
 		DirAccess.make_dir_recursive_absolute(abs)
+
+
+## Deletes the oldest-by-mtime entries in `dir_path` until it is at or under `max_bytes`,
+## skipping `keep_path` so a save can never evict the entry it just wrote even if the
+## directory was already over the cap before this save. Called after every `save()` /
+## `save_fine()` — the only places that create new entries — so growth is bounded at the
+## point it happens rather than needing a separate sweep or a background task. mtime
+## approximates least-recently-*used* (nothing records reads), which is enough for
+## housekeeping: an entry nothing has resaved recently is also one nothing has hit recently,
+## since every hit happens on the same building+params pairing that would resave it anyway if
+## it were a miss.
+##
+## `max_bytes`/`dir_path` default to the real cap and directory; tests override both so they
+## can exercise this against an isolated scratch directory with a cap small enough to write by
+## hand, rather than needing hundreds of megabytes of fixtures or risking real cache entries
+## other tests and tools depend on within the same run.
+static func _evict_lru(
+	keep_path: String, max_bytes: int = MAX_CACHE_BYTES, dir_path: String = CACHE_DIR
+) -> void:
+	var dir := DirAccess.open(dir_path)
+	if dir == null:
+		return
+	dir.list_dir_begin()
+	var entries: Array[Dictionary] = []
+	var total := 0
+	var name := dir.get_next()
+	while name != "":
+		if not dir.current_is_dir():
+			var path := dir_path + name
+			var f := FileAccess.open(path, FileAccess.READ)
+			if f != null:
+				var size := f.get_length()
+				f.close()
+				total += size
+				if path != keep_path:
+					entries.append(
+						{"path": path, "size": size, "mtime": FileAccess.get_modified_time(path)}
+					)
+		name = dir.get_next()
+	dir.list_dir_end()
+	if total <= max_bytes:
+		return
+	# `mtime` alone ties constantly: it has one-second resolution on at least one filesystem
+	# this project runs tests on, and a bake session can easily write several entries within
+	# the same second. Breaking ties by path makes eviction order a pure function of
+	# (mtime, path) instead of directory-listing order, which filesystems do not guarantee —
+	# deterministic either way, but only one of them is also reproducible for a test to assert.
+	entries.sort_custom(
+		func(a, b):
+			if a["mtime"] != b["mtime"]:
+				return a["mtime"] < b["mtime"]
+			return a["path"] < b["path"]
+	)
+	for entry in entries:
+		if total <= max_bytes:
+			break
+		if DirAccess.remove_absolute(ProjectSettings.globalize_path(entry["path"])) == OK:
+			total -= entry["size"]
 
 
 static func _bounds_match(a: AABB, b: AABB) -> bool:
