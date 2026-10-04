@@ -92,36 +92,6 @@ func raycast(from: Vector3, to: Vector3) -> Hit:
 	return result
 
 
-## Light-bake occlusion: MeshSdf marches the narrow-band field so open apertures
-## without physics panels still leak; TowerSdf keeps physics raycasts (SG-1).
-func occludes_bake_ray(from: Vector3, to: Vector3) -> bool:
-	if _backend_tag == "MeshSdf":
-		return _sdf_ray_occluded(from, to)
-	return raycast(from, to).hit
-
-
-func _sdf_ray_occluded(from: Vector3, to: Vector3) -> bool:
-	var delta := to - from
-	var dist := delta.length()
-	if dist < 1e-5:
-		return false
-	var dir := delta / dist
-	var t := 0.0
-	var eps: float = _backend.h * 0.25
-	var steps := 128
-	while t < dist and steps > 0:
-		var p := from + dir * t
-		var phi: float = _backend.signed_distance(p)
-		if phi < eps:
-			return true
-		var step := maxf(phi, eps)
-		if step > dist - t:
-			break
-		t += step
-		steps -= 1
-	return false
-
-
 func _material_from_physics_hit(physics_hit: Dictionary) -> int:
 	var shape_idx := int(physics_hit.get("shape", 0))
 	var face_idx := int(physics_hit.get("face_index", -1))
