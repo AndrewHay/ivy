@@ -18,7 +18,13 @@ func test_surface_wall_scenario_validates() -> void:
 		"res://assets/structures/scenarios/surface_wall.tres"
 	) as StructureScenario
 	assert_not_null(scenario, "surface_wall.tres should load")
-	assert_eq(scenario.validate().size(), 0, scenario.validate())
+	# GUT's assert_eq concatenates its message arg with "+" unconditionally while building the
+	# display string, even on a passing assertion (test.gd:811) -- a PackedStringArray there
+	# throws "Invalid operands 'String' and 'PackedStringArray'" regardless of outcome. Joining
+	# to a String first fixes the crash and, as a bonus, prints the actual failing path list
+	# instead of just a count if validate() is ever non-empty (ivy-r8h).
+	var problems := scenario.validate()
+	assert_eq(problems.size(), 0, "\n".join(problems))
 
 
 func test_surface_wall_material_mapping() -> void:
@@ -75,7 +81,14 @@ func test_surface_wall_raycast_shape_material_rg2() -> void:
 			var mid: int = body.face_material[col_idx]
 			if mid == MaterialRegistry.GLASS or mid == MaterialRegistry.WOOD:
 				var shape_col := col as CollisionShape3D
-				var aabb: AABB = shape_col.global_transform * shape_col.shape.get_aabb()
+				# Shape3D.get_aabb() does not exist on ConcavePolygonShape3D in Godot 4.7.2
+				# (ivy-r8h) -- these collision pieces are trimeshes (structure_body.gd's
+				# create_trimesh_shape()). get_debug_mesh() is implemented by every Shape3D
+				# subtype (it is what the editor's shape-debug visualization draws), so its
+				# AABB works here regardless of shape type.
+				var aabb: AABB = (
+					shape_col.global_transform * shape_col.shape.get_debug_mesh().get_aabb()
+				)
 				var center := aabb.get_center()
 				var outward := Vector3(0.0, 0.0, 1.0)
 				var hit := sq.raycast(center + outward * 0.5, center - outward * 0.5)
