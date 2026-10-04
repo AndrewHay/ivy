@@ -288,6 +288,245 @@ static func verify_against_surface(
 	return true
 
 
+# --- Fine-grid disk cache (ivy-k99). ---
+##
+## Same content-addressing discipline as the coarse cache above (geometry + params + code +
+## a verification probe), kept as an entirely separate file and key rather than folded into
+## the coarse format. Two reasons: the coarse format is load-bearing for ten existing tests
+## and every session that has ever cached a building, so extending it in place would force a
+## version bump that invalidates every one of them for a change that does not touch what they
+## cover; and the key itself must differ (`fine_params_hash` below, not `params_hash`) so a
+## light-tuning change to `IvyParams.FINE_BAKE_AFFECTING` invalidates only this file, not the
+## far more expensive coarse ray bake.
+##
+## What this fixes: `IvyEnvironment.build()`'s residual warm-load stall after ivy-9xp made the
+## coarse ray bake cacheable — measured 2026-09-27 (ivy-k99) at 12.6s (test_wall, analytic
+## `WallSdf`) and 27.9s (`square` mesh scenario, `MeshSdf`), of which `fill_field`'s per-cell
+## `surface_normal`/`project_to_shell` geometry queries are 90% and 73% respectively, and
+## `allocate_shell`'s per-candidate `signed_distance` queries are the rest — expensive for
+## `MeshSdf` because both walk the narrow-band volume and, for `nearest()`, cast physics rays;
+## cheap for the analytic backends' closed-form math. Caching the fine grid's shell membership
+## and its `P(cell, hour)` table together skips both loops entirely on a hit, the same way the
+## coarse cache skips the ray bake.
+##
+## Measured fine-to-coarse cell ratio is 2.2–4.0x on the two buildings measured, not the ~8x
+## this was estimated at before measuring (`tools/measure_light_bake.gd`'s
+## `_time_build_phases`) — `field_shell_halfwidth` (0.09 m) is a narrower band than the
+## coarse grid's `vis_cell·√3` in-band threshold (~0.21 m), so the fine shell is not simply
+## the coarse shell subdivided. File size lands at 9.8 MB (square, 93,910 cells) to 36.5 MB
+## (test_wall, 351,045 cells) — one `u64` key plus one `f32` SVF plus 24 `f32` hours per cell.
+
+const FINE_MAGIC := "IVYLBF1"
+const FINE_VERSION := 1
+const FINE_HOURS := 24
+
+## Text form of `BAKE_AFFECTING` plus `FINE_BAKE_AFFECTING`, sorted. Public so a mismatch can
+## be diffed, mirroring `params_digest`.
+static func fine_params_digest(params: IvyParams) -> String:
+	var parts: PackedStringArray = []
+	for name in IvyParams.BAKE_AFFECTING:
+		parts.append("%s=%s" % [name, SpecHash.format_value(params.get(name))])
+	for name in IvyParams.FINE_BAKE_AFFECTING:
+		parts.append("%s=%s" % [name, SpecHash.format_value(params.get(name))])
+	parts.sort()
+	return "|".join(parts)
+
+
+static func fine_params_hash(params: IvyParams) -> PackedByteArray:
+	var ctx := HashingContext.new()
+	ctx.start(HashingContext.HASH_SHA256)
+	ctx.update(fine_params_digest(params).to_utf8_buffer())
+	return ctx.finish()
+
+
+static func fine_cache_path(identity: PackedByteArray, fine_ph: PackedByteArray) -> String:
+	var ctx := HashingContext.new()
+	ctx.start(HashingContext.HASH_SHA256)
+	ctx.update(identity)
+	ctx.update(fine_ph)
+	ctx.update(code_hash())
+	ctx.update("fine".to_utf8_buffer())  # namespaced so a hash collision can't alias the coarse file
+	var hex := ""
+	for b in ctx.finish():
+		hex += "%02x" % b
+	return CACHE_DIR + "fine_" + hex + ".bin"
+
+
+## Loads the fine shell + `P(cell, hour)` table directly into `field` (via `ensure_cell`,
+## bypassing `SparseHashField.allocate_shell`'s per-candidate `signed_distance` queries and
+## `LightBake.fill_field`'s per-cell geometry queries entirely) and returns whether it was a
+## hit. Like `try_load`, a true return means the file matched the key, not that its contents
+## are trustworthy — callers must follow with `verify_fine_against_surface`.
+static func try_load_fine(
+	field: SparseHashField,
+	bounds: AABB,
+	identity: PackedByteArray,
+	fine_ph: PackedByteArray,
+	field_cell: float,
+	field_shell_halfwidth: float
+) -> bool:
+	if identity.size() != HASH_BYTES or fine_ph.size() != HASH_BYTES:
+		return false
+	var path := fine_cache_path(identity, fine_ph)
+	if not FileAccess.file_exists(path):
+		return false
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		push_error("LightBakeCache: cannot open %s" % path)
+		return false
+	var magic := f.get_buffer(7).get_string_from_ascii()
+	if magic != FINE_MAGIC:
+		push_error("LightBakeCache: bad magic in %s" % path)
+		return false
+	var ver := f.get_32()
+	if ver != FINE_VERSION:
+		push_error("LightBakeCache: unsupported fine version %d in %s" % [ver, path])
+		return false
+	var file_identity := f.get_buffer(HASH_BYTES)
+	var file_ph := f.get_buffer(HASH_BYTES)
+	var file_code := f.get_buffer(HASH_BYTES)
+	if file_identity != identity or file_ph != fine_ph or file_code != code_hash():
+		return false
+	var file_cell := f.get_float()
+	var file_halfwidth := f.get_float()
+	if absf(file_cell - field_cell) > 1e-6 or absf(file_halfwidth - field_shell_halfwidth) > 1e-6:
+		return false
+	var bx := Vector3(f.get_float(), f.get_float(), f.get_float())
+	var bs := Vector3(f.get_float(), f.get_float(), f.get_float())
+	if not _bounds_match(AABB(bx, bs), bounds):
+		return false
+	var n := f.get_32()
+	# Read every record before touching `field`. `SparseHashField.ensure_cell` only grows
+	# `_p_hour` once it is already non-empty (a lazy-allocation optimisation for callers who
+	# never bake at all, e.g. `debug_field_cells` fixtures) — calling `ensure_cell` then
+	# `set_p_hour` cell-by-cell on a fresh field writes past the end of an unresized array.
+	# Registering every cell first and calling `ensure_p_hour()` exactly once, sized against
+	# the final cell count, avoids both that and `n` redundant array resizes.
+	var keys := PackedInt64Array()
+	var svfs := PackedFloat32Array()
+	var p_hours := PackedFloat32Array()
+	keys.resize(n)
+	svfs.resize(n)
+	p_hours.resize(n * FINE_HOURS)
+	for i in n:
+		keys[i] = f.get_64()
+		svfs[i] = f.get_float()
+		var base := i * FINE_HOURS
+		for hour in FINE_HOURS:
+			p_hours[base + hour] = f.get_float()
+	if f.get_position() != f.get_length():
+		push_error("LightBakeCache: truncated fine file %s" % path)
+		return false
+	var slots := PackedInt32Array()
+	slots.resize(n)
+	for i in n:
+		slots[i] = field.ensure_cell(CellGrid.unpack_key(keys[i]))
+	field.ensure_p_hour()
+	for i in n:
+		var slot := slots[i]
+		field.write_slot(SparseHashField.Channel.SVF, slot, svfs[i])
+		field.write_slot(SparseHashField.Channel.F_M, slot, 1.0)
+		var base := i * FINE_HOURS
+		for hour in FINE_HOURS:
+			field.set_p_hour(slot, hour, p_hours[base + hour])
+	return true
+
+
+static func save_fine(
+	field: SparseHashField,
+	bounds: AABB,
+	identity: PackedByteArray,
+	fine_ph: PackedByteArray,
+	field_cell: float,
+	field_shell_halfwidth: float
+) -> void:
+	if identity.size() != HASH_BYTES or fine_ph.size() != HASH_BYTES:
+		return
+	_ensure_cache_dir()
+	var path := fine_cache_path(identity, fine_ph)
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		push_error("LightBakeCache: cannot write %s" % path)
+		return
+	f.store_buffer(FINE_MAGIC.to_ascii_buffer())
+	f.store_32(FINE_VERSION)
+	f.store_buffer(identity)
+	f.store_buffer(fine_ph)
+	f.store_buffer(code_hash())
+	f.store_float(field_cell)
+	f.store_float(field_shell_halfwidth)
+	f.store_float(bounds.position.x)
+	f.store_float(bounds.position.y)
+	f.store_float(bounds.position.z)
+	f.store_float(bounds.size.x)
+	f.store_float(bounds.size.y)
+	f.store_float(bounds.size.z)
+	# Sorted for the same reason the coarse writer sorts: a stable byte-for-byte file for
+	# unchanged input, so two bakes of the same building are diffable and version control
+	# of a committed cache (if that is ever done) does not thrash on ordering alone.
+	var keys: Array = []
+	for slot in field.slot_count():
+		keys.append(field.cell_key(slot))
+	keys.sort()
+	f.store_32(keys.size())
+	for key in keys:
+		var slot := field.slot_of_cell(CellGrid.unpack_key(key))
+		f.store_64(key)
+		f.store_float(field.read_slot(SparseHashField.Channel.SVF, slot))
+		for hour in FINE_HOURS:
+			f.store_float(field.p_hour(slot, hour))
+
+
+## Recomputes a deterministic sample of the loaded fine cells against the live surface and
+## reports whether the cache still describes this build's fill (ivy-k99, mirroring
+## `verify_against_surface`). Calls `LightBake.compute_fine_cell` — the same code
+## `fill_field`/`fill_field_interactive` call — so this can only disagree with a genuine
+## mismatch, never with its own reimplementation of the arithmetic.
+static func verify_fine_against_surface(
+	field: SparseHashField,
+	bake: LightBake,
+	grid: CellGrid,
+	surface: SurfaceQuery,
+	samples: int = VERIFY_SAMPLES
+) -> bool:
+	if surface == null:
+		push_error("LightBakeCache: fine verification needs a surface; refusing to trust the cache")
+		return false
+	var slot_count := field.slot_count()
+	if slot_count == 0:
+		push_error("LightBakeCache: cached fine grid has no cells, so it cannot be verified; re-filling")
+		return false
+	var count: int = mini(samples, slot_count)
+	var stride: int = maxi(1, slot_count / count)
+	var slot := 0
+	while slot < slot_count:
+		var cell := CellGrid.unpack_key(field.cell_key(slot))
+		var p := grid.cell_point(cell)
+		if absf(surface.signed_distance(p)) > bake.params.field_shell_halfwidth + 1e-4:
+			push_error(
+				"LightBakeCache: cached fine cell %s is out of band for this surface" % str(cell)
+			)
+			return false
+		var fresh := bake.compute_fine_cell(surface, p)
+		var fresh_svf: float = fresh["svf"]
+		if absf(fresh_svf - field.read_slot(SparseHashField.Channel.SVF, slot)) > 1e-5:
+			push_error(
+				"LightBakeCache: fine SVF mismatch at %s (cached %f, recomputed %f)"
+				% [str(cell), field.read_slot(SparseHashField.Channel.SVF, slot), fresh_svf]
+			)
+			return false
+		var fresh_p_hour: PackedFloat32Array = fresh["p_hour"]
+		for hour in FINE_HOURS:
+			if absf(fresh_p_hour[hour] - field.p_hour(slot, hour)) > 1e-4:
+				push_error(
+					"LightBakeCache: fine P(cell,hour=%d) mismatch at %s (cached %f, recomputed %f)"
+					% [hour, str(cell), field.p_hour(slot, hour), fresh_p_hour[hour]]
+				)
+				return false
+		slot += stride
+	return true
+
+
 static func _ensure_cache_dir() -> void:
 	var abs := ProjectSettings.globalize_path(CACHE_DIR)
 	if not DirAccess.dir_exists_absolute(abs):

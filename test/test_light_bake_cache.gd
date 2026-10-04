@@ -348,3 +348,258 @@ func test_environment_rebakes_when_a_bake_affecting_parameter_changes() -> void:
 		relocated.loaded_coarse_from_cache,
 		"moving the site changes the sun path, so the previous bake must not be reused"
 	)
+
+
+# --- Fine-grid disk cache (ivy-k99) ---
+
+
+func _forget_fine_cache_entry(identity: PackedByteArray, params: IvyParams) -> void:
+	var path := LightBakeCache.fine_cache_path(identity, LightBakeCache.fine_params_hash(params))
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+
+func _single_cell_fine_field(params: IvyParams, svf: float = 0.6, p_hour_base: float = 3.0) -> SparseHashField:
+	var field := SparseHashField.new(params.field_cell)
+	var slot := field.ensure_cell(Vector3i(2, -1, 5))
+	field.write_slot(SparseHashField.Channel.SVF, slot, svf)
+	field.ensure_p_hour()
+	for hour in LightBake.HOURS:
+		field.set_p_hour(slot, hour, p_hour_base + float(hour))
+	return field
+
+
+func test_save_load_roundtrip_preserves_fine_grid() -> void:
+	var params := IvyParams.new()
+	var field := _single_cell_fine_field(params)
+	var bounds := AABB(Vector3(-1, 0, -1), Vector3(2, 3, 2))
+	var identity := _fake_identity(0xCD)
+	var fine_ph := LightBakeCache.fine_params_hash(params)
+	LightBakeCache.save_fine(
+		field, bounds, identity, fine_ph, params.field_cell, params.field_shell_halfwidth
+	)
+	var loaded := SparseHashField.new(params.field_cell)
+	assert_true(
+		LightBakeCache.try_load_fine(
+			loaded, bounds, identity, fine_ph, params.field_cell, params.field_shell_halfwidth
+		)
+	)
+	assert_eq(loaded.slot_count(), 1)
+	var slot := loaded.slot_of_cell(Vector3i(2, -1, 5))
+	assert_ne(slot, -1, "the cached cell key must round-trip")
+	assert_almost_eq(loaded.read_slot(SparseHashField.Channel.SVF, slot), 0.6, 1e-6)
+	for hour in LightBake.HOURS:
+		assert_almost_eq(loaded.p_hour(slot, hour), 3.0 + float(hour), 1e-4)
+
+
+func test_fine_mismatch_identity_is_miss_not_stale_read() -> void:
+	var params := IvyParams.new()
+	var bounds := AABB(Vector3.ZERO, Vector3.ONE)
+	var identity := _fake_identity(0xCE)
+	var fine_ph := LightBakeCache.fine_params_hash(params)
+	LightBakeCache.save_fine(
+		_single_cell_fine_field(params), bounds, identity, fine_ph,
+		params.field_cell, params.field_shell_halfwidth
+	)
+	var loaded := SparseHashField.new(params.field_cell)
+	assert_false(
+		LightBakeCache.try_load_fine(
+			loaded, bounds, _fake_identity(0xCF), fine_ph,
+			params.field_cell, params.field_shell_halfwidth
+		)
+	)
+	assert_eq(loaded.slot_count(), 0)
+
+
+func test_fine_mismatch_params_hash_is_miss() -> void:
+	var params := IvyParams.new()
+	var bounds := AABB(Vector3.ZERO, Vector3.ONE)
+	var identity := _fake_identity(0xD0)
+	LightBakeCache.save_fine(
+		_single_cell_fine_field(params), bounds, identity, LightBakeCache.fine_params_hash(params),
+		params.field_cell, params.field_shell_halfwidth
+	)
+	var other := IvyParams.new()
+	other.light_p_max = params.light_p_max * 2.0
+	var loaded := SparseHashField.new(other.field_cell)
+	assert_false(
+		LightBakeCache.try_load_fine(
+			loaded, bounds, identity, LightBakeCache.fine_params_hash(other),
+			other.field_cell, other.field_shell_halfwidth
+		)
+	)
+	assert_eq(loaded.slot_count(), 0)
+
+
+func test_fine_corrupt_magic_fails_load() -> void:
+	var params := IvyParams.new()
+	var identity := _fake_identity(0xD1)
+	var fine_ph := LightBakeCache.fine_params_hash(params)
+	var path := LightBakeCache.fine_cache_path(identity, fine_ph)
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(LightBakeCache.CACHE_DIR))
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	f.store_string("BADMAGIC")
+	f.close()
+	var loaded := SparseHashField.new(params.field_cell)
+	assert_false(
+		LightBakeCache.try_load_fine(
+			loaded, AABB(Vector3.ZERO, Vector3.ONE), identity, fine_ph,
+			params.field_cell, params.field_shell_halfwidth
+		)
+	)
+
+
+func test_fine_probe_accepts_a_cache_this_build_produced() -> void:
+	var params := IvyParams.new()
+	var surface := _tiny_wall_surface(1.6)
+	var bounds := surface.shell_bounds(params.field_shell_halfwidth + params.field_cell)
+	var bake := LightBake.new(params, Solar.new(params))
+	bake.bake(surface, bounds)
+	var grid := CellGrid.new(params.field_cell)
+	var field := SparseHashField.new(params.field_cell)
+	field.allocate_shell(surface, params.field_shell_halfwidth, bounds)
+	bake.fill_field(surface, field, grid)
+	assert_gt(field.slot_count(), 0, "the wall must fill fine cells for this test to mean anything")
+	var identity := surface.bake_identity()
+	var fine_ph := LightBakeCache.fine_params_hash(params)
+	LightBakeCache.save_fine(
+		field, bounds, identity, fine_ph, params.field_cell, params.field_shell_halfwidth
+	)
+	var loaded := SparseHashField.new(params.field_cell)
+	assert_true(
+		LightBakeCache.try_load_fine(
+			loaded, bounds, identity, fine_ph, params.field_cell, params.field_shell_halfwidth
+		)
+	)
+	assert_eq(loaded.slot_count(), field.slot_count())
+	assert_true(
+		LightBakeCache.verify_fine_against_surface(loaded, bake, grid, surface),
+		"a fine cache written from this surface must verify against it"
+	)
+
+
+func test_fine_probe_rejects_svf_values_this_build_would_not_produce() -> void:
+	var params := IvyParams.new()
+	var surface := _tiny_wall_surface(1.7)
+	var bounds := surface.shell_bounds(params.field_shell_halfwidth + params.field_cell)
+	var bake := LightBake.new(params, Solar.new(params))
+	bake.bake(surface, bounds)
+	var grid := CellGrid.new(params.field_cell)
+	var field := SparseHashField.new(params.field_cell)
+	field.allocate_shell(surface, params.field_shell_halfwidth, bounds)
+	bake.fill_field(surface, field, grid)
+	assert_gt(field.slot_count(), 0)
+	for slot in field.slot_count():
+		var svf := field.read_slot(SparseHashField.Channel.SVF, slot)
+		field.write_slot(SparseHashField.Channel.SVF, slot, 1.0 - svf)
+	var identity := surface.bake_identity()
+	var fine_ph := LightBakeCache.fine_params_hash(params)
+	LightBakeCache.save_fine(
+		field, bounds, identity, fine_ph, params.field_cell, params.field_shell_halfwidth
+	)
+	var loaded := SparseHashField.new(params.field_cell)
+	assert_true(
+		LightBakeCache.try_load_fine(
+			loaded, bounds, identity, fine_ph, params.field_cell, params.field_shell_halfwidth
+		),
+		"the key still matches"
+	)
+	assert_false(
+		LightBakeCache.verify_fine_against_surface(loaded, bake, grid, surface),
+		"recomputing must catch fine SVF the live surface cannot produce"
+	)
+
+
+func test_fine_probe_rejects_p_hour_values_this_build_would_not_produce() -> void:
+	var params := IvyParams.new()
+	var surface := _tiny_wall_surface(1.8)
+	var bounds := surface.shell_bounds(params.field_shell_halfwidth + params.field_cell)
+	var bake := LightBake.new(params, Solar.new(params))
+	bake.bake(surface, bounds)
+	var grid := CellGrid.new(params.field_cell)
+	var field := SparseHashField.new(params.field_cell)
+	field.allocate_shell(surface, params.field_shell_halfwidth, bounds)
+	bake.fill_field(surface, field, grid)
+	assert_gt(field.slot_count(), 0)
+	field.set_p_hour(0, 12, field.p_hour(0, 12) + 500.0)
+	var identity := surface.bake_identity()
+	var fine_ph := LightBakeCache.fine_params_hash(params)
+	LightBakeCache.save_fine(
+		field, bounds, identity, fine_ph, params.field_cell, params.field_shell_halfwidth
+	)
+	var loaded := SparseHashField.new(params.field_cell)
+	assert_true(
+		LightBakeCache.try_load_fine(
+			loaded, bounds, identity, fine_ph, params.field_cell, params.field_shell_halfwidth
+		)
+	)
+	assert_false(
+		LightBakeCache.verify_fine_against_surface(loaded, bake, grid, surface, field.slot_count()),
+		"recomputing must catch a tampered P(cell,hour) entry"
+	)
+
+
+func test_fine_probe_refuses_an_empty_grid() -> void:
+	var params := IvyParams.new()
+	var empty := SparseHashField.new(params.field_cell)
+	var bake := LightBake.new(params, Solar.new(params))
+	var grid := CellGrid.new(params.field_cell)
+	assert_false(
+		LightBakeCache.verify_fine_against_surface(empty, bake, grid, _tiny_wall_surface())
+	)
+
+
+## End to end, mirroring test_environment_build_caches_a_procedural_building: the fine grid
+## fill, not just the coarse ray bake, must be skipped on a warm build.
+func test_environment_build_caches_the_fine_grid_for_a_procedural_building() -> void:
+	var params := IvyParams.new()
+	var surface := _tiny_wall_surface(1.9)
+	var identity := surface.bake_identity()
+	_forget_cache_entry(identity, params)
+	_forget_fine_cache_entry(identity, params)
+
+	var cold := IvyEnvironment.new()
+	cold.build(params, surface, Solar.new(params))
+	assert_false(cold.loaded_fine_from_cache, "a cold build has nothing to load")
+
+	var warm := IvyEnvironment.new()
+	warm.build(params, surface, Solar.new(params))
+	assert_true(
+		warm.loaded_fine_from_cache,
+		"the second build must load and verify the fine entry the first one wrote"
+	)
+
+
+## The fine-specific mirror of test_environment_rebakes_when_a_bake_affecting_parameter_changes:
+## a parameter the coarse bake cannot see, but the fine fill can, must still force a re-fill.
+func test_environment_refills_when_a_fine_bake_affecting_parameter_changes() -> void:
+	var params := IvyParams.new()
+	var tuned := IvyParams.new()
+	tuned.light_p_max = params.light_p_max * 1.5
+	var surface := _tiny_wall_surface(2.0)
+	var identity := surface.bake_identity()
+	_forget_cache_entry(identity, params)
+	_forget_cache_entry(identity, tuned)
+	_forget_fine_cache_entry(identity, params)
+	_forget_fine_cache_entry(identity, tuned)
+
+	var cold := IvyEnvironment.new()
+	cold.build(params, surface, Solar.new(params))
+	assert_false(cold.loaded_fine_from_cache, "a cold build has nothing to load")
+
+	var warm := IvyEnvironment.new()
+	warm.build(params, surface, Solar.new(params))
+	assert_true(warm.loaded_fine_from_cache, "an unchanged rebuild must hit the fine cache")
+
+	var tuned_env := IvyEnvironment.new()
+	tuned_env.build(tuned, surface, Solar.new(tuned))
+	assert_false(
+		tuned_env.loaded_fine_from_cache,
+		"light_p_max only scales the fine table, but it must still force a re-fill"
+	)
+	# The coarse ray bake, meanwhile, must still hit — this is the whole point of splitting
+	# the two caches' keys: a fine-only tuning change must not force the expensive ray trace.
+	assert_true(
+		tuned_env.loaded_coarse_from_cache,
+		"light_p_max cannot move a single SVF/visibility/leak value, so the coarse cache "
+		+ "(and its far more expensive ray bake) must still hit"
+	)

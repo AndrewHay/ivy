@@ -77,10 +77,14 @@ const BAKE_IRRELEVANT: Array[String] = [
 	"leaf_weathered_tint",
 	"leaf_width_base",
 	"light_K",
+	# Coarse-irrelevant (no ray in light_bake.gd's coarse pass reads it), but ivy-k99 made it
+	# fine-relevant — see IvyParams.FINE_BAKE_AFFECTING.
 	"light_elevation_exponent_diffuse",
 	"light_gradient_scale",
 	"light_memory",
-	# Geometric escape fraction only — see the note on BAKE_AFFECTING for why this moved here.
+	# Coarse-irrelevant for the same reason as the entry above: horizon_escape_factor (the
+	# coarse leak *geometry*) never reads it. ivy-k99's fine fill does, via p_leak() — see
+	# IvyParams.FINE_BAKE_AFFECTING.
 	"light_p_leak",
 	"light_p_max",
 	"light_p_sky",
@@ -115,6 +119,8 @@ const BAKE_IRRELEVANT: Array[String] = [
 	"tip_cap_hard",
 	"tip_cap_soft",
 	"upward_base",
+	# Coarse-irrelevant; fine-relevant via p_direct()/p_diffuse() — see
+	# IvyParams.FINE_BAKE_AFFECTING.
 	"weather_direct",
 	"weather_sky",
 ]
@@ -255,3 +261,89 @@ func test_identity_separates_bakes_with_and_without_a_physics_space() -> void:
 		spaceless.bake_identity(), spaced.bake_identity(),
 		"a space-less bake must not share a cache key with a bake that can see occluders"
 	)
+
+
+# --- Fine-grid disk cache key totality (ivy-k99) ---
+
+
+func test_fine_bake_affecting_names_are_real_exported_parameters() -> void:
+	var names := _exported_names()
+	for name in IvyParams.FINE_BAKE_AFFECTING:
+		assert_true(
+			names.has(name),
+			"FINE_BAKE_AFFECTING lists %s, which is not an IvyParams export" % name
+		)
+
+
+## The two lists are combined (not substituted) to build the fine cache's key
+## (`LightBakeCache.fine_params_digest`), so a name in both would just be redundant — but it
+## would also hide which list someone meant to edit next time this drifts.
+func test_fine_bake_affecting_does_not_overlap_bake_affecting() -> void:
+	var both: PackedStringArray = []
+	for name in IvyParams.FINE_BAKE_AFFECTING:
+		if IvyParams.BAKE_AFFECTING.has(name):
+			both.append(name)
+	assert_eq(both, PackedStringArray(), "a parameter must not be listed in both classifications")
+
+
+## Every name here must currently be classified coarse-irrelevant too — this is what "kept as
+## a second list" (IvyParams's comment on FINE_BAKE_AFFECTING) means in practice: a fine-only
+## parameter has no business moving the coarse ray bake's key.
+func test_fine_bake_affecting_is_coarse_irrelevant() -> void:
+	var not_irrelevant: PackedStringArray = []
+	for name in IvyParams.FINE_BAKE_AFFECTING:
+		if not BAKE_IRRELEVANT.has(name):
+			not_irrelevant.append(name)
+	assert_eq(
+		not_irrelevant, PackedStringArray(),
+		"a fine-only parameter should also be listed in this test's BAKE_IRRELEVANT"
+	)
+
+
+## Mirrors test_params_hash_responds_to_every_bake_affecting_parameter: every declared
+## fine-affecting parameter must actually move the fine hash, or it advertises protection
+## the fine cache does not have.
+func test_fine_params_hash_responds_to_every_fine_bake_affecting_parameter() -> void:
+	var base_hash := LightBakeCache.fine_params_hash(IvyParams.new())
+	assert_gt(IvyParams.FINE_BAKE_AFFECTING.size(), 3, "the fine list must be non-trivial")
+	for name in IvyParams.FINE_BAKE_AFFECTING:
+		var perturbed := IvyParams.new()
+		var value: Variant = perturbed.get(name)
+		perturbed.set(name, float(value) + 1.0)
+		assert_ne(
+			LightBakeCache.fine_params_hash(perturbed), base_hash,
+			"changing %s must change the fine cache key, or a cached fill outlives it" % name
+		)
+
+
+## The fine key is a superset of the coarse key's inputs (the fine grid samples the coarse
+## grid's products), so every coarse-affecting parameter must move it too.
+func test_fine_params_hash_also_responds_to_every_bake_affecting_parameter() -> void:
+	var base_hash := LightBakeCache.fine_params_hash(IvyParams.new())
+	for name in IvyParams.BAKE_AFFECTING:
+		var perturbed := IvyParams.new()
+		var value: Variant = perturbed.get(name)
+		match typeof(value):
+			TYPE_INT:
+				perturbed.set(name, int(value) + 1)
+			TYPE_FLOAT:
+				perturbed.set(name, float(value) + 1.0)
+			_:
+				fail_test("unhandled parameter type for %s" % name)
+				continue
+		assert_ne(
+			LightBakeCache.fine_params_hash(perturbed), base_hash,
+			"changing %s must also change the fine cache key" % name
+		)
+
+
+## The mirror of the two tests above: a parameter neither list claims must not move the fine
+## key, or every gameplay-tuning tweak costs a full field re-fill for nothing.
+func test_fine_params_hash_ignores_purely_gameplay_parameters() -> void:
+	var base := IvyParams.new()
+	var base_hash := LightBakeCache.fine_params_hash(base)
+	var other := IvyParams.new()
+	other.leaf_cap = base.leaf_cap + 1
+	other.branch_rate = base.branch_rate + 0.5
+	other.crowding_base = base.crowding_base + 0.1
+	assert_eq(LightBakeCache.fine_params_hash(other), base_hash)

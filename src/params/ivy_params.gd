@@ -172,14 +172,20 @@ const OVERLAY_INERT: Array[String] = []
 ##   on `pow(sin_elevation, exponent) > 0` and at exponent 0 that flips every hour on.
 ##
 ## Deliberately absent: everything that only scales the *fine* P(cell, hour) table computed in
-## `fill_field`, which is not cached — `light_p_max`, `light_p_sky`, `weather_*`,
-## `light_elevation_exponent_diffuse`. If a future change caches the fine grid, those move here.
+## `fill_field` — `light_p_max`, `light_p_sky`, `weather_*`, `light_elevation_exponent_diffuse`,
+## `light_p_leak`. ivy-k99 gave the fine grid its own cache, keyed by `FINE_BAKE_AFFECTING`
+## below, deliberately *not* merged into this list: a light-tuning change to `light_p_max`
+## must invalidate the fine cache (the result changed) but has no reason to force the coarse
+## ray bake to re-run (12–24s on the measured buildings) since it provably cannot move a
+## single SVF, visibility-mask, or leak value. Merging the lists would cost every tuning
+## session the full ray-trace it does not need.
 ##
-## `light_p_leak` is absent for the same reason and is the one worth explaining, since it was
-## listed at first: `horizon_escape_factor` returns a purely geometric escape fraction and never
-## reads it, so including it only taxed every leak-tuning tweak with a full re-bake. If the bake
-## ever skips its leak rays when `light_p_leak == 0`, as an optimisation would, it becomes
-## bake-affecting and must come back here.
+## `light_p_leak` needs the same care in the other direction as everything else here:
+## `horizon_escape_factor` (the coarse leak *geometry*) never reads it, so it stays out of
+## this list; but `p_leak()` (fed by the fine fill) does read it, so it lives in
+## `FINE_BAKE_AFFECTING` instead. If the bake ever skips its leak rays when
+## `light_p_leak == 0`, as an optimisation would, `horizon_escape_factor` itself becomes
+## dependent on the value and it must move to *this* list too.
 const BAKE_AFFECTING: Array[String] = [
 	"bake_ray_length",
 	"bake_ray_offset",
@@ -191,6 +197,20 @@ const BAKE_AFFECTING: Array[String] = [
 	"longitude",
 	"svf_rays",
 	"vis_cell",
+]
+
+## Parameters that additionally affect the *fine* `P(cell, hour)` table (ivy-k99), beyond
+## everything already in `BAKE_AFFECTING` — `field_cell`/`field_shell_halfwidth` govern which
+## fine cells exist and are shared with the coarse list rather than duplicated here. Kept as a
+## second list rather than folded into `BAKE_AFFECTING` for the reason explained there: this
+## set changes what a light-tuning session pays to re-run, not just what a cache invalidates.
+const FINE_BAKE_AFFECTING: Array[String] = [
+	"light_elevation_exponent_diffuse",
+	"light_p_leak",
+	"light_p_max",
+	"light_p_sky",
+	"weather_direct",
+	"weather_sky",
 ]
 
 

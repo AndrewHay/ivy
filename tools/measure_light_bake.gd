@@ -75,8 +75,15 @@ func _ready() -> void:
 	# The load stall players and tests actually wait on is the whole `IvyEnvironment.build()`:
 	# allocate, coarse bake (cached or not), fine-grid fill, warm-up. Reported alongside the
 	# bake phase so it stays obvious how much of the stall the cache can and cannot remove.
+	# ivy-k99: both the coarse and fine files must be cleared for "cold" to mean cold — a
+	# fine cache left on disk from a previous run would otherwise make cold_env's build look
+	# like it already had the fill_field win this measurement exists to check for.
+	var fine_ph := LightBakeCache.fine_params_hash(params)
 	DirAccess.remove_absolute(
 		ProjectSettings.globalize_path(LightBakeCache.cache_path(identity, ph))
+	)
+	DirAccess.remove_absolute(
+		ProjectSettings.globalize_path(LightBakeCache.fine_cache_path(identity, fine_ph))
 	)
 	var cold_env := IvyEnvironment.new()
 	t0 = Time.get_ticks_usec()
@@ -106,11 +113,75 @@ func _ready() -> void:
 		"%.2fx" % (cold_build_sec / maxf(1e-6, warm_build_sec))
 	)
 	print(
+		"[measure_light_bake] warm_loaded_coarse_from_cache=", warm_env.loaded_coarse_from_cache
+	)
+	print(
+		"[measure_light_bake] warm_loaded_fine_from_cache=", warm_env.loaded_fine_from_cache,
+		" (ivy-k99 — false here means allocate_shell + fill_field still ran on a warm build)"
+	)
+	print(
 		"[measure_light_bake] residual_warm_stall_sec=",
 		"%.3f" % (warm_build_sec - load_sec - verify_sec),
-		" (allocate + fill_field + warm_up: not cached)"
+		" (pre-ivy-k99 baseline figure: allocate + fill_field + warm_up, then uncached)"
 	)
+	_time_build_phases(surface, params, bounds, identity, ph)
 	get_tree().quit(0)
+
+
+## ivy-k99 — breaks the pre-cache "residual_warm_stall" figure above into its three phases
+## (allocate_shell / fill_field / warm_up), computed directly rather than through
+## `IvyEnvironment.build()` so the fine-grid cache added above cannot mask what it replaced.
+## This is the baseline that motivated caching the fine grid, kept as a regression probe: if
+## `warm_loaded_fine_from_cache` above is ever false on a genuinely warm build, these numbers
+## say which phase to blame and how expensive fine-to-coarse cell count made it.
+func _time_build_phases(
+	surface: SurfaceQuery,
+	params: IvyParams,
+	bounds: AABB,
+	identity: PackedByteArray,
+	ph: PackedByteArray
+) -> void:
+	var t0 := Time.get_ticks_usec()
+	var grid := CellGrid.new(params.field_cell)
+	var field := SparseHashField.new(params.field_cell)
+	field.allocate_shell(surface, params.field_shell_halfwidth, bounds)
+	var alloc_sec := float(Time.get_ticks_usec() - t0) / 1e6
+
+	var bake := LightBake.new(params, Solar.new(params))
+	LightBakeCache.try_load(bake, bounds, identity, ph)  # warm: cache already saved above
+
+	t0 = Time.get_ticks_usec()
+	bake.fill_field(surface, field, grid)
+	var fill_sec := float(Time.get_ticks_usec() - t0) / 1e6
+
+	t0 = Time.get_ticks_usec()
+	bake.diffuse_baseline_p_bar()
+	field.set_light_ewma_steady_state(
+		params.light_ewma_alpha(1.0 / 24.0), int(params.start_hour) % LightBake.HOURS
+	)
+	var warmup_sec := float(Time.get_ticks_usec() - t0) / 1e6
+
+	print("[measure_light_bake] fine_cells=", field.slot_count())
+	print("[measure_light_bake] coarse_cells=", bake.coarse_count())
+	print(
+		"[measure_light_bake] fine_to_coarse_ratio=",
+		"%.2f" % (float(field.slot_count()) / maxf(1.0, float(bake.coarse_count())))
+	)
+	print("[measure_light_bake] phase_allocate_shell_sec=", "%.3f" % alloc_sec)
+	print("[measure_light_bake] phase_fill_field_sec=", "%.3f" % fill_sec)
+	print("[measure_light_bake] phase_warmup_sec=", "%.3f" % warmup_sec)
+	print(
+		"[measure_light_bake] fill_field_usec_per_cell=",
+		"%.2f" % (fill_sec * 1e6 / maxf(1.0, float(field.slot_count())))
+	)
+	# Rough fine-cache file size if it stored the same per-cell shape as the coarse cache
+	# (key + svf + vis + leak + normal = 8+4+4+4+12 = 32 bytes) plus the 24-hour P table
+	# (24 floats = 96 bytes) per cell — the two candidate cache shapes.
+	var bytes_p_only := field.slot_count() * (8 + 24 * 4)
+	print(
+		"[measure_light_bake] estimated_fine_cache_bytes_p_table_only=", bytes_p_only,
+		" (", "%.1f" % (float(bytes_p_only) / 1e6), " MB)"
+	)
 
 
 func _mesh_surface(params: IvyParams) -> SurfaceQuery:

@@ -29,6 +29,9 @@ var _writer_guard: Object = null
 ## (ivy-9xp). Reported by the loading screen, and the only external evidence of which path a
 ## build took — the field itself comes out identical either way, which is the point.
 var loaded_coarse_from_cache: bool = false
+## Whether this build read its fine `P(cell, hour)` table from `LightBakeCache` instead of
+## running `allocate_shell` + `fill_field` (ivy-k99). Same evidentiary role as the flag above.
+var loaded_fine_from_cache: bool = false
 ## Sky-only P̄_L, used as the out-of-shell read fallback (SD-EDGE-15). Reading zero
 ## there would fabricate a light gradient pointing back at the wall.
 var _baseline_p_bar: float = 0.0
@@ -43,15 +46,18 @@ func build(p: IvyParams, surf: SurfaceQuery, sun: Solar = null) -> void:
 	# Grow by a cell beyond the shell halfwidth so the outermost allocated layer still
 	# has neighbours on all sides to interpolate against (AR-AMBIG-1).
 	var bounds := surface.shell_bounds(params.field_shell_halfwidth + params.field_cell)
-	_field.allocate_shell(surface, params.field_shell_halfwidth, bounds)
-	_field.set_all(SparseHashField.Channel.CROWDING, 0.0)
-	_field.set_all(SparseHashField.Channel.MATERIAL_ID, float(MaterialRegistry.BRICK_WALL))
 	_bake = LightBake.new(params, solar)
 	var identity := _bake_identity()
 	if not _try_load_cached_bake(bounds, identity):
 		_bake.bake(surface, bounds)
 		_save_cached_bake(bounds, identity)
-	_bake.fill_field(surface, _field, _grid)
+	var fine_ph := LightBakeCache.fine_params_hash(params)
+	if not _try_load_cached_fine(bounds, identity, fine_ph):
+		_field.allocate_shell(surface, params.field_shell_halfwidth, bounds)
+		_bake.fill_field(surface, _field, _grid)
+		_save_cached_fine(bounds, identity, fine_ph)
+	_field.set_all(SparseHashField.Channel.CROWDING, 0.0)
+	_field.set_all(SparseHashField.Channel.MATERIAL_ID, float(MaterialRegistry.BRICK_WALL))
 	_baseline_p_bar = _bake.diffuse_baseline_p_bar()
 	warm_up(params.light_warmup_days)
 
@@ -68,7 +74,8 @@ func build_interactive(
 	const P_CACHE := 0.10
 	const P_RAY_START := 0.12
 	const P_RAY_END := 0.50
-	const P_FILL_START := 0.52
+	const P_FILL_CACHE := 0.52
+	const P_FILL_START := 0.54
 	const P_FILL_END := 0.98
 
 	params = p
@@ -79,11 +86,8 @@ func build_interactive(
 	_grid = CellGrid.new(params.field_cell)
 	_field = SparseHashField.new(params.field_cell)
 	var bounds := surface.shell_bounds(params.field_shell_halfwidth + params.field_cell)
-	_field.allocate_shell(surface, params.field_shell_halfwidth, bounds)
-	_field.set_all(SparseHashField.Channel.CROWDING, 0.0)
-	_field.set_all(SparseHashField.Channel.MATERIAL_ID, float(MaterialRegistry.BRICK_WALL))
-	_bake = LightBake.new(params, solar)
 	on_progress.call("Allocating environment field…", P_ALLOC)
+	_bake = LightBake.new(params, solar)
 	var identity := _bake_identity()
 	on_progress.call("Checking sunlight cache…", P_CACHE * 0.5)
 	await tree.process_frame
@@ -107,17 +111,30 @@ func build_interactive(
 				)
 		)
 		_save_cached_bake(bounds, identity)
-	on_progress.call("Filling light field…", P_FILL_START)
+	var fine_ph := LightBakeCache.fine_params_hash(params)
+	on_progress.call("Checking light-field cache…", P_FILL_CACHE * 0.5)
 	await tree.process_frame
-	var fill_span := P_FILL_END - P_FILL_START
-	await _bake.fill_field_interactive(
-		surface,
-		_field,
-		_grid,
-		tree,
-		func(local: float) -> void:
-			on_progress.call("Filling light field…", P_FILL_START + fill_span * local)
+	var fine_loaded := _try_load_cached_fine(bounds, identity, fine_ph)
+	on_progress.call(
+		"Light-field cache hit — skipping field fill" if fine_loaded else "Light-field cache miss",
+		P_FILL_CACHE
 	)
+	if not fine_loaded:
+		_field.allocate_shell(surface, params.field_shell_halfwidth, bounds)
+		on_progress.call("Filling light field…", P_FILL_START)
+		await tree.process_frame
+		var fill_span := P_FILL_END - P_FILL_START
+		await _bake.fill_field_interactive(
+			surface,
+			_field,
+			_grid,
+			tree,
+			func(local: float) -> void:
+				on_progress.call("Filling light field…", P_FILL_START + fill_span * local)
+		)
+		_save_cached_fine(bounds, identity, fine_ph)
+	_field.set_all(SparseHashField.Channel.CROWDING, 0.0)
+	_field.set_all(SparseHashField.Channel.MATERIAL_ID, float(MaterialRegistry.BRICK_WALL))
 	_baseline_p_bar = _bake.diffuse_baseline_p_bar()
 	warm_up(params.light_warmup_days)
 	on_progress.call("Ready", 1.0)
@@ -166,6 +183,52 @@ func _save_cached_bake(bounds: AABB, identity: PackedByteArray) -> void:
 	if identity.is_empty():
 		return
 	LightBakeCache.save(_bake, bounds, identity, LightBakeCache.params_hash(params))
+
+
+# --- Fine-grid disk cache (ivy-k99). Mirrors the three coarse-cache steps above. ---
+
+
+## True when this build has a cached fine shell + `P(cell, hour)` table it has verified as its
+## own, in which case `_field` is replaced by it. On a true return, `_field` is already fully
+## populated — the caller must skip `allocate_shell` and `fill_field` entirely.
+##
+## Loads into a scratch field rather than `_field` itself and only swaps it in on success, so a
+## rejected or truncated file (below) cannot leave `_field` partially populated with cells
+## `allocate_shell` would never have produced — `_field` stays exactly what `build()` created
+## until this returns true. `LightBake.bake()` gets the same guarantee for the coarse grid by
+## clearing itself on a miss; a scratch object gets it here for free.
+func _try_load_cached_fine(
+	bounds: AABB, identity: PackedByteArray, fine_ph: PackedByteArray
+) -> bool:
+	loaded_fine_from_cache = false
+	if identity.is_empty():
+		return false
+	var candidate := SparseHashField.new(params.field_cell)
+	if not LightBakeCache.try_load_fine(
+		candidate, bounds, identity, fine_ph, params.field_cell, params.field_shell_halfwidth
+	):
+		return false
+	if LightBakeCache.verify_fine_against_surface(candidate, _bake, _grid, surface):
+		_field = candidate
+		loaded_fine_from_cache = true
+		return true
+	# Same asymmetry as the coarse probe: a rejection and a miss both end in a fresh fill: this
+	# one is loud because the cache key matched but the contents did not, which means the key
+	# is missing an input that changed.
+	push_error(
+		("LightBakeCache: fine verification probe rejected the cached fill for %s; re-filling. "
+		+ "The fine cache key is missing an input that changed.")
+		% surface.backend_tag()
+	)
+	return false
+
+
+func _save_cached_fine(bounds: AABB, identity: PackedByteArray, fine_ph: PackedByteArray) -> void:
+	if identity.is_empty():
+		return
+	LightBakeCache.save_fine(
+		_field, bounds, identity, fine_ph, params.field_cell, params.field_shell_halfwidth
+	)
 
 
 func set_writer_guard(guard: Object) -> void:

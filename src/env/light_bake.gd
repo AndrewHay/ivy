@@ -298,6 +298,41 @@ func visibility_at(p: Vector3, hour: int, normal: Vector3 = Vector3.ZERO) -> flo
 # --- Fine grid: the P(cell, hour) table. ---
 
 
+## Ray/geometry-free arithmetic for one fine cell at world point `p`: projects onto the
+## shell, trilerps the coarse products there, and evaluates `p_at` for all 24 hours.
+##
+## Split out of `fill_field`/`fill_field_interactive` for the same reason
+## `compute_coarse_cell` is split out of `_bake_coarse_cell` (ivy-k99): so
+## `LightBakeCache`'s fine-grid verification probe recomputes through exactly the code the
+## fill used. A probe that reimplemented this would verify its own copy of the arithmetic
+## rather than the fill's.
+func compute_fine_cell(surface: SurfaceQuery, p: Vector3) -> Dictionary:
+	var n := surface.surface_normal(p)
+	# Read the bake products at the projected surface point, not at the lattice
+	# point, so all three shell layers share one surface sample and the field
+	# carries no fabricated radial gradient (AR-FIELD-3).
+	var on_surface := surface.project_to_shell(p)
+	var count := _gather_corners(on_surface, n)
+	var svf := 1.0
+	var leak := 0.0
+	if count > 0:
+		svf = 0.0
+		leak = 0.0
+		for k in count:
+			svf += _corner_weight[k] * _svf[_corner_slot[k]]
+			leak += _corner_weight[k] * _leak[_corner_slot[k]]
+		svf = clampf(svf, 0.0, 1.0)
+		leak = clampf(leak, 0.0, 1.0)
+	var p_hour := PackedFloat32Array()
+	p_hour.resize(HOURS)
+	for hour in HOURS:
+		var v := 0.0
+		if count > 0 and _direct_elevation[hour] > 0.0 and n.dot(_sun_dir[hour]) > 0.0:
+			v = _corner_visibility(count, hour)
+		p_hour[hour] = p_at(n, svf, v, hour, leak)
+	return {"svf": svf, "p_hour": p_hour, "normal": n}
+
+
 ## Fills the field's static channels and its `P(cell, hour)` table. A non-empty
 ## `region` restricts the work, which is what makes `invalidate(aabb)` cheap.
 func fill_field(
@@ -310,29 +345,8 @@ func fill_field(
 		var p := grid.cell_point(cell)
 		if limited and not region.has_point(p):
 			continue
-		var n := surface.surface_normal(p)
-		# Read the bake products at the projected surface point, not at the lattice
-		# point, so all three shell layers share one surface sample and the field
-		# carries no fabricated radial gradient (AR-FIELD-3).
-		var on_surface := surface.project_to_shell(p)
-		var count := _gather_corners(on_surface, n)
-		var svf := 1.0
-		var leak := 0.0
-		if count > 0:
-			svf = 0.0
-			leak = 0.0
-			for k in count:
-				svf += _corner_weight[k] * _svf[_corner_slot[k]]
-				leak += _corner_weight[k] * _leak[_corner_slot[k]]
-			svf = clampf(svf, 0.0, 1.0)
-			leak = clampf(leak, 0.0, 1.0)
-		field.write_slot(SparseHashField.Channel.SVF, slot, svf)
-		field.write_slot(SparseHashField.Channel.F_M, slot, 1.0)
-		for hour in HOURS:
-			var v := 0.0
-			if count > 0 and _direct_elevation[hour] > 0.0 and n.dot(_sun_dir[hour]) > 0.0:
-				v = _corner_visibility(count, hour)
-			field.set_p_hour(slot, hour, p_at(n, svf, v, hour, leak))
+		var result := compute_fine_cell(surface, p)
+		_write_fine_cell(field, slot, result)
 
 
 func fill_field_interactive(
@@ -352,31 +366,21 @@ func fill_field_interactive(
 		var p := grid.cell_point(cell)
 		if limited and not region.has_point(p):
 			continue
-		var surf_n := surface.surface_normal(p)
-		var on_surface := surface.project_to_shell(p)
-		var count := _gather_corners(on_surface, surf_n)
-		var svf := 1.0
-		var leak := 0.0
-		if count > 0:
-			svf = 0.0
-			leak = 0.0
-			for k in count:
-				svf += _corner_weight[k] * _svf[_corner_slot[k]]
-				leak += _corner_weight[k] * _leak[_corner_slot[k]]
-			svf = clampf(svf, 0.0, 1.0)
-			leak = clampf(leak, 0.0, 1.0)
-		field.write_slot(SparseHashField.Channel.SVF, slot, svf)
-		field.write_slot(SparseHashField.Channel.F_M, slot, 1.0)
-		for hour in HOURS:
-			var v := 0.0
-			if count > 0 and _direct_elevation[hour] > 0.0 and surf_n.dot(_sun_dir[hour]) > 0.0:
-				v = _corner_visibility(count, hour)
-			field.set_p_hour(slot, hour, p_at(surf_n, svf, v, hour, leak))
+		var result := compute_fine_cell(surface, p)
+		_write_fine_cell(field, slot, result)
 		n += 1
 		if n % 4096 == 0 or n == total:
 			if on_step.is_valid():
 				on_step.call(float(n) / float(total))
 			await tree.process_frame
+
+
+func _write_fine_cell(field: SparseHashField, slot: int, result: Dictionary) -> void:
+	field.write_slot(SparseHashField.Channel.SVF, slot, result["svf"])
+	field.write_slot(SparseHashField.Channel.F_M, slot, 1.0)
+	var p_hour: PackedFloat32Array = result["p_hour"]
+	for hour in HOURS:
+		field.set_p_hour(slot, hour, p_hour[hour])
 
 
 func _precompute_sun_path() -> void:
