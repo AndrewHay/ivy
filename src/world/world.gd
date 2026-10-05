@@ -13,6 +13,7 @@ const BuildingCatalog = preload("res://src/world/building_catalog.gd")
 @onready var _wall: Wall = $Wall
 @onready var sky_sun: SkySun = $SkySun
 @onready var _camera_rig: Node3D = $CameraRig
+@onready var _village_backdrop: Node3D = $VillageBackdrop
 
 var surface: SurfaceQuery
 var tower_spec: TowerSpec
@@ -84,6 +85,8 @@ func _teardown_active_building() -> void:
 		_structure = null
 	mesh_scenario = null
 	seed_index = 0
+	if _village_backdrop != null:
+		_village_backdrop.visible = false
 
 
 func _show_procedural_wall() -> void:
@@ -242,3 +245,7 @@ func _apply_scenario_camera_framing(scenario) -> void:
 	var pivot: Vector3 = scenario.resolve_camera_pivot()
 	# Translate X/Z to centre the structure; lift the rig so CamSun (y=2 local) aims at pivot.y.
 	_camera_rig.position = Vector3(pivot.x, pivot.y - _CANONICAL_CAM_AIM_Y, pivot.z)
+	# Reposition the shared backdrop to the active hero pivot (x, z; y=0 stays on ground).
+	if _village_backdrop != null:
+		_village_backdrop.position = Vector3(pivot.x, 0.0, pivot.z)
+		_village_backdrop.visible = true

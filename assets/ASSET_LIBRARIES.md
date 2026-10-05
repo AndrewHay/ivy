@@ -16,7 +16,9 @@ Three tiers, deliberately separated:
 |---|---|---|---|
 | Archive | `assets/_zips/` | **No** | The original downloaded `.zip`, untouched |
 | Full library | `assets/_local/` | **No** | The whole extracted library, for auditioning pieces |
-| In-game | `assets/structures/`, `assets/materials/`, … | **Yes** | Only the pieces the game actually loads |
+| In-game (hero structures) | `assets/structures/` | **Yes** | Hero/sim GLBs + baked SDFs for the playable structures |
+| In-game (backdrop) | `assets/backdrop/` | **Yes** | The ~8 kit pieces used as non-interactive village backdrop (instanced in `village_backdrop.tscn`); shared mute material; no collision |
+| In-game (other) | `assets/materials/`, … | **Yes** | Other committed in-game assets |
 
 Both untracked tiers are covered by `.gitignore`. The rule is that **a file enters
 the repository at the moment the game references it, and not before.** A 161 MB

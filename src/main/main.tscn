@@ -1,4 +1,4 @@
-[gd_scene load_steps=18 format=3 uid="uid://8lhbed2h12ph"]
+[gd_scene load_steps=19 format=3 uid="uid://8lhbed2h12ph"]
 
 [ext_resource type="Script" uid="uid://bjvp2g014gqul" path="res://src/main/main.gd" id="1"]
 [ext_resource type="Script" uid="uid://dhq7o4g8cnv6l" path="res://src/world/world.gd" id="2"]
@@ -11,6 +11,7 @@
 [ext_resource type="Script" uid="uid://bke588qp0n7dd" path="res://src/world/debug_camera.gd" id="9"]
 [ext_resource type="Script" uid="uid://dp4wktxr3yh1b" path="res://src/world/camera_rig.gd" id="10"]
 [ext_resource type="Script" path="res://src/world/wall.gd" id="11"]
+[ext_resource type="PackedScene" path="res://src/world/village_backdrop.tscn" id="12_backdrop"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
 sky_top_color = Color(0.18, 0.39, 0.65, 1)
@@ -27,6 +28,14 @@ background_mode = 2
 sky = SubResource("Sky_main")
 ambient_light_source = 3
 ambient_light_energy = 0.8
+fog_enabled = true
+fog_mode = 1
+fog_light_color = Color(0.62, 0.76, 0.88, 1)
+fog_density = 1.0
+fog_sky_affect = 0.4
+fog_depth_curve = 1.5
+fog_depth_begin = 9.5
+fog_depth_end = 60.0
 
 [sub_resource type="PlaneMesh" id="PlaneMesh_ground"]
 size = Vector2(512, 512)
@@ -76,6 +85,9 @@ transform = Transform3D(1, 0, 0, 0, 0.70711, 0.70711, 0, -0.70711, 0.70711, 0, 7
 
 [node name="CamSilhouette" type="Camera3D" parent="World/CameraRig"]
 transform = Transform3D(1, 0, 0, 0, 0.97014, -0.24254, 0, 0.24254, 0.97014, 0, 0.5, 8)
+
+[node name="VillageBackdrop" parent="World" instance=ExtResource("12_backdrop")]
+visible = false
 
 [node name="DebugCamera" type="Camera3D" parent="World"]
 script = ExtResource("9")

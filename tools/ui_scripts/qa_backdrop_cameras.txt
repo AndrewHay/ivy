@@ -1,0 +1,20 @@
+# ivy-42m — village backdrop framing check. Run once per mesh scenario:
+#   --scenario=res://assets/structures/scenarios/tower.tres
+#   --scenario=res://assets/structures/scenarios/square.tres
+# Day 0.25 = local noon on the bare structure; day 150.25 shows hero+ivy growth (SEED 0).
+SPEED pause
+SEED 0
+ADVANCE_DAYS 0.25
+CAMERA sun
+SCREENSHOT backdrop_d0_sun.png
+CAMERA shade
+SCREENSHOT backdrop_d0_shade.png
+CAMERA top
+SCREENSHOT backdrop_d0_top.png
+CAMERA silhouette
+SCREENSHOT backdrop_d0_silhouette.png
+ADVANCE_DAYS 150
+CAMERA sun
+SCREENSHOT backdrop_d150_sun.png
+CAMERA silhouette
+SCREENSHOT backdrop_d150_silhouette.png

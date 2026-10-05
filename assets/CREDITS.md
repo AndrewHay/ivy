@@ -121,6 +121,46 @@ Inspiration-only stock photos for rubric comparison. **CC0 / Public Domain only.
 
 ---
 
+---
+
+## Quaternius Medieval Village MegaKit — committed backdrop tier — CC0 1.0
+
+Source: https://quaternius.itch.io/medieval-village-megakit  
+Author: Quaternius (https://quaternius.com)  
+License: CC0 1.0 Universal (public domain) — verified in `License_Standard.txt` within archive  
+Path: `assets/backdrop/`
+
+### Committed pieces (`assets/backdrop/pieces/`)
+
+5 pieces, used as-built in `village_backdrop.tscn`:
+
+| Piece | Role |
+|---|---|
+| `Wall_Plaster_Straight.gltf` + `.bin` | Plain 1-storey plaster wall (2 m × 3.125 m) — side/back faces |
+| `Wall_Plaster_Window_Wide_Flat.gltf` + `.bin` | Plaster wall with wide window — inner hero-facing faces |
+| `Roof_Front_Brick4.gltf` + `.bin` | Gable-end roof piece (4 m span) — background cottage gable |
+| `Roof_2x4_RoundTile.gltf` + `.bin` | Low-profile round-tile roof (2 m × 4 m, peak 2.324 m) — flanking building roofs (ivy-42m.10: replaced 4x4 slab; lower peak reduces flank dominance) |
+| `Prop_Chimney.gltf` + `.bin` | Chimney stack — one per flanking building |
+
+### Committed textures (`assets/backdrop/textures/`)
+
+15 shared PBR maps; normal maps are the OpenGL-convention variants from the kit's `Textures/Normals Godot-Unity/` subfolder:
+
+`T_WoodTrim_BaseColor.png`, `T_WoodTrim_Normal.png` *(OpenGL)*, `T_WoodTrim_Roughness.png`,  
+`T_Plaster_BaseColor.png`, `T_Plaster_Normal.png` *(OpenGL)*, `T_Plaster_ORM.png`,  
+`T_Brick_BaseColor.png`, `T_Brick_Normal.png` *(OpenGL)*, `T_Brick_Roughness.png`,  
+`T_RoundTiles_BaseColor.png`, `T_RoundTiles_Normal.png` *(OpenGL)*, `T_RoundTiles_Roughness.png`,  
+`T_RockTrim_BaseColor.png`, `T_RockTrim_Normal.png` *(OpenGL)*, `T_RockTrim_ORM.png`
+
+All textures' image URIs in the committed `.gltf` files have been rewritten from
+the kit-relative form (`T_*.png`) to `../textures/T_*.png` so the shared folder
+dedups the few textures across many pieces.
+
+Vine piece exclusion (`Prop_Vine1/2/4/5/6/9` and `T_VineLeaf.png`) is documented
+in `ASSET_LIBRARIES.md`. No vine piece or texture was copied into this repository.
+
+---
+
 ## Not used
 
 - **HDRI skies** were considered and rejected. The simulator computes true solar

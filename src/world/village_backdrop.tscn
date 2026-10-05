@@ -1,0 +1,183 @@
+;; Village backdrop -- non-interactive environment dressing.
+;; All pieces placed in pivot-relative local space (origin = hero pivot ground point, y=0 on ground).
+;; Repositioned by world.gd to (pivot.x, 0, pivot.z) at runtime.
+;;
+;; LAYOUT -- 4 volumes, 34 piece instances (ivy-42m.7: pushed flanks out, offset gables laterally):
+;;   Vol A (RIGHT, x~6-11)    -- closed box 5m x 4m, face -X toward hero; W inner face at x~6.0
+;;   Vol B (LEFT,  x~-11--6)  -- mirror of Vol A, inner E face at x~-6.0
+;;   Vol C (BG right, x=7-11, z=-9)   -- cottage offset right so gable peeks beside hero in CamSil
+;;   Vol D (BG left,  x=-13--9, z=-12) -- second cottage offset left and further back (Vol D)
+;;
+;; Frustum reference (dump_cameras.gd, CamSun FOV=75deg):
+;;   half-FOV 37.5deg, tan=0.767 -> +-6.14 m at hero z=0 from CamSun (z=8).
+;;   Inner face at x~6.0 -> angle=36.9deg (inner 98% of half-FOV) -- flanks hero, clears 6 m corridor.
+;;   Roof_2x4_RoundTile X half-span=1.647m; roof centre x=8.6 -> inner eave at x=6.953 >= 6.0 OK
+;;   Peak height 5.449m (vs 6.326m for 4x4); inner eave screen_x ~90% in CamSun (vs 73%)
+;;
+;; Background gable lateral offsets (finding #2 math):
+;;   CamSilhouette at (0,0.5,8) in CameraRig local space; hero pivot-relative.
+;;   Square hero half-width = 3.585m at z=0 -> hero edge angle = atan(3.585/8) = 24.2deg from center.
+;;   Vol C: gable peak at local x=9, depth 17m from camera -> angle = atan(9/17) = 27.9deg > 24.2 OK
+;;   Vol D: gable peak at local x=-11, depth 20m -> angle = atan(11/20) = 28.8deg > 24.2 OK
+;;   Tower hero half-width = 2.185m -> hero edge = 15.3deg; both gables (27.9 and 28.8) clear it.
+;;   Line-of-sight at flank N-face plane (z=-2): Vol C passes at x=5.3<6 (not blocked by flank) OK
+;;
+;; Rotation conventions (col-major basis in Godot):
+;;   rot0deg   face -Z : Transform3D( 1, 0, 0,  0, 1, 0,  0, 0,  1, tx, ty, tz)
+;;   rot180deg face +Z : Transform3D(-1, 0, 0,  0, 1, 0,  0, 0, -1, tx, ty, tz)
+;;   rot90deg  face -X : Transform3D( 0, 0,-1,  0, 1, 0,  1, 0,  0, tx, ty, tz)
+;;   rot-90deg face +X : Transform3D( 0, 0, 1,  0, 1, 0, -1, 0,  0, tx, ty, tz)
+;;
+;; Wall piece local geometry: X +-1 m (2 m wide), Y 0-3.125 m, face at Z ~= -0.314 (exterior).
+;; For rot90deg  (face -X): face_x = tx - 0.314  => tx = desired_face_x + 0.314
+;; For rot-90deg (face +X): face_x = tx + 0.314  => tx = desired_face_x - 0.314
+;; For rot0deg   (face -Z): face_z = tz - 0.314  => tz = desired_face_z + 0.314
+;; For rot180deg (face +Z): face_z = tz + 0.314  => tz = desired_face_z - 0.314
+[gd_scene load_steps=7 format=3]
+
+[ext_resource type="Script" path="res://src/world/village_backdrop.gd" id="1_script"]
+[ext_resource type="PackedScene" path="res://assets/backdrop/pieces/Wall_Plaster_Straight.gltf" id="2_wall"]
+[ext_resource type="PackedScene" path="res://assets/backdrop/pieces/Wall_Plaster_Window_Wide_Flat.gltf" id="3_wall_win"]
+[ext_resource type="PackedScene" path="res://assets/backdrop/pieces/Roof_2x4_RoundTile.gltf" id="4_roof_tiles"]
+[ext_resource type="PackedScene" path="res://assets/backdrop/pieces/Roof_Front_Brick4.gltf" id="5_roof_gable"]
+[ext_resource type="PackedScene" path="res://assets/backdrop/pieces/Prop_Chimney.gltf" id="6_chimney"]
+
+[node name="VillageBackdrop" type="Node3D"]
+script = ExtResource("1_script")
+
+;; -- Vol A: RIGHT BUILDING -- closed box, face toward -X (hero at local x=0) ----------------------
+;; W face (inner, face at x~6.0): rot90deg, piece Px=6.3, z-spans z=-2...+2 via z-center=+-1
+;; (ivy-42m.7: was Px=5.3 / face x~5.0; shifted +1m so inner face >= 6m from pivot)
+[node name="RA_W_N" parent="." instance=ExtResource("3_wall_win")]
+transform = Transform3D(0, 0, -1, 0, 1, 0, 1, 0, 0, 6.3, 0, -1)
+
+[node name="RA_W_S" parent="." instance=ExtResource("3_wall_win")]
+transform = Transform3D(0, 0, -1, 0, 1, 0, 1, 0, 0, 6.3, 0, 1)
+
+;; E face (outer, face at x~10.5): rot-90deg, piece Px=10.2
+[node name="RA_E_N" parent="." instance=ExtResource("2_wall")]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 10.2, 0, -1)
+
+[node name="RA_E_S" parent="." instance=ExtResource("2_wall")]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 10.2, 0, 1)
+
+;; S face (toward CamSun at z=+8, face at z~+2): rot180deg, piece Pz=1.7, x-centers=7 and 9
+[node name="RA_S_W" parent="." instance=ExtResource("2_wall")]
+transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 7, 0, 1.7)
+
+[node name="RA_S_E" parent="." instance=ExtResource("2_wall")]
+transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 9, 0, 1.7)
+
+;; N face (toward CamShade at z=-8, face at z~-2): rot0deg, piece Pz=-1.7
+[node name="RA_N_W" parent="." instance=ExtResource("2_wall")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7, 0, -1.7)
+
+[node name="RA_N_E" parent="." instance=ExtResource("2_wall")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 9, 0, -1.7)
+
+;; Roof (Roof_RoundTiles_4x4): X half-span=2.568m; centre x=8.6 -> inner eave at 6.032m >= 6.0
+;; (ivy-42m.7: was x=7.25; moved to x=8.6 so inner eave clears the 6m near-hero zone)
+[node name="RA_Roof" parent="." instance=ExtResource("4_roof_tiles")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8.6, 3.125, 0)
+
+;; Chimney -- origin at roof level (y=3.125) so chimney stack pokes above roofline
+[node name="RA_Chimney" parent="." instance=ExtResource("6_chimney")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8.6, 3.125, -0.5)
+
+;; -- Vol B: LEFT BUILDING -- mirror of A around x=0 -----------------------------------------------
+;; E face (inner, face at x~-6.0): rot-90deg, piece Px=-6.3
+[node name="RB_E_N" parent="." instance=ExtResource("3_wall_win")]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, -6.3, 0, -1)
+
+[node name="RB_E_S" parent="." instance=ExtResource("3_wall_win")]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, -6.3, 0, 1)
+
+;; W face (outer, face at x~-10.5): rot90deg, piece Px=-10.2
+[node name="RB_W_N" parent="." instance=ExtResource("2_wall")]
+transform = Transform3D(0, 0, -1, 0, 1, 0, 1, 0, 0, -10.2, 0, -1)
+
+[node name="RB_W_S" parent="." instance=ExtResource("2_wall")]
+transform = Transform3D(0, 0, -1, 0, 1, 0, 1, 0, 0, -10.2, 0, 1)
+
+;; S face: rot180deg, x=-9 and x=-7
+[node name="RB_S_W" parent="." instance=ExtResource("2_wall")]
+transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, -9, 0, 1.7)
+
+[node name="RB_S_E" parent="." instance=ExtResource("2_wall")]
+transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, -7, 0, 1.7)
+
+;; N face: rot0deg, x=-9 and x=-7
+[node name="RB_N_W" parent="." instance=ExtResource("2_wall")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -9, 0, -1.7)
+
+[node name="RB_N_E" parent="." instance=ExtResource("2_wall")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -7, 0, -1.7)
+
+[node name="RB_Roof" parent="." instance=ExtResource("4_roof_tiles")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -8.6, 3.125, 0)
+
+[node name="RB_Chimney" parent="." instance=ExtResource("6_chimney")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -8.6, 3.125, -0.5)
+
+;; -- Vol C: BACKGROUND GABLE (RIGHT) -- closed cottage at x=7-11, z=-9 (ivy-42m.7) ------------
+;; Gable offset to x=9 so the peak appears at angle 27.9deg from CamSilhouette centre --
+;; beyond the square hero edge (24.2deg) and tower hero edge (15.3deg) on the right side.
+;; Line-of-sight from camera passes through flank N-face plane (z=-2) at x=5.3, which is
+;; inside (< 6m) the flank, so the view is NOT blocked by the flank back wall.
+;; Building: x=7..11 (4m wide), z=-10..-8 (2m deep), centre (9, 0, -9).
+;; S face (face at z~-8, rot180deg): Pz=-8.3, x-centres=8 and 10
+[node name="RC_S_W" parent="." instance=ExtResource("2_wall")]
+transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 8, 0, -8.3)
+
+[node name="RC_S_E" parent="." instance=ExtResource("2_wall")]
+transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 10, 0, -8.3)
+
+;; N face (face at z~-10, rot0deg): Pz=-9.7
+[node name="RC_N_W" parent="." instance=ExtResource("2_wall")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8, 0, -9.7)
+
+[node name="RC_N_E" parent="." instance=ExtResource("2_wall")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 0, -9.7)
+
+;; E face (face at x~11, rot-90deg): Px=10.7, z-centre=-9
+[node name="RC_E" parent="." instance=ExtResource("2_wall")]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 10.7, 0, -9)
+
+;; W face (face at x~7, rot90deg): Px=7.3
+[node name="RC_W" parent="." instance=ExtResource("2_wall")]
+transform = Transform3D(0, 0, -1, 0, 1, 0, 1, 0, 0, 7.3, 0, -9)
+
+;; Gable roof (Roof_Front_Brick4, ~4.4m wide, face toward +Z so CamSun sees the gable peak)
+[node name="RC_Gable" parent="." instance=ExtResource("5_roof_gable")]
+transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 9, 3.125, -9)
+
+;; -- Vol D: BACKGROUND GABLE (LEFT) -- closed cottage at x=-13--9, z=-12 (ivy-42m.7) ----------
+;; Second background gable on the opposite side and further back.
+;; Gable at local x=-11 -> angle 28.8deg from CamSilhouette, outside both hero types' edges.
+;; Line-of-sight at flank N-face (z=-2): passes at x=-5.5, outside inner flank at x=-6.3. OK.
+;; Building: x=-13..-9 (4m wide), z=-13..-11 (2m deep), centre (-11, 0, -12).
+;; S face (face at z~-11, rot180deg): Pz=-11.3, x-centres=-12 and -10
+[node name="RD_S_W" parent="." instance=ExtResource("2_wall")]
+transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, -12, 0, -11.3)
+
+[node name="RD_S_E" parent="." instance=ExtResource("2_wall")]
+transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, -10, 0, -11.3)
+
+;; N face (face at z~-13, rot0deg): Pz=-12.7
+[node name="RD_N_W" parent="." instance=ExtResource("2_wall")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -12, 0, -12.7)
+
+[node name="RD_N_E" parent="." instance=ExtResource("2_wall")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -10, 0, -12.7)
+
+;; E face (face at x~-9, rot-90deg): Px=-9.3, z-centre=-12
+[node name="RD_E" parent="." instance=ExtResource("2_wall")]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, -9.3, 0, -12)
+
+;; W face (face at x~-13, rot90deg): Px=-12.7
+[node name="RD_W" parent="." instance=ExtResource("2_wall")]
+transform = Transform3D(0, 0, -1, 0, 1, 0, 1, 0, 0, -12.7, 0, -12)
+
+;; Gable roof facing +Z (toward CamSun)
+[node name="RD_Gable" parent="." instance=ExtResource("5_roof_gable")]
+transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, -11, 3.125, -12)
