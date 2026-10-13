@@ -16,6 +16,10 @@
 #   baseline across every frame, consistent with the sky and tint edits that followed it —
 #   the day/night relationship is what this script guards, not absolute exposure.
 #
+# ivy-3cx slice 1: warmed _COLOR_NOON + sky (2026-10-05).
+# Numbers will drift up from the above baseline; qualitative guard unchanged —
+# four frames mutually distinct, 06:00 != 18:00 (east/west sun asymmetry proves tracking).
+#
 # SCREENSHOT renders synchronously via RenderingServer.force_draw() (W-067, then W-071 after
 # awaiting frame_post_draw was found to hang whenever macOS stopped presenting the window).
 # No WAIT is needed before a capture. The four frames must be mutually distinct, and 06:00

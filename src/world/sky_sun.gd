@@ -18,7 +18,9 @@ const TWILIGHT_SIN := 0.12
 ## high elevation. The lerp uses smoothstep(0, 0.5, s_y) so colour saturates to
 ## noon-white well before the sun reaches zenith, matching perceptual experience.
 const _COLOR_DAWN := Color(1.0, 0.60, 0.28)
-const _COLOR_NOON := Color(1.0, 0.97, 0.93)
+# ivy-3cx slice 1: warmed noon colour. #FFF1DA = (1.0, 0.945, 0.855) — reads warm/golden
+# while keeping blue >= 0.85 so test_light_color_near_white_at_high_elevation stays green.
+const _COLOR_NOON := Color(1.0, 0.945, 0.855)
 
 ## Night-sky energy multiplier for the Environment background. Low but not zero —
 ## implies moon/stars without a separate material. Zero would give a pitch-black

@@ -132,25 +132,39 @@ Path: `assets/backdrop/`
 
 ### Committed pieces (`assets/backdrop/pieces/`)
 
-5 pieces, used as-built in `village_backdrop.tscn`:
+16 pieces, used as-built in `village_backdrop.tscn`  
+(* = ivy-3cx slice 1; ** = ivy-3cx.7 slices-merged):
 
 | Piece | Role |
 |---|---|
 | `Wall_Plaster_Straight.gltf` + `.bin` | Plain 1-storey plaster wall (2 m × 3.125 m) — side/back faces |
-| `Wall_Plaster_Window_Wide_Flat.gltf` + `.bin` | Plaster wall with wide window — inner hero-facing faces |
-| `Roof_Front_Brick4.gltf` + `.bin` | Gable-end roof piece (4 m span) — background cottage gable |
-| `Roof_2x4_RoundTile.gltf` + `.bin` | Low-profile round-tile roof (2 m × 4 m, peak 2.324 m) — flanking building roofs (ivy-42m.10: replaced 4x4 slab; lower peak reduces flank dominance) |
-| `Prop_Chimney.gltf` + `.bin` | Chimney stack — one per flanking building |
+| `Wall_Plaster_Window_Wide_Flat.gltf` + `.bin` | Plaster wall with wide window — hero-facing faces |
+| `Roof_Front_Brick4.gltf` + `.bin` | Gable-end roof piece (4 m span) — CB cottage gable |
+| `Roof_2x4_RoundTile.gltf` + `.bin` | Low-profile round-tile roof (2 m × 4 m) — CA, CC, CG roofs |
+| `Prop_Chimney.gltf` + `.bin` | Chimney stack — one per plaster cottage |
+| `Wall_Plaster_Door_Flat.gltf` + `.bin` | * Door-frame plaster wall — hero-facing cottage fronts |
+| `Door_1_Flat.gltf` + `.bin` | * Door leaf for the door frame — lived-in read |
+| `Prop_Chimney2.gltf` + `.bin` | * Taller chimney shaft — brick-accent cottages |
+| `Wall_UnevenBrick_Straight.gltf` + `.bin` | * Brick-accent wall — material variety on CB/CF/CD |
+| `Roof_RoundTiles_4x4.gltf` + `.bin` | ** Big 4×4 hip roof — CE and CD wider cottages |
+| `Prop_WoodenFence_Single.gltf` + `.bin` | ** Single fence panel — cottage gate details |
+| `Prop_WoodenFence_Extension1.gltf` + `.bin` | ** Fence extension panel — prepared for future use |
+| `Prop_Wagon.gltf` + `.bin` | ** Wagon prop — committed for future placement |
+| `Prop_Crate.gltf` + `.bin` | ** Crates — clutter beside CE |
+| `WindowShutters_Wide_Flat_Closed.gltf` + `.bin` | ** Closed shutters — CA window detail |
+| `Balcony_Simple_Straight.gltf` + `.bin` | ** Balcony piece — committed for future use |
 
-### Committed textures (`assets/backdrop/textures/`)
+### Committed textures (`assets/backdrop/textures/`) — medieval kit
 
-15 shared PBR maps; normal maps are the OpenGL-convention variants from the kit's `Textures/Normals Godot-Unity/` subfolder:
+18 shared PBR maps; normal maps are the OpenGL-convention variants from the kit's  
+`Textures/Normals Godot-Unity/` subfolder (* = added in ivy-3cx slice 1):
 
 `T_WoodTrim_BaseColor.png`, `T_WoodTrim_Normal.png` *(OpenGL)*, `T_WoodTrim_Roughness.png`,  
 `T_Plaster_BaseColor.png`, `T_Plaster_Normal.png` *(OpenGL)*, `T_Plaster_ORM.png`,  
 `T_Brick_BaseColor.png`, `T_Brick_Normal.png` *(OpenGL)*, `T_Brick_Roughness.png`,  
 `T_RoundTiles_BaseColor.png`, `T_RoundTiles_Normal.png` *(OpenGL)*, `T_RoundTiles_Roughness.png`,  
-`T_RockTrim_BaseColor.png`, `T_RockTrim_Normal.png` *(OpenGL)*, `T_RockTrim_ORM.png`
+`T_RockTrim_BaseColor.png`, `T_RockTrim_Normal.png` *(OpenGL)*, `T_RockTrim_ORM.png`,  
+`T_UnevenBrick_BaseColor.png` *(*)*, `T_UnevenBrick_Normal.png` *(OpenGL, *)*, `T_UnevenBrick_Roughness.png` *(*)*
 
 All textures' image URIs in the committed `.gltf` files have been rewritten from
 the kit-relative form (`T_*.png`) to `../textures/T_*.png` so the shared folder
@@ -158,6 +172,57 @@ dedups the few textures across many pieces.
 
 Vine piece exclusion (`Prop_Vine1/2/4/5/6/9` and `T_VineLeaf.png`) is documented
 in `ASSET_LIBRARIES.md`. No vine piece or texture was copied into this repository.
+
+---
+
+## Quaternius Stylized Nature Megakit — committed backdrop tier — CC0 1.0
+
+Source: https://quaternius.itch.io/stylized-nature-megakit  
+Author: Quaternius (https://quaternius.com)  
+License: CC0 1.0 Universal (public domain)  
+Tier: Standard  
+Archive SHA-256: `298f6732b872e4cf7b30e6e7abf9641c7f6dc6b326df37ac089533ed7e3d58c9`  
+Archive size: 104,088,529 bytes  
+Retrieved: 2026-10-05  
+Path: `assets/backdrop/`
+
+### Committed pieces (`assets/backdrop/pieces/`) — nature kit
+
+15 pieces used as-built in `village_backdrop.tscn` (ivy-3cx.7 slices-merged):
+
+| Piece | Role |
+|---|---|
+| `CommonTree_1.gltf` + `.bin` | Broad-leaf common tree — mid-distance right cluster |
+| `CommonTree_2.gltf` + `.bin` | Broad-leaf common tree variant — far treeline |
+| `CommonTree_3.gltf` + `.bin` | Broad-leaf common tree variant — far treeline |
+| `Pine_1.gltf` + `.bin` | Conifer — mid-distance left cluster |
+| `Pine_2.gltf` + `.bin` | Conifer variant — far treeline |
+| `Pine_3.gltf` + `.bin` | Conifer variant — far treeline |
+| `TwistedTree_1.gltf` + `.bin` | Gnarled deciduous — far treeline silhouette interest |
+| `Bush_Common_Flowers.gltf` + `.bin` | Flowering bush — near garden (Director rule: flowers OK, plain green excluded) |
+| `Flower_3_Group.gltf` + `.bin` | Flower cluster — near garden ground cover |
+| `Flower_4_Group.gltf` + `.bin` | Flower cluster variant — near garden ground cover |
+| `Grass_Wispy_Short.gltf` + `.bin` | Wispy grass tufts — near garden scatter |
+| `Clover_1.gltf` + `.bin` | Clover patch — near garden ground cover |
+| `Rock_Medium_1.gltf` + `.bin` | Medium rock — accent near garden |
+| `RockPath_Round_Wide.gltf` + `.bin` | Round stepping stone (~2 m dia.) — paths toward hero |
+| `Pebble_Round_1.gltf` + `.bin` | Small pebble — committed for future use |
+
+### Committed textures (`assets/backdrop/textures/`) — nature kit
+
+12 diffuse/normal maps (normals are the kit's OpenGL-convention files, named `*_Normal.png`):
+
+`Bark_NormalTree.png`, `Bark_NormalTree_Normal.png`,  
+`Bark_TwistedTree.png`, `Bark_TwistedTree_Normal.png`,  
+`Flowers.png`, `Grass.png`, `Leaf_Pine_C.png`,  
+`Leaves.png`, `Leaves_NormalTree_C.png`, `Leaves_TwistedTree_C.png`,  
+`PathRocks_Diffuse.png`, `Rocks_Diffuse.png`
+
+Image URIs in committed `.gltf` files have been rewritten from bare filenames  
+(`Filename.png`) to `../textures/Filename.png` for the shared folder layout.
+
+Vine exclusion policy (`Prop_Vine*`, `T_VineLeaf`) applies to this kit as well —  
+no vine piece or texture was copied. See `ASSET_LIBRARIES.md`.
 
 ---
 

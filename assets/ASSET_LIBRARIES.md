@@ -17,7 +17,7 @@ Three tiers, deliberately separated:
 | Archive | `assets/_zips/` | **No** | The original downloaded `.zip`, untouched |
 | Full library | `assets/_local/` | **No** | The whole extracted library, for auditioning pieces |
 | In-game (hero structures) | `assets/structures/` | **Yes** | Hero/sim GLBs + baked SDFs for the playable structures |
-| In-game (backdrop) | `assets/backdrop/` | **Yes** | The ~8 kit pieces used as non-interactive village backdrop (instanced in `village_backdrop.tscn`); shared mute material; no collision |
+| In-game (backdrop) | `assets/backdrop/` | **Yes** | 31 kit pieces (16 medieval + 15 nature) used as non-interactive village backdrop (instanced in `village_backdrop.tscn`); native PBR materials, distance shadow policy; no collision. Medieval: `Wall_Plaster_Straight`, `Wall_Plaster_Window_Wide_Flat`, `Roof_2x4_RoundTile`, `Roof_Front_Brick4`, `Prop_Chimney`, `Wall_Plaster_Door_Flat`, `Door_1_Flat`, `Prop_Chimney2`, `Wall_UnevenBrick_Straight`, `Roof_RoundTiles_4x4`, `Prop_WoodenFence_Single`, `Prop_WoodenFence_Extension1`, `Prop_Wagon`, `Prop_Crate`, `WindowShutters_Wide_Flat_Closed`, `Balcony_Simple_Straight`. Nature: `CommonTree_1-3`, `Pine_1-3`, `TwistedTree_1`, `Bush_Common_Flowers`, `Flower_3_Group`, `Flower_4_Group`, `Grass_Wispy_Short`, `Clover_1`, `Rock_Medium_1`, `RockPath_Round_Wide`, `Pebble_Round_1`. |
 | In-game (other) | `assets/materials/`, … | **Yes** | Other committed in-game assets |
 
 Both untracked tiers are covered by `.gitignore`. The rule is that **a file enters
@@ -215,6 +215,41 @@ maps `T_BottomWear`, `T_TopWear`, `T_BrushedNoise`, `T_Noise_Terrain`,
 `T_WindowGradient`, and the excluded `T_VineLeaf`. A `Normals Godot-Unity/`
 subfolder holds normal maps in the OpenGL convention, which is the one Godot
 wants — the same trap documented for ambientCG in `CREDITS.md`.
+
+---
+
+## Stylized Nature Megakit — Quaternius
+
+| | |
+|---|---|
+| Source | https://quaternius.itch.io/stylized-nature-megakit |
+| Author | Quaternius (https://quaternius.com) |
+| License | **CC0 1.0 Universal** (public domain) |
+| Tier obtained | Standard (free tier) — 104,088,529 bytes |
+| SHA-256 (archive) | `298f6732b872e4cf7b30e6e7abf9641c7f6dc6b326df37ac089533ed7e3d58c9` |
+| Retrieved | 2026-10-05 |
+| Archive | `assets/_zips/stylized_nature_megakit.zip` *(untracked — three-tier policy)* |
+| Full library | `assets/_local/stylized_nature_megakit/` *(untracked — three-tier policy)* |
+| glTF pieces (build input) | `assets/_local/stylized_nature_megakit/glTF/` |
+| Formats | glTF (+`.bin`), FBX — plus `Textures/` folder with shared diffuse/normal maps |
+
+### Vine exclusion — same policy as medieval kit
+
+No `Prop_Vine*` or `T_VineLeaf` variants appear in this kit by name. Vine
+piece exclusion applies to any future kit added here as a precaution.
+
+### Committed in-game assets
+
+15 pieces committed to `assets/backdrop/pieces/` (ivy-3cx.7). See `CREDITS.md` for
+the full piece table. URI rewrite: bare `Filename.png` → `../textures/Filename.png`
+in each committed `.gltf` so texture references point to the shared
+`assets/backdrop/textures/` folder.
+
+The `Textures/` folder in this kit stores normals directly as `*_Normal.png`
+(OpenGL convention), not in a subfolder — no separate Godot-Unity variant path
+to select from.
+
+---
 
 ### Relevance beyond M2.6
 
