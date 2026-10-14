@@ -1,4 +1,4 @@
-[gd_scene load_steps=22 format=3 uid="uid://8lhbed2h12ph"]
+[gd_scene load_steps=20 format=3 uid="uid://8lhbed2h12ph"]
 
 [ext_resource type="Script" uid="uid://bjvp2g014gqul" path="res://src/main/main.gd" id="1"]
 [ext_resource type="Script" uid="uid://dhq7o4g8cnv6l" path="res://src/world/world.gd" id="2"]
@@ -15,11 +15,11 @@
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
 sky_top_color = Color(0.361, 0.561, 0.722, 1)
-sky_horizon_color = Color(0.784, 0.851, 0.910, 1)
+sky_horizon_color = Color(0.784, 0.851, 0.91, 1)
+sky_energy_multiplier = 1.4
 ground_bottom_color = Color(0.08, 0.09, 0.06, 1)
 ground_horizon_color = Color(0.35, 0.38, 0.32, 1)
 sun_angle_max = 2.0
-sky_energy_multiplier = 1.4
 
 [sub_resource type="Sky" id="Sky_main"]
 sky_material = SubResource("ProceduralSkyMaterial_sky")
@@ -34,7 +34,6 @@ fog_mode = 1
 fog_light_color = Color(0.78, 0.84, 0.91, 1)
 fog_density = 0.8
 fog_sky_affect = 0.4
-fog_depth_curve = 1.0
 fog_depth_begin = 9.5
 fog_depth_end = 55.0
 
@@ -85,7 +84,12 @@ void fragment() {
 "
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_grass"]
+render_priority = 0
 shader = SubResource("Shader_grass")
+shader_parameter/color_sage = Color(0.431, 0.561, 0.384, 1)
+shader_parameter/color_sunkiss = Color(0.498, 0.659, 0.447, 1)
+shader_parameter/noise_scale = 0.08
+shader_parameter/roughness = 0.9
 
 [sub_resource type="WorldBoundaryShape3D" id="WorldBoundaryShape3D_ground"]
 

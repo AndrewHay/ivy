@@ -181,31 +181,181 @@ func test_surface_count_under_160() -> void:
 
 # ── Covering-roof invariant ───────────────────────────────────────────────────
 
-func test_each_cottage_has_covering_roof() -> void:
-	## Every cottage (CA-CG) must contain at least one roof MeshInstance3D whose
-	## local AABB spans > 1.5 m in BOTH X and Z (a covering tile surface, not just
-	## a thin gable-end triangle like Roof_Front_Brick4).
-	var cottage_prefixes := ["CA_", "CB_", "CC_", "CD_", "CE_", "CF_", "CG_"]
-	var meshes := _find_nodes_of_type(_backdrop, MeshInstance3D)
-	for prefix in cottage_prefixes:
-		var has_covering := false
-		for mesh in meshes:
-			var mi := mesh as MeshInstance3D
-			if mi.mesh == null:
-				continue
-			var root := _get_direct_child_of_backdrop(mi)
-			if root == null:
-				continue
-			# Only look at nodes whose backdrop-root has a Roof suffix
-			if not root.name.begins_with(prefix) or not "Roof" in root.name:
-				continue
-			var aabb := mi.get_aabb()
-			if aabb.size.x > 1.5 and aabb.size.z > 1.5:
-				has_covering = true
+func test_each_cottage_roof_fits_its_body() -> void:
+	## The roof piece chosen for each cottage must overhang the wall exteriors by
+	## the kit's eave (~0.7 m, allowed 0.3-0.8 m) on every side — no giant roofs
+	## on thin bodies.
+	for spec in VillageBackdrop.COTTAGES:
+		var bays := int(spec["bays"])
+		assert_true(VillageBackdrop._P_ROOF.has(bays),
+			"Cottage '%s' has no roof piece for %d bays" % [spec["name"], bays])
+		if not VillageBackdrop._P_ROOF.has(bays):
+			continue
+		var roof := _piece_aabb(VillageBackdrop._P_ROOF[bays])
+		# Native roof ridge runs along local Z; the house ridge runs along local X.
+		var half_len := float(bays) + VillageBackdrop.WALL_OUT
+		var half_depth := VillageBackdrop.COTTAGE_DEPTH * 0.5 + VillageBackdrop.WALL_OUT
+		var eaves := [
+			-roof.position.x - half_depth, roof.end.x - half_depth,
+			-roof.position.z - half_len, roof.end.z - half_len]
+		for eave in eaves:
+			assert_between(float(eave), 0.3, 0.8,
+				"Cottage '%s' roof %s eave %.2f m must be 0.3-0.8 m" \
+				% [spec["name"], VillageBackdrop._P_ROOF[bays], eave])
+		assert_lte(roof.position.y, 0.0,
+			"Cottage '%s' roof eaves must not float above the wall top" % spec["name"])
+
+
+func test_each_cottage_piece_type_renders() -> void:
+	var expected := ["Wall_Plaster_Straight", "Wall_Plaster_Door_Flat", "Door_1_Flat",
+		"Wall_Plaster_Window_Wide_Flat", "WindowShutters_Wide_Flat_Closed",
+		"Roof_Front_Brick4", "Roof_RoundTiles_4x6", "Roof_RoundTiles_4x8", "Prop_Chimney2"]
+	for piece in expected:
+		var found := false
+		for mmi_node in _find_nodes_of_type(_backdrop, MultiMeshInstance3D):
+			var mmi := mmi_node as MultiMeshInstance3D
+			if mmi.name.begins_with("Cottage_" + piece) and mmi.multimesh.instance_count > 0:
+				found = true
 				break
-		assert_true(has_covering,
-			"Cottage '%s' must have a covering roof with AABB XZ both > 1.5 m (not just gable-end)" \
-			% prefix.rstrip("_"))
+		assert_true(found, "Expected a Cottage_%s MultiMesh with instances" % piece)
+
+
+# ── Cottage aspect ratio (ivy-2or) ───────────────────────────────────────────
+
+func test_cottages_are_two_bays_deep_and_long() -> void:
+	## Owner: "the houses are very narrow". Two bays deep (4 m grid) and at least
+	## 3 bays long, so no cottage reads as a thin shed from its gable end.
+	assert_eq(VillageBackdrop.COTTAGE_DEPTH, 4.0, "Cottages must be two 2 m bays deep")
+	for spec in VillageBackdrop.COTTAGES:
+		var rect := VillageBackdrop.cottage_exterior_rect(spec)
+		var length: float = maxf(rect.size.x, rect.size.y)
+		var depth: float = minf(rect.size.x, rect.size.y)
+		assert_gte(int(spec["bays"]), 3, "Cottage '%s' must be >= 3 bays long" % spec["name"])
+		assert_gte(length / depth, 1.4,
+			"Cottage '%s' footprint %.1f x %.1f m must be clearly longer than deep" \
+			% [spec["name"], length, depth])
+
+
+func test_cottages_do_not_overlap() -> void:
+	## Footprints grown by the ~0.7 m eave must stay apart.
+	var specs: Array = VillageBackdrop.COTTAGES
+	for i in range(specs.size()):
+		for j in range(i + 1, specs.size()):
+			var a := VillageBackdrop.cottage_exterior_rect(specs[i]).grow(0.8)
+			var b := VillageBackdrop.cottage_exterior_rect(specs[j]).grow(0.8)
+			assert_false(a.intersects(b),
+				"Cottages '%s' and '%s' overlap (incl. eaves)" % [specs[i]["name"], specs[j]["name"]])
+
+
+func test_each_door_faces_hero_and_has_path() -> void:
+	var paths := VillageBackdrop.path_polylines()
+	assert_eq(paths.size(), VillageBackdrop.COTTAGES.size(), "One path per cottage door")
+	for i in range(VillageBackdrop.COTTAGES.size()):
+		var spec: Dictionary = VillageBackdrop.COTTAGES[i]
+		var door := VillageBackdrop.cottage_door(spec)
+		var to_hero: Vector2 = (-door[0]).normalized()
+		assert_gt(door[1].dot(to_hero), 0.5,
+			"Cottage '%s' door must face the hero area" % spec["name"])
+		var start: Vector2 = (paths[i] as Array)[0]
+		assert_lt(start.distance_to(door[0]), 1.0,
+			"Cottage '%s' path must start at its door" % spec["name"])
+
+
+func test_door_leaves_face_out_of_their_doors() -> void:
+	## Regression: MultiMesh buffers are row-major. Writing basis vectors
+	## contiguously transposed every instance rotation, turning ±90° walls inside
+	## out. Decode each door leaf's +Z (kit exterior) axis from the buffer.
+	var leaves: MultiMeshInstance3D = null
+	for mmi_node in _find_nodes_of_type(_backdrop, MultiMeshInstance3D):
+		if (mmi_node as Node).name.begins_with("Cottage_Door_1_Flat"):
+			leaves = mmi_node
+			break
+	assert_not_null(leaves, "Cottage_Door_1_Flat MultiMesh must exist")
+	if leaves == null:
+		return
+	var buf := leaves.multimesh.buffer
+	var normals: Array[Vector2] = []
+	for i in range(leaves.multimesh.instance_count):
+		normals.append(Vector2(buf[i * 12 + 2], buf[i * 12 + 10]).normalized())
+	for spec in VillageBackdrop.COTTAGES:
+		var door := VillageBackdrop.cottage_door(spec)
+		var matched := false
+		for n in normals:
+			if n.dot(door[1]) > 0.99:
+				matched = true
+				break
+		assert_true(matched,
+			"Cottage '%s' door leaf must face outward along %s" % [spec["name"], door[1]])
+
+
+func test_no_path_or_bush_inside_a_cottage() -> void:
+	for mmi_node in _find_nodes_of_type(_backdrop, MultiMeshInstance3D):
+		var mmi := mmi_node as MultiMeshInstance3D
+		if not (mmi.name.begins_with("Scatter_Path_") or mmi.name.begins_with("Scatter_Bush_")):
+			continue
+		var buf := mmi.multimesh.buffer
+		for i in range(mmi.multimesh.instance_count):
+			var p := Vector2(buf[i * 12 + 3], buf[i * 12 + 11])
+			assert_false(VillageBackdrop.inside_any_cottage(p, 0.0),
+				"%s[%d] at (%.2f, %.2f) is inside a cottage" % [mmi.name, i, p.x, p.y])
+
+
+# ── Path stone count (ivy-2or) ────────────────────────────────────────────────
+
+func test_path_stone_count_gte_30() -> void:
+	## Scatter_Path_* MultiMesh nodes must have >= 30 total instances.
+	var total_stones := 0
+	for mmi_node in _find_nodes_of_type(_backdrop, MultiMeshInstance3D):
+		var mmi := mmi_node as MultiMeshInstance3D
+		if mmi.name.begins_with("Scatter_Path_") and mmi.multimesh != null:
+			total_stones += mmi.multimesh.instance_count
+	assert_gte(total_stones, 30,
+		"Village paths must have >= 30 path-stone instances; got %d" % total_stones)
+
+
+# ── Bush count (ivy-2or) ──────────────────────────────────────────────────────
+
+func test_bush_count_gte_40() -> void:
+	## Scatter_Bush_Common MultiMesh must have >= 40 instances (many more bushes).
+	## Together with static Garden_Bush1/2 and the Scatter_Flower ring,
+	## this ensures plentiful bush coverage visible in orbit shots.
+	var total_bush := 0
+	for mmi_node in _find_nodes_of_type(_backdrop, MultiMeshInstance3D):
+		var mmi := mmi_node as MultiMeshInstance3D
+		if mmi.name == "Scatter_Bush_Common" and mmi.multimesh != null:
+			total_bush += mmi.multimesh.instance_count
+	assert_gte(total_bush, 40,
+		"Scatter_Bush_Common must have >= 40 instances; got %d" % total_bush)
+
+
+# ── No path or bush on hero footprint (ivy-2or) ───────────────────────────────
+
+func test_no_path_or_bush_on_hero_footprint() -> void:
+	## No Scatter_Path_* or Scatter_Bush_* instance may lie within 4.5 m of the
+	## backdrop pivot (hero base). Paths end at r ≥ 5 m; bushes are seeded > 5 m.
+	const EXCLUSION_R := 4.5
+	for mmi_node in _find_nodes_of_type(_backdrop, MultiMeshInstance3D):
+		var mmi := mmi_node as MultiMeshInstance3D
+		if not (mmi.name.begins_with("Scatter_Path_") or mmi.name.begins_with("Scatter_Bush_")):
+			continue
+		if mmi.multimesh == null:
+			continue
+		# NOTE: MultiMesh.get_instance_transform() reads from RenderingServer GPU-side
+		# buffer and returns identity in --headless mode. Read directly from the
+		# CPU-side buffer (set via mm.buffer = buf in _create_scatter): each
+		# TRANSFORM_3D instance is 12 floats, origin at offsets [3], [7], [11].
+		var buf := mmi.multimesh.buffer
+		if buf.size() == 0:
+			continue
+		var stride := 12  # TRANSFORM_3D, no use_colors, no use_custom_data
+		for i in range(mmi.multimesh.instance_count):
+			var base := i * stride
+			var ox: float = buf[base + 3]
+			var oz: float = buf[base + 11]
+			var xz_dist := Vector2(ox, oz).length()
+			assert_gt(xz_dist, EXCLUSION_R,
+				"%s[%d] at XZ(%.2f,%.2f) dist %.2f is inside hero exclusion %.1f m" \
+				% [mmi.name, i, ox, oz, xz_dist, EXCLUSION_R])
 
 
 # ── (e) No vine piece names ───────────────────────────────────────────────────
@@ -238,7 +388,7 @@ func test_backdrop_mesh_unplantable_via_mask1_ray() -> void:
 		pending("physics space not available in this test environment — skip")
 		return
 
-	# Cottage CA is centered at approx (14, 0, -8) in local space.
+	# (14, -8) lies inside cottage CA's footprint.
 	var ray := PhysicsRayQueryParameters3D.create(
 		Vector3(14.0, 10.0, -8.0),
 		Vector3(14.0, -1.0, -8.0),
@@ -252,32 +402,16 @@ func test_backdrop_mesh_unplantable_via_mask1_ray() -> void:
 # ── (h) No cottage face inside 5.9 m from pivot ──────────────────────────────
 
 func test_no_house_face_inside_6m() -> void:
-	## All cottages are centred at >= 12 m radius; their wall/roof AABB nearest
-	## face must be >= 5.9 m from the backdrop pivot in XZ.
-	## Garden scatter (flowers, clover, path stones, bushes, rocks) is intentionally
-	## placed in the near zone and is exempt from this check.
-	## Only instances whose direct parent under VillageBackdrop has a cottage prefix
-	## (CA_, CB_, CC_, CD_, CE_, CF_, CG_) are checked.
-	var cottage_prefixes := ["CA_", "CB_", "CC_", "CD_", "CE_", "CF_", "CG_"]
-	var meshes := _find_nodes_of_type(_backdrop, MeshInstance3D)
-	assert_gt(meshes.size(), 0, "Backdrop must have at least one MeshInstance3D")
-	for mesh in meshes:
-		var mi := mesh as MeshInstance3D
-		var instance_root := _get_direct_child_of_backdrop(mi)
-		if instance_root == null:
-			continue
-		var is_cottage := false
-		for prefix in cottage_prefixes:
-			if instance_root.name.begins_with(prefix):
-				is_cottage = true
-				break
-		if not is_cottage:
-			continue
-		var aabb := mi.get_aabb()
-		var global_aabb := mi.global_transform * aabb
-		var min_xz_dist := _nearest_xz_dist_from_origin(global_aabb)
+	## Every cottage, including its ~0.7 m eave, must stay >= 5.9 m from the
+	## pivot in XZ. Garden scatter (flowers, clover, path stones, bushes, rocks)
+	## is intentionally placed in the near zone and is exempt.
+	for spec in VillageBackdrop.COTTAGES:
+		var rect := VillageBackdrop.cottage_exterior_rect(spec).grow(0.8)
+		var aabb := AABB(Vector3(rect.position.x, 0.0, rect.position.y),
+			Vector3(rect.size.x, 1.0, rect.size.y))
+		var min_xz_dist := _nearest_xz_dist_from_origin(aabb)
 		assert_gte(min_xz_dist, 5.9,
-			"Cottage piece in '%s' nearest XZ face (%.3f m) must be >= 5.9 m from pivot" % [instance_root.name, min_xz_dist])
+			"Cottage '%s' nearest XZ face (%.3f m) must be >= 5.9 m from pivot" % [spec["name"], min_xz_dist])
 
 
 # ── (i) Fog depth begin >= 9.5 ───────────────────────────────────────────────
@@ -322,7 +456,74 @@ func test_fog_sky_affect_in_range() -> void:
 	assert_lte(sky_val, 0.5, "fog_sky_affect must be <= 0.5; got %.2f" % sky_val)
 
 
+# ── (k) glTF pieces have valid texture URI paths (Defect F) ──────────────────
+
+func test_gltf_pieces_have_valid_texture_uris() -> void:
+	## Every .gltf under assets/backdrop/pieces/ must reference textures via
+	## "../textures/<filename>" and every referenced texture file must exist.
+	var pieces_dir_path := "res://assets/backdrop/pieces"
+	var textures_dir_path := "res://assets/backdrop/textures"
+	var d := DirAccess.open(pieces_dir_path)
+	if d == null:
+		pending("Could not open res://assets/backdrop/pieces — skipping URI test")
+		return
+	var gltf_files: Array[String] = []
+	d.list_dir_begin()
+	var fname := d.get_next()
+	while fname != "":
+		if fname.ends_with(".gltf"):
+			gltf_files.append(pieces_dir_path + "/" + fname)
+		fname = d.get_next()
+	d.list_dir_end()
+
+	assert_true(gltf_files.size() > 0, "No .gltf files found under assets/backdrop/pieces/")
+
+	for gltf_path in gltf_files:
+		var f := FileAccess.open(gltf_path, FileAccess.READ)
+		if f == null:
+			assert_true(false, "Could not open %s" % gltf_path)
+			continue
+		var json_text := f.get_as_text()
+		f.close()
+		var json := JSON.new()
+		var err := json.parse(json_text)
+		if err != OK:
+			assert_true(false, "Failed to parse JSON in %s" % gltf_path)
+			continue
+		var data: Variant = json.get_data()
+		if not (data is Dictionary and data.has("images")):
+			continue  # no images section — fine
+		var images: Array = data["images"]
+		for img_entry in images:
+			if not (img_entry is Dictionary and img_entry.has("uri")):
+				continue
+			var uri: String = img_entry["uri"]
+			assert_true(uri.begins_with("../textures/"),
+				"glTF image URI '%s' in %s must start with '../textures/'" % [uri, gltf_path.get_file()])
+			# Verify the referenced texture file exists.
+			var tex_filename := uri.get_file()
+			var tex_path := textures_dir_path + "/" + tex_filename
+			var tex_f := FileAccess.open(tex_path, FileAccess.READ)
+			assert_not_null(tex_f,
+				"Texture '%s' referenced in %s does not exist at %s" % [tex_filename, gltf_path.get_file(), tex_path])
+			if tex_f != null:
+				tex_f.close()
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+## Piece-space AABB of a backdrop kit piece, with glTF node transforms applied.
+func _piece_aabb(piece: String) -> AABB:
+	var ps := load("res://assets/backdrop/pieces/%s.gltf" % piece) as PackedScene
+	var inst := ps.instantiate()
+	var parts: Array = []
+	_backdrop._collect_mesh_parts(inst, Transform3D.IDENTITY, parts)
+	inst.free()
+	var out: AABB = (parts[0][1] as Transform3D) * (parts[0][0] as Mesh).get_aabb()
+	for k in range(1, parts.size()):
+		out = out.merge((parts[k][1] as Transform3D) * (parts[k][0] as Mesh).get_aabb())
+	return out
+
 
 ## Walk up from node until we reach a direct child of _backdrop, then return that child.
 func _get_direct_child_of_backdrop(node: Node) -> Node:

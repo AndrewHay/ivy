@@ -132,21 +132,23 @@ Path: `assets/backdrop/`
 
 ### Committed pieces (`assets/backdrop/pieces/`)
 
-16 pieces, used as-built in `village_backdrop.tscn`  
+18 pieces; cottages are generated from them by `VillageBackdrop.COTTAGES` (ivy-2or)  
 (* = ivy-3cx slice 1; ** = ivy-3cx.7 slices-merged):
 
 | Piece | Role |
 |---|---|
 | `Wall_Plaster_Straight.gltf` + `.bin` | Plain 1-storey plaster wall (2 m × 3.125 m) — side/back faces |
 | `Wall_Plaster_Window_Wide_Flat.gltf` + `.bin` | Plaster wall with wide window — hero-facing faces |
-| `Roof_Front_Brick4.gltf` + `.bin` | Gable-end roof piece (4 m span) — CB cottage gable |
-| `Roof_2x4_RoundTile.gltf` + `.bin` | Low-profile round-tile roof (2 m × 4 m) — CA, CC, CG roofs |
+| `Roof_Front_Brick4.gltf` + `.bin` | Gable-end infill (4 m span) — both ends of every cottage (ivy-2or) |
+| `Roof_2x4_RoundTile.gltf` + `.bin` | Low-profile round-tile roof (2 m × 4 m) — superseded by 4×N roofs in ivy-2or |
 | `Prop_Chimney.gltf` + `.bin` | Chimney stack — one per plaster cottage |
 | `Wall_Plaster_Door_Flat.gltf` + `.bin` | * Door-frame plaster wall — hero-facing cottage fronts |
 | `Door_1_Flat.gltf` + `.bin` | * Door leaf for the door frame — lived-in read |
 | `Prop_Chimney2.gltf` + `.bin` | * Taller chimney shaft — brick-accent cottages |
 | `Wall_UnevenBrick_Straight.gltf` + `.bin` | * Brick-accent wall — material variety on CB/CF/CD |
-| `Roof_RoundTiles_4x4.gltf` + `.bin` | ** Big 4×4 hip roof — CE and CD wider cottages |
+| `Roof_RoundTiles_4x4.gltf` + `.bin` | ** Big 4×4 hip roof — superseded; kept for reference |
+| `Roof_RoundTiles_4x6.gltf` + `.bin` | ** ivy-2or: 4 m × 6 m round-tile roof — 3-bay cottages (CB, CC, CE, CF, CG) |
+| `Roof_RoundTiles_4x8.gltf` + `.bin` | ** ivy-2or: 4 m × 8 m round-tile roof — 4-bay cottages (CA, CD) |
 | `Prop_WoodenFence_Single.gltf` + `.bin` | ** Single fence panel — cottage gate details |
 | `Prop_WoodenFence_Extension1.gltf` + `.bin` | ** Fence extension panel — prepared for future use |
 | `Prop_Wagon.gltf` + `.bin` | ** Wagon prop — committed for future placement |
@@ -199,13 +201,17 @@ Path: `assets/backdrop/`
 | `Pine_2.gltf` + `.bin` | Conifer variant — far treeline |
 | `Pine_3.gltf` + `.bin` | Conifer variant — far treeline |
 | `TwistedTree_1.gltf` + `.bin` | Gnarled deciduous — far treeline silhouette interest |
+| `Bush_Common.gltf` + `.bin` | ivy-2or: Plain green bush — village scatter (Scatter_Bush_Common MultiMesh) |
 | `Bush_Common_Flowers.gltf` + `.bin` | Flowering bush — near garden (Director rule: flowers OK, plain green excluded) |
 | `Flower_3_Group.gltf` + `.bin` | Flower cluster — near garden ground cover |
 | `Flower_4_Group.gltf` + `.bin` | Flower cluster variant — near garden ground cover |
 | `Grass_Wispy_Short.gltf` + `.bin` | Wispy grass tufts — near garden scatter |
 | `Clover_1.gltf` + `.bin` | Clover patch — near garden ground cover |
 | `Rock_Medium_1.gltf` + `.bin` | Medium rock — accent near garden |
-| `RockPath_Round_Wide.gltf` + `.bin` | Round stepping stone (~2 m dia.) — paths toward hero |
+| `RockPath_Round_Wide.gltf` + `.bin` | Round stepping stone (~2 m dia.) — superseded by Small variants |
+| `RockPath_Round_Small_1.gltf` + `.bin` | ivy-2or: Small stepping stone — village path MultiMesh (Scatter_Path_0) |
+| `RockPath_Round_Small_2.gltf` + `.bin` | ivy-2or: Small stepping stone variant 2 — village path MultiMesh (Scatter_Path_1) |
+| `RockPath_Round_Small_3.gltf` + `.bin` | ivy-2or: Small stepping stone variant 3 — village path MultiMesh (Scatter_Path_2) |
 | `Pebble_Round_1.gltf` + `.bin` | Small pebble — committed for future use |
 
 ### Committed textures (`assets/backdrop/textures/`) — nature kit

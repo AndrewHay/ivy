@@ -518,6 +518,34 @@ func _ready() -> void:
 				print("[ui-script]   DUMP tip0 pos=", t0.position, " dir=", t0.direction,
 					" vigour=", t0.vigour, " budget=", t0.growth_budget,
 					" segs=", t0.segment_count, " float_len=", t0.floating_length)
+		elif line.begins_with("ORBIT "):
+			# ORBIT <azimuth_deg> [radius_m=8] [height_m=2]: a throwaway camera on a circle
+			# around World.get_orbit_pivot(), looking at the pivot. Azimuth 0 is +Z (the
+			# CamSun side), increasing clockwise seen from above. Canonical camera
+			# transforms are never touched (AR-SCENE-3); `CAMERA` switches back.
+			var orbit_parts := line.split(" ", false)
+			var az := deg_to_rad(float(orbit_parts[1]))
+			var radius := float(orbit_parts[2]) if orbit_parts.size() >= 3 else 8.0
+			var height := float(orbit_parts[3]) if orbit_parts.size() >= 4 else 2.0
+			var world := main.get_node("World")
+			if not world.has_method("get_orbit_pivot"):
+				printerr("[ui-script] FAILED step ", step, ": World has no get_orbit_pivot()")
+				get_tree().quit(1)
+				return
+			var pivot: Vector3 = world.get_orbit_pivot()
+			var orbit_cam := world.get_node_or_null("UiScriptOrbitCam") as Camera3D
+			if orbit_cam == null:
+				orbit_cam = Camera3D.new()
+				orbit_cam.name = "UiScriptOrbitCam"
+				world.add_child(orbit_cam)
+			var eye := Vector3(pivot.x + sin(az) * radius, height, pivot.z + cos(az) * radius)
+			orbit_cam.look_at_from_position(eye, Vector3(pivot.x, minf(pivot.y, height), pivot.z))
+			orbit_cam.make_current()
+			# Camera transform/current changes reach the RenderingServer on the next frame;
+			# force_draw alone would render with the previous camera state.
+			for _f in range(3):
+				await get_tree().process_frame
+			print("[ui-script]   ORBIT az=", orbit_parts[1], " r=", radius, " h=", height, " eye=", eye)
 		elif line.begins_with("SCREENSHOT"):
 			shot += 1
 			var name := "%02d_capture.png" % shot

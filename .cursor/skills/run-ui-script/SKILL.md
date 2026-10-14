@@ -110,6 +110,7 @@ Plain `.txt`, one verb per line, `#` comments and blank lines ignored.
 | `SET_PARAM <name> <value>` | Override one `IvyParams` field before the run. Use it for A/B comparisons such as `diel_gate_enabled false` |
 | `CAMERA <name\|index>` | Switch to a `CameraRig` child camera by name (`sun`, `shade`, `top`, `silhouette`) or 0-based index |
 | `DUMP_LEAF_COLOUR [seed_azimuth_deg]` | Emit LG-2a (area-weighted mean `Color.g` delta, sun vs shade hemisphere) and LG-2b (healthy-tier area-fraction delta). Reports PASS/FAIL against SD-METRIC-7 thresholds |
+| `ORBIT <azimuth_deg> [radius_m=8] [height_m=2]` | Throwaway camera on a circle around `World.get_orbit_pivot()`, aimed at the pivot; 0 = CamSun side; `CAMERA` switches back |
 | `SCREENSHOT [name.png]` | Capture a PNG into the output directory |
 
 ## Determinism: always pause, then advance
@@ -155,6 +156,7 @@ dumps are unaffected by the offset; they read the plant and the field, not pixel
 | `qa_m25_canonical.txt` | M2.5 four-camera canonical run: advance to day 150.25 (local noon), capture `m25_cam_{sun,shade,top,silhouette}.png`, then `DUMP_LEAF_COLOUR` and `DUMP_METRICS`. ~75 s. Two consecutive runs agree on simulation state exactly; see W-073 on the image-comparison tolerance |
 | `qa_lg2_d150.txt` | Metric dump at exactly day 150.0 (no noon offset), for comparison against numbers quoted at day 150.0 rather than 150.25. Emits `DUMP`, `DUMP_LEAF_COLOUR` and `DUMP_METRICS` |
 | `qa_m25_dump_only.txt` | The canonical day-150.25 metrics without any capture. Much faster than `qa_m25_canonical.txt` because it never triggers Metal shader compilation — use it whenever you need the numbers and not the images |
+| `qa_village_orbit.txt` | 8-azimuth orbit ring (eye-level and high) around the village backdrop hero; captures `orbit_{eye,high}_{000..315}.png`. Pass `--scenario=res://...` and `--outdir=res://...` on the command line |
 
 Write a throwaway `.txt` for a one-off repro rather than describing the steps in prose.
 

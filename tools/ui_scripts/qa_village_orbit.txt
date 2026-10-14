@@ -1,0 +1,37 @@
+# Village orbit: 8 azimuths (45 deg steps, 0 = CamSun side) at local noon, bare structure.
+# Ring "eye" r=10 m h=2 m (CamSun-like); ring "high" r=16 m h=9 m (overview of the village layout).
+# Run once per scenario with --scenario=res://assets/structures/scenarios/{tower,square}.tres
+SPEED pause
+ADVANCE_DAYS 0.25
+ORBIT 0 10 2
+SCREENSHOT orbit_eye_000.png
+ORBIT 45 10 2
+SCREENSHOT orbit_eye_045.png
+ORBIT 90 10 2
+SCREENSHOT orbit_eye_090.png
+ORBIT 135 10 2
+SCREENSHOT orbit_eye_135.png
+ORBIT 180 10 2
+SCREENSHOT orbit_eye_180.png
+ORBIT 225 10 2
+SCREENSHOT orbit_eye_225.png
+ORBIT 270 10 2
+SCREENSHOT orbit_eye_270.png
+ORBIT 315 10 2
+SCREENSHOT orbit_eye_315.png
+ORBIT 0 16 9
+SCREENSHOT orbit_high_000.png
+ORBIT 45 16 9
+SCREENSHOT orbit_high_045.png
+ORBIT 90 16 9
+SCREENSHOT orbit_high_090.png
+ORBIT 135 16 9
+SCREENSHOT orbit_high_135.png
+ORBIT 180 16 9
+SCREENSHOT orbit_high_180.png
+ORBIT 225 16 9
+SCREENSHOT orbit_high_225.png
+ORBIT 270 16 9
+SCREENSHOT orbit_high_270.png
+ORBIT 315 16 9
+SCREENSHOT orbit_high_315.png
