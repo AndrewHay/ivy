@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 MAGIC = b"IVYSDF1"
-BAKER_VERSION = 1
+BAKER_VERSION = 2
 
 
 def load_glb_mesh(path: Path):
@@ -166,12 +166,12 @@ def point_tri_dist(p, v0, v1, v2):
             v1[2] + w * (v2[2] - v1[2]),
         )
         return ((p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2 + (p[2] - q[2]) ** 2) ** 0.5
-    denom = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2]
-    if denom < 1e-20:
+    denom = va + vb + vc
+    if abs(denom) < 1e-20:
         return ((p[0] - v0[0]) ** 2 + (p[1] - v0[1]) ** 2 + (p[2] - v0[2]) ** 2) ** 0.5
     inv = 1.0 / denom
-    v = (d1 * d4 - d3 * d2) * inv
-    w = (d5 * d2 - d1 * d6) * inv
+    v = vb * inv
+    w = vc * inv
     q = (v0[0] + v * ab[0] + w * ac[0], v0[1] + v * ab[1] + w * ac[1], v0[2] + v * ab[2] + w * ac[2])
     return ((p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2 + (p[2] - q[2]) ** 2) ** 0.5
 

@@ -5,7 +5,7 @@ extends RefCounted
 ## Pitch, band, and pad live in the asset header — not IvyParams (SD-MESH-16).
 
 const MAGIC := "IVYSDF1"
-const BAKER_VERSION := 1
+const BAKER_VERSION := 2
 
 var h: float = 0.05
 var band: float = 0.55
