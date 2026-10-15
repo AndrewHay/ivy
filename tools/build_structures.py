@@ -1644,17 +1644,32 @@ def assemble_sim_walls(cfg, sim_col, clay, world_offset):
     return parts, d
 
 
-def assemble_sim_extras(cfg, sim_col, clay, world_offset, omit_seal=None):
+def hero_has_corner_pieces(name, hero_col):
+    hero_prefix = f"{name}_hero_"
+    return any(
+        obj.type == "MESH" and obj.name[len(hero_prefix):].startswith("Corner")
+        for obj in hero_col.all_objects
+        if obj.name.startswith(hero_prefix)
+    )
+
+
+def assemble_sim_extras(cfg, sim_col, clay, world_offset, omit_seal=None, corner_columns=None):
+    """Corner columns and the slab's overhang past the wall face exist only to back hero
+    corner pieces; without them they are invisible solids ivy climbs (ivy-nzj)."""
     d = cfg_derived(cfg)
     name = cfg["name"]
     prefix = f"{name}_sim_"
     parts = []
+    if corner_columns is None:
+        corner_columns = cfg.get("hero_corner_pieces", True)
     chamfer = cfg.get("corner_chamfer", 0.0)
-    for i, xy in enumerate(d["corner_centers"]):
-        parts.append(corner_column(
-            f"{prefix}CornerColumn_{i}", xy, sim_col, d, 0.0, d["total_h"], clay, world_offset, chamfer=chamfer,
-        ))
-    parts.append(solid_box(f"{prefix}FloorSlab", -CAP, 0.05, d["envelope_half"], sim_col, clay, world_offset))
+    if corner_columns:
+        for i, xy in enumerate(d["corner_centers"]):
+            parts.append(corner_column(
+                f"{prefix}CornerColumn_{i}", xy, sim_col, d, 0.0, d["total_h"], clay, world_offset, chamfer=chamfer,
+            ))
+    slab_half = d["envelope_half"] if corner_columns else d["wall_exterior"]
+    parts.append(solid_box(f"{prefix}FloorSlab", -CAP, 0.05, slab_half, sim_col, clay, world_offset))
     if cfg.get("intermediate_floor"):
         parts.append(solid_box(
             f"{prefix}MidFloorSlab", WALL_H - 0.10, WALL_H + 0.02,
@@ -1699,7 +1714,10 @@ def rebuild_sim_from_hero(name, hero_col, sim_col, cfg, clay, world_offset, omit
     clear_collection_objects(sim_col)
     d = cfg_derived(cfg)
     parts = sync_sim_walls_from_hero(name, hero_col, sim_col, clay, cfg, d, world_offset)
-    extra, apertures = assemble_sim_extras(cfg, sim_col, clay, world_offset, omit_seal=omit_seal)
+    extra, apertures = assemble_sim_extras(
+        cfg, sim_col, clay, world_offset, omit_seal=omit_seal,
+        corner_columns=hero_has_corner_pieces(name, hero_col),
+    )
     parts += extra
     sync_sim_roof_from_hero(name, hero_col, parts)
     return parts, d, apertures
