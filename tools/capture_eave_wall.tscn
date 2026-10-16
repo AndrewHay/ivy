@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://civy_capture_eave_wall"]
+
+[ext_resource type="Script" path="res://tools/capture_eave_wall.gd" id="1_capture"]
+
+[node name="CaptureEaveWall" type="Node"]
+script = ExtResource("1_capture")

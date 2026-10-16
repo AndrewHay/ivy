@@ -20,6 +20,7 @@ static func all() -> Array[Entry]:
 	return [
 		Entry.new("cylinder", "Test cylinder"),
 		Entry.new("test_wall", "Test wall"),
+		Entry.new("overhang", "Eave wall"),
 		Entry.new("tower", "Tower", "res://assets/structures/scenarios/tower.tres"),
 		Entry.new("square", "Squat house", "res://assets/structures/scenarios/square.tres"),
 	]
@@ -33,4 +34,4 @@ static func scenario_for(id: String) -> StructureScenario:
 
 
 static func is_procedural(id: String) -> bool:
-	return id == "cylinder" or id == "test_wall"
+	return id == "cylinder" or id == "test_wall" or id == "overhang"

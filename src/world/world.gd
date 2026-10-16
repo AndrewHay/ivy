@@ -3,6 +3,9 @@ extends Node3D
 const TowerSdfScript = preload("res://src/world/tower_sdf.gd")
 const WallSdfScript = preload("res://src/world/wall_sdf.gd")
 const MeshSdfScript = preload("res://src/world/mesh_sdf.gd")
+const OverhangSdfScript = preload("res://src/world/overhang_sdf.gd")
+const OverhangWallScript = preload("res://src/world/overhang_wall.gd")
+const OverhangSpecScript = preload("res://src/world/overhang_spec.gd")
 const SurfaceQueryScript = preload("res://src/world/surface_query.gd")
 const StructureBodyScript = preload("res://src/world/structure_body.gd")
 const StructureScenarioScript = preload("res://src/world/structure_scenario.gd")
@@ -27,6 +30,9 @@ var _procedural_id: String = "cylinder"
 var _tower_built: bool = false
 var _wall_built: bool = false
 var _seed_anchors  # SeedAnchors
+var _overhang_wall: StaticBody3D = null  # dynamically created for "overhang"
+var _overhang_spec = null  # OverhangSpec instance
+var _overhang_built: bool = false
 
 ## CamSun local origin y when the rig sits at the tower — horizontal cameras aim here.
 const _CANONICAL_CAM_AIM_Y := 2.0
@@ -52,6 +58,11 @@ func ensure_mesh_scenario_loaded() -> void:
 		if not _wall_built:
 			_wall_built = true
 			_wall.build_from_spec(wall_spec, true)
+	elif _procedural_id == "overhang":
+		if not _overhang_built:
+			_overhang_built = true
+			_ensure_overhang_wall()
+			_overhang_wall.build_from_spec(_overhang_spec, true)
 	else:
 		if not _tower_built:
 			_tower_built = true
@@ -64,6 +75,8 @@ func load_building(building_id: String) -> void:
 		_procedural_id = building_id
 		if building_id == "test_wall":
 			_show_procedural_wall()
+		elif building_id == "overhang":
+			_show_procedural_overhang()
 		else:
 			_show_procedural_tower()
 		_camera_rig.position = Vector3.ZERO
@@ -103,6 +116,44 @@ func _show_procedural_wall() -> void:
 	if not _wall_built:
 		_wall_built = true
 		_wall.build_from_spec(wall_spec, true)
+	if _overhang_wall != null:
+		_overhang_wall.visible = false
+		_overhang_wall.collision_layer = 0
+		for child in _overhang_wall.get_children():
+			if child is CollisionShape3D:
+				(child as CollisionShape3D).disabled = true
+
+
+func _show_procedural_overhang() -> void:
+	_tower.visible = false
+	_tower.collision_layer = 0
+	for child in _tower.get_children():
+		if child is CollisionShape3D:
+			(child as CollisionShape3D).disabled = true
+	_wall.visible = false
+	_wall.collision_layer = 0
+	for child in _wall.get_children():
+		if child is CollisionShape3D:
+			(child as CollisionShape3D).disabled = true
+	_ensure_overhang_wall()
+	_overhang_wall.visible = true
+	_overhang_wall.collision_layer = 1
+	for child in _overhang_wall.get_children():
+		if child is CollisionShape3D:
+			(child as CollisionShape3D).disabled = false
+	if not _overhang_built:
+		_overhang_built = true
+		_overhang_wall.build_from_spec(_overhang_spec, true)
+
+
+func _ensure_overhang_wall() -> void:
+	if _overhang_wall != null:
+		return
+	_overhang_spec = OverhangSpecScript.new()
+	var ow := OverhangWallScript.new()
+	ow.name = "OverhangWall"
+	add_child(ow)
+	_overhang_wall = ow
 
 
 func _show_procedural_tower() -> void:
@@ -119,6 +170,12 @@ func _show_procedural_tower() -> void:
 	if not _tower_built:
 		_tower_built = true
 		_tower.build_from_spec(tower_spec, true)
+	if _overhang_wall != null:
+		_overhang_wall.visible = false
+		_overhang_wall.collision_layer = 0
+		for child in _overhang_wall.get_children():
+			if child is CollisionShape3D:
+				(child as CollisionShape3D).disabled = true
 
 
 func get_sky_sun() -> SkySun:
@@ -146,11 +203,18 @@ func get_orbit_pivot() -> Vector3:
 		return mesh_scenario.resolve_camera_pivot()
 	if _procedural_id == "test_wall":
 		return Vector3(0.0, wall_spec.height * 0.5, 0.0)
+	if _procedural_id == "overhang":
+		if _overhang_spec != null:
+			return Vector3(0.0, _overhang_spec.wall_height * 0.5, 0.0)
+		return Vector3(0.0, 2.5, 0.0)
 	return Vector3(0.0, tower_spec.height * 0.5, 0.0)
 
 
 func get_debug_camera_zoom_bounds() -> Vector2:
 	if _procedural_id == "test_wall":
+		return DebugCamera.wall_zoom_bounds(wall_spec)
+	if _procedural_id == "overhang":
+		# Treat like a wall for camera zoom purposes.
 		return DebugCamera.wall_zoom_bounds(wall_spec)
 	return DebugCamera.tower_zoom_bounds(tower_spec)
 
@@ -189,6 +253,17 @@ func get_surface_query(params: IvyParams) -> SurfaceQuery:
 				_wall,
 				WallSdfScript.new(wall_spec),
 				_wall.face_material,
+				params
+			)
+		elif _procedural_id == "overhang":
+			if _overhang_wall == null or _overhang_spec == null:
+				push_error("World: overhang not built; call load_building('overhang') first")
+				return null
+			sq.setup(
+				space,
+				_overhang_wall,
+				OverhangSdfScript.new(_overhang_spec),
+				_overhang_wall.face_material,
 				params
 			)
 		else:
@@ -232,6 +307,12 @@ func _activate_mesh_scenario(scenario) -> void:
 	for child in _wall.get_children():
 		if child is CollisionShape3D:
 			(child as CollisionShape3D).disabled = true
+	if _overhang_wall != null:
+		_overhang_wall.visible = false
+		_overhang_wall.collision_layer = 0
+		for child in _overhang_wall.get_children():
+			if child is CollisionShape3D:
+				(child as CollisionShape3D).disabled = true
 	_structure = StructureBodyScript.new()
 	_structure.name = "Structure"
 	add_child(_structure)

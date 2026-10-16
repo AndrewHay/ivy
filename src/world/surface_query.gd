@@ -40,6 +40,9 @@ func setup(
 		_backend_tag = "MeshSdf"
 	elif backend.get_script() == WallSdfScript:
 		_backend_tag = "WallSdf"
+	elif backend.has_method("backend_hint") and backend.backend_hint() == "WallSdf":
+		## OverhangSdf and any future WallSdf-compatible backends self-report via backend_hint().
+		_backend_tag = "WallSdf"
 	else:
 		_backend_tag = "TowerSdf"
 	_face_material = face_material
