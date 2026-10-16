@@ -40,13 +40,20 @@ func _ready() -> void:
 		get_tree().quit(1)
 		return
 
-	## Plant 5 base seeds
+	## C-1: Pause the real-time clock before planting/advancing so only our
+	## explicit advance_ticks call drives simulation time. _on_plant_success
+	## sets GROW; re-pause immediately after.
 	var sim: Node = main.get_node("Sim")
+	var clock: SimClock = sim.get_clock()
+	clock.set_speed(SimClock.Speed.PAUSE)
+
 	var params: IvyParams = main.get("params") as IvyParams
 	for x in _SEED_XS:
 		sim.plant_at(Vector3(x, _SEED_Y, _SEED_Z), Vector3(0, 0, 1))
 	if main.has_method("_on_plant_success"):
 		main.call("_on_plant_success")
+	## Re-pause: _on_plant_success sets Speed.GROW; keep clock paused for both captures.
+	clock.set_speed(SimClock.Speed.PAUSE)
 	await _settle(5)
 
 	## Advance to day N.25 (local noon)

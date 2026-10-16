@@ -214,7 +214,14 @@ func get_debug_camera_zoom_bounds() -> Vector2:
 	if _procedural_id == "test_wall":
 		return DebugCamera.wall_zoom_bounds(wall_spec)
 	if _procedural_id == "overhang":
-		# Treat like a wall for camera zoom purposes.
+		## L-1: derive zoom bounds from the overhang spec dimensions (16×5 m)
+		## rather than the default wall_spec (20×10 m).
+		if _overhang_spec != null:
+			var ow_spec := WallSpec.new()
+			ow_spec.length = _overhang_spec.wall_length
+			ow_spec.height = _overhang_spec.wall_height
+			ow_spec.thickness = _overhang_spec.wall_thickness
+			return DebugCamera.wall_zoom_bounds(ow_spec)
 		return DebugCamera.wall_zoom_bounds(wall_spec)
 	return DebugCamera.tower_zoom_bounds(tower_spec)
 
