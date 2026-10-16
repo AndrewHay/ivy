@@ -61,6 +61,10 @@ implemented. Remove the marker as each file lands.
 | `src/world/wall_builder.gd` | `WallBuilder` — generates the wall's 5-face `ArrayMesh` (front/back/top/two ends, no bottom cap — underground, like the tower) with per-axis flat UV = `local_coord / brick_physical_size` (no wrap-seam repeat rounding, unlike the cylinder), the matching `ConcavePolygonShape3D`, and `SD-CONV-3`-style outward-normal assertions against `WallSdf` in dev builds. |
 | `src/world/wall_sdf.gd` | `WallSdf` — analytic box signed distance/gradient (center `(0, height/2, -thickness/2)`, half-extents `(length/2, height/2, thickness/2)`); `SurfaceQuery` tags it as `"WallSdf"` (`SD-ENV-11`'s opening-footprint snap in `project_to_shell` is scoped to `"TowerSdf"` only and does not apply here — the wall has no openings). |
 | `src/world/wall.gd` | `Wall : StaticBody3D` — hosts the generated wall mesh/collision on physics layer 1, mirroring `Tower`; `build_from_spec()` delegates to `WallBuilder` and applies the shared `Bricks094` brick material. |
+| `src/world/overhang_spec.gd` | `OverhangSpec : Resource` — parametric eave-wall description (`ivy-9us`): `wall_length=16`, `wall_height=5`, `wall_thickness=0.4`, `slab_projection=1.0`, `slab_thickness=0.3`. No companion `.tres`; instantiated at runtime. |
+| `src/world/overhang_sdf.gd` | `OverhangSdf` — analytic union-of-two-boxes SDF for the eave wall (wall box ∪ slab box). Exposes `backend_hint() → "WallSdf"` so `SurfaceQuery` can tag it without a preload dependency. `spec` field is untyped to avoid class_name parse-order issues. |
+| `src/world/overhang_builder.gd` | `OverhangBuilder` — generates the 10-face eave-wall `ArrayMesh` (4 wall faces + 6 slab faces) with per-face flat UVs and `SD-CONV-3`-style outward-normal dev assertions against `OverhangSdf`. Soffit face uses `flip=true` (z-direction reversal vs. `WallBuilder`). |
+| `src/world/overhang_wall.gd` | `OverhangWall : StaticBody3D` — hosts the eave-wall mesh/collision on layer 1; `build_from_spec()` delegates to `OverhangBuilder`. |
 
 ### Environment layer
 
@@ -187,6 +191,7 @@ implemented. Remove the marker as each file lands.
 | Parameters | `src/params/ivy_params.gd`, `src/params/ivy_params_default.tres`, `src/ui/dev_overlay.gd` |
 | Tower and surface queries | `src/world/tower_spec.gd`, `tower_builder.gd`, `tower_sdf.gd`, `tower.gd`, `surface_query.gd`, `material_registry.gd` |
 | Procedural wall | `src/world/wall_spec.gd`, `wall_builder.gd`, `wall_sdf.gd`, `wall.gd`, `test/test_wall_geometry.gd`, `test/slow/test_wall_growth.gd`, `tools/qa_wall_acceptance.gd` |
+| Eave wall (overhang) | `src/world/overhang_spec.gd`, `overhang_sdf.gd`, `overhang_builder.gd`, `overhang_wall.gd`, `test/test_overhang_geometry.gd`, `test/slow/test_overhang_growth.gd`, `tools/capture_eave_wall.gd` |
 | Building picker and mesh structures | `src/world/building_catalog.gd`, `structure_scenario.gd`, `structure_body.gd`, `assets/structures/scenarios/*.tres`, `.cursor/skills/modify-structure/SKILL.md` |
 | Environment field | `src/env/cell_grid.gd`, `sparse_field.gd`, `environment.gd`, `light_bake.gd` |
 | Plant physiology | `src/sim/physiology.gd` |
