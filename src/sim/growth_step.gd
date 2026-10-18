@@ -10,6 +10,22 @@ static func apply_direction_memory(prev: Vector3, d_actual: Vector3, memory: flo
 	return blended.normalized()
 
 
+## T1 soffit redirect heading: the incoming heading's in-plane part plus an outward bias, so
+## stems keep their sideways wander along the soffit instead of snapping onto the wall normal.
+static func soffit_glide_dir(heading: Vector3, n: Vector3, out_dir: Vector3, outward_bias: float) -> Vector3:
+	var out_t := out_dir - out_dir.dot(n) * n
+	if out_t.length_squared() < 1e-8:
+		out_t = out_dir
+	out_t = out_t.normalized()
+	var g := heading - heading.dot(n) * n
+	if g.length_squared() > 1e-8:
+		g = g.normalized()
+	g += outward_bias * out_t
+	if g.length_squared() < 1e-8 or g.dot(out_t) <= 0.0:
+		return out_t
+	return g.normalized()
+
+
 static func step_tip(tip: Tip, ctx: SimContext) -> void:
 	var params := ctx.params
 	var traverse := params.eave_traversal_enabled and ctx.surface.backend_tag() == "WallSdf"
@@ -109,11 +125,7 @@ static func step_tip(tip: Tip, ctx: SimContext) -> void:
 					out_dir = Conv.SOUTH
 				else:
 					out_dir = out_dir.normalized()
-			var glide := out_dir - out_dir.dot(hit.normal) * hit.normal
-			if glide.length_squared() < 1e-8:
-				glide = out_dir
-			else:
-				glide = glide.normalized()
+			var glide := soffit_glide_dir(d_dir, hit.normal, out_dir, params.eave_soffit_glide)
 			var remaining := maxf((x_trial - hit.position).length(), 0.5 * params.segment_length)
 			x_new = bounce + glide * remaining
 			tip.traverse_ticks = params.eave_traverse_window

@@ -103,6 +103,13 @@ func _ready() -> void:
 		Vector3(-9.5, 4.6, 2.2), Vector3(-3.0, 5.0, 0.6), 40.0
 	)
 
+	## SOFFIT underside: looking almost straight up, so stem wander along x is in-frame
+	await _capture(
+		main,
+		outdir.path_join("%s_soffit_under.png" % label),
+		Vector3(0.0, 2.2, 2.6), Vector3(0.0, 4.95, 0.45), 90.0
+	)
+
 	## STRAIGHT-ON shot: +Z looking -Z (lateral fan-out elevation)
 	## Frame the 16x5 m wall face + 0.3 m slab plus a small margin.
 	await _capture_straight_on(main, outdir.path_join("%s_straight_on.png" % label))

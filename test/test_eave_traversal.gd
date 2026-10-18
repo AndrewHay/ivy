@@ -118,18 +118,31 @@ func test_f2_overhang_spread_is_procedural() -> void:
 
 # ── F3 — T1 soffit redirect: helper function ─────────────────────────────────────────────
 
-func test_f3_soffit_redirect_produces_outward_direction() -> void:
-	## Simulate the T1 redirect math directly.
-	## Soffit underside: hit.normal.y < -0.5 (pointing DOWN from soffit face).
-	## climb_outward = +Z (south), soffit normal = (0, -1, 0).
-	## glide = normalize(climb_outward - (climb_outward · normal) * normal)
-	##       = normalize((0,0,1) - 0*(0,-1,0)) = (0,0,1)
-	## So the result should be predominantly in the +Z direction.
-	var hit_normal := Vector3(0.0, -1.0, 0.0)  # underside of soffit
-	var climb_outward := Vector3(0.0, 0.0, 1.0)  # wall normal captured = SOUTH (+Z)
-	var glide := (climb_outward - climb_outward.dot(hit_normal) * hit_normal).normalized()
-	assert_gt(glide.dot(Vector3(0.0, 0.0, 1.0)), 0.99,
-		"F3: soffit redirect glide direction should point outward (along +Z)")
+const _SOFFIT_N := Vector3(0.0, -1.0, 0.0)
+const _OUT := Vector3(0.0, 0.0, 1.0)
+
+
+func test_f3_soffit_glide_straight_up_heading_goes_outward() -> void:
+	var g := GrowthStep.soffit_glide_dir(Vector3.UP, _SOFFIT_N, _OUT, 0.6)
+	assert_almost_eq(g.y, 0.0, 1e-6, "glide stays in the soffit plane")
+	assert_gt(g.dot(_OUT), 0.99, "no lateral heading -> straight outward")
+
+
+func test_f3_soffit_glide_keeps_lateral_heading() -> void:
+	## ivy-jrq: a tip arriving with a sideways heading must keep wandering sideways
+	## instead of being snapped onto the wall normal (ruler-straight soffit stems).
+	var heading := Vector3(0.6, 0.8, 0.0).normalized()
+	var g := GrowthStep.soffit_glide_dir(heading, _SOFFIT_N, _OUT, 0.6)
+	assert_almost_eq(g.length(), 1.0, 1e-5)
+	assert_almost_eq(g.y, 0.0, 1e-6)
+	assert_gt(g.x, 0.5, "lateral component survives the redirect")
+	assert_gt(g.z, 0.3, "still biased outward toward the lip")
+
+
+func test_f3_soffit_glide_never_points_back_at_wall() -> void:
+	var heading := Vector3(0.0, 0.5, -1.0).normalized()
+	var g := GrowthStep.soffit_glide_dir(heading, _SOFFIT_N, _OUT, 0.6)
+	assert_gt(g.dot(_OUT), 0.0, "a heading back toward the wall is turned outward")
 
 
 func test_f3_soffit_redirect_not_applied_on_wall_face() -> void:

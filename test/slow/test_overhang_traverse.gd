@@ -146,6 +146,8 @@ func test_overhang_traverse_metrics_g1_to_g5() -> void:
 	var g3_lip_traverse_segs := 0   # mid-z > slab_projection AND rising
 	var off_face_below_soffit: Array = []
 	var segs_inside_solid := 0
+	var soffit_wander_sum := 0.0
+	var soffit_wander_n := 0
 
 	for i in range(n_segs):
 		var a := plant.seg_a[i]
@@ -171,6 +173,13 @@ func test_overhang_traverse_metrics_g1_to_g5() -> void:
 		if mid.z > SLAB_PROJECTION and b.y > a.y:
 			g3_lip_traverse_segs += 1
 
+		## Soffit wander (ivy-jrq): sideways share of heading for segments hugging the soffit
+		if mid.y <= SOFFIT_Y and mid.y > SOFFIT_Y - 0.08 and mid.z > 0.05:
+			var seg := b - a
+			if seg.length_squared() > 1e-10:
+				soffit_wander_sum += absf(seg.normalized().x)
+				soffit_wander_n += 1
+
 		## G4: off-face distance for below-soffit segments
 		if mid.y <= SOFFIT_Y:
 			var d_a := absf(sdf.signed_distance(a))
@@ -179,6 +188,11 @@ func test_overhang_traverse_metrics_g1_to_g5() -> void:
 
 	print("[traverse-metrics] G1=%d G2=%d G3=%d segs_inside_solid=%d" % [
 		g1_soffit_segs, g2_above_soffit_segs, g3_lip_traverse_segs, segs_inside_solid])
+	var soffit_wander := soffit_wander_sum / maxf(soffit_wander_n, 1)
+	print("[traverse-metrics] soffit_wander=%.3f over %d segs" % [soffit_wander, soffit_wander_n])
+	## ivy-jrq: snapping the soffit redirect onto the wall normal measured 0.048; 0.197 after.
+	assert_gt(soffit_wander, 0.10,
+		"soffit stems must keep lateral heading (ivy-jrq) — soffit_wander=%.3f" % soffit_wander)
 
 	## segs_inside_solid invariant (ivy-2d6 leak invariant on flag-ON path)
 	assert_eq(segs_inside_solid, 0,

@@ -127,7 +127,7 @@ const _TIPS: Dictionary = {
 	# Eave traversal (ivy-dsh)
 	"eave_traversal_enabled": "Gate for soffit-crawl and lip-rounding on overhang buildings. Set automatically by building selection — not a manual tuning knob.",
 	"eave_up_bias": "Upward push added to the direction blend while a soffit traverse is active. Higher = tips round the lip more aggressively; lower = flatter crawl.",
-	"eave_soffit_glide": "Along-soffit outward push while clinging to the underside face. Higher = faster crawl toward the lip; lower = slower, more stalling.",
+	"eave_soffit_glide": "Outward pull toward the lip at the soffit: weights the outward bias when a tip hits the underside, and pushes outward while it clings there. Higher = straighter, faster crawl to the lip; lower = more sideways meander and stalling.",
 	"eave_traverse_window": "Maximum floating segments before the traversal exemption expires. Longer = tips can float further before the float-death limit applies.",
 	"eave_traverse_max_float": "Extended floating-length ceiling while a traverse is active. Caps how far past the eave a tip can drift during lip rounding.",
 	"eave_traverse_light_floor": "T5: growth-rate f_L floor while a soffit traverse is active. Prevents the dark-soffit crawl from slowing to ~1/6 speed. 0.75 = near open-wall speed.",
