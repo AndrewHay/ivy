@@ -237,18 +237,19 @@ func set_seed_index(index: int) -> void:
 
 
 func get_surface_query(params: IvyParams) -> SurfaceQuery:
+	# Set eave traversal flags unconditionally on every call so an external params
+	# mutation (e.g. dev overlay between two get_surface_query calls) is always
+	# corrected — even when the cached surface is returned by the early-return below.
+	# 'overhang' is the only id with traversal true; all others stay false.
+	var want_traversal := BuildingCatalog.traversal_for(_procedural_id)
+	params.eave_traversal_enabled = want_traversal
+	params.feeler_thinning_enabled = want_traversal
 	if surface != null:
 		return surface
 	ensure_mesh_scenario_loaded()
 	if _structure == null and mesh_scenario != null:
 		push_error("World: mesh scenario failed to load")
 		return null
-	# Set eave traversal flags deterministically for every building path so switching
-	# building always resets the flags. 'overhang' is the only id with traversal true;
-	# all others (tower, test_wall, overhang_spread, mesh) stay false.
-	var want_traversal := BuildingCatalog.traversal_for(_procedural_id)
-	params.eave_traversal_enabled = want_traversal
-	params.feeler_thinning_enabled = want_traversal
 	var sq: SurfaceQuery = SurfaceQueryScript.new()
 	var space := get_world_3d().direct_space_state
 	if mesh_scenario != null:

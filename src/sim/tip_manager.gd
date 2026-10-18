@@ -214,8 +214,10 @@ static func _apply_float_death(tip: Tip, params: IvyParams) -> void:
 		else params.max_float
 	if tip.floating_length > ceil:
 		tip.state = Tip.State.DEAD
-	elif tip.traverse_ticks > 0:
-		# window counts down only while floating / unsupported
+	elif params.eave_traversal_enabled and tip.traverse_ticks > 0:
+		# window counts down only while floating / unsupported; gate mirrors the
+		# double-gate contract: traverse_ticks can only reach >0 when the feature
+		# is enabled, but guard here too so disabling the flag mid-run is safe.
 		tip.traverse_ticks -= 1
 
 

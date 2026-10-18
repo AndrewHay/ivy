@@ -47,27 +47,34 @@ const M8_STEM_RATIO := 0.90
 
 
 ## Build an overhang sim with 5 base seeds.
+## Coroutine: awaits physics_frame AFTER build_from_spec so the ConcavePolygonShape3D
+## is committed to the physics server before env.build() runs the light-bake raycasts.
+## Pattern mirrors test_as1_coverage.gd _tower_sim_south().
 func _make_overhang_sim() -> SimRoot:
 	var ow := OverhangWall.new()
 	add_child_autofree(ow)
 	var spec := OverhangSpec.new()
 	ow.build_from_spec(spec, true)
+	await get_tree().physics_frame  # commit shape before light bake
+	var params := IvyParams.new()
 	var sq := SurfaceQuery.new()
 	sq.setup(
 		ow.get_world_3d().direct_space_state,
 		ow,
 		OverhangSdf.new(spec),
 		ow.face_material,
-		IvyParams.new()
+		params
 	)
 	var sim := SimRoot.new()
-	sim.setup(IvyParams.new(), sq, null, 0, null, false)
+	sim.setup(params, sq, null, 0, null, false)
 	for x in SEED_XS:
 		sim.plant_at(Vector3(x, SEED_Y, SEED_Z), Conv.SOUTH)
 	return sim
 
 
 ## Build a plain-wall sim with the same 5 base seeds (M8 control).
+## Coroutine: awaits physics_frame AFTER build_from_spec so the shape is committed
+## before the light bake runs.
 func _make_plain_wall_sim() -> SimRoot:
 	var wall := Wall.new()
 	add_child_autofree(wall)
@@ -77,16 +84,18 @@ func _make_plain_wall_sim() -> SimRoot:
 	spec.height = 5.0
 	spec.thickness = 0.4
 	wall.build_from_spec(spec, true)
+	await get_tree().physics_frame  # commit shape before light bake
+	var params := IvyParams.new()
 	var sq := SurfaceQuery.new()
 	sq.setup(
 		wall.get_world_3d().direct_space_state,
 		wall,
 		WallSdf.new(spec),
 		wall.face_material,
-		IvyParams.new()
+		params
 	)
 	var sim := SimRoot.new()
-	sim.setup(IvyParams.new(), sq, null, 0, null, false)
+	sim.setup(params, sq, null, 0, null, false)
 	for x in SEED_XS:
 		sim.plant_at(Vector3(x, SEED_Y, SEED_Z), Conv.SOUTH)
 	return sim
@@ -98,9 +107,20 @@ func test_overhang_growth_metrics_m1_to_m8() -> void:
 	var projection: float = spec.slab_projection     # 1.0
 	var seed_span: float = (SEED_XS[-1] - SEED_XS[0]) as float  # 8.0
 
-	## Run overhang simulation
-	var sim := _make_overhang_sim()
-	await get_tree().physics_frame
+	## Run overhang simulation — helper awaits physics_frame internally (bake-after-commit fix).
+	var sim := await _make_overhang_sim()
+
+	## Guard: real bake — the soffit shadow zone must be darker than the open wall face.
+	## A pre-commit degenerate bake gives uniform max D_L everywhere and fails this check.
+	## Soffit sample: y=4.9 (just below eave at 5.0), z=0.5 (halfway under projection).
+	## Wall-face sample: y=2.5 (mid-height), z=0.01 (on the south face).
+	var d_l_soffit := sim.env.sample_D_L(Vector3(0.0, 4.9, 0.5), -1, 0)
+	var d_l_open   := sim.env.sample_D_L(Vector3(0.0, 2.5, 0.01), -1, 0)
+	print("[overhang-metrics] guard d_l_soffit=%.4f d_l_open=%.4f" % [d_l_soffit, d_l_open])
+	assert_true(d_l_soffit < d_l_open,
+		"Guard [bake-commit]: soffit D_L %.4f must be < open-wall D_L %.4f (pre-commit bake is degenerate)" % [
+			d_l_soffit, d_l_open])
+
 	sim.advance_ticks(TICKS_PER_DAY * GAME_DAYS)
 	var plant := sim.plant
 
@@ -247,9 +267,8 @@ func test_overhang_growth_metrics_m1_to_m8() -> void:
 					(sh as CollisionShape3D).disabled = true
 	await get_tree().physics_frame
 
-	## Run plain-wall control
-	var plain_sim := _make_plain_wall_sim()
-	await get_tree().physics_frame
+	## Run plain-wall control — helper awaits physics_frame internally (bake-after-commit).
+	var plain_sim := await _make_plain_wall_sim()
 	plain_sim.advance_ticks(TICKS_PER_DAY * GAME_DAYS)
 	var plain_stem: float = plain_sim.plant.total_length
 	print("[overhang-metrics] plain_stem=%.2f ratio=%.4f" % [plain_stem, overhang_stem / maxf(plain_stem, 0.001)])

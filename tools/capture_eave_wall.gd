@@ -68,6 +68,18 @@ func _ready() -> void:
 	var tips = sim.get("tips")
 	print("[eave-wall] day=%d elapsed_ms=%d total_length=%.3f segs=%d tips_live=%d" % [
 		day, elapsed_ms, plant.total_length, plant.segment_count(), tips.live_count()])
+	var soffit_segs := 0
+	var above_segs := 0
+	for i in range(plant.segment_count()):
+		var mid: Vector3 = (plant.seg_a[i] + plant.seg_b[i]) * 0.5
+		if absf(mid.x) > 6.0:
+			continue
+		if mid.y > 4.9 and mid.y < 5.0 and mid.z > 0.05:
+			soffit_segs += 1
+		if mid.y > 5.02:
+			above_segs += 1
+	print("[eave-wall] building=%s traversal=%s soffit_segs=%d above_soffit_segs=%d" % [
+		building, params.eave_traversal_enabled, soffit_segs, above_segs])
 
 	## PROFILE shot: +X looking -X, framing wall face / soffit / lip
 	## eye=(11,3.0,0.5), look_at=(0,3.0,0.5), fov=45

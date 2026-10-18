@@ -10,26 +10,73 @@ const TipManager = preload("res://src/sim/tip_manager.gd")
 const Tip = preload("res://src/sim/tip.gd")
 const IvyParams = preload("res://src/params/ivy_params.gd")
 const BuildingCatalog = preload("res://src/world/building_catalog.gd")
+## For F1 Tower-isolation proof (Critical-2 fix):
+const SimContextScript = preload("res://src/sim/sim_context.gd")
+const SurfaceQueryScript = preload("res://src/world/surface_query.gd")
 
 
 # ── F1 — gate must never fire on TowerSdf even if eave_traversal_enabled is true ────────
+#
+# Critical-2 fix: replace tautological string-literal assertions with a real
+# TowerSdf SimContext that actually calls GrowthStep.step_tip().
+#
+# Isolation pattern mirrors test_determinism.gd _build_sim():
+#   - null PhysicsDirectSpaceState3D so SurfaceQuery falls back to the analytic SDF
+#   - same seed → identical RNG streams in both runs
+#   - run A: eave_traversal_enabled=true  (flag ON but TowerSdf → traverse stays false)
+#   - run B: eave_traversal_enabled=false (flag OFF, same code path)
+#   - assert: positions, directions, and traverse_ticks are identical after N steps
 
-func test_f1_traverse_gate_requires_wall_sdf_tag() -> void:
-	## The gate: traverse = eave_traversal_enabled AND backend_tag() == "WallSdf"
-	## WallSdf flag true but wrong tag → traverse must be false.
+
+## Build a physics-free TowerSdf SimContext for step_tip isolation tests.
+## Returns a Dictionary with "ctx" (SimContext) and "tip" (Tip).
+func _make_tower_ctx(traversal_on: bool, seed: int = 99991) -> Dictionary:
 	var params := IvyParams.new()
-	params.eave_traversal_enabled = true
-	var traverse_on_tower := params.eave_traversal_enabled and "TowerSdf" == "WallSdf"
-	assert_false(traverse_on_tower,
-		"F1: traverse must be false when backend_tag is 'TowerSdf' even if flag is true")
+	params.eave_traversal_enabled = traversal_on
+	var spec := TowerSpec.new()
+	var surface := SurfaceQueryScript.new()
+	surface.setup(null, null, TowerSdf.new(spec), PackedByteArray(), params)
+	var solar := Solar.new(params)
+	var clock := SimClock.new(params)
+	var env := IvyEnvironment.new()
+	env.build(params, surface, solar)
+	var plant := PlantData.new()
+	var tips := TipManager.new()
+	var ctx := SimContextScript.new(params, env, surface, plant, tips, clock)
+	## South-face anchor at ground level (mirrors test_determinism.gd)
+	var probe := Vector3(0.0, params.ground_y_min, 0.0) + Conv.SOUTH * 8.0
+	var anchor := surface.nearest(probe)
+	var tip := tips.add_seed(anchor.position + anchor.normal * 0.01, anchor.normal, seed, params)
+	return {"ctx": ctx, "tip": tip}
 
 
-func test_f1_traverse_gate_true_only_with_wall_sdf_and_flag() -> void:
-	var params := IvyParams.new()
-	params.eave_traversal_enabled = true
-	var tag := "WallSdf"
-	assert_true(params.eave_traversal_enabled and tag == "WallSdf",
-		"F1: traverse must be true when flag=true and tag='WallSdf'")
+## F1 Tower-isolation proof: with TowerSdf the traverse gate never fires,
+## so step_tip with eave_traversal_enabled=true vs false produces identical outputs.
+## This exercises the actual gate line in growth_step.gd (not a string literal).
+func test_f1_tower_sdf_isolates_traverse_flag() -> void:
+	const N_STEPS := 20
+	const SEED := 99991
+
+	var a := _make_tower_ctx(true, SEED)   ## flag ON — TowerSdf must neutralise it
+	var b := _make_tower_ctx(false, SEED)  ## flag OFF — baseline
+	var tip_a: Tip = a.tip
+	var tip_b: Tip = b.tip
+
+	for _i in range(N_STEPS):
+		GrowthStep.step_tip(tip_a, a.ctx)
+		GrowthStep.step_tip(tip_b, b.ctx)
+
+	## traverse_ticks must be 0 in both: TowerSdf never hits the soffit/roof branch
+	assert_eq(tip_a.traverse_ticks, 0,
+		"F1: traverse_ticks must stay 0 with TowerSdf even if eave_traversal_enabled=true")
+	assert_eq(tip_b.traverse_ticks, 0,
+		"F1: traverse_ticks must stay 0 with eave_traversal_enabled=false")
+
+	## Outputs must be identical: TowerSdf gate makes the flag a no-op here
+	assert_eq(tip_a.position, tip_b.position,
+		"F1: TowerSdf — position must be identical with flag on vs off (traverse is dead code)")
+	assert_eq(tip_a.direction, tip_b.direction,
+		"F1: TowerSdf — direction must be identical with flag on vs off")
 
 
 func test_f1_traverse_gate_false_when_flag_off() -> void:
@@ -142,6 +189,23 @@ func test_f4_traverse_ticks_decremented_while_floating() -> void:
 	var params := _make_params_with_traversal()
 	TipManager._apply_float_death(tip, params)
 	assert_eq(tip.traverse_ticks, 2, "F4: traverse_ticks must count down while floating")
+
+
+func test_f4_traverse_ticks_not_decremented_when_feature_disabled() -> void:
+	## Minor-1 regression: when eave_traversal_enabled=false the countdown must NOT fire.
+	## Before the fix, _apply_float_death decremented regardless of the flag; a tip could
+	## reach traverse_ticks=0 (and lose its extended float ceiling) even though the feature
+	## is off.
+	var tip := Tip.new()
+	tip.state = Tip.State.FLOATING
+	tip.floating_length = 0.10  ## well below both max_float and traverse_max_float
+	tip.traverse_ticks = 3
+	var params := IvyParams.new()
+	params.eave_traversal_enabled = false
+	params.max_float = 0.40
+	TipManager._apply_float_death(tip, params)
+	assert_eq(tip.traverse_ticks, 3,
+		"Minor-1: traverse_ticks must NOT decrement when eave_traversal_enabled=false")
 
 
 # ── F5 — Rule F feeler thinning stress test ──────────────────────────────────────────────
