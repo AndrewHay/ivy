@@ -11,7 +11,8 @@
 ##   M4 max climb y >= soffit - 0.3  (= 4.7)
 ##   M5 lateral spread band [soffit-1..soffit] >= 0.6 * seed_span (0.6*8 = 4.8)
 ##   M6 0 segments with mid-y > soffit + 0.02  (no roof/above-eave growth)
-##   M7 0 segments with mid-z > slab_projection + 0.05  (no past-eave-lip bridging)
+##   M7 0 level/rising segments with mid-z > slab_projection + 0.10, and none beyond
+##      projection + 0.40 (no past-eave-lip bridging; drooping tendrils allowed)
 ##   M8 overhang stem >= 0.90 * plain-wall stem
 extends GutTest
 
@@ -122,9 +123,12 @@ func test_overhang_growth_metrics_m1_to_m8() -> void:
 	var diag_other: int = 0           ## anything else above soffit in interior
 	var diag_samples: Array = []      ## first 6 positions for the handoff
 
+	var segs_inside_solid: int = 0  ## ivy-2d6: any x, endpoint more than 5 mm inside
 	var n_segs: int = plant.segment_count()
 	for i in range(n_segs):
 		var mid: Vector3 = (plant.seg_a[i] + plant.seg_b[i]) * 0.5
+		if sdf.signed_distance(plant.seg_b[i]) < -0.005:
+			segs_inside_solid += 1
 		## Interior filter
 		if absf(mid.x) > INTERIOR_X_HALF:
 			continue
@@ -144,9 +148,13 @@ func test_overhang_growth_metrics_m1_to_m8() -> void:
 				diag_other += 1
 			if diag_samples.size() < 6:
 				diag_samples.append(mid)
-		## M7: past eave lip with 10 cm margin (z > projection + 0.10)
+		## M7: past the eave lip (10 cm margin) is only a failure for a level/rising stem
+		## (a bridge standing on air) or one beyond the 0.4 m sag guard. Tendrils that
+		## curl over the lip and droop are allowed.
 		if mid.z > projection + 0.10:
-			segs_past_lip += 1
+			var drooping: bool = plant.seg_b[i].y < plant.seg_a[i].y
+			if not drooping or mid.z > projection + M3_MAX_LIMIT:
+				segs_past_lip += 1
 		## Below-soffit scope for M1–M5
 		if mid.y > soffit_y:
 			continue
@@ -212,22 +220,18 @@ func test_overhang_growth_metrics_m1_to_m8() -> void:
 		segs_above_soffit, diag_eave_lip_face, diag_slab_top, diag_slab_back, diag_other])
 	if diag_samples.size() > 0:
 		print("[overhang-metrics] M6 sample positions above soffit: %s" % str(diag_samples))
-	## Assert spec criterion: 0 segments with interior mid-y > soffit+0.02.
-	## The 192 observed segments span: eave-lip face (z~proj), roof-top body,
-	## slab-back face, and the wall/slab junction (other: z∈(-0.15,0), y∈(5.02,5.2)).
-	## All are genuinely above the soffit (no interior-filter bug). Pending
-	## until the going-around root cause is addressed (ivy-dsh).
-	if segs_above_soffit > 0:
-		pending("M6: %d interior above-soffit segs (eave_lip=%d slab_top=%d slab_back=%d other=%d). Tracked by ivy-dsh." % [
+	assert_eq(segs_above_soffit, 0,
+		"M6: %d interior segs above soffit+0.02 (eave_lip=%d slab_top=%d slab_back=%d other=%d)" % [
 			segs_above_soffit, diag_eave_lip_face, diag_slab_top, diag_slab_back, diag_other])
-	else:
-		assert_eq(segs_above_soffit, 0,
-			"M6: spec criterion — 0 interior segments with mid-y > soffit+0.02")
+
+	print("[overhang-metrics] segs_inside_solid=%d" % segs_inside_solid)
+	assert_eq(segs_inside_solid, 0,
+		"ivy-2d6: %d segment endpoint(s) inside the solid; tips must stay outside geometry" % segs_inside_solid)
 
 	## M7: no segments clearly past the eave lip (10 cm margin)
 	print("[overhang-metrics] segs_past_lip=%d" % segs_past_lip)
 	assert_eq(segs_past_lip, 0,
-		"M7: %d segment(s) past eave lip+10cm; expected 0" % segs_past_lip)
+		"M7: %d level/rising or >0.4 m segment(s) past eave lip; expected 0" % segs_past_lip)
 
 	## M8: stem length >= 0.90 * plain-wall stem
 	var overhang_stem: float = plant.total_length

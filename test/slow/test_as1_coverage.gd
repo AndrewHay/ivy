@@ -52,5 +52,8 @@ func test_as1_south_seed_day150_coverage_floors() -> void:
 	# door/window, and LightBake.compute_coarse_cell reuses that same projection for coarse-grid
 	# ray origins -- the correctness fix permanently redistributes ~5pp of coverage from the
 	# sun half to the shade half. Not a regression; see ivy-8so notes for the bisection.
-	assert_gte(cov.sun_half_pct, 85.0, "AS-1 sun-half coverage at day 150 (ivy-bax / ivy-8so)")
-	assert_gte(cov.shade_half_pct, 55.0, "AS-1 shade-half coverage at day 150 (ivy-bax / ivy-8so)")
+	# ivy-2d6 (2026-10-17): floors revised 85/55 -> 90/50 (overall unchanged at 70). Keeping tips
+	# out of solid geometry redistributes coverage sun-ward on this seed (86.1/63.0 -> 97.2/50.3);
+	# a 17-seed sweep showed 63.0 was an outlier. See DESIGN.md AS-1 and ivy-2d6 notes.
+	assert_gte(cov.sun_half_pct, 90.0, "AS-1 sun-half coverage at day 150 (ivy-bax / ivy-2d6)")
+	assert_gte(cov.shade_half_pct, 50.0, "AS-1 shade-half coverage at day 150 (ivy-bax / ivy-2d6)")

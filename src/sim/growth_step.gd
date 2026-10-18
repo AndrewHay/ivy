@@ -1,6 +1,8 @@
 class_name GrowthStep
 extends RefCounted
 
+const COLLISION_SKIN := 1e-3
+
 static func apply_direction_memory(prev: Vector3, d_actual: Vector3, memory: float) -> Vector3:
 	var blended := prev * memory + d_actual * (1.0 - memory)
 	if blended.length_squared() < 1e-8:
@@ -49,6 +51,12 @@ static func step_tip(tip: Tip, ctx: SimContext) -> void:
 	else:
 		d_dir = u.normalized()
 	var x_trial := tip.position + d_dir * params.segment_length
+	# Ground clamp runs before each collision ray: walls have open bases, so a leg that dips
+	# below ground passes under the face and a later clamp would lift it up inside the wall.
+	var grounded := false
+	if x_trial.y < params.ground_y_min:
+		x_trial.y = params.ground_y_min
+		grounded = true
 	# collision
 	var hit := ctx.surface.raycast(tip.position, x_trial)
 	var x_new := x_trial
@@ -56,12 +64,23 @@ static func step_tip(tip: Tip, ctx: SimContext) -> void:
 	if hit.hit:
 		var incident := x_trial - hit.position
 		var r := incident - 2.0 * incident.dot(hit.normal) * hit.normal
-		x_new = hit.position + r
+		# Keep the bounce point a skin off the face: a tip left on the plane (or a float hair
+		# behind it) casts its next ray from behind the face, which back-face culling misses.
+		var bounce := hit.position + hit.normal * COLLISION_SKIN
+		x_new = bounce + r
+		if x_new.y < params.ground_y_min:
+			x_new.y = params.ground_y_min
+			grounded = true
+		# At a concave corner the reflected leg can pass through the adjacent face.
+		var hit2 := ctx.surface.raycast(bounce, x_new)
+		if hit2.hit:
+			x_new = hit2.position + hit2.normal * COLLISION_SKIN
 		d_actual = (x_new - tip.position).normalized()
 		tip.last_contact_normal = hit.normal
-	# ground clamp
 	if x_new.y < params.ground_y_min:
 		x_new.y = params.ground_y_min
+		grounded = true
+	if grounded:
 		tip.ground_strikes += 1
 	# float update
 	# SD-MESH-7: on mesh SDF surfaces, small errors in the baked gradient cause
@@ -117,6 +136,9 @@ static func step_tip(tip: Tip, ctx: SimContext) -> void:
 			var rot := Basis(tip.last_contact_normal, sign * angle)
 			var branch_dir := rot * tip.direction
 			var branch_pos := x_new + branch_dir * params.branch_offset
+			var branch_hit := ctx.surface.raycast(x_new, branch_pos)
+			if branch_hit.hit:
+				branch_pos = branch_hit.position + branch_hit.normal * COLLISION_SKIN
 			ctx.tips.queue_branch(tip, branch_pos, branch_dir, tip.last_contact_normal, tip.branch_index, params)
 			tip.branch_index += 1
 	# l_dir is the bounded accumulated-light gradient (SD-LEAF-4 rule 5, SD-RNG-6).
