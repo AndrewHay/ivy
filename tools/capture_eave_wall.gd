@@ -76,6 +76,20 @@ func _ready() -> void:
 		Vector3(11.0, 3.0, 0.5), Vector3(0.0, 3.0, 0.5), 45.0
 	)
 
+	## EAVE close-up: below and in front of the lip, looking up at soffit + lip
+	await _capture(
+		main,
+		outdir.path_join("%s_eave_closeup.png" % label),
+		Vector3(-1.0, 4.2, 2.4), Vector3(-1.0, 4.9, 0.4), 60.0
+	)
+
+	## EAVE edge-on: along the lip from the west end, low, to see droop past the lip
+	await _capture(
+		main,
+		outdir.path_join("%s_eave_edge.png" % label),
+		Vector3(-9.5, 4.6, 2.2), Vector3(-3.0, 5.0, 0.6), 40.0
+	)
+
 	## STRAIGHT-ON shot: +Z looking -Z (lateral fan-out elevation)
 	## Frame the 16x5 m wall face + 0.3 m slab plus a small margin.
 	await _capture_straight_on(main, outdir.path_join("%s_straight_on.png" % label))

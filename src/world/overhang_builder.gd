@@ -95,10 +95,10 @@ static func build(spec, dev_build: bool = true) -> TowerBuildResult:
 	## flip=false gives n_geo=UP (z increases from -t→0→p, p01 at z=+p → cross → DOWN → n_geo=UP)
 	_add_face_quad(
 		st, face_material,
-		Vector3(-hl, h + st_, 0.0), Vector3(-hl, h + st_, p),
-		Vector3(hl,  h + st_, 0.0), Vector3(hl,  h + st_, p),
-		Vector2(0.0, 0.0), Vector2(0.0, p / bpy),
-		Vector2(spec.wall_length / bpx, 0.0), Vector2(spec.wall_length / bpx, p / bpy),
+		Vector3(-hl, h + st_, -t), Vector3(-hl, h + st_, p),
+		Vector3(hl,  h + st_, -t), Vector3(hl,  h + st_, p),
+		Vector2(0.0, 0.0), Vector2(0.0, (p + t) / bpy),
+		Vector2(spec.wall_length / bpx, 0.0), Vector2(spec.wall_length / bpx, (p + t) / bpy),
 		ConvScript.UP, mat, false
 	)
 	# DOWN soffit underside: y=h, z=[0, p]

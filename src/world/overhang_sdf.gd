@@ -80,8 +80,13 @@ func bounds() -> AABB:
 
 ## Cache identity for LightBakeCache (ivy-9xp).
 ## Uses SpecHash so any change to OverhangSpec's exported fields invalidates cached bakes.
+## Bump when OverhangBuilder's faces change: the spec alone does not capture the geometry,
+## so a stale light bake would otherwise load and only be caught by the verification probe.
+const GEOMETRY_VERSION := 2
+
+
 func bake_identity() -> PackedByteArray:
-	return SpecHash.of("OverhangSdf", spec)
+	return SpecHash.of("OverhangSdf/v%d" % GEOMETRY_VERSION, spec)
 
 
 func gradient(p: Vector3) -> Vector3:

@@ -58,7 +58,7 @@ func test_overhang_sdf_union_connects_wall_and_slab() -> void:
 	var sdf := _sdf()
 	## Junction point: top of wall / bottom of slab at z=-0.2, y=5.0
 	## Should be inside (negative) because both boxes share this corner
-	assert_le(sdf.signed_distance(Vector3(0.0, 5.0, -0.2)), 0.0)
+	assert_lte(sdf.signed_distance(Vector3(0.0, 5.0, -0.2)), 0.0)
 
 
 # ── Gradient / normal tests ───────────────────────────────────────────────────
@@ -191,6 +191,55 @@ func test_overhang_backend_tag_is_wall_sdf() -> void:
 		IvyParams.new()
 	)
 	assert_eq(sq.backend_tag(), "WallSdf")
+
+
+func _built_space() -> PhysicsDirectSpaceState3D:
+	var ow := OverhangWall.new()
+	add_child_autofree(ow)
+	ow.build_from_spec(_spec(), false)
+	await get_tree().physics_frame
+	return ow.get_world_3d().direct_space_state
+
+
+func _ray(space: PhysicsDirectSpaceState3D, from: Vector3, to: Vector3) -> Dictionary:
+	return space.intersect_ray(PhysicsRayQueryParameters3D.create(from, to))
+
+
+func test_overhang_roof_top_covers_full_slab_depth() -> void:
+	## Drop rays onto the roof across its whole depth, including above the wall body.
+	var spec := _spec()
+	var space: PhysicsDirectSpaceState3D = await _built_space()
+	var roof_y := spec.wall_height + spec.slab_thickness
+	for z in [-0.35, -0.2, -0.05, 0.5, 0.95]:
+		var hit := _ray(space, Vector3(0.0, roof_y + 2.0, z), Vector3(0.0, roof_y - 0.1, z))
+		assert_false(hit.is_empty(), "no roof face at z=%.2f" % z)
+		if not hit.is_empty():
+			assert_almost_eq((hit.position as Vector3).y, roof_y, 0.001, "roof hit y at z=%.2f" % z)
+
+
+func test_overhang_collision_is_closed_from_inside() -> void:
+	## Every ray from outside toward an interior point must hit a face; a miss means a hole
+	## ivy can enter. Cast inward because the concave shape culls back faces.
+	var spec := _spec()
+	var space: PhysicsDirectSpaceState3D = await _built_space()
+	var h := spec.wall_height
+	var interiors := [
+		Vector3(0.0, 2.5, -0.2),
+		Vector3(0.0, h + 0.15, -0.2),
+		Vector3(0.0, h + 0.15, 0.5),
+		Vector3(7.5, h + 0.15, -0.3),
+	]
+	for p in interiors:
+		for dx in [-1, 0, 1]:
+			for dy in [-1, 0, 1]:
+				for dz in [-1, 0, 1]:
+					if dx == 0 and dy == 0 and dz == 0:
+						continue
+					var dir := Vector3(dx, dy, dz).normalized()
+					if (p + dir * 30.0).y < 0.0:
+						continue  # wall base is open; it sits on the ground plane
+					var hit := _ray(space, p + dir * 30.0, p)
+					assert_false(hit.is_empty(), "hole: ray into %s from %s gets in" % [p, dir])
 
 
 func test_world_overhang_wiring() -> void:
