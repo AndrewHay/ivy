@@ -142,6 +142,28 @@ extends Resource
 @export var stem_order_falloff: float = 0.25
 @export var stem_tip_taper: float = 0.15
 
+@export_group("Eave traversal")
+## Enable soffit-crawl + lip-rounding on WallSdf buildings. Set deterministically by World
+## per building id — 'overhang' only. Default false so non-overhang paths are bit-identical.
+@export var eave_traversal_enabled: bool = false
+## Upward bias added to the direction blend while traverse_ticks > 0 (T2 rule). Scoped to
+## active traversals only — not the general wall climb — so stem length is preserved.
+@export var eave_up_bias: float = 0.25
+## Along-soffit push component added while a tip is on the underside face (T2 rule).
+@export var eave_soffit_glide: float = 0.6
+## Maximum segments a tip may float before the traversal window expires (T3 rule).
+@export var eave_traverse_window: int = 40
+## Extended max_float ceiling while a traversal is active (T3 rule). Bounded by window above.
+@export var eave_traverse_max_float: float = 0.55
+## Enable local feeler-thinning density cap (Rule F). Set alongside eave_traversal_enabled.
+@export var feeler_thinning_enabled: bool = false
+## Bin width along x for feeler-density counting (Rule F).
+@export var feeler_bin: float = 0.25
+## Maximum concurrent floating tips (floating_length > feeler_min_float) per bin (Rule F).
+@export var feeler_cap: int = 4
+## Minimum floating_length for a tip to count as a feeler in Rule F.
+@export var feeler_min_float: float = 0.05
+
 @export_group("Flags")
 @export var dev_build: bool = true
 
@@ -254,6 +276,9 @@ func content_hash() -> String:
 		"leaf_crowd_sun_suppress_gain", "leaf_crowd_sun_dense_c", "leaf_crowd_sun_dense_f_l",
 		"leaf_crowd_k", "leaf_cap", "stem_radius_base", "stem_order_falloff", "stem_tip_taper",
 		"diel_gate_enabled", "dev_build",
+		"eave_traversal_enabled", "eave_up_bias", "eave_soffit_glide", "eave_traverse_window",
+		"eave_traverse_max_float", "feeler_thinning_enabled", "feeler_bin", "feeler_cap",
+		"feeler_min_float",
 	]
 	var parts: PackedStringArray = []
 	for n in names:

@@ -12,6 +12,7 @@ static func apply_direction_memory(prev: Vector3, d_actual: Vector3, memory: flo
 
 static func step_tip(tip: Tip, ctx: SimContext) -> void:
 	var params := ctx.params
+	var traverse := params.eave_traversal_enabled and ctx.surface.backend_tag() == "WallSdf"
 	# 1. correlated random
 	var xi := tip.stream.rand_unit_vector()
 	tip.random_dir = (tip.random_dir * (1.0 - params.random_new_mix) + xi * params.random_new_mix).normalized()
@@ -24,6 +25,14 @@ static func step_tip(tip: Tip, ctx: SimContext) -> void:
 		var falloff := maxf(0.0, 1.0 - d / params.adhesion_range)
 		var a_m := ctx.surface.adhesion_suitability(near.material_id)
 		a_vec = a_m * falloff * (q - tip.position) / d
+	# T1/T2 state: capture the outward-horizontal wall normal while the tip is on a vertical
+	# face. Used as the 'toward the eave lip' direction during soffit redirect and glide bias.
+	if traverse:
+		var contact_dist_now := ctx.surface.effective_contact(params.contact_distance)
+		if d <= contact_dist_now and absf(near.normal.y) < 0.5:
+			var h_out := Vector3(near.normal.x, 0.0, near.normal.z)
+			if h_out.length_squared() > 1e-8:
+				tip.climb_outward = h_out.normalized()
 	# 3. gradients
 	var basis := ctx.surface.tangent_basis_at(tip.position)
 	var d_l := ctx.env.sample_D_L(tip.position, tip.id, tip.segment_count)
@@ -45,6 +54,21 @@ static func step_tip(tip: Tip, ctx: SimContext) -> void:
 	# bucket coverage (ivy-bax); stall skip is already mesh-only for the same reason.
 	if tip.floating_length == 0.0 and ctx.surface.backend_tag() == "MeshSdf":
 		u += params.upward_base * Conv.UP
+	# T2: traverse-scoped up bias and soffit glide (ivy-dsh). Only active while traverse is
+	# true AND traverse_ticks > 0, so the boost is bounded to the eave region and does not
+	# affect general wall-climbing stems.
+	if traverse:
+		var contact_thresh_t2 := ctx.surface.effective_contact(params.contact_distance)
+		var on_soffit := d <= contact_thresh_t2 and near.normal.y < -0.5
+		var on_roof := d <= contact_thresh_t2 and near.normal.y > 0.5
+		if on_soffit:
+			tip.traverse_ticks = params.eave_traverse_window
+		elif on_roof:
+			tip.traverse_ticks = 0  # traverse done; disable up bias on the roof
+		if tip.traverse_ticks > 0:
+			u += params.eave_up_bias * Conv.UP
+		if on_soffit and tip.climb_outward != Vector3.ZERO:
+			u += params.eave_soffit_glide * tip.climb_outward
 	var d_dir := u
 	if u.length_squared() < 1e-8:
 		d_dir = tip.direction
@@ -62,12 +86,32 @@ static func step_tip(tip: Tip, ctx: SimContext) -> void:
 	var x_new := x_trial
 	var d_actual := d_dir
 	if hit.hit:
-		var incident := x_trial - hit.position
-		var r := incident - 2.0 * incident.dot(hit.normal) * hit.normal
-		# Keep the bounce point a skin off the face: a tip left on the plane (or a float hair
-		# behind it) casts its next ray from behind the face, which back-face culling misses.
 		var bounce := hit.position + hit.normal * COLLISION_SKIN
-		x_new = bounce + r
+		if traverse and hit.normal.y < -0.5:
+			# T1: soffit underside hit — redirect along soffit outward instead of reflecting
+			# back down. Replaces the pure reflection for this hit only; the second raycast
+			# (concave-corner clamp) and d_actual recompute run unchanged below.
+			var out_dir := tip.climb_outward
+			if out_dir == Vector3.ZERO:
+				out_dir = Vector3(d_dir.x, 0.0, d_dir.z)
+				if out_dir.length_squared() < 1e-8:
+					out_dir = Conv.SOUTH
+				else:
+					out_dir = out_dir.normalized()
+			var glide := out_dir - out_dir.dot(hit.normal) * hit.normal
+			if glide.length_squared() < 1e-8:
+				glide = out_dir
+			else:
+				glide = glide.normalized()
+			var remaining := maxf((x_trial - hit.position).length(), 0.5 * params.segment_length)
+			x_new = bounce + glide * remaining
+			tip.traverse_ticks = params.eave_traverse_window
+		else:
+			var incident := x_trial - hit.position
+			var r := incident - 2.0 * incident.dot(hit.normal) * hit.normal
+			# Keep the bounce point a skin off the face: a tip left on the plane (or a float hair
+			# behind it) casts its next ray from behind the face, which back-face culling misses.
+			x_new = bounce + r
 		if x_new.y < params.ground_y_min:
 			x_new.y = params.ground_y_min
 			grounded = true

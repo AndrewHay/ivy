@@ -28,13 +28,14 @@ func _ready() -> void:
 	var args := _parse_args()
 	var label: String = args.get("label", "eave_wall")
 	var day: int = int(args.get("day", 100))
+	var building: String = args.get("building", "overhang")
 	var outdir := ProjectSettings.globalize_path(_OUTDIR)
 	DirAccess.make_dir_recursive_absolute(outdir)
 
 	var main := await _spawn_main()
 
-	## Select the overhang building
-	await _select_building(main, "overhang")
+	## Select the requested building (defaults to "overhang")
+	await _select_building(main, building)
 	if not await _wait_for_free_plant(main, 600000):
 		printerr("[eave-wall] overhang load timed out")
 		get_tree().quit(1)

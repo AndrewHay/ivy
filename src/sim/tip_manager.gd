@@ -107,6 +107,10 @@ func queue_branch(parent: Tip, pos: Vector3, dir: Vector3, normal: Vector3, bran
 	child.state = Tip.State.GROWING
 	child.stream = parent.stream.derive(branch_idx)
 	child.branch_index = branch_idx
+	# Eave-traversal state: inherit both fields so a branching tip on the soffit
+	# continues the traverse on its own sub-branch, preserving window context.
+	child.climb_outward = parent.climb_outward
+	child.traverse_ticks = parent.traverse_ticks
 	tips.append(child)
 	_pending.append(child)
 
@@ -117,8 +121,7 @@ func apply_pending_branches() -> void:
 
 func apply_lifecycle(ctx: SimContext) -> void:
 	for t in tips:
-		if t.state == Tip.State.FLOATING and t.floating_length > ctx.params.max_float:
-			t.state = Tip.State.DEAD
+		TipManager._apply_float_death(t, ctx.params)
 		# Strikes are counted in GrowthStep, at the point a tip actually tries to grow
 		# below ground. Counting them here from position alone charges a strike every
 		# tick to any tip merely resting on the clamp plane -- including a seed placed
@@ -132,6 +135,7 @@ func apply_lifecycle(ctx: SimContext) -> void:
 		# acceptance on real geometry (ivy-c7e.6 / ivy-hob).
 		var skip_stall := ctx.surface.backend_tag() == "MeshSdf"
 		TipManager._check_stall(t, ctx.params, ctx.clock.tick_index, skip_stall)
+	TipManager._apply_feeler_thinning(tips, ctx.params)
 
 
 ## SD-TIP-3 (W-045): single continuous ramp onto a positive floor.
@@ -192,3 +196,63 @@ static func _check_stall(tip: Tip, params: IvyParams, tick_index: int, skip_on_m
 	tip.stall_day_shoot = tip.shoot_length
 	if tip.stall_consecutive_days >= params.stall_days:
 		tip.state = Tip.State.DORMANT
+
+
+## T3 — bounded float-death exemption during a soffit traverse (ivy-dsh).
+##
+## While traverse_ticks > 0 and eave_traversal_enabled, the float ceiling is
+## raised from max_float to eave_traverse_max_float. The window (traverse_ticks)
+## counts down only while the tip is floating so tips that reattach mid-traverse
+## still consume their remaining window on the next float.
+##
+## No RNG draws. Called from apply_lifecycle; can be tested in isolation.
+static func _apply_float_death(tip: Tip, params: IvyParams) -> void:
+	if tip.state != Tip.State.FLOATING:
+		return
+	var ceil := params.eave_traverse_max_float \
+		if (params.eave_traversal_enabled and tip.traverse_ticks > 0) \
+		else params.max_float
+	if tip.floating_length > ceil:
+		tip.state = Tip.State.DEAD
+	elif tip.traverse_ticks > 0:
+		# window counts down only while floating / unsupported
+		tip.traverse_ticks -= 1
+
+
+## Rule F — local feeler-thinning density cap (ivy-dsh).
+##
+## A feeler is any live floating tip with floating_length > feeler_min_float.
+## Bins are defined along the x-axis with width feeler_bin (0.25 m default).
+## Any bin with more than feeler_cap feelers has the excess retired to DORMANT,
+## longest danglers first (then vigour ASC, then id DESC) — deterministic, no RNG.
+##
+## Called from apply_lifecycle; can be tested in isolation.
+static func _apply_feeler_thinning(tips: Array[Tip], params: IvyParams) -> void:
+	if not params.feeler_thinning_enabled:
+		return
+	var bins: Dictionary = {}  # int bin_key -> Array[Tip]
+	for t in tips:
+		if t.state != Tip.State.FLOATING:
+			continue
+		if t.floating_length <= params.feeler_min_float:
+			continue
+		var bin_key := floori(t.position.x / params.feeler_bin)
+		if not bins.has(bin_key):
+			bins[bin_key] = []
+		bins[bin_key].append(t)
+	for bin_key in bins:
+		var feelers: Array = bins[bin_key]
+		if feelers.size() <= params.feeler_cap:
+			continue
+		# Sort by floating_length DESC (longest first), then vigour ASC, then id DESC.
+		feelers.sort_custom(func(a: Tip, b: Tip) -> bool:
+			if absf(a.floating_length - b.floating_length) > 1e-9:
+				return a.floating_length > b.floating_length
+			if absf(a.vigour - b.vigour) > 1e-9:
+				return a.vigour < b.vigour
+			return a.id > b.id
+		)
+		# Retire the excess (longest danglers); keep the last feeler_cap entries.
+		var retire_count: int = feelers.size() - params.feeler_cap
+		for i in range(retire_count):
+			feelers[i].state = Tip.State.DORMANT

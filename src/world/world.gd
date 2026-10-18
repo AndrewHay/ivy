@@ -58,7 +58,7 @@ func ensure_mesh_scenario_loaded() -> void:
 		if not _wall_built:
 			_wall_built = true
 			_wall.build_from_spec(wall_spec, true)
-	elif _procedural_id == "overhang":
+	elif _is_overhang_id(_procedural_id):
 		if not _overhang_built:
 			_overhang_built = true
 			_ensure_overhang_wall()
@@ -75,7 +75,7 @@ func load_building(building_id: String) -> void:
 		_procedural_id = building_id
 		if building_id == "test_wall":
 			_show_procedural_wall()
-		elif building_id == "overhang":
+		elif _is_overhang_id(building_id):
 			_show_procedural_overhang()
 		else:
 			_show_procedural_tower()
@@ -156,6 +156,12 @@ func _ensure_overhang_wall() -> void:
 	_overhang_wall = ow
 
 
+## Returns true for any building id that uses the OverhangSdf geometry.
+## Both 'overhang' (traversal ON) and 'overhang_spread' (traversal OFF) share the same wall.
+func _is_overhang_id(id: String) -> bool:
+	return id == "overhang" or id == "overhang_spread"
+
+
 func _show_procedural_tower() -> void:
 	_wall.visible = false
 	_wall.collision_layer = 0
@@ -203,7 +209,7 @@ func get_orbit_pivot() -> Vector3:
 		return mesh_scenario.resolve_camera_pivot()
 	if _procedural_id == "test_wall":
 		return Vector3(0.0, wall_spec.height * 0.5, 0.0)
-	if _procedural_id == "overhang":
+	if _is_overhang_id(_procedural_id):
 		if _overhang_spec != null:
 			return Vector3(0.0, _overhang_spec.wall_height * 0.5, 0.0)
 		return Vector3(0.0, 2.5, 0.0)
@@ -213,7 +219,7 @@ func get_orbit_pivot() -> Vector3:
 func get_debug_camera_zoom_bounds() -> Vector2:
 	if _procedural_id == "test_wall":
 		return DebugCamera.wall_zoom_bounds(wall_spec)
-	if _procedural_id == "overhang":
+	if _is_overhang_id(_procedural_id):
 		## L-1: derive zoom bounds from the overhang spec dimensions (16×5 m)
 		## rather than the default wall_spec (20×10 m).
 		if _overhang_spec != null:
@@ -237,6 +243,12 @@ func get_surface_query(params: IvyParams) -> SurfaceQuery:
 	if _structure == null and mesh_scenario != null:
 		push_error("World: mesh scenario failed to load")
 		return null
+	# Set eave traversal flags deterministically for every building path so switching
+	# building always resets the flags. 'overhang' is the only id with traversal true;
+	# all others (tower, test_wall, overhang_spread, mesh) stay false.
+	var want_traversal := BuildingCatalog.traversal_for(_procedural_id)
+	params.eave_traversal_enabled = want_traversal
+	params.feeler_thinning_enabled = want_traversal
 	var sq: SurfaceQuery = SurfaceQueryScript.new()
 	var space := get_world_3d().direct_space_state
 	if mesh_scenario != null:
@@ -262,7 +274,7 @@ func get_surface_query(params: IvyParams) -> SurfaceQuery:
 				_wall.face_material,
 				params
 			)
-		elif _procedural_id == "overhang":
+		elif _is_overhang_id(_procedural_id):
 			if _overhang_wall == null or _overhang_spec == null:
 				push_error("World: overhang not built; call load_building('overhang') first")
 				return null

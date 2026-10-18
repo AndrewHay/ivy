@@ -9,18 +9,21 @@ class Entry:
 	var id: String
 	var label: String
 	var scenario_path: String  # empty → procedural analytic tower
+	var eave_traversal: bool   # true only for the going-around overhang fixture
 
-	func _init(p_id: String, p_label: String, p_scenario_path: String = "") -> void:
+	func _init(p_id: String, p_label: String, p_scenario_path: String = "", p_eave_traversal: bool = false) -> void:
 		id = p_id
 		label = p_label
 		scenario_path = p_scenario_path
+		eave_traversal = p_eave_traversal
 
 
 static func all() -> Array[Entry]:
 	return [
 		Entry.new("cylinder", "Test cylinder"),
 		Entry.new("test_wall", "Test wall"),
-		Entry.new("overhang", "Eave wall"),
+		Entry.new("overhang", "Eave wall", "", true),
+		Entry.new("overhang_spread", "Eave wall (stop-spread)"),
 		Entry.new("tower", "Tower", "res://assets/structures/scenarios/tower.tres"),
 		Entry.new("square", "Squat house", "res://assets/structures/scenarios/square.tres"),
 	]
@@ -34,4 +37,12 @@ static func scenario_for(id: String) -> StructureScenario:
 
 
 static func is_procedural(id: String) -> bool:
-	return id == "cylinder" or id == "test_wall" or id == "overhang"
+	return id == "cylinder" or id == "test_wall" or id == "overhang" or id == "overhang_spread"
+
+
+## Returns true only for the building id that runs with eave_traversal_enabled=true.
+static func traversal_for(id: String) -> bool:
+	for entry in all():
+		if entry.id == id:
+			return entry.eave_traversal
+	return false

@@ -35,6 +35,13 @@ var stall_consecutive_days: int = 0
 var last_leaf_id: String = ""
 var prev_leaf_id: String = ""
 
+## Eave traversal (ivy-dsh): active-traverse window countdown; >0 while a soffit crawl is in
+## progress. Counts down only while floating (T3 rule). Inert on all non-overhang tips.
+var traverse_ticks: int = 0
+## Last horizontal wall-face normal captured while attached to a vertical surface. Used by T1
+## as the climb_outward direction for the soffit-redirect. Zero = not yet captured.
+var climb_outward: Vector3 = Vector3.ZERO
+
 
 func is_live() -> bool:
 	return state == State.GROWING or state == State.FLOATING or state == State.SEEDED

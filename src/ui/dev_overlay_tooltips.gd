@@ -123,6 +123,17 @@ const _TIPS: Dictionary = {
 	"stem_radius_base": "Rendered stem tube radius. Thicker = woodier look; thinner = delicate vines.",
 	"stem_order_falloff": "Stem thinning on higher branch orders. Higher = thinner twigs on side branches.",
 	"stem_tip_taper": "Metres of shoot over which stems narrow toward the tip. Lower = sharper points.",
+
+	# Eave traversal (ivy-dsh)
+	"eave_traversal_enabled": "Gate for soffit-crawl and lip-rounding on overhang buildings. Set automatically by building selection — not a manual tuning knob.",
+	"eave_up_bias": "Upward push added to the direction blend while a soffit traverse is active. Higher = tips round the lip more aggressively; lower = flatter crawl.",
+	"eave_soffit_glide": "Along-soffit outward push while clinging to the underside face. Higher = faster crawl toward the lip; lower = slower, more stalling.",
+	"eave_traverse_window": "Maximum floating segments before the traversal exemption expires. Longer = tips can float further before the float-death limit applies.",
+	"eave_traverse_max_float": "Extended floating-length ceiling while a traverse is active. Caps how far past the eave a tip can drift during lip rounding.",
+	"feeler_thinning_enabled": "Gate for the local feeler-density cap (Rule F). Set automatically alongside eave_traversal_enabled.",
+	"feeler_bin": "Width of the x-axis bin used to count clustering feelers. Narrower = finer grained curtain detection.",
+	"feeler_cap": "Maximum concurrent floating feelers allowed per bin before the longest danglers are retired to dormant.",
+	"feeler_min_float": "Minimum floating_length before a tip counts as a feeler for the density cap. Avoids counting freshly-detached tips.",
 }
 
 

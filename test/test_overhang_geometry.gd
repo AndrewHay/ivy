@@ -244,7 +244,7 @@ func test_overhang_collision_is_closed_from_inside() -> void:
 
 func test_world_overhang_wiring() -> void:
 	## Full-scene smoke: load_building("overhang") returns a valid SurfaceQuery
-	## with tag "WallSdf" and null seed_anchors.
+	## with tag "WallSdf" and null seed_anchors, and sets eave_traversal_enabled=true.
 	var main := MainScene.instantiate()
 	add_child_autofree(main)
 	await get_tree().process_frame
@@ -258,3 +258,37 @@ func test_world_overhang_wiring() -> void:
 	assert_not_null(surface)
 	assert_eq(surface.backend_tag(), "WallSdf")
 	assert_null(world.call("get_seed_anchors"), "overhang should have no seed_anchors")
+	assert_true(params.eave_traversal_enabled,
+		"World must set eave_traversal_enabled=true for 'overhang'")
+
+
+func test_building_catalog_overhang_spread_registered() -> void:
+	## overhang_spread must be listed as procedural with no scenario and traversal=false.
+	var found := false
+	for entry in BuildingCatalog.all():
+		if entry.id == "overhang_spread":
+			assert_eq(entry.label, "Eave wall (stop-spread)")
+			assert_true(entry.scenario_path.is_empty(), "overhang_spread should have no scenario path")
+			assert_false(entry.eave_traversal, "overhang_spread must have eave_traversal=false")
+			found = true
+	assert_true(found, "expected 'overhang_spread' entry in BuildingCatalog")
+
+
+func test_world_overhang_spread_wiring() -> void:
+	## load_building("overhang_spread") uses the same WallSdf geometry but with
+	## eave_traversal_enabled=false — the flag-off stop-and-spread fixture.
+	var main := MainScene.instantiate()
+	add_child_autofree(main)
+	await get_tree().process_frame
+	await get_tree().physics_frame
+	var world: Node = main.get_node("World")
+	world.call("load_building", "overhang_spread")
+	await get_tree().physics_frame
+	await get_tree().process_frame
+	var params: IvyParams = main.get("params")
+	var surface: SurfaceQuery = world.call("get_surface_query", params)
+	assert_not_null(surface)
+	assert_eq(surface.backend_tag(), "WallSdf",
+		"overhang_spread must use the WallSdf backend (same geometry as overhang)")
+	assert_false(params.eave_traversal_enabled,
+		"World must leave eave_traversal_enabled=false for 'overhang_spread'")

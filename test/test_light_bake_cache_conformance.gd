@@ -119,6 +119,16 @@ const BAKE_IRRELEVANT: Array[String] = [
 	"tip_cap_hard",
 	"tip_cap_soft",
 	"upward_base",
+	# Eave traversal params (ivy-dsh) — growth-only, no bake ray reads these.
+	"eave_traversal_enabled",
+	"eave_up_bias",
+	"eave_soffit_glide",
+	"eave_traverse_window",
+	"eave_traverse_max_float",
+	"feeler_thinning_enabled",
+	"feeler_bin",
+	"feeler_cap",
+	"feeler_min_float",
 	# Coarse-irrelevant; fine-relevant via p_direct()/p_diffuse() — see
 	# IvyParams.FINE_BAKE_AFFECTING.
 	"weather_direct",
