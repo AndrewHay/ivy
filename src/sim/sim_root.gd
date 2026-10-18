@@ -122,6 +122,10 @@ func clear_plants() -> void:
 	tips = TipManager.new()
 	ctx = SimContext.new(params, env, surface, plant, tips, clock)
 	env.reset_crowding()
+	if is_inside_tree():
+		var pr := get_parent().get_node_or_null("PlantRender")
+		if pr != null and pr.has_method("reset"):
+			pr.reset()
 	_sync_plant_render()
 
 

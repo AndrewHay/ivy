@@ -18,6 +18,15 @@ func setup(params: IvyParams) -> void:
 	_params = params
 	_mat = StandardMaterial3D.new()
 	(_mat as StandardMaterial3D).albedo_color = Color(0.25, 0.35, 0.18)
+	reset()
+
+
+## Drop every rendered chunk and start a fresh, empty one. Without this a second session (or
+## "Clear ivy") would leave the previous plant's meshes in the scene.
+func reset() -> void:
+	for child in get_children():
+		child.queue_free()
+		remove_child(child)
 	_begin_hot_chunk()
 
 

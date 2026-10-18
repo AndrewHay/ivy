@@ -94,8 +94,8 @@ implemented. Remove the marker as each file lands.
 
 | Path | Summary |
 |------|---------|
-| `src/render/plant_render.gd` | `PlantRender` — hosts the stem chunks and the two leaf `MultiMeshInstance3D`s; syncs from `PlantData` by high-water mark each frame. |
-| `src/render/stem_mesh.gd` | `StemMeshBuilder` — chunked incremental tube append; never rebuilds frozen geometry. |
+| `src/render/plant_render.gd` | `PlantRender` — hosts the stem chunks and the two leaf `MultiMeshInstance3D`s; syncs from `PlantData` by high-water mark each frame. `reset()` forgets the marks and frees the drawn stems; call it whenever the plant data is replaced (`SimRoot.clear_plants`, a new session), or a shorter new vine stays invisible until it outgrows the old one (ivy-gyf). |
+| `src/render/stem_mesh.gd` | `StemMeshBuilder` — chunked incremental tube append; never rebuilds frozen geometry. `setup()` and `reset()` free every previous chunk. |
 | `src/render/leaf_renderer.gd` | `LeafRenderer` — preallocated static and growing `MultiMesh` buffers with freeze migration. |
 | `src/render/leaf_atlas.gd` | `LeafAtlas` — parses `leaf_atlas.json` (rect, aspect, `alpha_fill`, `tier`, petiole anchor). Exposes `rect_for`, `aspect_for`, `alpha_fill_for`, `tier_for` (→ `"H"` / `"W"`), and `ids_in_tier` (fixed order H=`["a","c","e"]`, W=`["b","d","f"]`) (W-062). |
 | `src/render/shaders/leaf.gdshader` | Per-instance atlas sub-rect, alpha scissor with alpha-to-coverage, culling disabled, backlight transmittance. |
@@ -140,6 +140,7 @@ implemented. Remove the marker as each file lands.
 | `test/test_params_conformance.gd` | INV-6 dead-knob guard (W-042). Every exported parameter must be read by a consumer or derived by an `IvyParams` helper; the declared-but-unread set must equal the documented `UNIMPLEMENTED` list *exactly*, so it fails both when a new dead knob appears and when a listed one is implemented without being delisted. 3 tests, verified by reverting the W-039 fix. Found W-086 (eleven unimplemented knobs) on first run. AR-PARAM-3's §30 literal scan is deliberately absent — see W-085 for why it is not implementable as specified. |
 | `test/test_metric.gd` | Bucket mapping round-trip, opening exclusion, synthetic 100% coverage, sun/shade split by seed azimuth, AS-1 coupling rule, 12-sector asymmetry, lip-reached, RNG independence. W-076 AR-METRIC-1 amendment: `_ref_area` formula + id-independence; AS-1 bit-identical across `leaf_light_scale_gain` (s_light invariance) and `leaf_healthy_gain` (tier-probability invariance). |
 | `test/test_debug_camera.gd` | Radius and pitch clamps hold; at the four bounds corners the solved camera stays above ground and outside the wall; under `script_driven` a synthetic mouse event leaves `current` false and the transform untouched (the AS-4 determinism guard). Zoom is multiplicative and clamped; the pan-gesture branch macOS trackpads require is present; key auto-repeat keeps zooming (W-058). Interactive feel is deliberately untested — see AR-DBGCAM-6. |
+| `test/test_change_building.gd` | Drives the real `Main` scene through the picker (ivy-gyf): the HUD's Change building button brings the picker back; teardown removes the HUD, dev overlay, field viz and planting tool, pauses the clock, wipes the drawn ivy and returns the authored camera; the debug camera ignores keys behind the picker; a second session (other building, or the same one) has no leftover tips, segments, meshes or stacked HUDs and still grows ivy; "Clear ivy" removes rendered stems and a shorter re-planted vine renders. |
 | `test/test_sky_sun.gd` | SkySun pure-arithmetic helpers: `lit_for` twilight smoothstep, `light_color_for` warm-to-white temperature, `ambient_energy_for` night floor, `background_energy_for` sky dimming. 12 tests; each assertion fails on the concrete mutation it guards (W-059). |
 | `test/test_blacklist.gd` | Each automatable artifact check fires on a synthetic violation and stays quiet on a clean plant. |
 
@@ -185,6 +186,7 @@ implemented. Remove the marker as each file lands.
 | System | Primary files |
 |--------|----------------|
 | Composition root | `src/main/main.tscn`, `src/main/main.gd` |
+| Change building (return to picker) | `src/main/main.gd` (`return_to_picker`), `src/ui/hud.gd` (`change_building_requested`), `src/world/debug_camera.gd` (`suspend`), `test/test_change_building.gd` |
 | Coordinate conventions | `src/core/conv.gd`, `test/test_conv.gd`, `test/test_conv_light.gd` |
 | Determinism | `src/core/hash64.gd`, `src/core/rng_stream.gd`, `src/metrics/run_hash.gd`, `test/test_rng.gd`, `test/test_determinism.gd` |
 | Time model | `src/core/sim_clock.gd`, `src/env/solar.gd`, `src/world/sky_sun.gd`, `test/test_time.gd` |

@@ -20,6 +20,19 @@ func setup(params: IvyParams) -> void:
 	_leaves_growing.setup(params, GROWING_LEAF_CAP, true)
 
 
+## Forget everything drawn so far. Call whenever the plant data is replaced (Clear ivy, a new
+## session): the high-water marks below are indices into the old plant, so leaving them set
+## would hide a new, shorter vine until it outgrew the old one.
+func reset() -> void:
+	_seg_hw = 0
+	_frozen_hw = 0
+	_stem.reset()
+	# Leaf buffers only exist once setup() has built them.
+	for leaves in [_leaves_static, _leaves_growing]:
+		if leaves.multimesh != null:
+			leaves.multimesh.visible_instance_count = 0
+
+
 func sync(plant: PlantData, tip_shoot: Dictionary = {}) -> void:
 	if plant.segment_count() > _seg_hw:
 		_stem.sync_from(plant, _seg_hw)

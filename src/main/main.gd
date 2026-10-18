@@ -163,6 +163,7 @@ func _start_free_plant_session() -> bool:
 	_hud = _Hud.new() as Control
 	_hud.name = "Hud"
 	_ui.add_child(_hud)
+	_hud.change_building_requested.connect(return_to_picker)
 	_hud.setup(_world, _sim, params, true)
 	if params.dev_build:
 		_setup_dev_tools()
@@ -210,6 +211,45 @@ func _finish_planting_session() -> void:
 	if _hud != null and _hud.has_method("finish_planting_mode"):
 		_hud.finish_planting_mode()
 	_debug_camera.finish_planting()
+
+
+## Leave the current building and show the picker again. Undoes everything
+## `_start_free_plant_session` set up, so the next pick starts from a clean slate. The grown
+## plant is discarded; there is no save/load (DESIGN.md non-goals).
+func return_to_picker() -> void:
+	if script_driven or _hud == null:
+		return  # no interactive session to leave (also stops a double press)
+	_finish_planting_session()  # tool + its camera/HUD hooks, if the player never planted
+	_discard(_hud)
+	_hud = null
+	if _dev_overlay != null:
+		_discard(_dev_overlay.get_parent())  # the DevUI CanvasLayer that owns it
+		_dev_overlay = null
+	if _field_viz != null:
+		_discard(_field_viz)
+		_field_viz = null
+	# Stop ticking and wipe the drawn plant; clear_plants resets the renderer too, and
+	# SimRoot would otherwise redraw the old plant on its next frame.
+	var clock: SimClock = _sim.get_clock()
+	if clock != null:
+		clock.set_speed(SimClock.Speed.PAUSE)
+	_sim.clear_plants()
+	# The debug camera must not answer keys behind the picker; give the view back to the
+	# authored camera (made current here so debug_camera.gd keeps its write-only-in-input rule).
+	_debug_camera.suspend()
+	var authored := _world.get_node_or_null("CameraRig/CamSun") as Camera3D
+	if authored != null:
+		authored.make_current()
+	_show_building_picker()
+
+
+## Remove a node right now (so names are free for the next session) and free it.
+func _discard(node: Node) -> void:
+	if node == null:
+		return
+	if node.get_parent() != null:
+		node.get_parent().remove_child(node)
+	node.queue_free()
 
 
 func _setup_dev_tools() -> void:

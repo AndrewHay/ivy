@@ -3,6 +3,9 @@ extends Control
 
 ## SD-AGENCY player controls: anchors, pause + three speeds, date/time, time-lapse flag.
 
+## Player asked to leave this building and pick another. Main owns the teardown.
+signal change_building_requested
+
 const SeedAnchorsScript = preload("res://src/world/seed_anchors.gd")
 const _CAMERA_HINT := "Left-drag to orbit · arrows pan · scroll or W/S zoom · R reset view"
 
@@ -130,12 +133,16 @@ func _build_anchor_row(parent: Control) -> void:
 	_anchor_row.add_theme_constant_override("separation", 6)
 	parent.add_child(_anchor_row)
 	if _free_plant_mode:
-		var hint := _make_passthrough_label(
-			"Left-click glow to plant · right-drag to orbit · arrows pan · W/S zoom · R reset view")
-		_anchor_row.add_child(hint)
+		# Buttons first so they stay at a fixed spot; the hint text is the part that changes.
 		_clear_button = _make_button("Clear ivy")
 		_clear_button.pressed.connect(_on_clear_pressed)
 		_anchor_row.add_child(_clear_button)
+		var change_button := _make_button("Change building")
+		change_button.pressed.connect(change_building_requested.emit)
+		_anchor_row.add_child(change_button)
+		var hint := _make_passthrough_label(
+			"Left-click glow to plant · right-drag to orbit · arrows pan · W/S zoom · R reset view")
+		_anchor_row.add_child(hint)
 		return
 	var scenario = _world.get_mesh_scenario() if _world.has_method("get_mesh_scenario") else null
 	if scenario != null:

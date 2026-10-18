@@ -117,6 +117,17 @@ func finish_planting() -> void:
 	_dragging = false
 
 
+## Interactive-only. Called when the player leaves a building for the picker: stop answering
+## keys and drags (the view is not on screen) until setup() hands us a spec again. Writes
+## private state only; the caller makes another camera current.
+func suspend() -> void:
+	spec = null
+	_planting_mode = false
+	_dragging = false
+	_orbit_pivot_override = null
+	_pan_offset = Vector3.ZERO
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	# ALL writes to [current] and to the transform live exclusively in this function
 	# (AR-DBGCAM-5a). No automated runner (take_screenshot.gd, run_ui_script.gd, GUT)
