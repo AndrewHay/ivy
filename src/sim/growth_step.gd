@@ -61,6 +61,17 @@ static func step_tip(tip: Tip, ctx: SimContext) -> void:
 		var contact_thresh_t2 := ctx.surface.effective_contact(params.contact_distance)
 		var on_soffit := d <= contact_thresh_t2 and near.normal.y < -0.5
 		var on_roof := d <= contact_thresh_t2 and near.normal.y > 0.5
+		# Early trigger (ivy-dsh.9): arm the traverse window when a soffit is close
+		# straight above, so the final shadow-band approach is boosted (T5 floor) even
+		# before the tip contacts the soffit. One short upward raycast per live tip-step
+		# on the overhang path; no RNG; does not fire when approach_reach == 0.
+		if not on_soffit and params.eave_approach_reach > 0.0:
+			var up_hit := ctx.surface.raycast(
+				tip.position,
+				tip.position + Conv.UP * params.eave_approach_reach
+			)
+			if up_hit.hit and up_hit.normal.y < -0.5:
+				tip.traverse_ticks = params.eave_traverse_window
 		if on_soffit:
 			tip.traverse_ticks = params.eave_traverse_window
 		elif on_roof:

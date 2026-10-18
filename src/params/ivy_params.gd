@@ -155,6 +155,13 @@ extends Resource
 @export var eave_traverse_window: int = 40
 ## Extended max_float ceiling while a traversal is active (T3 rule). Bounded by window above.
 @export var eave_traverse_max_float: float = 0.55
+## T5 (ivy-dsh.9): growth-rate f_L floor while traverse_ticks > 0 (WallSdf only).
+## Lets the dark-soffit crawl run near open-wall speed (f_L≈0.16 → floored to 0.75).
+## Floors ONLY the growth f_L; f_C, f_S, and g_hat are untouched. Double-gated.
+@export var eave_traverse_light_floor: float = 0.75
+## Early traverse arm (ivy-dsh.9): metres above tip to look for a soffit overhead.
+## One upward raycast per live tip-step on the overhang path; 0.0 disables. Double-gated.
+@export var eave_approach_reach: float = 0.40
 ## Enable local feeler-thinning density cap (Rule F). Set alongside eave_traversal_enabled.
 @export var feeler_thinning_enabled: bool = false
 ## Bin width along x for feeler-density counting (Rule F).
@@ -277,7 +284,8 @@ func content_hash() -> String:
 		"leaf_crowd_k", "leaf_cap", "stem_radius_base", "stem_order_falloff", "stem_tip_taper",
 		"diel_gate_enabled", "dev_build",
 		"eave_traversal_enabled", "eave_up_bias", "eave_soffit_glide", "eave_traverse_window",
-		"eave_traverse_max_float", "feeler_thinning_enabled", "feeler_bin", "feeler_cap",
+		"eave_traverse_max_float", "eave_traverse_light_floor", "eave_approach_reach",
+		"feeler_thinning_enabled", "feeler_bin", "feeler_cap",
 		"feeler_min_float",
 	]
 	var parts: PackedStringArray = []

@@ -119,12 +119,14 @@ const BAKE_IRRELEVANT: Array[String] = [
 	"tip_cap_hard",
 	"tip_cap_soft",
 	"upward_base",
-	# Eave traversal params (ivy-dsh) — growth-only, no bake ray reads these.
+	# Eave traversal params (ivy-dsh / ivy-dsh.9) — growth-only, no bake ray reads these.
 	"eave_traversal_enabled",
 	"eave_up_bias",
 	"eave_soffit_glide",
 	"eave_traverse_window",
 	"eave_traverse_max_float",
+	"eave_traverse_light_floor",  # T5 growth-rate floor — no ray path reads it
+	"eave_approach_reach",        # early-trigger raycast reach — governs step_tip only
 	"feeler_thinning_enabled",
 	"feeler_bin",
 	"feeler_cap",

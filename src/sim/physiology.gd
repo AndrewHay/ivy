@@ -50,7 +50,17 @@ static func growth_rate(tip: Tip, g_hat: float, ctx: SimContext) -> float:
 	var d_l := ctx.env.sample_D_L(tip.position, tip.id, tip.segment_count)
 	var c := ctx.env.sample_crowding(tip.position, tip.id, tip.segment_count)
 	var r := params.max_growth_rate
-	r *= f_L(d_l, params)
+	var fl := f_L(d_l, params)
+	# T5 (ivy-dsh.9): traverse-scoped growth-rate light floor. While a tip is inside an
+	# active eave traverse window (traverse_ticks > 0) on WallSdf, floor f_L to
+	# eave_traverse_light_floor so the dark-soffit crawl runs near open-wall speed
+	# instead of ~1/6 (f_L≈0.16 under the soffit). Double-gated: eave_traversal_enabled
+	# AND backend_tag()=="WallSdf". Floors ONLY the growth f_L; f_C, f_S, and g_hat are
+	# untouched. Bounded by max_growth_rate (fl ≤ 1.0, so r*fl ≤ max_growth_rate).
+	if params.eave_traversal_enabled and tip.traverse_ticks > 0 \
+			and ctx.surface.backend_tag() == "WallSdf":
+		fl = maxf(fl, params.eave_traverse_light_floor)
+	r *= fl
 	r *= f_M(1.0)
 	r *= f_C(c, params)
 	r *= f_S(tip.floating_length, params)

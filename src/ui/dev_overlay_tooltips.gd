@@ -130,6 +130,8 @@ const _TIPS: Dictionary = {
 	"eave_soffit_glide": "Along-soffit outward push while clinging to the underside face. Higher = faster crawl toward the lip; lower = slower, more stalling.",
 	"eave_traverse_window": "Maximum floating segments before the traversal exemption expires. Longer = tips can float further before the float-death limit applies.",
 	"eave_traverse_max_float": "Extended floating-length ceiling while a traverse is active. Caps how far past the eave a tip can drift during lip rounding.",
+	"eave_traverse_light_floor": "T5: growth-rate f_L floor while a soffit traverse is active. Prevents the dark-soffit crawl from slowing to ~1/6 speed. 0.75 = near open-wall speed.",
+	"eave_approach_reach": "Early-trigger reach: metres above a tip to look for a soffit when arming the traverse window. 0 = disabled. Boosts the shadow-band approach before soffit contact.",
 	"feeler_thinning_enabled": "Gate for the local feeler-density cap (Rule F). Set automatically alongside eave_traversal_enabled.",
 	"feeler_bin": "Width of the x-axis bin used to count clustering feelers. Narrower = finer grained curtain detection.",
 	"feeler_cap": "Maximum concurrent floating feelers allowed per bin before the longest danglers are retired to dormant.",

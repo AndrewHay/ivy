@@ -184,18 +184,19 @@ func test_overhang_traverse_metrics_g1_to_g5() -> void:
 	assert_eq(segs_inside_solid, 0,
 		"ivy-2d6 leak invariant: %d seg endpoint(s) inside solid on traversal path" % segs_inside_solid)
 
-	## G1: at least one soffit-underside segment with mid-z >= 0.80
-	## Under real lighting (post bake-commit fix) ivy does not reach the soffit in 100 days
-	## at default params. Measured: g1_soffit_segs=0. Needs re-tune — ivy-dsh.8.
-	pending("G1 under real lighting: soffit_segs=%d (need >=1 mid-z>=0.80) — ivy-dsh.8" % g1_soffit_segs)
+	## G1: at least one soffit-underside segment with mid-z >= 0.80.
+	## Re-tuned params (eave_traverse_light_floor=0.75, eave_approach_reach=0.40) provide
+	## the speed boost needed to reach and crawl the dark soffit within 100 days (ivy-dsh.9).
+	assert_gt(g1_soffit_segs, 0,
+		"G1: must have >=1 interior seg with mid-z >= 0.80 (soffit underside crawl) — got %d" % g1_soffit_segs)
 
-	## G2: at least one segment above the soffit (roof colonisation)
-	## Under real lighting: g2_above_soffit_segs=0. Needs re-tune — ivy-dsh.8.
-	pending("G2 under real lighting: above_soffit_segs=%d (need >=1 mid-y>soffit+0.02) — ivy-dsh.8" % g2_above_soffit_segs)
+	## G2: at least one segment above the soffit (roof colonisation).
+	assert_gt(g2_above_soffit_segs, 0,
+		"G2: must have >=1 interior seg with mid-y > soffit+0.02 (roof colonisation) — got %d" % g2_above_soffit_segs)
 
-	## G3: at least one lip-traverse segment (mid-z > slab_projection AND rising)
-	## Under real lighting: g3_lip_traverse_segs=0. Needs re-tune — ivy-dsh.8.
-	pending("G3 under real lighting: lip_traverse_segs=%d (need >=1 mid-z>1.0 AND rising) — ivy-dsh.8" % g3_lip_traverse_segs)
+	## G3: at least one lip-traverse segment (mid-z > slab_projection AND rising). >= 1.
+	assert_gt(g3_lip_traverse_segs, 0,
+		"G3: must have >=1 seg with mid-z > 1.0 AND rising (lip traverse) — got %d" % g3_lip_traverse_segs)
 
 	## G4: below-soffit adhesion quality
 	var n_g4 := off_face_below_soffit.size()
