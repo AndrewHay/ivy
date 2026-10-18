@@ -1,8 +1,8 @@
 class_name DebugCamera
 extends Camera3D
 
-## Developer-only orbit/zoom camera (AR-DBGCAM). One Camera3D, one script, three
-## state floats, one _unhandled_input — explicitly not a camera framework.
+## Developer-only orbit/zoom/pan camera (AR-DBGCAM). One Camera3D, one script, three
+## orbit floats plus a pan offset, one _unhandled_input — explicitly not a camera framework.
 ##
 ## Structural invariant for Code Review (AR-DBGCAM-5):
 ##   Every write to [current] and to the transform (make_current, global_transform)
@@ -25,8 +25,13 @@ var _radius: float = 8.01        # ~distance of CamSun authored (0,2,8) from piv
 var _zoom_min_r: float = 3.0
 var _zoom_max_r: float = 12.0
 var _dragging: bool = false
+## Arrow-key pan, added to the building pivot. Reset whenever the base pivot is replaced.
+var _pan_offset: Vector3 = Vector3.ZERO
 
 const _DRAG_DEG_PER_PIXEL := 0.3
+## One arrow press moves the pivot by this fraction of the orbit radius, so a press covers the
+## same share of the screen whether zoomed in on a leaf or pulled back to the whole wall.
+const _PAN_FRACTION_PER_KEY_PRESS := 0.06
 ## Multiplicative zoom: one "notch" scales the radius by this, so the zoom feel is uniform
 ## across the whole range rather than crawling when close and leaping when far (AR-DBGCAM-4).
 const _ZOOM_PER_NOTCH := 0.9
@@ -88,6 +93,7 @@ var _planting_mode: bool = false
 
 func set_orbit_pivot(p: Vector3) -> void:
 	_orbit_pivot_override = p
+	_pan_offset = Vector3.ZERO
 
 
 func activate_for_planting() -> void:
@@ -144,20 +150,37 @@ func _unhandled_input(event: InputEvent) -> void:
 		_pitch  = clamp_pitch(_pitch - mm.relative.y * deg_to_rad(_DRAG_DEG_PER_PIXEL))
 		moved = true
 	elif event is InputEventKey and (event as InputEventKey).pressed:
-		# Echo (auto-repeat) events are accepted so holding the key keeps zooming. Doing this
-		# smoothly from _process would put a transform write outside _unhandled_input and
+		# Echo (auto-repeat) events are accepted so holding the key keeps zooming/panning. Doing
+		# this smoothly from _process would put a transform write outside _unhandled_input and
 		# forfeit the AR-DBGCAM-5 guarantee, which is not worth trading for easing.
 		match (event as InputEventKey).keycode:
-			KEY_UP, KEY_W:
+			KEY_W:
 				_zoom_by_notches(_NOTCHES_PER_KEY_PRESS)
 				moved = true
-			KEY_DOWN, KEY_S:
+			KEY_S:
 				_zoom_by_notches(-_NOTCHES_PER_KEY_PRESS)
+				moved = true
+			KEY_LEFT:
+				_pan_by_steps(-1.0, 0.0)
+				moved = true
+			KEY_RIGHT:
+				_pan_by_steps(1.0, 0.0)
+				moved = true
+			KEY_UP:
+				_pan_by_steps(0.0, 1.0)
+				moved = true
+			KEY_DOWN:
+				_pan_by_steps(0.0, -1.0)
 				moved = true
 
 	if moved:
 		make_current()
 		global_transform = solve(_pivot(), _yaw, _pitch, _radius)
+
+
+func _pan_by_steps(right_steps: float, up_steps: float) -> void:
+	_pan_offset = pan(_pan_offset, _yaw, right_steps, up_steps,
+		_radius * _PAN_FRACTION_PER_KEY_PRESS, _zoom_max_r, -_base_pivot().y)
 
 
 func _zoom_by_notches(notches: float) -> void:
@@ -174,10 +197,28 @@ func _notification(what: int) -> void:
 
 
 func _pivot() -> Vector3:
+	return _base_pivot() + _pan_offset
+
+
+func _base_pivot() -> Vector3:
 	if _orbit_pivot_override != null:
 		return _orbit_pivot_override
 	# AR-DBGCAM-3: pivot at tower mid-height derived from TowerSpec, never hardcoded.
 	return Vector3(0.0, spec.height * 0.5, 0.0)
+
+
+## Move a pan offset by `right_steps` along the camera's horizontal right vector (derived from
+## `yaw`, so "right" is always screen-right) and `up_steps` along world up, each step `step` m.
+## The result is clamped to `max_len` from the base pivot so the building can't be lost
+## off-screen, and its y kept ≥ `min_y` so the pivot never sinks below the ground.
+## Pure — no side effects, safe to call from tests headlessly.
+static func pan(offset: Vector3, yaw: float, right_steps: float, up_steps: float,
+		step: float, max_len: float, min_y: float) -> Vector3:
+	var right := Vector3(cos(yaw), 0.0, -sin(yaw))
+	var out := offset + right * (right_steps * step) + Vector3.UP * (up_steps * step)
+	out = out.limit_length(max_len)
+	out.y = maxf(out.y, min_y)
+	return out
 
 
 ## Orbit zoom bounds for a tower/cylinder from TowerSpec (AR-DBGCAM-4).

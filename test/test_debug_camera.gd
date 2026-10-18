@@ -193,7 +193,7 @@ func test_key_zoom_accepts_auto_repeat_so_holding_keeps_zooming() -> void:
 	add_child(cam)
 
 	var ev := InputEventKey.new()
-	ev.keycode = KEY_UP
+	ev.keycode = KEY_W
 	ev.pressed = true
 	ev.echo = true
 
@@ -204,6 +204,52 @@ func test_key_zoom_accepts_auto_repeat_so_holding_keeps_zooming() -> void:
 
 	cam._unhandled_input(ev)
 	assert_lt(cam._radius, after_one, "each repeat must zoom further, not saturate")
+
+
+## Right must mean screen-right at any orbit angle, otherwise the arrows invert once the user
+## has dragged round to the far side of the building.
+func test_pan_right_follows_camera_yaw() -> void:
+	var at_south: Vector3 = DebugCameraScript.pan(Vector3.ZERO, 0.0, 1.0, 0.0, 1.0, 100.0, -100.0)
+	assert_almost_eq(at_south.x, 1.0, 1e-6, "from +Z looking -Z, screen-right is +X")
+	var at_north: Vector3 = DebugCameraScript.pan(Vector3.ZERO, PI, 1.0, 0.0, 1.0, 100.0, -100.0)
+	assert_almost_eq(at_north.x, -1.0, 1e-6, "from -Z looking +Z, screen-right is -X")
+	var up: Vector3 = DebugCameraScript.pan(Vector3.ZERO, 0.7, 0.0, 1.0, 1.0, 100.0, -100.0)
+	assert_almost_eq(up, Vector3.UP, Vector3.ONE * 1e-6, "up pans along world up only")
+
+
+func test_pan_is_clamped_to_max_length_and_above_ground() -> void:
+	var far: Vector3 = DebugCameraScript.pan(Vector3.ZERO, 0.0, 50.0, 0.0, 1.0, 12.0, -1.75)
+	assert_almost_eq(far.length(), 12.0, 1e-5, "pan must not wander past max zoom radius")
+	var low: Vector3 = DebugCameraScript.pan(Vector3.ZERO, 0.0, 0.0, -50.0, 1.0, 12.0, -1.75)
+	assert_almost_eq(low.y, -1.75, 1e-6, "pivot must not sink below the ground")
+
+
+## Held arrow keys must keep panning (echo accepted) and move the rendered camera, not just
+## the stored offset.
+func test_arrow_keys_pan_camera_and_accept_auto_repeat() -> void:
+	var sentinel := Camera3D.new()
+	sentinel.current = true
+	add_child(sentinel)
+
+	var cam := DebugCameraScript.new()
+	cam.spec = TowerSpec.new()
+	add_child(cam)
+	var radius_before: float = cam._radius
+
+	var ev := InputEventKey.new()
+	ev.keycode = KEY_RIGHT
+	ev.pressed = true
+	ev.echo = true
+	cam._unhandled_input(ev)
+	var x_one: float = cam.global_position.x
+	cam._unhandled_input(ev)
+	assert_gt(cam.global_position.x, x_one, "each repeat must pan further right")
+
+	ev.keycode = KEY_UP
+	var y_before: float = cam.global_position.y
+	cam._unhandled_input(ev)
+	assert_gt(cam.global_position.y, y_before, "up arrow must raise the camera")
+	assert_eq(cam._radius, radius_before, "arrow keys pan only; they must not zoom")
 
 
 ## AR-DBGCAM-6 Test 3 — the AS-4 determinism guard.
