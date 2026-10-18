@@ -27,6 +27,10 @@ var _zoom_max_r: float = 12.0
 var _dragging: bool = false
 ## Arrow-key pan, added to the building pivot. Reset whenever the base pivot is replaced.
 var _pan_offset: Vector3 = Vector3.ZERO
+## The view setup() settled on; the reset key (R / Home) returns to it.
+var _home_yaw: float = 0.0
+var _home_pitch: float = 0.031415927
+var _home_radius: float = 8.01
 
 const _DRAG_DEG_PER_PIXEL := 0.3
 ## One arrow press moves the pivot by this fraction of the orbit radius, so a press covers the
@@ -84,6 +88,10 @@ func setup(tower_spec: TowerSpec, zoom_bounds: Vector2 = Vector2(-1.0, -1.0)) ->
 				_radius = clamp_radius_with_bounds(raw_r, _zoom_min_r, _zoom_max_r)
 				_pitch  = clamp_pitch(asin(clampf(offset.y / raw_r, -1.0, 1.0)))
 				_yaw    = atan2(offset.x, offset.z)
+	# Whatever view we settled on is "home" for the reset key. Private floats only.
+	_home_yaw = _yaw
+	_home_pitch = _pitch
+	_home_radius = _radius
 
 
 ## Interactive-only entry for M6 ground planting. Automated runners never call this.
@@ -171,6 +179,12 @@ func _unhandled_input(event: InputEvent) -> void:
 				moved = true
 			KEY_DOWN:
 				_pan_by_steps(0.0, -1.0)
+				moved = true
+			KEY_R, KEY_HOME:
+				_yaw = _home_yaw
+				_pitch = _home_pitch
+				_radius = _home_radius
+				_pan_offset = Vector3.ZERO
 				moved = true
 
 	if moved:

@@ -4,6 +4,7 @@ extends Control
 ## SD-AGENCY player controls: anchors, pause + three speeds, date/time, time-lapse flag.
 
 const SeedAnchorsScript = preload("res://src/world/seed_anchors.gd")
+const _CAMERA_HINT := "Left-drag to orbit · arrows pan · scroll or W/S zoom · R reset view"
 
 var _world: Node = null
 var _sim: Node = null
@@ -32,7 +33,7 @@ func finish_planting_mode() -> void:
 	if _anchor_row != null:
 		for child in _anchor_row.get_children():
 			if child is Label:
-				(child as Label).text = "Left-drag to orbit · scroll to zoom"
+				(child as Label).text = _CAMERA_HINT
 
 
 func setup(world: Node, sim: Node, params: IvyParams, free_plant_mode: bool = false) -> void:
@@ -129,7 +130,8 @@ func _build_anchor_row(parent: Control) -> void:
 	_anchor_row.add_theme_constant_override("separation", 6)
 	parent.add_child(_anchor_row)
 	if _free_plant_mode:
-		var hint := _make_passthrough_label("Left-click glow to plant · right-drag to orbit camera")
+		var hint := _make_passthrough_label(
+			"Left-click glow to plant · right-drag to orbit · arrows pan · W/S zoom · R reset view")
 		_anchor_row.add_child(hint)
 		_clear_button = _make_button("Clear ivy")
 		_clear_button.pressed.connect(_on_clear_pressed)
@@ -158,10 +160,10 @@ func _build_speed_row(parent: Control) -> void:
 	row.add_theme_constant_override("separation", 6)
 	parent.add_child(row)
 	for spec in [
-		["Pause", SimClock.Speed.PAUSE],
-		["Watch", SimClock.Speed.WATCH],
-		["Fast", SimClock.Speed.FAST],
-		["Grow", SimClock.Speed.GROW],
+		["Pause (Space)", SimClock.Speed.PAUSE],
+		["Watch (1)", SimClock.Speed.WATCH],
+		["Fast (2)", SimClock.Speed.FAST],
+		["Grow (3)", SimClock.Speed.GROW],
 	]:
 		var btn := _make_button(spec[0])
 		btn.pressed.connect(_on_speed_pressed.bind(spec[1]))
@@ -173,6 +175,9 @@ func _make_button(text: String) -> Button:
 	var btn := Button.new()
 	btn.text = text
 	btn.mouse_filter = Control.MOUSE_FILTER_STOP
+	# A focused button swallows Space (ui_accept), which would re-press it instead of
+	# reaching the pause hotkey; arrow keys would also move focus instead of panning.
+	btn.focus_mode = Control.FOCUS_NONE
 	return btn
 
 

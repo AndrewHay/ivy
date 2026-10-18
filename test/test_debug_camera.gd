@@ -224,6 +224,43 @@ func test_pan_is_clamped_to_max_length_and_above_ground() -> void:
 	assert_almost_eq(low.y, -1.75, 1e-6, "pivot must not sink below the ground")
 
 
+## Pan makes it easy to lose the building, so R must restore the view the camera started in:
+## orbit angles, zoom and pan, all of them.
+func test_reset_key_restores_the_initial_view() -> void:
+	var sentinel := Camera3D.new()
+	sentinel.current = true
+	add_child(sentinel)
+
+	var cam := DebugCameraScript.new()
+	cam.setup(TowerSpec.new())
+	add_child(cam)
+	var home_radius: float = cam._radius
+	var home_yaw: float = cam._yaw
+	var home_pitch: float = cam._pitch
+
+	var key := InputEventKey.new()
+	key.pressed = true
+	key.keycode = KEY_RIGHT
+	cam._unhandled_input(key)
+	key.keycode = KEY_UP
+	cam._unhandled_input(key)
+	key.keycode = KEY_W
+	cam._unhandled_input(key)
+	var drag := InputEventMouseMotion.new()
+	cam._dragging = true
+	drag.relative = Vector2(40.0, 20.0)
+	cam._unhandled_input(drag)
+	cam._dragging = false
+	assert_ne(cam._pan_offset, Vector3.ZERO, "precondition: the view was moved")
+
+	key.keycode = KEY_R
+	cam._unhandled_input(key)
+	assert_eq(cam._pan_offset, Vector3.ZERO, "reset must clear the pan")
+	assert_almost_eq(cam._radius, home_radius, 1e-6, "reset must restore zoom")
+	assert_almost_eq(cam._yaw, home_yaw, 1e-6, "reset must restore yaw")
+	assert_almost_eq(cam._pitch, home_pitch, 1e-6, "reset must restore pitch")
+
+
 ## Held arrow keys must keep panning (echo accepted) and move the rendered camera, not just
 ## the stored offset.
 func test_arrow_keys_pan_camera_and_accept_auto_repeat() -> void:

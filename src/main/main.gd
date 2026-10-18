@@ -230,6 +230,8 @@ func _setup_dev_tools() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if _try_plant_input(event):
 		return
+	if not script_driven and _handle_time_hotkey(event):
+		return
 	if script_driven or params == null or not params.dev_build:
 		return
 	if not event is InputEventKey or not event.pressed or event.echo:
@@ -243,6 +245,28 @@ func _unhandled_input(event: InputEvent) -> void:
 			if _dev_overlay != null and _dev_overlay.has_method("toggle_visible"):
 				_dev_overlay.toggle_visible()
 				get_viewport().set_input_as_handled()
+
+
+## Space toggles pause, 1/2/3 select Watch/Fast/Grow. Inactive until the player has planted:
+## while aiming the clock is deliberately paused and there is no plant to run.
+func _handle_time_hotkey(event: InputEvent) -> bool:
+	if _hud == null or _planting_tool != null or _sim == null:
+		return false
+	if not event is InputEventKey or not event.pressed or event.echo:
+		return false
+	var clock: SimClock = _sim.get_clock()
+	if clock == null:
+		return false
+	var keycode: Key = (event as InputEventKey).keycode
+	if keycode == KEY_SPACE:
+		clock.toggle_pause()
+	else:
+		var speed := SimClock.speed_for_hotkey(keycode)
+		if speed < 0:
+			return false
+		clock.set_speed(speed as SimClock.Speed)
+	get_viewport().set_input_as_handled()
+	return true
 
 
 func _process(_delta: float) -> void:

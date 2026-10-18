@@ -1769,10 +1769,17 @@ those, that is scope creep and should bounce back to this stage.
 **Zoom must be bound to three input sources, not one (W-058).** On macOS a trackpad two-finger
 scroll is delivered as `InputEventPanGesture` and **never** as an `InputEventMouseButton` wheel
 event, so a wheel-only handler is silently dead on a MacBook — which is how this shipped. Bind
-wheel (external mouse), pan gesture (trackpad), and `↑`/`W` / `↓`/`S` keys (works everywhere, and
+wheel (external mouse), pan gesture (trackpad), and `W` / `S` keys (works everywhere, and
 the fallback when a platform surprises us again). Keyboard repeat is handled by accepting `echo`
 events inside `_unhandled_input` rather than integrating in `_process`, because a `_process`
 transform write would forfeit the AR-DBGCAM-5 guarantee — smoothness is not worth that trade.
+
+**Arrow keys pan the orbit pivot (ivy-pmj).** `←`/`→` slide it along the camera's horizontal right
+vector (from `_yaw`, so "right" stays screen-right after orbiting); `↑`/`↓` move it along world up.
+This is a `Vector3` offset added in `_pivot()`, not a pivot node and not free-fly: the camera still
+orbits and zooms around the (moved) pivot. One press = 6 % of the current radius. The offset is
+clamped to the max zoom radius and kept above ground, and `set_orbit_pivot` resets it. Moving the
+arrows off zoom freed them for this; zoom keeps `W`/`S`.
 
 | ID | Rule |
 |---|---|

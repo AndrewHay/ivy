@@ -10,6 +10,7 @@ var speed: Speed = Speed.GROW
 var tick_index: int = 0
 var game_day: float = 0.0
 var _accumulator: float = 0.0
+var _resume_speed: Speed = Speed.GROW
 
 
 func _init(p: IvyParams) -> void:
@@ -18,7 +19,29 @@ func _init(p: IvyParams) -> void:
 
 
 func set_speed(new_speed: Speed) -> void:
+	# Remember what we paused from so Space can resume it, whichever control paused.
+	if new_speed == Speed.PAUSE and speed != Speed.PAUSE:
+		_resume_speed = speed
 	speed = new_speed
+
+
+## Space: pause, or resume at the speed that was running before the pause.
+func toggle_pause() -> void:
+	set_speed(_resume_speed if speed == Speed.PAUSE else Speed.PAUSE)
+
+
+## Number-key hotkeys for the speed buttons. Returns a Speed, or -1 for any other key.
+## Pause has no number key; it lives on Space so it behaves as a toggle.
+static func speed_for_hotkey(keycode: Key) -> int:
+	match keycode:
+		KEY_1:
+			return Speed.WATCH
+		KEY_2:
+			return Speed.FAST
+		KEY_3:
+			return Speed.GROW
+		_:
+			return -1
 
 
 func advance_real(delta: float) -> int:
