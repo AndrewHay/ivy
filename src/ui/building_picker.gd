@@ -7,15 +7,18 @@ const BuildingCatalog = preload("res://src/world/building_catalog.gd")
 
 
 func _ready() -> void:
-	set_anchors_preset(Control.PRESET_FULL_RECT)
+	# _ready runs once we are already in the tree, where set_anchors_preset alone leaves the
+	# offsets untouched and the control zero-sized (menu stuck top-left, no backdrop). The
+	# *_and_offsets_ form sets both, so it works whenever it is called.
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	var backdrop := ColorRect.new()
-	backdrop.set_anchors_preset(Control.PRESET_FULL_RECT)
+	backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	backdrop.color = Color(0.05, 0.07, 0.09, 0.92)
 	add_child(backdrop)
 
 	var center := CenterContainer.new()
-	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(center)
 
 	var panel := VBoxContainer.new()
