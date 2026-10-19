@@ -65,13 +65,30 @@ func _on_building_selected(building_id: String) -> void:
 	var ok := await _start_free_plant_session()
 	_dismiss_loading()
 	if not ok:
-		_loading_overlay = _LoadingOverlay.new()
-		_loading_overlay.name = "LoadingOverlay"
-		_ui.add_child(_loading_overlay)
-		_set_loading_progress(
-			"Environment build failed.\nCheck the Godot Output panel for errors.",
-			0.0
-		)
+		_show_build_failure()
+
+
+## The building or its environment failed to build. Say so, and offer a way back instead of
+## leaving the player on a dead-end screen.
+func _show_build_failure() -> void:
+	_loading_overlay = _LoadingOverlay.new()
+	_loading_overlay.name = "LoadingOverlay"
+	_ui.add_child(_loading_overlay)
+	_loading_overlay.show_failure(
+		"Environment build failed.\nCheck the Godot Output panel for errors.")
+	_loading_overlay.back_requested.connect(_on_build_failure_back)
+
+
+func _on_build_failure_back() -> void:
+	_discard(_loading_overlay)
+	_loading_overlay = null
+	# Nothing of the failed session is up (no HUD, no tool), but the debug camera may have
+	# been seeded; hand the view back to the authored camera and offer the picker again.
+	_debug_camera.suspend()
+	var authored := _world.get_node_or_null("CameraRig/CamSun") as Camera3D
+	if authored != null:
+		authored.make_current()
+	_show_building_picker()
 
 
 func _dismiss_loading() -> void:

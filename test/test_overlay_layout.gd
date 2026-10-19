@@ -51,6 +51,24 @@ func test_picker_fills_the_viewport() -> void:
 	_assert_fills_viewport(_first(picker, "ColorRect"), "the picker's dark backdrop")
 
 
+## Same reason as the failure screen's Back button: default buttons vanish into the backdrop.
+func test_picker_buttons_stand_out_from_the_backdrop() -> void:
+	var picker := await _picker()
+	var checked := 0
+	var stack: Array = [picker]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		if n is Button:
+			checked += 1
+			var style := (n as Button).get_theme_stylebox("normal") as StyleBoxFlat
+			assert_not_null(style, "%s needs its own StyleBoxFlat" % (n as Button).text)
+			if style != null:
+				assert_gte(style.bg_color.get_luminance(), 0.15,
+					"%s must stand out from the dark backdrop" % (n as Button).text)
+		stack.append_array(n.get_children())
+	assert_gt(checked, 0, "precondition: the picker has building buttons")
+
+
 func test_picker_menu_is_centred() -> void:
 	var picker := await _picker()
 	_assert_centred(_first(picker, "VBoxContainer"), "the picker menu")

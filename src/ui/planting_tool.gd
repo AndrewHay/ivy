@@ -31,6 +31,12 @@ func setup(world: Node, sim: Node, params: IvyParams, camera: Camera3D) -> void:
 	_build_marker()
 
 
+## What to show the player while aiming: follows the cursor, so it always describes the spot
+## currently under it.
+func player_hint_text() -> String:
+	return player_hint(reject_code(_last_hit, _params))
+
+
 func debug_status() -> String:
 	var tip_n := 0
 	if _sim != null and _sim.get("tips") != null:
@@ -109,17 +115,54 @@ func _process(_delta: float) -> void:
 	poll_hover()
 
 
-static func hover_reject_reason(hit: SurfaceQuery.Hit, params: IvyParams) -> String:
+## Why a spot can't be planted. The single source of truth for both the developer reason
+## string and the player-facing hint.
+enum Reject { NONE, NOT_READY, NO_HIT, TOO_HIGH, TOO_FLAT, NOT_CLIMBABLE }
+
+
+static func reject_code(hit: SurfaceQuery.Hit, params: IvyParams) -> Reject:
 	if hit == null or params == null:
-		return "not ready"
+		return Reject.NOT_READY
 	if not hit.hit:
-		return "no wall hit"
+		return Reject.NO_HIT
 	if hit.position.y > params.ground_y_min + GROUND_BAND:
-		return "too high (y=%.2f > %.2f)" % [hit.position.y, params.ground_y_min + GROUND_BAND]
+		return Reject.TOO_HIGH
 	if hit.normal.y > 0.55:
-		return "normal too flat"
+		return Reject.TOO_FLAT
 	if not _is_climbable_material(hit.material_id):
-		return "material %d not climbable" % hit.material_id
+		return Reject.NOT_CLIMBABLE
+	return Reject.NONE
+
+
+## Developer-facing reason (print output, the dev line, tools). Empty string means plantable.
+static func hover_reject_reason(hit: SurfaceQuery.Hit, params: IvyParams) -> String:
+	match reject_code(hit, params):
+		Reject.NOT_READY:
+			return "not ready"
+		Reject.NO_HIT:
+			return "no wall hit"
+		Reject.TOO_HIGH:
+			return "too high (y=%.2f > %.2f)" % [hit.position.y, params.ground_y_min + GROUND_BAND]
+		Reject.TOO_FLAT:
+			return "normal too flat"
+		Reject.NOT_CLIMBABLE:
+			return "material %d not climbable" % hit.material_id
+	return ""
+
+
+## Player-facing hint for a reject code: what to do, not what the raycast found.
+static func player_hint(code: Reject) -> String:
+	match code:
+		Reject.NONE:
+			return "Click to plant ivy here"
+		Reject.NO_HIT:
+			return "Point at the base of the building"
+		Reject.TOO_HIGH:
+			return "Too high: plant near the ground"
+		Reject.TOO_FLAT:
+			return "Aim at the wall, not a flat top"
+		Reject.NOT_CLIMBABLE:
+			return "Ivy can't grow on this surface"
 	return ""
 
 

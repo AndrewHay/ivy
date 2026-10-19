@@ -4,6 +4,7 @@ extends Control
 signal building_selected(building_id: String)
 
 const BuildingCatalog = preload("res://src/world/building_catalog.gd")
+const _OverlayStyle = preload("res://src/ui/overlay_style.gd")
 
 
 func _ready() -> void:
@@ -41,6 +42,7 @@ func _ready() -> void:
 		var btn := Button.new()
 		btn.text = entry.label
 		btn.custom_minimum_size = Vector2(280, 48)
+		_OverlayStyle.style_button(btn)
 		btn.pressed.connect(_on_entry_pressed.bind(entry.id))
 		panel.add_child(btn)
 

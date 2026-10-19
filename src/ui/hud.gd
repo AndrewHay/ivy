@@ -21,6 +21,7 @@ var _scenario_seed_count: int = 0
 var _free_plant_mode: bool = false
 var _anchor_row: HBoxContainer = null
 var _clear_button: Button = null
+var _plant_hint: Label = null
 var _plant_debug: Label = null
 var _sim_status: Label = null
 var _planting_tool: PlantingTool = null
@@ -31,8 +32,18 @@ func set_planting_tool(tool: PlantingTool) -> void:
 	_planting_tool = tool
 
 
+func plant_hint_text() -> String:
+	return _plant_hint.text if _plant_hint != null else ""
+
+
+func is_plant_hint_visible() -> bool:
+	return _plant_hint != null and _plant_hint.visible
+
+
 func finish_planting_mode() -> void:
 	_planting_tool = null
+	if _plant_hint != null:
+		_plant_hint.visible = false
 	if _plant_debug != null:
 		_plant_debug.visible = false
 	if _anchor_row != null:
@@ -100,8 +111,11 @@ func refresh(clock: SimClock, sky_sun: SkySun) -> void:
 		var hour_i := int(floor(fposmod(hour, 24.0)))
 		var minute_i := int(floor(fposmod(hour * 60.0, 60.0)))
 		_date_label.text = "Day %d  %02d:%02d" % [day_num, hour_i, minute_i]
-	if _plant_debug != null and _planting_tool != null:
-		_plant_debug.text = _planting_tool.debug_status()
+	if _planting_tool != null:
+		if _plant_hint != null:
+			_plant_hint.text = _planting_tool.player_hint_text()
+		if _plant_debug != null:
+			_plant_debug.text = _planting_tool.debug_status()
 	if _sim_status != null and _sim != null and clock != null:
 		var tips_n := 0
 		var segs := 0
@@ -139,10 +153,16 @@ func _build_ui() -> void:
 	_timelapse_label.visible = false
 	root.add_child(_timelapse_label)
 	if _free_plant_mode:
-		_plant_debug = _make_passthrough_label("")
-		_plant_debug.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		_plant_debug.add_theme_font_size_override("font_size", 12)
-		root.add_child(_plant_debug)
+		# What the player needs while aiming: plain language, always shown.
+		_plant_hint = _make_passthrough_label("")
+		_plant_hint.add_theme_font_size_override("font_size", 18)
+		root.add_child(_plant_hint)
+		# Raycast details (tips=…, hover=…) are for developers only.
+		if _params != null and _params.dev_build:
+			_plant_debug = _make_passthrough_label("")
+			_plant_debug.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			_plant_debug.add_theme_font_size_override("font_size", 12)
+			root.add_child(_plant_debug)
 		_sim_status = _make_passthrough_label("tips=0  segments=0  speed=pause")
 		_sim_status.add_theme_font_size_override("font_size", 12)
 		root.add_child(_sim_status)
