@@ -7,7 +7,8 @@ extends Control
 signal change_building_requested
 
 const SeedAnchorsScript = preload("res://src/world/seed_anchors.gd")
-const _CAMERA_HINT := "Left-drag to orbit · arrows pan · scroll or W/S zoom · R reset view"
+const _HelpPanel = preload("res://src/ui/help_panel.gd")
+const _CAMERA_HINT := "Left-drag to orbit · arrows pan · scroll or W/S zoom · R reset view · ? help"
 
 var _world: Node = null
 var _sim: Node = null
@@ -23,6 +24,7 @@ var _clear_button: Button = null
 var _plant_debug: Label = null
 var _sim_status: Label = null
 var _planting_tool: PlantingTool = null
+var _help_panel: PanelContainer = null
 
 
 func set_planting_tool(tool: PlantingTool) -> void:
@@ -47,7 +49,47 @@ func setup(world: Node, sim: Node, params: IvyParams, free_plant_mode: bool = fa
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	_build_ui()
+	if free_plant_mode:
+		_build_help()
 	_refresh_anchor_buttons()
+
+
+func toggle_help() -> void:
+	if _help_panel == null:
+		return
+	_help_panel.visible = not _help_panel.visible
+	if _help_panel.visible:
+		_center_help()
+
+
+func close_help() -> void:
+	if _help_panel != null:
+		_help_panel.visible = false
+
+
+func is_help_open() -> bool:
+	return _help_panel != null and _help_panel.visible
+
+
+func get_help_panel() -> PanelContainer:
+	return _help_panel
+
+
+## The popup sits over everything else in the HUD. It is positioned by hand because a
+## full-rect Control under a CanvasLayer is not sized by anchors alone here, so a
+## CenterContainer would collapse into the top-left corner. Only the panel takes clicks.
+func _build_help() -> void:
+	_help_panel = _HelpPanel.new()
+	_help_panel.build(_params != null and _params.dev_build)
+	add_child(_help_panel)
+	get_viewport().size_changed.connect(_center_help)
+
+
+func _center_help() -> void:
+	if _help_panel == null or not _help_panel.visible:
+		return
+	_help_panel.size = _help_panel.get_combined_minimum_size()
+	_help_panel.position = ((get_viewport_rect().size - _help_panel.size) * 0.5).floor()
 
 
 func refresh(clock: SimClock, sky_sun: SkySun) -> void:
@@ -140,8 +182,12 @@ func _build_anchor_row(parent: Control) -> void:
 		var change_button := _make_button("Change building")
 		change_button.pressed.connect(change_building_requested.emit)
 		_anchor_row.add_child(change_button)
+		var help_button := _make_button("?")
+		help_button.tooltip_text = "Keyboard commands (? or F1)"
+		help_button.pressed.connect(toggle_help)
+		_anchor_row.add_child(help_button)
 		var hint := _make_passthrough_label(
-			"Left-click glow to plant · right-drag to orbit · arrows pan · W/S zoom · R reset view")
+			"Left-click glow to plant · right-drag to orbit · arrows pan · W/S zoom · R reset view · ? help")
 		_anchor_row.add_child(hint)
 		return
 	var scenario = _world.get_mesh_scenario() if _world.has_method("get_mesh_scenario") else null

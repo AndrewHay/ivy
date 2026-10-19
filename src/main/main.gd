@@ -270,7 +270,7 @@ func _setup_dev_tools() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if _try_plant_input(event):
 		return
-	if not script_driven and _handle_time_hotkey(event):
+	if not script_driven and (_handle_help_key(event) or _handle_time_hotkey(event)):
 		return
 	if script_driven or params == null or not params.dev_build:
 		return
@@ -285,6 +285,25 @@ func _unhandled_input(event: InputEvent) -> void:
 			if _dev_overlay != null and _dev_overlay.has_method("toggle_visible"):
 				_dev_overlay.toggle_visible()
 				get_viewport().set_input_as_handled()
+
+
+## `?` or F1 toggles the keyboard-commands popup; Esc closes it. Works from the moment the
+## HUD exists, including while the player is still aiming. `?` is Shift+/, which Godot reports
+## as the slash keycode plus the character 63, so it is matched on the character.
+func _handle_help_key(event: InputEvent) -> bool:
+	if _hud == null or not event is InputEventKey:
+		return false
+	var key := event as InputEventKey
+	if not key.pressed or key.echo:
+		return false
+	if key.keycode == KEY_F1 or key.keycode == KEY_QUESTION or key.unicode == 63:
+		_hud.toggle_help()
+	elif key.keycode == KEY_ESCAPE and _hud.is_help_open():
+		_hud.close_help()
+	else:
+		return false
+	get_viewport().set_input_as_handled()
+	return true
 
 
 ## Space toggles pause, 1/2/3 select Watch/Fast/Grow. Inactive until the player has planted:
