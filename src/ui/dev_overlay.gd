@@ -26,6 +26,8 @@ func setup(sim: Node, params: IvyParams) -> void:
 	offset_right = -8
 	offset_bottom = 640
 	_build_ui()
+	# Starts hidden: the panel covers a third of the screen. ` (Main) brings it up.
+	visible = false
 
 
 func toggle_visible() -> void:
@@ -63,7 +65,7 @@ func _build_ui() -> void:
 	root.add_child(_as3_label)
 
 	var hint := Label.new()
-	hint.text = "F: field viz (D_L → C → off)   ` : hide panel"
+	hint.text = "F: field viz (D_L → C → off)   ` : show / hide panel"
 	root.add_child(hint)
 
 	_scroll = ScrollContainer.new()

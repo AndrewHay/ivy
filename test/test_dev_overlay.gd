@@ -14,6 +14,33 @@ func test_overlay_inert_list_empty_after_w086() -> void:
 	assert_eq(IvyParams.OVERLAY_INERT.size(), 0, "W-086 resolved: no declared-but-unread knobs remain")
 
 
+## ivy-n2l: the tuning panel covers a third of the screen, so it starts hidden; ` brings it up.
+func _make_overlay() -> DevOverlay:
+	var overlay := DevOverlay.new()
+	add_child_autofree(overlay)
+	overlay.setup(Node.new(), IvyParams.new())
+	return overlay
+
+
+func test_overlay_starts_hidden() -> void:
+	var overlay := _make_overlay()
+	assert_false(overlay.visible, "tuning panel must be hidden until the developer asks for it")
+
+
+func test_toggle_visible_shows_then_hides() -> void:
+	var overlay := _make_overlay()
+	overlay.toggle_visible()
+	assert_true(overlay.visible, "first toggle shows the panel")
+	overlay.toggle_visible()
+	assert_false(overlay.visible, "second toggle hides it again")
+
+
+func test_hidden_overlay_still_refreshes_without_error() -> void:
+	var overlay := _make_overlay()
+	overlay.refresh(SimClock.new(IvyParams.new()))
+	assert_false(overlay.visible)
+
+
 func test_every_overlay_param_has_tooltip() -> void:
 	var params := IvyParams.new()
 	var skip := {

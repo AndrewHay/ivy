@@ -115,7 +115,7 @@ implemented. Remove the marker as each file lands.
 | `src/ui/planting_tool.gd` | `PlantingTool` — click-to-plant raycast. Rejections are an `enum Reject` (`reject_code`); `hover_reject_reason` keeps the terse debug strings, `player_hint(code)` / `player_hint_text()` give the plain-language line the HUD shows ("Click to plant ivy here", "Point at the base of the building", …). The HUD shows the friendly line always and the debug line only when `dev_build` (ivy-yk8). |
 | `src/ui/loading_overlay.gd` | `LoadingOverlay` — build progress bar. `show_failure(message)` hides the bar and adds a "Back to buildings" button that emits `back_requested`; `Main._show_build_failure` routes that to the picker so a failed build is no longer a dead end (ivy-yk8). |
 | `src/ui/overlay_style.gd` | `OverlayStyle.style_button(btn)` — shared lighter-grey bordered button style for the picker and loading overlay, so buttons are visible on the dark backdrop (ivy-yk8). |
-| `src/ui/dev_overlay.gd` | `DevOverlay` — reflection-driven live editing of every `IvyParams` property plus light/crowding field visualization. |
+| `src/ui/dev_overlay.gd` | `DevOverlay` — reflection-driven live editing of every `IvyParams` property plus light/crowding field visualization. Hidden after `setup()`; `` ` `` (`Main._unhandled_input`, dev builds only) toggles it via `toggle_visible()` (ivy-n2l). |
 
 ### Tests
 
