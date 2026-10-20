@@ -5,7 +5,7 @@
 ##   - Door and window buckets are excluded from the denominator (SD-METRIC-2)
 ##   - A synthetic fully-covered plant measures 100%
 ##   - Sun/shade halves are split about the seed anchor's azimuth, not a compass constant
-##   - AS-1 coupling rule: the two half floors (90/50) average to the overall floor (70)
+##   - AS-1 coupling rule: the two half floors (90/35) average to ≥ the overall floor (60)
 ##   - 12-sector asymmetry reports correctly on a one-sided synthetic plant
 ##   - Stem-bucket occupancy is reported alongside leaf coverage (SD-METRIC-5)
 ##   - CoverageMetric is a read-only observer — it consumes no RNG draws
@@ -336,29 +336,30 @@ func test_sun_and_shade_eligible_buckets_sum_to_total() -> void:
 
 
 # ---------------------------------------------------------------------------
-# AS-1 coupling rule: the ratified floors (90 / 50) average to ≥ the overall (70)
+# AS-1 coupling rule: the ratified floors (90 / 35) average to ≥ the overall (60)
 # ---------------------------------------------------------------------------
 
 func test_as1_coupling_rule_half_floors_average_to_overall() -> void:
-	# Ratified in DESIGN.md: ≥90% sun-facing / ≥50% shaded averages to ≥70% overall.
-	# Revised 2026-09-27 (ivy-8so) 90/50 -> 85/55, and 2026-10-17 (ivy-2d6) back to 90/50.
+	# Ratified in DESIGN.md: ≥90% sun-facing / ≥35% shaded averages to ≥60% overall.
+	# Revised 2026-09-27 (ivy-8so) 90/50 -> 85/55, 2026-10-17 (ivy-2d6) back to 90/50, and
+	# 2026-10-19 (ivy-p73) to 90/35 with overall 70 -> 60.
 	# A future revision that breaks this coupling would fail this test.
 	var sun_floor := 90.0
-	var shade_floor := 50.0
-	var overall_floor := 70.0
+	var shade_floor := 35.0
+	var overall_floor := 60.0
 	var implied_overall := (sun_floor + shade_floor) * 0.5
 	assert_gte(implied_overall, overall_floor,
-		"90/50 must average to ≥70 (AS-1 coupling rule; DESIGN.md revision 2026-10-17, ivy-2d6)")
+		"90/35 must average to ≥60 (AS-1 coupling rule; DESIGN.md revision 2026-10-19, ivy-p73)")
 
 
 func test_as1_coupling_rule_is_satisfiable() -> void:
-	# If a plant hits exactly the half floors (90 and 50), it must pass the overall (70).
+	# If a plant hits exactly the half floors (90 and 35), it must pass the overall (60).
 	# This test catches the 70/85/35 defect that was corrected before ratification.
 	var hypothetical_sun := 90.0
-	var hypothetical_shade := 50.0
+	var hypothetical_shade := 35.0
 	var hypothetical_overall := (hypothetical_sun + hypothetical_shade) * 0.5
-	assert_gte(hypothetical_overall, 70.0,
-		"plant at 90%/50% must pass the 70% overall floor")
+	assert_gte(hypothetical_overall, 60.0,
+		"plant at 90%/35% must pass the 60% overall floor")
 
 
 # ---------------------------------------------------------------------------

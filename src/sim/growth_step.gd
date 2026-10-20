@@ -159,11 +159,17 @@ static func step_tip(tip: Tip, ctx: SimContext) -> void:
 	#      Only fires when no wall collision intercepted the segment (hit.hit == false)
 	#      and the drift is within adhesion_range (genuinely still near the wall).
 	var contact_thresh := ctx.surface.effective_contact(params.contact_distance)
-	if d <= contact_thresh and ctx.surface.backend_tag() == "MeshSdf" and not hit.hit:
+	# Also applied to the analytic tower (ivy-p73): there, outward wander beat the weak
+	# adhesion weight and about half of all start seeds fell off the wall and died. The tower
+	# snap keeps a COLLISION_SKIN off the face so the next collision ray starts in front of it.
+	var backend := ctx.surface.backend_tag()
+	if d <= contact_thresh and (backend == "MeshSdf" or backend == "TowerSdf") and not hit.hit:
 		var near_x := ctx.surface.nearest(x_new)
 		if near_x.hit and near_x.distance > contact_thresh \
 				and near_x.distance < params.adhesion_range:
 			x_new = near_x.position
+			if backend == "TowerSdf":
+				x_new += near_x.normal * COLLISION_SKIN
 			d_actual = (x_new - tip.position).normalized()
 	if d <= contact_thresh:
 		tip.floating_length = 0.0
