@@ -8,6 +8,9 @@ signal change_building_requested
 
 const SeedAnchorsScript = preload("res://src/world/seed_anchors.gd")
 const _HelpPanel = preload("res://src/ui/help_panel.gd")
+const _SunCompass = preload("res://src/ui/sun_compass.gd")
+## Gap between the compass and the window edge.
+const _COMPASS_MARGIN := 12.0
 const _CAMERA_HINT := "Left-drag to orbit · arrows pan · scroll or W/S zoom · R reset view · ? help"
 
 var _world: Node = null
@@ -26,6 +29,7 @@ var _plant_debug: Label = null
 var _sim_status: Label = null
 var _planting_tool: PlantingTool = null
 var _help_panel: PanelContainer = null
+var _sun_compass: Control = null
 
 
 func set_planting_tool(tool: PlantingTool) -> void:
@@ -62,7 +66,30 @@ func setup(world: Node, sim: Node, params: IvyParams, free_plant_mode: bool = fa
 	_build_ui()
 	if free_plant_mode:
 		_build_help()
+		_build_sun_compass()
 	_refresh_anchor_buttons()
+
+
+func get_sun_compass() -> Control:
+	return _sun_compass
+
+
+## Bottom-left corner. Placed by hand for the same reason as the help popup: this Control is
+## full-rect under a CanvasLayer, so anchor presets on its children would resolve to nothing.
+func _build_sun_compass() -> void:
+	_sun_compass = _SunCompass.new()
+	add_child(_sun_compass)
+	_place_sun_compass()
+	get_viewport().size_changed.connect(_place_sun_compass)
+
+
+func _place_sun_compass() -> void:
+	if _sun_compass == null:
+		return
+	var viewport := get_viewport_rect().size
+	_sun_compass.position = Vector2(
+		_COMPASS_MARGIN, viewport.y - _sun_compass.size.y - _COMPASS_MARGIN
+	).floor()
 
 
 func toggle_help() -> void:
@@ -103,7 +130,13 @@ func _center_help() -> void:
 	_help_panel.position = ((get_viewport_rect().size - _help_panel.size) * 0.5).floor()
 
 
-func refresh(clock: SimClock, sky_sun: SkySun) -> void:
+## `camera_yaw` turns the sun compass so its top is the way the camera is looking.
+func refresh(clock: SimClock, sky_sun: SkySun, camera_yaw: float = 0.0) -> void:
+	if _sun_compass != null and sky_sun != null and sky_sun.solar != null and clock != null:
+		_sun_compass.set_sun(
+			sky_sun.solar.render_direction(clock.display_game_day(), clock.seconds_per_game_day()),
+			camera_yaw
+		)
 	if _date_label != null and clock != null and _params != null:
 		var display_day := clock.display_game_day()
 		var hour := display_day * 24.0 + _params.start_hour

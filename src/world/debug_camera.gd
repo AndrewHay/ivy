@@ -99,6 +99,12 @@ var _orbit_pivot_override: Variant = null
 var _planting_mode: bool = false
 
 
+## Read-only: which side of the building the camera is on, as atan2(offset.x, offset.z). 0 is the
+## south side looking north. The HUD's sun compass turns by this.
+func get_yaw() -> float:
+	return _yaw
+
+
 func set_orbit_pivot(p: Vector3) -> void:
 	_orbit_pivot_override = p
 	_pan_offset = Vector3.ZERO

@@ -31,6 +31,7 @@ static func sections(dev_build: bool) -> Array:
 			"rows": [
 				["? or F1", "Show / hide this help"],
 				["Esc", "Close this help"],
+				["Sun compass", "Bottom-left: the way you're looking is up; high sun is near the middle"],
 			],
 		},
 	]

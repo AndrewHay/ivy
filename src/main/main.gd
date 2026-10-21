@@ -353,6 +353,6 @@ func _process(_delta: float) -> void:
 		return
 	_world.get_sky_sun().update(clock.display_game_day(), clock.seconds_per_game_day())
 	if _hud != null:
-		_hud.refresh(clock, _world.get_sky_sun())
+		_hud.refresh(clock, _world.get_sky_sun(), _debug_camera.get_yaw())
 	if _dev_overlay != null and _dev_overlay.has_method("refresh"):
 		_dev_overlay.refresh(clock)
