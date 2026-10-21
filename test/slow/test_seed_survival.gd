@@ -53,6 +53,23 @@ func _grow(stream_seed: int) -> SimRoot:
 	return sim
 
 
+## ivy-0bn: these two stayed on the wall but wandered down it and struck out on the ground
+## (DORMANT at day 8-9, 29-35 segments). They are slow starters, so the bar is "alive and
+## visibly growing", not the 500 segments the others reach.
+func test_seeds_that_wandered_into_the_ground_survive_day_30() -> void:
+	for stream_seed in [100, 42]:
+		var sim := _grow(stream_seed)
+		var live := 0
+		for tip in sim.tips.tips:
+			if tip.is_live():
+				live += 1
+		assert_gt(live, 0, "seed %d: no live tips at day 30" % stream_seed)
+		assert_gt(
+			sim.plant.segment_count(), 100,
+			"seed %d: only %d segments at day 30" % [stream_seed, sim.plant.segment_count()]
+		)
+
+
 func test_formerly_fatal_seeds_are_alive_and_growing_at_day_30() -> void:
 	for stream_seed in FORMERLY_FATAL_SEEDS:
 		var sim := _grow(stream_seed)

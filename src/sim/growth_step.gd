@@ -106,7 +106,13 @@ static func step_tip(tip: Tip, ctx: SimContext) -> void:
 	# below ground passes under the face and a later clamp would lift it up inside the wall.
 	var grounded := false
 	if x_trial.y < params.ground_y_min:
-		x_trial.y = params.ground_y_min
+		# The ground deflects the heading the way a wall does (ivy-0bn). A bare clamp left the
+		# downward heading intact, so a stem that wandered down its wall slid along the clamp
+		# plane and was retired after five segments.
+		d_dir.y = absf(d_dir.y)
+		d_dir = d_dir.normalized()
+		x_trial = tip.position + d_dir * params.segment_length
+		x_trial.y = maxf(x_trial.y, params.ground_y_min)
 		grounded = true
 	# collision
 	var hit := ctx.surface.raycast(tip.position, x_trial)
@@ -147,8 +153,12 @@ static func step_tip(tip: Tip, ctx: SimContext) -> void:
 	if x_new.y < params.ground_y_min:
 		x_new.y = params.ground_y_min
 		grounded = true
+	# SD-GEO-4: the tip is retired after five CONSECUTIVE clamped segments, so a clear step
+	# resets the count (it used to be cumulative over the tip's whole life).
 	if grounded:
 		tip.ground_strikes += 1
+	else:
+		tip.ground_strikes = 0
 	# float update
 	# SD-MESH-7: on mesh SDF surfaces, small errors in the baked gradient cause
 	# cumulative outward drift — each segment adds a tiny off-wall component that

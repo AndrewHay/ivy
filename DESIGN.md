@@ -287,6 +287,13 @@ On the canonical south seed at day 150: sun-half 97.2% → 98.4%, shade-half 50.
 mid-pack: the old 50 floor was calibrated against the pre-fix behaviour of one seed. The canonical seed
 passes the new overall floor by 11.3 pts, sun by 8.4 and shade by 6.3.
 
+**Follow-up, same day (`ivy-0bn`, floors unchanged at 60/90/35).** The two seeds that still died (100 and
+42) wandered down their own wall and struck out on the ground. The ground now deflects the heading like a
+wall and the strike counter is consecutive, as SD-GEO-4 always said. Both seeds now reach 46,000–49,000
+segments by day 150, and the canonical south seed moved to overall 78.9%, sun-half 97.0%, shade-half
+58.9% (all above the pre-ivy-p73 values; the floors were left where they were). All 17 sweep seeds are
+alive at day 30.
+
 **Known tension to watch:** the tip cap retires the least-vigorous tips first (`SD-TIP-4`), which by
 design retires shaded tips before sunny ones and therefore actively suppresses shaded coverage. If
 that mechanism drives the shaded half below AS-1's 50% floor, the correct response is to soften the
