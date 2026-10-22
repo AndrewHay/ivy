@@ -134,6 +134,9 @@ func set_light_ewma_steady_state(a: float, start_hour: int) -> void:
 		arr[slot] = acc
 
 
+## Unrolled by hand because it is the hottest read in the simulation. Corners are visited
+## in the original (dx, dy, dz) loop order, weights multiply x·y·z left to right, and keys
+## use CellGrid.pack_key's exact formula, so results are bit-identical to the loop form.
 func read_trilinear(channel: int, p: Vector3, fallback: float) -> float:
 	var base := Vector3i(
 		int(floor(p.x / _grid.cell_size)),
@@ -143,27 +146,109 @@ func read_trilinear(channel: int, p: Vector3, fallback: float) -> float:
 	var fx := (p.x / _grid.cell_size) - float(base.x)
 	var fy := (p.y / _grid.cell_size) - float(base.y)
 	var fz := (p.z / _grid.cell_size) - float(base.z)
+	var gx := 1.0 - fx
+	var gy := 1.0 - fy
+	var gz := 1.0 - fz
+	var kx0 := base.x + 2048
+	var kx1 := base.x + 1 + 2048
+	var ky0 := (base.y + 2048) << 12
+	var ky1 := (base.y + 1 + 2048) << 12
+	var kz0 := (base.z + 2048) << 24
+	var kz1 := (base.z + 1 + 2048) << 24
 	var sum := 0.0
 	var weight_sum := 0.0
 	var first := 0.0
 	var seen_any := false
 	var uniform := true
 	var arr: PackedFloat32Array = _ch[channel]
-	for dx in 2:
-		for dy in 2:
-			for dz in 2:
-				var key := CellGrid.pack_key(base + Vector3i(dx, dy, dz))
-				if not _slot_of.has(key):
-					continue
-				var w := _tri_weight(fx, dx) * _tri_weight(fy, dy) * _tri_weight(fz, dz)
-				var v := arr[_slot_of[key]]
-				if not seen_any:
-					first = v
-					seen_any = true
-				elif v != first:
-					uniform = false
-				sum += w * v
-				weight_sum += w
+	var slot: int
+	var w: float
+	var v: float
+	slot = _slot_of.get(kx0 | ky0 | kz0, -1)
+	if slot >= 0:
+		w = gx * gy * gz
+		v = arr[slot]
+		first = v
+		seen_any = true
+		sum += w * v
+		weight_sum += w
+	slot = _slot_of.get(kx0 | ky0 | kz1, -1)
+	if slot >= 0:
+		w = gx * gy * fz
+		v = arr[slot]
+		if not seen_any:
+			first = v
+			seen_any = true
+		elif v != first:
+			uniform = false
+		sum += w * v
+		weight_sum += w
+	slot = _slot_of.get(kx0 | ky1 | kz0, -1)
+	if slot >= 0:
+		w = gx * fy * gz
+		v = arr[slot]
+		if not seen_any:
+			first = v
+			seen_any = true
+		elif v != first:
+			uniform = false
+		sum += w * v
+		weight_sum += w
+	slot = _slot_of.get(kx0 | ky1 | kz1, -1)
+	if slot >= 0:
+		w = gx * fy * fz
+		v = arr[slot]
+		if not seen_any:
+			first = v
+			seen_any = true
+		elif v != first:
+			uniform = false
+		sum += w * v
+		weight_sum += w
+	slot = _slot_of.get(kx1 | ky0 | kz0, -1)
+	if slot >= 0:
+		w = fx * gy * gz
+		v = arr[slot]
+		if not seen_any:
+			first = v
+			seen_any = true
+		elif v != first:
+			uniform = false
+		sum += w * v
+		weight_sum += w
+	slot = _slot_of.get(kx1 | ky0 | kz1, -1)
+	if slot >= 0:
+		w = fx * gy * fz
+		v = arr[slot]
+		if not seen_any:
+			first = v
+			seen_any = true
+		elif v != first:
+			uniform = false
+		sum += w * v
+		weight_sum += w
+	slot = _slot_of.get(kx1 | ky1 | kz0, -1)
+	if slot >= 0:
+		w = fx * fy * gz
+		v = arr[slot]
+		if not seen_any:
+			first = v
+			seen_any = true
+		elif v != first:
+			uniform = false
+		sum += w * v
+		weight_sum += w
+	slot = _slot_of.get(kx1 | ky1 | kz1, -1)
+	if slot >= 0:
+		w = fx * fy * fz
+		v = arr[slot]
+		if not seen_any:
+			first = v
+			seen_any = true
+		elif v != first:
+			uniform = false
+		sum += w * v
+		weight_sum += w
 	if weight_sum < 1e-6:
 		return fallback
 	# SD-EDGE-12: a uniform neighbourhood must read as exactly its own value, because

@@ -264,6 +264,7 @@ func reset_crowding() -> void:
 func invalidate(aabb: AABB) -> void:
 	if _bake == null:
 		return
+	surface.clear_query_memo()
 	_bake.rebake_region(surface, aabb)
 	_bake.fill_field(surface, _field, _grid, aabb)
 	warm_up(params.light_warmup_days)

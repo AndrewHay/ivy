@@ -42,6 +42,11 @@ var traverse_ticks: int = 0
 ## as the climb_outward direction for the soffit-redirect. Zero = not yet captured.
 var climb_outward: Vector3 = Vector3.ZERO
 
+## Last SurfaceQuery.nearest() answer and the exact point it was asked at. Geometry is static
+## for a tip's lifetime, so the next step reuses it when it starts from that same point.
+var near_cache: SurfaceQuery.Hit = null
+var near_cache_at: Vector3 = Vector3.ZERO
+
 
 func is_live() -> bool:
 	return state == State.GROWING or state == State.FLOATING or state == State.SEEDED

@@ -33,7 +33,11 @@ static func step_tip(tip: Tip, ctx: SimContext) -> void:
 	var xi := tip.stream.rand_unit_vector()
 	tip.random_dir = (tip.random_dir * (1.0 - params.random_new_mix) + xi * params.random_new_mix).normalized()
 	# 2. adhesion
-	var near := ctx.surface.nearest(tip.position)
+	var near: SurfaceQuery.Hit
+	if tip.near_cache != null and tip.near_cache_at == tip.position:
+		near = tip.near_cache
+	else:
+		near = ctx.surface.nearest(tip.position)
 	var d := near.distance
 	var q := near.position
 	var a_vec := Vector3.ZERO
@@ -50,7 +54,9 @@ static func step_tip(tip: Tip, ctx: SimContext) -> void:
 			if h_out.length_squared() > 1e-8:
 				tip.climb_outward = h_out.normalized()
 	# 3. gradients
-	var basis := ctx.surface.tangent_basis_at(tip.position)
+	# Same basis as tangent_basis_at(tip.position): surface_normal(p) is nearest(p).normal on
+	# every backend.
+	var basis := Conv.tangent_basis(near.normal)
 	var d_l := ctx.env.sample_D_L(tip.position, tip.id, tip.segment_count)
 	var f_l := Physiology.f_L(d_l, params)
 	var h := Physiology.H(d_l, params)
@@ -173,8 +179,10 @@ static func step_tip(tip: Tip, ctx: SimContext) -> void:
 	# adhesion weight and about half of all start seeds fell off the wall and died. The tower
 	# snap keeps a COLLISION_SKIN off the face so the next collision ray starts in front of it.
 	var backend := ctx.surface.backend_tag()
+	var near_x: SurfaceQuery.Hit = null
+	var near_x_at := x_new
 	if d <= contact_thresh and (backend == "MeshSdf" or backend == "TowerSdf") and not hit.hit:
-		var near_x := ctx.surface.nearest(x_new)
+		near_x = ctx.surface.nearest(x_new)
 		if near_x.hit and near_x.distance > contact_thresh \
 				and near_x.distance < params.adhesion_range:
 			x_new = near_x.position
@@ -198,10 +206,17 @@ static func step_tip(tip: Tip, ctx: SimContext) -> void:
 	tip.segment_count += 1
 	tip.distance_since_node += params.segment_length
 	var seg_material := MaterialRegistry.BRICK_WALL
+	tip.near_cache = null
 	if hit.hit:
 		seg_material = hit.material_id
 	else:
-		var at_end := ctx.surface.nearest(x_new)
+		var at_end: SurfaceQuery.Hit
+		if near_x != null and near_x_at == x_new:
+			at_end = near_x
+		else:
+			at_end = ctx.surface.nearest(x_new)
+		tip.near_cache = at_end
+		tip.near_cache_at = x_new
 		if at_end.hit:
 			seg_material = at_end.material_id
 	ctx.plant.append_segment(

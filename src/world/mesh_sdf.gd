@@ -146,35 +146,54 @@ func _sample_cell(ix: int, iy: int, iz: int) -> float:
 	return _data[_cell_index(ix, iy, iz)]
 
 
+## Both trilinear reads are unrolled by hand: they dominate growth-step cost on mesh
+## buildings. The weight products and the left-to-right sums keep the loop's evaluation
+## order exactly, so results are bit-identical to `_sample_cell`/`_tri_weight` loops.
 func _read_trilinear(p: Vector3) -> float:
 	if _data.is_empty():
 		return band
 	var q := (p - origin) / h
-	var base := Vector3i(int(floor(q.x)), int(floor(q.y)), int(floor(q.z)))
-	var fx := q.x - float(base.x)
-	var fy := q.y - float(base.y)
-	var fz := q.z - float(base.z)
-	var sum := 0.0
-	var weight_sum := 0.0
-	var first := 0.0
-	var seen_any := false
-	var uniform := true
-	for dx in 2:
-		for dy in 2:
-			for dz in 2:
-				var v := _sample_cell(base.x + dx, base.y + dy, base.z + dz)
-				var w := _tri_weight(fx, dx) * _tri_weight(fy, dy) * _tri_weight(fz, dz)
-				if not seen_any:
-					first = v
-					seen_any = true
-				elif v != first:
-					uniform = false
-				sum += w * v
-				weight_sum += w
+	var bx := int(floor(q.x))
+	var by := int(floor(q.y))
+	var bz := int(floor(q.z))
+	var fx := q.x - float(bx)
+	var fy := q.y - float(by)
+	var fz := q.z - float(bz)
+	var sy := dims.x
+	var sz := dims.x * dims.y
+	var x0 := clampi(bx, 0, dims.x - 1)
+	var x1 := clampi(bx + 1, 0, dims.x - 1)
+	var y0 := clampi(by, 0, dims.y - 1) * sy
+	var y1 := clampi(by + 1, 0, dims.y - 1) * sy
+	var z0 := clampi(bz, 0, dims.z - 1) * sz
+	var z1 := clampi(bz + 1, 0, dims.z - 1) * sz
+	var v000 := _data[x0 + y0 + z0]
+	var v001 := _data[x0 + y0 + z1]
+	var v010 := _data[x0 + y1 + z0]
+	var v011 := _data[x0 + y1 + z1]
+	var v100 := _data[x1 + y0 + z0]
+	var v101 := _data[x1 + y0 + z1]
+	var v110 := _data[x1 + y1 + z0]
+	var v111 := _data[x1 + y1 + z1]
+	var gx := 1.0 - fx
+	var gy := 1.0 - fy
+	var gz := 1.0 - fz
+	var w000 := gx * gy * gz
+	var w001 := gx * gy * fz
+	var w010 := gx * fy * gz
+	var w011 := gx * fy * fz
+	var w100 := fx * gy * gz
+	var w101 := fx * gy * fz
+	var w110 := fx * fy * gz
+	var w111 := fx * fy * fz
+	var weight_sum := 0.0 + w000 + w001 + w010 + w011 + w100 + w101 + w110 + w111
 	if weight_sum < 1e-6:
 		return band if p.y >= mesh_aabb.position.y else -band
-	if uniform:
-		return first
+	if v001 == v000 and v010 == v000 and v011 == v000 and v100 == v000 \
+			and v101 == v000 and v110 == v000 and v111 == v000:
+		return v000
+	var sum := 0.0 + w000 * v000 + w001 * v001 + w010 * v010 + w011 * v011 \
+		+ w100 * v100 + w101 * v101 + w110 * v110 + w111 * v111
 	return sum / weight_sum
 
 
@@ -186,19 +205,36 @@ func _read_trilinear_interp(p: Vector3) -> float:
 	if _data.is_empty():
 		return band
 	var q := (p - origin) / h
-	var base := Vector3i(int(floor(q.x)), int(floor(q.y)), int(floor(q.z)))
-	var fx := q.x - float(base.x)
-	var fy := q.y - float(base.y)
-	var fz := q.z - float(base.z)
-	var sum := 0.0
-	var weight_sum := 0.0
-	for dx in 2:
-		for dy in 2:
-			for dz in 2:
-				var v := _sample_cell(base.x + dx, base.y + dy, base.z + dz)
-				var w := _tri_weight(fx, dx) * _tri_weight(fy, dy) * _tri_weight(fz, dz)
-				sum += w * v
-				weight_sum += w
+	var bx := int(floor(q.x))
+	var by := int(floor(q.y))
+	var bz := int(floor(q.z))
+	var fx := q.x - float(bx)
+	var fy := q.y - float(by)
+	var fz := q.z - float(bz)
+	var sy := dims.x
+	var sz := dims.x * dims.y
+	var x0 := clampi(bx, 0, dims.x - 1)
+	var x1 := clampi(bx + 1, 0, dims.x - 1)
+	var y0 := clampi(by, 0, dims.y - 1) * sy
+	var y1 := clampi(by + 1, 0, dims.y - 1) * sy
+	var z0 := clampi(bz, 0, dims.z - 1) * sz
+	var z1 := clampi(bz + 1, 0, dims.z - 1) * sz
+	var gx := 1.0 - fx
+	var gy := 1.0 - fy
+	var gz := 1.0 - fz
+	var w000 := gx * gy * gz
+	var w001 := gx * gy * fz
+	var w010 := gx * fy * gz
+	var w011 := gx * fy * fz
+	var w100 := fx * gy * gz
+	var w101 := fx * gy * fz
+	var w110 := fx * fy * gz
+	var w111 := fx * fy * fz
+	var weight_sum := 0.0 + w000 + w001 + w010 + w011 + w100 + w101 + w110 + w111
 	if weight_sum < 1e-6:
 		return band if p.y >= mesh_aabb.position.y else -band
+	var sum := 0.0 + w000 * _data[x0 + y0 + z0] + w001 * _data[x0 + y0 + z1] \
+		+ w010 * _data[x0 + y1 + z0] + w011 * _data[x0 + y1 + z1] \
+		+ w100 * _data[x1 + y0 + z0] + w101 * _data[x1 + y0 + z1] \
+		+ w110 * _data[x1 + y1 + z0] + w111 * _data[x1 + y1 + z1]
 	return sum / weight_sum

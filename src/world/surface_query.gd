@@ -24,6 +24,19 @@ var _backend_tag: String = "TowerSdf"
 var _face_material: PackedByteArray
 var _material_by_shape_index: bool = false
 var _params: IvyParams
+var _ray_query: PhysicsRayQueryParameters3D = null
+
+## Query counters for tools/profile_growth_step.gd. Never read by the simulation.
+var raycast_count: int = 0
+var nearest_count: int = 0
+var project_count: int = 0
+var project_miss_count: int = 0
+
+## project_to_shell is a pure function of the input point and the static backend, and the
+## sim asks for the same jittered point several times per tip per tick (vigour, budget, step
+## start, previous step's deposit). Exact-key memo, so hits return the identical Vector3.
+const _PROJECT_MEMO_CAP := 65536
+var _project_memo: Dictionary = {}
 
 
 func setup(
@@ -36,6 +49,7 @@ func setup(
 	_space = space
 	_body = body
 	_backend = backend
+	clear_query_memo()
 	if backend.get_script() == MeshSdfScript:
 		_backend_tag = "MeshSdf"
 	elif backend.get_script() == WallSdfScript:
@@ -80,10 +94,14 @@ func raycast(from: Vector3, to: Vector3) -> Hit:
 	var result := Hit.new()
 	if _space == null:
 		return result
-	var query := PhysicsRayQueryParameters3D.create(from, to)
-	query.collision_mask = 1
-	query.collide_with_areas = false
-	var hit := _space.intersect_ray(query)
+	raycast_count += 1
+	if _ray_query == null:
+		_ray_query = PhysicsRayQueryParameters3D.create(from, to)
+		_ray_query.collision_mask = 1
+		_ray_query.collide_with_areas = false
+	_ray_query.from = from
+	_ray_query.to = to
+	var hit := _space.intersect_ray(_ray_query)
 	if hit.is_empty():
 		return result
 	result.hit = true
@@ -124,6 +142,7 @@ func _orient_outward_normal(p: Vector3, n: Vector3) -> Vector3:
 
 
 func nearest(p: Vector3) -> Hit:
+	nearest_count += 1
 	var result := Hit.new()
 	var phi: float = _backend.signed_distance(p)
 	var n: Vector3 = _backend.gradient_normalized(p)
@@ -136,7 +155,7 @@ func nearest(p: Vector3) -> Hit:
 	result.refined = false
 
 	if _backend_tag == "MeshSdf" and _space != null:
-		var ray_hit := _closest_mesh_hit(p, n)
+		var ray_hit := _closest_mesh_hit(p, n, phi)
 		if ray_hit.hit:
 			result.position = ray_hit.position
 			result.normal = ray_hit.normal
@@ -183,13 +202,13 @@ func _axis_sweep_reach() -> float:
 	return 0.2
 
 
-func _closest_mesh_hit(p: Vector3, seed: Vector3) -> Hit:
+## `phi` must be `_backend.signed_distance(p)`.
+func _closest_mesh_hit(p: Vector3, seed: Vector3, phi: float) -> Hit:
 	# SD-MESH-6: primary targeted ray from p toward q₀ = p − Φ·∇̂Φ, length |Φ| + 2h,
 	# then axis sweep for best-accuracy and coverage of corners / mesh openings.
 	# The fixed reach (0.2 m) undershoots when |Φ| > 0.10 m; the adaptive targeted ray
 	# fixes that. The axis sweep still runs so the closest hit wins (the gradient can
 	# be off-axis at corners, making the targeted ray slightly less accurate there).
-	var phi: float = _backend.signed_distance(p)
 	var n: Vector3 = seed if seed.length_squared() > 1e-8 else _backend.gradient_normalized(p)
 	n = n.normalized()
 	# Direction from p toward SDF-projected surface (q₀).
@@ -207,12 +226,13 @@ func _closest_mesh_hit(p: Vector3, seed: Vector3) -> Hit:
 	# Axis sweep — covers corners/openings where the gradient is unreliable and provides
 	# a more accurate hit when the axis aligns with the face normal.
 	var reach: float = _axis_sweep_reach()
+	# Each direction is cast both ways below, so listing -axis as well would only repeat rays
+	# that can never win the strict `<`.
 	var dirs: Array[Vector3] = []
 	if seed.length_squared() > 1e-8:
 		dirs.append(seed.normalized())
 	for axis in [Vector3.RIGHT, Vector3.UP, Vector3.FORWARD]:
 		dirs.append(axis)
-		dirs.append(-axis)
 	for d in dirs:
 		var dir := d.normalized()
 		var hit := raycast(p, p + dir * reach)
@@ -257,7 +277,25 @@ func shell_bounds(margin: float) -> AABB:
 	return _backend.bounds().grow(margin)
 
 
+## Must be called whenever the backend geometry changes.
+func clear_query_memo() -> void:
+	_project_memo.clear()
+
+
 func project_to_shell(p: Vector3, _offset: float = 0.0) -> Vector3:
+	project_count += 1
+	var cached: Variant = _project_memo.get(p)
+	if cached != null:
+		return cached
+	project_miss_count += 1
+	var q := _project_to_shell_uncached(p)
+	if _project_memo.size() >= _PROJECT_MEMO_CAP:
+		_project_memo.clear()
+	_project_memo[p] = q
+	return q
+
+
+func _project_to_shell_uncached(p: Vector3) -> Vector3:
 	var q := p
 	var steps := 2 if _backend_tag == "MeshSdf" else 1
 	for _i in steps:
