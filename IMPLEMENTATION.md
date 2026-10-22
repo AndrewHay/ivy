@@ -2456,6 +2456,44 @@ script.
 
 `SCREENSHOT` gains an implicit settle of 3 frames after `ADVANCE_DAYS` so the renderer has synced.
 
+### AR-UI-4 — Debug snapshots (ivy-nrp, developer affordance)
+
+**System goal.** While inspecting a live session, the owner saves the current view plus enough
+state to rebuild the same plant and camera later, optionally marking regions of the screenshot
+with comments. The agent reads `.tmp/snapshots/<id>/` and either inspects the images and JSON
+or replays the scene headlessly/script-driven. Same audience and gating as AR-DBGCAM: **not**
+player-facing; active only when `IvyParams.dev_build` is true and `Main.script_driven` is false.
+
+**This is not a save-game system.** Replay re-simulates from building + seed + ordered plant/param
+events (see AR-SNAP-3); it does not serialise `PlantData` or the field hash table.
+
+| ID | Rule |
+|---|---|
+| AR-SNAP-1 | **On-disk layout.** Each save is a directory under `res://.tmp/snapshots/` (globalised to an absolute path before I/O): `<YYYYMMDD-HHMMSS>_<building_id>_d<day>/` containing `snapshot.json` (schema version 1), `clean.png` (viewport at save, HUD on, annotation chrome off), and optionally `annotated.png`. A sibling file `.tmp/snapshots/latest` holds the folder name (one line) for “last snapshot”. Nothing under `.tmp/` is committed. |
+| AR-SNAP-2 | **Session event log — owner `Main`.** `Main` owns a `DebugSessionLog : RefCounted` created when a free-plant session starts (`_start_free_plant_session`) and cleared on `return_to_picker`, successful `load_building` (new building), `SimRoot.reseed()`, and `SimRoot.clear_plants()`. The log holds two append-only arrays: `plant_log: Array[{tick, position, normal}]` and `param_log: Array[{tick, name, value}]`. **Planting:** `Main` appends to `plant_log` in the single code path that calls `SimRoot.plant_at` after a successful `PlantingTool` click (do not instrument `SimRoot.plant_at` itself — headless tests call it directly and must not accumulate UI log noise). **Params:** `DevOverlay` routes every live `IvyParams.set` through a callback wired at `setup(sim, params, log_cb)`; the callback records `sim.get_clock().tick_index` and the property name/value. **Building id:** `World` stores `_active_building_id: String` on every `load_building(building_id)` (procedural and mesh); expose `World.get_active_building_id() -> String`. **Seed index:** `World.get_seed_index()` / `SimRoot`’s `_seed_index` (already kept in sync from the HUD). |
+| AR-SNAP-3 | **Replay recipe and tick boundaries.** `snapshot.json` records `building_id`, `seed_index`, `free_plant_mode`, `tick_index` at save, `plant_log`, `param_log`, camera block (AR-SNAP-5), view block (viewport size, overlay visibility, time-lapse blend if relevant), `fingerprint` (`RunHash.of(plant, tips)` plus segment/leaf/tip counts and total length), and `build` metadata (`git_commit`, `git_dirty`, Godot version). **Replay** (`tools/replay_snapshot.gd`, non-headless): set `Main.script_driven = true`, load building and seed, run the same bootstrap as `run_ui_script.gd`, then for `tick` from `0` to `target_tick - 1`: call `advance_ticks(1)`; **before** each `advance_ticks(1)` when `clock.tick_index == event.tick`, apply all events with that tick in **file order** — for each plant event call `plant_at(position, normal)`; for each param event `params.set(name, value)` (JSON-decoded scalar). Events sharing a tick replay in the order they were appended (critical when the owner plants twice while paused). After the loop, assert `RunHash` against `fingerprint` (print `MATCH` / `MISMATCH`; still write `replay.png` on mismatch). No new RNG calls in logging or replay — only existing `plant_at` / growth paths run. |
+| AR-SNAP-4 | **Save UX.** **F9** or a HUD speed-row button (`FOCUS_NONE`, tooltip “Save debug snapshot (F9)”) opens the flow; **Shift+F9** quick-saves without the annotation overlay (S1/S3 split per epic). On save: pause the clock (remember prior `SimClock.Speed`), grab `clean.png` from the viewport after 3 present frames (same discipline as `run_ui_script` `SCREENSHOT`), then either open the annotation overlay (S3) or write files immediately. Toast ~4 s with the folder name; copy folder name to OS clipboard when available. Disabled when the building picker, loading overlay, or build-failure screen is up, or when `script_driven`. Hotkey handled in `Main._unhandled_input` after help/time keys, with `dev_build` guard; must not fire while `HelpPanel` or the annotation overlay is open. |
+| AR-SNAP-5 | **Camera block.** Record `active_camera: String` (`"DebugCamera"`, `"CamSun"`, or node path). For `DebugCamera`: `yaw`, `pitch`, `radius`, `pan_offset`, resolved pivot (`DebugCamera` adds read-only `capture_state() -> Dictionary` / `restore_state(dict)` using existing `solve()` math — no new transform write paths). For any active `Camera3D`: also store `global_transform`, `fov`, `near`, `far` so replay can restore non-orbit views. Replay makes the saved camera `current` after the sim reaches `target_tick`. |
+| AR-SNAP-6 | **Annotation overlay (S3).** `SnapshotAnnotationOverlay : Control` lives on a dedicated `CanvasLayer` (layer above HUD/help). `Main` instantiates it only during save. Mouse filter `STOP` (ivy-6hh). Tools: box (B) and freehand marker (M), single highlight colour, numbered badges, per-highlight comment + overall note, undo/clear, Enter save / Esc cancel. Geometry stored normalised 0–1 in `snapshot.json` `annotations[]`. **World anchors:** at save time, raycast from the saved camera through box centre and a 3×3 grid in the box / sampled stroke points against `World`’s static collision (`PhysicsDirectSpaceState3D`); store hit position, normal, collider name. **Nearby plant:** nearest segments/leaves to those hits from `PlantData` (cap ~20), with tip ids/states — best-effort for agent navigation. |
+| AR-SNAP-7 | **`run_ui_script` verb.** `SNAPSHOT_LOAD <folder|latest>` — load recipe, replay to `tick_index`, restore camera; subsequent `ORBIT` / `SCREENSHOT` / `DUMP_*` verbs operate on the restored scene. `--orbit-highlight=<n>` on `replay_snapshot` writes extra PNGs orbiting annotation `n`’s world anchor (reuse `run_ui_script` orbit math). |
+| AR-SNAP-8 | **Determinism contract.** Logging and snapshot I/O perform **no** `randf` / `RandomNumberGenerator` use. Replay only calls existing `plant_at` and `params.set`; growth still advances only inside `SimRoot`’s tick loop (AR-RNG-2). `test_determinism.gd` must stay green; add `test_debug_snapshot.gd` for JSON round-trip, log reset rules, and headless replay hash match on a fixed 3-click script. |
+| AR-SNAP-9 | **Agent skill (S4).** `.cursor/skills/revisit-snapshot/SKILL.md` documents read → optional replay → embed `annotated.png` / `replay.png` / orbit shots; `HelpPanel.sections(dev_build)` gains F9 / Shift+F9 rows when implemented. |
+
+**New files (ivy-nrp implementation):**
+
+| Path | `class_name` | Responsibility |
+|---|---|---|
+| `src/debug/debug_session_log.gd` | `DebugSessionLog` | Append-only `plant_log` / `param_log`; `clear()`. |
+| `src/debug/snapshot_recipe.gd` | `SnapshotRecipe` | Schema v1 read/write; `to_json()` / `from_dict()`. |
+| `src/debug/snapshot_capture.gd` | `SnapshotCapture` | Build recipe from live scene; git metadata; write folder + PNGs. |
+| `src/ui/snapshot_annotation_overlay.gd` | `SnapshotAnnotationOverlay` | Frozen-frame highlight UI (AR-SNAP-6). |
+| `tools/replay_snapshot.gd` / `.tscn` | — | CLI replay + `replay.png` + optional orbit-highlight (AR-SNAP-3, 7). |
+| `test/test_debug_snapshot.gd` | — | Log reset, JSON round-trip, headless replay hash (AR-SNAP-8). |
+
+**Touches existing files:** `Main` (log owner, F9, save flow, overlay host), `Hud` (save button), `DevOverlay` (param log callback), `World` (`_active_building_id`, getter), `DebugCamera` (`capture_state` / `restore_state`), `tools/run_ui_script.gd` (`SNAPSHOT_LOAD`), `help_panel.gd` (help rows).
+
+**Non-goals (carry from epic design):** in-game snapshot gallery; multiple highlight colours; cloud share; committing snapshots to git; full sim serialisation; video; auto-prune `.tmp/snapshots`.
+
 ---
 
 ## AR-METRIC — Metrics placement
