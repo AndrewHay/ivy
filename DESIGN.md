@@ -153,6 +153,17 @@ which reads as a broken simulation rather than as night. Night is real. See INV-
 Weather, clouds, and rain are Phase 2. The spec's weather multipliers `W(t)` and `W_sky(t)` should
 exist in the code and be pinned to 1.0.
 
+**Open questions for later discussion (2026-10-22, project owner; not yet scheduled):**
+
+- **Rethink the "hour" model.** The current design ticks the simulation once per game-hour, with
+  light, the diel gate, and the light-EWMA all keyed to the hour index. The project owner has a
+  significant gameplay change in mind here. It has not been designed yet and should be discussed
+  before anything changes. Until then the requirements above stand.
+- **Player-placed dynamic light sources.** We want the player to be able to place light sources
+  themselves, dynamically, as an alternative or a supplement to the sun. This probably interacts
+  with the hour rethink above, because both change how the light field is driven over time, so the
+  two should be discussed together.
+
 ---
 
 
