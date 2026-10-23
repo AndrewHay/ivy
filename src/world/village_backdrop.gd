@@ -60,6 +60,8 @@ const _P_WALL_WINDOW := "Wall_Plaster_Window_Wide_Flat"
 const _P_WALL_DOOR := "Wall_Plaster_Door_Flat"
 const _P_WALL_BRICK := "Wall_UnevenBrick_Straight"
 const _P_DOOR_LEAF := "Door_1_Flat"
+## Door_1_Flat bbox centre is ~0.51 m on kit +X; wall door piece is centred on X (same as Door_2_Round in build_structures).
+const _DOOR_LEAF_KIT_OFFSET := Vector3(-0.51267, 0.0, 0.0)
 const _P_SHUTTER := "WindowShutters_Wide_Flat_Closed"
 const _P_GABLE := "Roof_Front_Brick4"
 const _P_CHIMNEY := "Prop_Chimney2"
@@ -141,7 +143,7 @@ func _build_cottages() -> void:
 			var side := slot.split(":")[0]
 			if slot == spec["door"]:
 				_place(placements, _P_WALL_DOOR, xf)
-				_place(placements, _P_DOOR_LEAF, xf)
+				_place(placements, _P_DOOR_LEAF, xf * Transform3D(Basis.IDENTITY, _DOOR_LEAF_KIT_OFFSET))
 			elif slot in spec["windows"]:
 				_place(placements, _P_WALL_WINDOW, xf)
 				_place(placements, _P_SHUTTER, xf)

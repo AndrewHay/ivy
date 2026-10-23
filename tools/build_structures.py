@@ -1025,19 +1025,21 @@ def place_hero_seals(ap, hero_col, prefix, world_offset, glass_mat, wood_mat=Non
             door_h = dz1 - dz0
             dc = piece_centre("Door_2_Round")
             inset = 0.02
+            sx = 1.0
+            sz = 1.0
+            if door_w > 1e-6 and door_h > 1e-6:
+                sx = (open_w - 2.0 * inset) / door_w
+                sz = (open_h - 2.0 * inset) / door_h
+            # Kit door mesh origin is at a corner, not its bbox centre — scale is applied
+            # around the object origin, so translation must use scaled extents.
             door_off = Vector((
-                (spec["x0"] + spec["x1"]) / 2.0 - dc.x,
+                (spec["x0"] + spec["x1"]) / 2.0 - dc.x * sx,
                 -piece_y_min("Door_2_Round") - DOOR_HERO_OUTSET,
-                spec["z0"] - dz0 + inset,
+                spec["z0"] - dz0 * sz + inset,
             ))
             door = place_kit_seal(ap, hero_col, prefix, world_offset,
                                     "Door_2_Round", "door", door_off, wood_mat)
-            if door_w > 1e-6 and door_h > 1e-6:
-                door.scale = (
-                    (open_w - 2.0 * inset) / door_w,
-                    1.0,
-                    (open_h - 2.0 * inset) / door_h,
-                )
+            door.scale = (sx, 1.0, sz)
             parts.append(door)
     else:
         spec = ap["spec"]
