@@ -321,6 +321,13 @@ func _setup_dev_tools() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if _snapshot_annotation_overlay != null:
+		if event is InputEventKey and event.pressed and not event.echo:
+			var key := event as InputEventKey
+			if key.keycode == KEY_ESCAPE and _snapshot_annotation_overlay.has_method("request_cancel"):
+				_snapshot_annotation_overlay.call("request_cancel")
+				get_viewport().set_input_as_handled()
+		return
 	if _try_plant_input(event):
 		return
 	if not script_driven and (
@@ -409,6 +416,8 @@ func _queue_snapshot_save(quick: bool) -> void:
 func _co_snapshot_save(quick: bool) -> void:
 	await _save_debug_snapshot(quick)
 	_snapshot_save_busy = false
+	_snapshot_annotation_overlay = null
+	_refresh_snapshot_controls()
 
 
 ## Script-driven replay entry (SNAPSHOT_LOAD / replay_snapshot tool).
@@ -445,35 +454,27 @@ func _save_debug_snapshot(quick: bool) -> void:
 	clock.set_speed(SimClock.Speed.PAUSE)
 	for _i in range(3):
 		await get_tree().process_frame
-	var img: Image = get_viewport().get_texture().get_image()
+	var img: Image = _capture_viewport_image()
 	if img == null:
 		push_error("Main: snapshot failed — no viewport image")
 		clock.set_speed(prior_speed)
 		return
-	var vp_size := get_viewport().get_visible_rect().size
+	var display_size := get_viewport().get_visible_rect().size
 	var annotations: Array = []
 	var note := ""
 	var annotated_img: Image = null
 	if not quick:
-		var layer := CanvasLayer.new()
-		layer.layer = 25
-		layer.name = "SnapshotAnnotationLayer"
-		_ui.add_child(layer)
-		var overlay := _SnapshotAnnotationOverlay.new()
-		_snapshot_annotation_overlay = overlay
-		layer.add_child(overlay)
-		overlay.setup(img.duplicate(), vp_size)
-		var result := await _await_annotation_overlay(overlay)
-		annotated_img = overlay.render_annotated_image(img)
-		layer.queue_free()
-		_snapshot_annotation_overlay = null
+		var frozen := _SnapshotCapture.image_for_display(img, display_size)
+		var result := await _run_snapshot_annotation_ui(frozen, display_size, img)
+		if not result.get("cancelled", true):
+			annotated_img = result.get("annotated_image") as Image
+			annotations = result.get("annotations", [])
+			note = str(result.get("note", ""))
 		if result.get("cancelled", true):
 			clock.set_speed(prior_speed)
 			return
-		annotations = result.get("annotations", [])
-		note = str(result.get("note", ""))
 	var recipe = _SnapshotCapture.build_recipe(self, _session_log, _free_plant_mode, note)
-	recipe.annotations = _SnapshotCapture.enrich_annotations(self, _sim, annotations, vp_size)
+	recipe.annotations = _SnapshotCapture.enrich_annotations(self, _sim, annotations, display_size)
 	var folder_name := _SnapshotCapture.make_folder_name(
 		recipe.scene.get("building_id", "unknown"),
 		float(recipe.time.get("game_day", 0.0))
@@ -486,16 +487,55 @@ func _save_debug_snapshot(quick: bool) -> void:
 	print("[snapshot] saved ", dir_path)
 
 
-func _await_annotation_overlay(overlay: Control) -> Dictionary:
-	var result := {"cancelled": true, "annotations": [], "note": ""}
+func _capture_viewport_image() -> Image:
+	if RenderingServer.has_method("force_draw"):
+		RenderingServer.force_draw(false)
+	var tex := get_viewport().get_texture()
+	if tex == null:
+		return null
+	return tex.get_image()
+
+
+func _run_snapshot_annotation_ui(frozen: Image, display_size: Vector2, full_image: Image) -> Dictionary:
+	var result := {
+		"cancelled": true,
+		"annotations": [],
+		"note": "",
+		"annotated_image": null,
+	}
+	if frozen == null:
+		return result
+	var win := Window.new()
+	win.title = "Snapshot highlights"
+	win.borderless = true
+	win.unresizable = true
+	win.wrap_controls = true
+	win.exclusive = true
+	win.size = Vector2i(maxi(1, int(display_size.x)), maxi(1, int(display_size.y)))
+	add_child(win)
+	var overlay := _SnapshotAnnotationOverlay.new()
+	_snapshot_annotation_overlay = overlay
+	win.add_child(overlay)
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.setup(frozen, display_size)
+	_refresh_snapshot_controls()
+	win.popup_centered(win.size)
 	overlay.completed.connect(func(annotations: Array, note: String) -> void:
-		result = {"cancelled": false, "annotations": annotations, "note": note}
+		result = {
+			"cancelled": false,
+			"annotations": annotations,
+			"note": note,
+			"annotated_image": overlay.render_annotated_image(full_image),
+		}
+		win.queue_free()
 	, CONNECT_ONE_SHOT)
 	overlay.cancelled.connect(func() -> void:
-		result = {"cancelled": true, "annotations": [], "note": ""}
+		result = {"cancelled": true, "annotations": [], "note": "", "annotated_image": null}
+		win.queue_free()
 	, CONNECT_ONE_SHOT)
-	while overlay.is_inside_tree():
-		await get_tree().process_frame
+	await win.tree_exited
+	_snapshot_annotation_overlay = null
+	_refresh_snapshot_controls()
 	return result
 
 

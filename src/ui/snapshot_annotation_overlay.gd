@@ -30,8 +30,11 @@ func setup(
 	seed_norm_boxes: Array = []
 ) -> void:
 	_viewport_size = viewport_size
-	set_anchors_preset(Control.PRESET_FULL_RECT)
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	set_size(viewport_size)
+	position = Vector2.ZERO
 	mouse_filter = Control.MOUSE_FILTER_STOP
+	clip_contents = false
 	var tex := ImageTexture.create_from_image(frozen_image)
 	_background = TextureRect.new()
 	_background.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -43,7 +46,8 @@ func setup(
 		if item is Rect2:
 			_model.add_box(item, "highlight")
 	_build_chrome()
-	set_process_input(true)
+	set_process_unhandled_input(true)
+	call_deferred("_grab_ui_focus")
 
 
 func is_active() -> bool:
@@ -132,7 +136,22 @@ func _draw_badge(at: Vector2, id: int) -> void:
 	draw_string(font, at + Vector2(4, 2), text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, Color.WHITE)
 
 
-func _input(event: InputEvent) -> void:
+func _grab_ui_focus() -> void:
+	if _note_field != null:
+		_note_field.grab_focus()
+
+
+func _gui_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton or event is InputEventMouseMotion:
+		_handle_overlay_input(event)
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey:
+		_handle_overlay_input(event)
+
+
+func _handle_overlay_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		var key := event as InputEventKey
 		if key.keycode == KEY_B:
@@ -221,9 +240,12 @@ func _take_comment() -> String:
 	return t
 
 
+func request_cancel() -> void:
+	_on_cancel_pressed()
+
+
 func _on_save_pressed() -> void:
 	completed.emit(_model.to_array(), _note_field.text.strip_edges())
-	queue_free()
 
 
 func _on_cancel_pressed() -> void:
@@ -232,7 +254,6 @@ func _on_cancel_pressed() -> void:
 		_hint_label.text = "Esc again to discard highlights (nothing will be saved)"
 		return
 	cancelled.emit()
-	queue_free()
 
 
 func render_annotated_image(base: Image) -> Image:

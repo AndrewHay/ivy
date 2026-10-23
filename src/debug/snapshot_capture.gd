@@ -42,6 +42,20 @@ static func build_recipe(
 	return recipe
 
 
+## Downscale a viewport capture to canvas/UI coordinates (Retina texture vs window size).
+static func image_for_display(captured: Image, display_size: Vector2) -> Image:
+	if captured == null:
+		return null
+	var out := captured.duplicate()
+	if display_size.x <= 0.0 or display_size.y <= 0.0:
+		return out
+	var target := Vector2i(int(display_size.x), int(display_size.y))
+	if out.get_size() == target:
+		return out
+	out.resize(target.x, target.y, Image.INTERPOLATE_BILINEAR)
+	return out
+
+
 static func make_folder_name(building_id: String, game_day: float) -> String:
 	var dt := Time.get_datetime_dict_from_system()
 	var day_i := int(floor(game_day)) + 1

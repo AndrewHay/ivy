@@ -112,6 +112,13 @@ func test_replay_to_tick_matches_saved_fingerprint() -> void:
 	])
 
 
+func test_image_for_display_resizes_retina_capture() -> void:
+	var hi := Image.create(3840, 2160, false, Image.FORMAT_RGB8)
+	var lo := SnapshotCapture.image_for_display(hi, Vector2(1920, 1080))
+	assert_eq(lo.get_width(), 1920)
+	assert_eq(lo.get_height(), 1080)
+
+
 func test_norm_rect_survives_viewport_resize() -> void:
 	var norm := Rect2(0.1, 0.2, 0.3, 0.4)
 	for vp in [Vector2(1920, 1080), Vector2(800, 600), Vector2(640, 480)]:
@@ -196,7 +203,7 @@ func test_overlay_esc_emits_cancelled_without_completed() -> void:
 	var esc := InputEventKey.new()
 	esc.keycode = KEY_ESCAPE
 	esc.pressed = true
-	overlay._input(esc)
+	overlay._unhandled_input(esc)
 	assert_signal_emitted(overlay, "cancelled")
 	assert_signal_not_emitted(overlay, "completed")
 
@@ -217,7 +224,7 @@ func test_overlay_esc_twice_discards_when_highlights_exist() -> void:
 	var esc := InputEventKey.new()
 	esc.keycode = KEY_ESCAPE
 	esc.pressed = true
-	overlay._input(esc)
+	overlay._unhandled_input(esc)
 	assert_signal_not_emitted(overlay, "cancelled")
-	overlay._input(esc)
+	overlay._unhandled_input(esc)
 	assert_signal_emitted(overlay, "cancelled")
