@@ -4,6 +4,7 @@ extends RefCounted
 const _SnapshotRecipe = preload("res://src/debug/snapshot_recipe.gd")
 const _RunHash = preload("res://src/metrics/run_hash.gd")
 const _DebugSessionLog = preload("res://src/debug/debug_session_log.gd")
+const _AnnotationModel = preload("res://src/debug/snapshot_annotation_model.gd")
 const _DEFAULT_PARAMS := "res://src/params/ivy_params_default.tres"
 const _SNAPSHOT_ROOT := "res://.tmp/snapshots/"
 
@@ -54,7 +55,8 @@ static func make_folder_name(building_id: String, game_day: float) -> String:
 static func write_snapshot(
 	recipe: RefCounted,
 	clean_image: Image,
-	folder_name: String
+	folder_name: String,
+	annotated_image: Image = null
 ) -> String:
 	var root := ProjectSettings.globalize_path(_SNAPSHOT_ROOT)
 	DirAccess.make_dir_recursive_absolute(root)
@@ -66,6 +68,10 @@ static func write_snapshot(
 	var png_err := clean_image.save_png(dir_path.path_join("clean.png"))
 	if png_err != OK:
 		push_error("SnapshotCapture: write clean.png failed (%s)" % png_err)
+	if annotated_image != null:
+		var ann_err := annotated_image.save_png(dir_path.path_join("annotated.png"))
+		if ann_err != OK:
+			push_error("SnapshotCapture: write annotated.png failed (%s)" % ann_err)
 	var latest_path := root.path_join("latest")
 	var latest_file := FileAccess.open(latest_path, FileAccess.WRITE)
 	if latest_file != null:
@@ -167,6 +173,126 @@ static func _capture_view(main: Node, params: IvyParams) -> Dictionary:
 		"help_open": hud != null and hud.is_help_open(),
 		"dev_build": params != null and params.dev_build,
 	}
+
+
+static func enrich_annotations(
+	main: Node,
+	sim: Node,
+	annotations: Array,
+	viewport_size: Vector2
+) -> Array:
+	var cam := _active_camera_node(main)
+	if cam == null:
+		return annotations.duplicate(true)
+	var world: World3D = main.get_world_3d()
+	if world == null:
+		return annotations.duplicate(true)
+	var space: PhysicsDirectSpaceState3D = world.direct_space_state
+	var out: Array = []
+	for entry in annotations:
+		var copy: Dictionary = entry.duplicate(true)
+		copy["world_anchors"] = _world_anchors_for_entry(cam, space, entry, viewport_size)
+		copy["nearby_plant"] = _nearby_plant_refs(sim, copy["world_anchors"])
+		out.append(copy)
+	return out
+
+
+static func _active_camera_node(main: Node) -> Camera3D:
+	var debug_cam: Camera3D = main.get_node_or_null("World/DebugCamera") as Camera3D
+	var cam_sun: Camera3D = main.get_node_or_null("World/CameraRig/CamSun") as Camera3D
+	if debug_cam != null and debug_cam.current:
+		return debug_cam
+	if cam_sun != null and cam_sun.current:
+		return cam_sun
+	return debug_cam if debug_cam != null else cam_sun
+
+
+static func _world_anchors_for_entry(
+	cam: Camera3D,
+	space: PhysicsDirectSpaceState3D,
+	entry: Dictionary,
+	viewport_size: Vector2
+) -> Array:
+	var anchors: Array = []
+	match str(entry.get("kind", "")):
+		"box":
+			var rect := _AnnotationModel.dict_to_norm_rect(entry.get("rect", {}))
+			for u in [0.25, 0.5, 0.75]:
+				for v in [0.25, 0.5, 0.75]:
+					var norm := Vector2(
+						rect.position.x + rect.size.x * u,
+						rect.position.y + rect.size.y * v
+					)
+					_append_ray_hit(cam, space, norm, viewport_size, anchors)
+		"stroke":
+			var points: Array = entry.get("points", [])
+			var step := maxi(1, points.size() / 9)
+			for i in range(0, points.size(), step):
+				var item = points[i]
+				if item is Array and item.size() >= 2:
+					var norm := Vector2(float(item[0]), float(item[1]))
+					_append_ray_hit(cam, space, norm, viewport_size, anchors)
+	return anchors
+
+
+static func _append_ray_hit(
+	cam: Camera3D,
+	space: PhysicsDirectSpaceState3D,
+	norm: Vector2,
+	viewport_size: Vector2,
+	anchors: Array
+) -> void:
+	var pixel := _AnnotationModel.denorm_point(norm, viewport_size)
+	var from := cam.project_ray_origin(pixel)
+	var dir := cam.project_ray_normal(pixel)
+	var to := from + dir * 200.0
+	var query := PhysicsRayQueryParameters3D.create(from, to)
+	query.collide_with_areas = false
+	var hit := space.intersect_ray(query)
+	if hit.is_empty():
+		return
+	anchors.append({
+		"position": [hit.position.x, hit.position.y, hit.position.z],
+		"normal": [hit.normal.x, hit.normal.y, hit.normal.z],
+		"collider": str(hit.collider.name) if hit.collider != null else "",
+	})
+
+
+static func _nearby_plant_refs(sim: Node, anchors: Array) -> Array:
+	var out: Array = []
+	if sim == null or not sim.has_method("get") or sim.get("plant") == null:
+		return out
+	var plant: PlantData = sim.plant
+	var tips: TipManager = sim.tips
+	const MAX := 20
+	const RADIUS := 0.35
+	for anchor in anchors:
+		if out.size() >= MAX:
+			break
+		var pos_arr: Array = anchor.get("position", [])
+		if pos_arr.size() < 3:
+			continue
+		var pos := Vector3(float(pos_arr[0]), float(pos_arr[1]), float(pos_arr[2]))
+		var best_seg := -1
+		var best_d := RADIUS
+		for i in plant.segment_count():
+			var mid := (plant.seg_a[i] + plant.seg_b[i]) * 0.5
+			var d := mid.distance_to(pos)
+			if d < best_d:
+				best_d = d
+				best_seg = i
+		if best_seg >= 0:
+			var tip_id: int = plant.seg_tip[best_seg]
+			var tip_state := ""
+			if tip_id >= 0 and tip_id < tips.tips.size():
+				tip_state = str(tips.tips[tip_id].state)
+			out.append({
+				"segment_index": best_seg,
+				"tip_id": tip_id,
+				"tip_state": tip_state,
+				"distance": best_d,
+			})
+	return out
 
 
 static func fingerprint_for(sim: Node) -> Dictionary:

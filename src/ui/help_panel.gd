@@ -41,6 +41,8 @@ static func sections(dev_build: bool) -> Array:
 			"rows": [
 				["F", "Field overlay on / off"],
 				["`", "Tuning panel on / off"],
+				["F9", "Save debug snapshot (highlight tool)"],
+				["Shift+F9", "Quick snapshot (no highlights)"],
 			],
 		})
 	return result

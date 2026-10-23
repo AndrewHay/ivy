@@ -12,6 +12,7 @@ const _DebugSessionLog = preload("res://src/debug/debug_session_log.gd")
 const _SnapshotCapture = preload("res://src/debug/snapshot_capture.gd")
 const _SnapshotRecipe = preload("res://src/debug/snapshot_recipe.gd")
 const _SnapshotReplay = preload("res://src/debug/snapshot_replay.gd")
+const _SnapshotAnnotationOverlay = preload("res://src/ui/snapshot_annotation_overlay.gd")
 
 @export var params: IvyParams
 @export var mesh_scenario: Resource
@@ -36,6 +37,7 @@ var _session_log: RefCounted = null
 var _snapshot_save_busy: bool = false
 ## Bumped when leaving for the picker so an in-flight interactive env build can abort.
 var _bootstrap_generation: int = 0
+var _snapshot_annotation_overlay: Control = null
 
 
 func _enter_tree() -> void:
@@ -234,6 +236,8 @@ func _on_plant_success() -> void:
 
 
 func _try_plant_input(event: InputEvent) -> bool:
+	if _snapshot_annotation_overlay != null:
+		return false
 	if _planting_tool == null:
 		return false
 	var tool := _planting_tool as PlantingTool
@@ -368,6 +372,8 @@ func _snapshot_available() -> bool:
 		return false
 	if _loading_overlay != null:
 		return false
+	if _snapshot_annotation_overlay != null:
+		return false
 	return true
 
 
@@ -433,7 +439,7 @@ func load_snapshot_from_dir(spec: String) -> Dictionary:
 	return result
 
 
-func _save_debug_snapshot(_quick: bool) -> void:
+func _save_debug_snapshot(quick: bool) -> void:
 	var clock: SimClock = _sim.get_clock()
 	var prior_speed := clock.speed
 	clock.set_speed(SimClock.Speed.PAUSE)
@@ -444,17 +450,53 @@ func _save_debug_snapshot(_quick: bool) -> void:
 		push_error("Main: snapshot failed — no viewport image")
 		clock.set_speed(prior_speed)
 		return
-	var recipe = _SnapshotCapture.build_recipe(self, _session_log, _free_plant_mode)
+	var vp_size := get_viewport().get_visible_rect().size
+	var annotations: Array = []
+	var note := ""
+	var annotated_img: Image = null
+	if not quick:
+		var layer := CanvasLayer.new()
+		layer.layer = 25
+		layer.name = "SnapshotAnnotationLayer"
+		_ui.add_child(layer)
+		var overlay := _SnapshotAnnotationOverlay.new()
+		_snapshot_annotation_overlay = overlay
+		layer.add_child(overlay)
+		overlay.setup(img.duplicate(), vp_size)
+		var result := await _await_annotation_overlay(overlay)
+		annotated_img = overlay.render_annotated_image(img)
+		layer.queue_free()
+		_snapshot_annotation_overlay = null
+		if result.get("cancelled", true):
+			clock.set_speed(prior_speed)
+			return
+		annotations = result.get("annotations", [])
+		note = str(result.get("note", ""))
+	var recipe = _SnapshotCapture.build_recipe(self, _session_log, _free_plant_mode, note)
+	recipe.annotations = _SnapshotCapture.enrich_annotations(self, _sim, annotations, vp_size)
 	var folder_name := _SnapshotCapture.make_folder_name(
 		recipe.scene.get("building_id", "unknown"),
 		float(recipe.time.get("game_day", 0.0))
 	)
-	var dir_path := _SnapshotCapture.write_snapshot(recipe, img, folder_name)
+	var dir_path := _SnapshotCapture.write_snapshot(recipe, img, folder_name, annotated_img)
 	clock.set_speed(prior_speed)
 	if _hud != null:
 		_hud.show_snapshot_toast(folder_name)
 	DisplayServer.clipboard_set(folder_name)
 	print("[snapshot] saved ", dir_path)
+
+
+func _await_annotation_overlay(overlay: Control) -> Dictionary:
+	var result := {"cancelled": true, "annotations": [], "note": ""}
+	overlay.completed.connect(func(annotations: Array, note: String) -> void:
+		result = {"cancelled": false, "annotations": annotations, "note": note}
+	, CONNECT_ONE_SHOT)
+	overlay.cancelled.connect(func() -> void:
+		result = {"cancelled": true, "annotations": [], "note": ""}
+	, CONNECT_ONE_SHOT)
+	while overlay.is_inside_tree():
+		await get_tree().process_frame
+	return result
 
 
 func _handle_time_hotkey(event: InputEvent) -> bool:

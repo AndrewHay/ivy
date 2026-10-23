@@ -113,7 +113,8 @@ implemented. Remove the marker as each file lands.
 | `src/debug/debug_session_log.gd` | **[planned, ivy-nrp]** `DebugSessionLog` — append-only `plant_log` / `param_log` since session start; owned by `Main` (AR-SNAP-2). |
 | `src/debug/snapshot_recipe.gd` | **[planned, ivy-nrp]** `SnapshotRecipe` — schema v1 JSON for `.tmp/snapshots/<id>/snapshot.json` (AR-SNAP-1). |
 | `src/debug/snapshot_capture.gd` | **[planned, ivy-nrp]** `SnapshotCapture` — assemble recipe + git metadata + `RunHash`, write folder and PNGs (AR-SNAP-4). |
-| `src/ui/snapshot_annotation_overlay.gd` | **[planned, ivy-nrp]** `SnapshotAnnotationOverlay` — frozen-frame box/marker UI during save (AR-SNAP-6). |
+| `src/debug/snapshot_annotation_model.gd` | `SnapshotAnnotationModel` — normalised box/stroke geometry, undo/clear (AR-SNAP-6). |
+| `src/ui/snapshot_annotation_overlay.gd` | `SnapshotAnnotationOverlay` — frozen-frame box/marker UI during save (AR-SNAP-6). |
 | `src/debug/snapshot_replay.gd` | `SnapshotReplay` — resolve snapshot dir, replay `plant_log`/`param_log` to `tick_index`, verify `RunHash`, restore camera (AR-SNAP-3). |
 | `tools/replay_snapshot.gd` | CLI replay tool: `--snapshot=<folder|latest>`, prints MATCH/MISMATCH, writes `replay.png` (AR-SNAP-3). |
 | `test/test_debug_snapshot.gd` | **[planned, ivy-nrp]** Log reset rules, JSON round-trip, headless replay hash match (AR-SNAP-8). |

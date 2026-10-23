@@ -4,6 +4,8 @@ const DebugSessionLog = preload("res://src/debug/debug_session_log.gd")
 const SnapshotRecipe = preload("res://src/debug/snapshot_recipe.gd")
 const SnapshotCapture = preload("res://src/debug/snapshot_capture.gd")
 const SnapshotReplay = preload("res://src/debug/snapshot_replay.gd")
+const SnapshotAnnotationModel = preload("res://src/debug/snapshot_annotation_model.gd")
+const SnapshotAnnotationOverlay = preload("res://src/ui/snapshot_annotation_overlay.gd")
 const SimRoot = preload("res://src/sim/sim_root.gd")
 const RunHash = preload("res://src/metrics/run_hash.gd")
 const IvyParams = preload("res://src/params/ivy_params.gd")
@@ -107,3 +109,107 @@ func test_replay_to_tick_matches_saved_fingerprint() -> void:
 	assert_true(verdict["match"], "replay must MATCH saved run_hash (expected %s got %s)" % [
 		expected_hash, verdict.get("actual", "")
 	])
+
+
+func test_norm_rect_survives_viewport_resize() -> void:
+	var norm := Rect2(0.1, 0.2, 0.3, 0.4)
+	for vp in [Vector2(1920, 1080), Vector2(800, 600), Vector2(640, 480)]:
+		var px := SnapshotAnnotationModel.pixel_rect_from_norm(norm, vp)
+		var back := SnapshotAnnotationModel.norm_rect_from_pixels(px, vp)
+		assert_almost_eq(back.position.x, norm.position.x, 1e-5)
+		assert_almost_eq(back.size.y, norm.size.y, 1e-5)
+
+
+func test_annotation_model_undo_and_clear() -> void:
+	var model := SnapshotAnnotationModel.new()
+	model.add_box(Rect2(0.1, 0.1, 0.2, 0.2), "a")
+	model.add_box(Rect2(0.3, 0.3, 0.1, 0.1), "b")
+	assert_eq(model.entry_count(), 2)
+	model.undo()
+	assert_eq(model.entry_count(), 1)
+	model.clear()
+	assert_eq(model.entry_count(), 0)
+
+
+func test_sky_box_yields_empty_world_anchors() -> void:
+	var main := Node3D.new()
+	add_child_autofree(main)
+	var world := Node3D.new()
+	world.name = "World"
+	main.add_child(world)
+	var cam := Camera3D.new()
+	cam.name = "DebugCamera"
+	world.add_child(cam)
+	cam.current = true
+	await get_tree().process_frame
+	var entry: Dictionary = {
+		"kind": "box",
+		"id": 1,
+		"comment": "",
+		"rect": SnapshotAnnotationModel.rect_to_norm_dict(Rect2(0.45, 0.45, 0.1, 0.1)),
+	}
+	var enriched := SnapshotCapture.enrich_annotations(main, null, [entry], Vector2(800, 600))
+	assert_eq(enriched.size(), 1)
+	assert_eq(enriched[0]["world_anchors"].size(), 0)
+
+
+func test_box_over_wall_hits_collider() -> void:
+	var main := Node3D.new()
+	add_child_autofree(main)
+	var world := Node3D.new()
+	world.name = "World"
+	main.add_child(world)
+	var cam := Camera3D.new()
+	cam.name = "DebugCamera"
+	world.add_child(cam)
+	cam.position = Vector3(0.0, 0.0, 2.0)
+	cam.look_at(Vector3(0.0, 0.0, -5.0))
+	cam.current = true
+	var body := StaticBody3D.new()
+	body.name = "TestWall"
+	var shape := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(10.0, 10.0, 0.2)
+	shape.shape = box
+	body.add_child(shape)
+	body.position = Vector3(0.0, 0.0, -3.0)
+	world.add_child(body)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var entry: Dictionary = {
+		"kind": "box",
+		"id": 1,
+		"comment": "seam",
+		"rect": SnapshotAnnotationModel.rect_to_norm_dict(Rect2(0.4, 0.4, 0.2, 0.2)),
+	}
+	var enriched := SnapshotCapture.enrich_annotations(main, null, [entry], Vector2(800, 600))
+	assert_gt(enriched[0]["world_anchors"].size(), 0, "rays through box centre should hit the wall collider")
+
+
+func test_overlay_esc_emits_cancelled_without_completed() -> void:
+	var img := Image.create(64, 64, false, Image.FORMAT_RGB8)
+	var overlay := SnapshotAnnotationOverlay.new()
+	add_child_autofree(overlay)
+	overlay.setup(img, Vector2(64, 64))
+	watch_signals(overlay)
+	var esc := InputEventKey.new()
+	esc.keycode = KEY_ESCAPE
+	esc.pressed = true
+	overlay._input(esc)
+	assert_signal_emitted(overlay, "cancelled")
+	assert_signal_not_emitted(overlay, "completed")
+
+
+func test_overlay_esc_twice_discards_when_highlights_exist() -> void:
+	var img := Image.create(64, 64, false, Image.FORMAT_RGB8)
+	var overlay := SnapshotAnnotationOverlay.new()
+	add_child_autofree(overlay)
+	overlay.setup(img, Vector2(64, 64), [Rect2(0.1, 0.1, 0.2, 0.2)])
+	watch_signals(overlay)
+	var esc := InputEventKey.new()
+	esc.keycode = KEY_ESCAPE
+	esc.pressed = true
+	overlay._input(esc)
+	assert_signal_not_emitted(overlay, "cancelled")
+	overlay._input(esc)
+	assert_signal_emitted(overlay, "cancelled")
