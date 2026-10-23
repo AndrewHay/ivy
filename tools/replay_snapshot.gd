@@ -8,6 +8,7 @@ extends Node
 ## Non-headless only on macOS (viewport capture).
 
 const _MAIN_SCENE := "res://src/main/main.tscn"
+const _SnapshotReplay = preload("res://src/debug/snapshot_replay.gd")
 const _PRESENT_TIMEOUT_MS := 4000
 
 
@@ -42,6 +43,10 @@ func _ready() -> void:
 	else:
 		printerr("[replay-snapshot] MISMATCH expected=", verdict.get("expected", ""),
 			" actual=", verdict.get("actual", ""))
+	if recipe != null:
+		_SnapshotReplay.restore_camera(main, recipe)
+	for _f in range(3):
+		await get_tree().process_frame
 	if not await _present_fresh_frame():
 		printerr("[replay-snapshot] no fresh frame for replay.png")
 		get_tree().quit(1)

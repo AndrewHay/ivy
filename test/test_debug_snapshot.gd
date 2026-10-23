@@ -203,7 +203,7 @@ func test_overlay_esc_emits_cancelled_without_completed() -> void:
 	var esc := InputEventKey.new()
 	esc.keycode = KEY_ESCAPE
 	esc.pressed = true
-	overlay._unhandled_input(esc)
+	assert_true(overlay.handle_key_event(esc))
 	assert_signal_emitted(overlay, "cancelled")
 	assert_signal_not_emitted(overlay, "completed")
 
@@ -215,6 +215,34 @@ func test_snapshot_save_unavailable_on_building_picker() -> void:
 	assert_false(main._snapshot_available(), "F9 must be disabled while the picker is up")
 
 
+func test_overlay_save_emits_completed() -> void:
+	var img := Image.create(64, 64, false, Image.FORMAT_RGB8)
+	var overlay := SnapshotAnnotationOverlay.new()
+	add_child_autofree(overlay)
+	overlay.setup(img, Vector2(64, 64))
+	watch_signals(overlay)
+	overlay._on_save_pressed()
+	assert_signal_emitted(overlay, "completed")
+	assert_signal_not_emitted(overlay, "cancelled")
+
+
+func test_overlay_bm_ignored_while_note_field_focused() -> void:
+	var img := Image.create(64, 64, false, Image.FORMAT_RGB8)
+	var overlay := SnapshotAnnotationOverlay.new()
+	add_child_autofree(overlay)
+	overlay.setup(img, Vector2(64, 64))
+	overlay._tool = SnapshotAnnotationOverlay.Tool.MARKER
+	await get_tree().process_frame
+	overlay._note_field.grab_focus()
+	await get_tree().process_frame
+	assert_true(overlay._note_field.has_focus())
+	var b := InputEventKey.new()
+	b.keycode = KEY_B
+	b.pressed = true
+	assert_false(overlay.handle_key_event(b))
+	assert_eq(overlay._tool, SnapshotAnnotationOverlay.Tool.MARKER)
+
+
 func test_overlay_esc_twice_discards_when_highlights_exist() -> void:
 	var img := Image.create(64, 64, false, Image.FORMAT_RGB8)
 	var overlay := SnapshotAnnotationOverlay.new()
@@ -224,7 +252,7 @@ func test_overlay_esc_twice_discards_when_highlights_exist() -> void:
 	var esc := InputEventKey.new()
 	esc.keycode = KEY_ESCAPE
 	esc.pressed = true
-	overlay._unhandled_input(esc)
+	overlay.handle_key_event(esc)
 	assert_signal_not_emitted(overlay, "cancelled")
-	overlay._unhandled_input(esc)
+	overlay.handle_key_event(esc)
 	assert_signal_emitted(overlay, "cancelled")

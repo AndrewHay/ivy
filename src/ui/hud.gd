@@ -33,6 +33,7 @@ var _help_panel: PanelContainer = null
 var _sun_compass: Control = null
 var _session_log: RefCounted = null
 var _snapshot_button: Button = null
+var _toast_panel: PanelContainer = null
 var _toast_label: Label = null
 var _toast_timer: Timer = null
 
@@ -122,13 +123,28 @@ func set_snapshot_enabled(enabled: bool) -> void:
 		_snapshot_button.disabled = not enabled
 
 
-func show_snapshot_toast(folder_name: String) -> void:
-	if _toast_label == null:
+func show_snapshot_toast(dir_path: String) -> void:
+	if _toast_label == null or _toast_panel == null:
+		push_warning("Hud: snapshot toast UI missing (dev_build off?)")
 		return
-	_toast_label.text = "Snapshot saved — %s" % folder_name
-	_toast_label.visible = true
+	_toast_label.text = "Screenshot saved\n%s" % dir_path
+	_toast_panel.visible = true
+	_toast_panel.move_to_front()
+	_position_snapshot_toast()
 	if _toast_timer != null:
 		_toast_timer.start()
+
+
+func _position_snapshot_toast() -> void:
+	if _toast_panel == null:
+		return
+	var margin := 16.0
+	var vp := get_viewport_rect().size
+	_toast_panel.size = _toast_panel.get_combined_minimum_size()
+	_toast_panel.position = Vector2(
+		vp.x - _toast_panel.size.x - margin,
+		margin
+	)
 
 
 func is_help_open() -> bool:
@@ -199,6 +215,9 @@ func _build_ui() -> void:
 	margin.add_theme_constant_override("margin_right", 12)
 	margin.add_theme_constant_override("margin_bottom", 12)
 	add_child(margin)
+	if _params != null and _params.dev_build:
+		_build_snapshot_toast()
+		get_viewport().size_changed.connect(_position_snapshot_toast)
 
 	var root := VBoxContainer.new()
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -306,19 +325,41 @@ func _build_speed_row(parent: Control) -> void:
 		_snapshot_button.tooltip_text = "Save debug snapshot (F9). Shift+F9 skips annotation."
 		_snapshot_button.pressed.connect(func() -> void: debug_snapshot_requested.emit())
 		row.add_child(_snapshot_button)
-		_toast_label = _make_passthrough_label("")
-		_toast_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		_toast_label.add_theme_font_size_override("font_size", 16)
-		_toast_label.visible = false
-		row.get_parent().add_child(_toast_label)
-		_toast_timer = Timer.new()
-		_toast_timer.one_shot = true
-		_toast_timer.wait_time = 4.0
-		_toast_timer.timeout.connect(func() -> void:
-			if _toast_label != null:
-				_toast_label.visible = false
-		)
-		add_child(_toast_timer)
+
+
+func _build_snapshot_toast() -> void:
+	_toast_panel = PanelContainer.new()
+	_toast_panel.visible = false
+	_toast_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_toast_panel.top_level = true
+	_toast_panel.z_index = 4096
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.05, 0.08, 0.1, 0.92)
+	style.border_color = Color(0.65, 0.85, 0.6, 0.9)
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(6)
+	_toast_panel.add_theme_stylebox_override("panel", style)
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", 12)
+	pad.add_theme_constant_override("margin_right", 12)
+	pad.add_theme_constant_override("margin_top", 8)
+	pad.add_theme_constant_override("margin_bottom", 8)
+	_toast_panel.add_child(pad)
+	_toast_label = Label.new()
+	_toast_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_toast_label.custom_minimum_size = Vector2(280, 0)
+	_toast_label.add_theme_font_size_override("font_size", 15)
+	_toast_label.add_theme_color_override("font_color", Color(0.92, 0.96, 0.9))
+	pad.add_child(_toast_label)
+	add_child(_toast_panel)
+	_toast_timer = Timer.new()
+	_toast_timer.one_shot = true
+	_toast_timer.wait_time = 6.0
+	_toast_timer.timeout.connect(func() -> void:
+		if _toast_panel != null:
+			_toast_panel.visible = false
+	)
+	add_child(_toast_timer)
 
 
 func _make_button(text: String) -> Button:

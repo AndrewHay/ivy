@@ -19,9 +19,11 @@ var _draft_rect: Rect2
 var _draft_stroke: PackedVector2Array = PackedVector2Array()
 var _note_field: LineEdit
 var _comment_field: LineEdit
-var _background: TextureRect
+var _frozen_texture: ImageTexture
+var _chrome_bar: PanelContainer
 var _hint_label: Label
 var _discard_armed := false
+var _save_committed := false
 
 
 func setup(
@@ -35,19 +37,19 @@ func setup(
 	position = Vector2.ZERO
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	clip_contents = false
-	var tex := ImageTexture.create_from_image(frozen_image)
-	_background = TextureRect.new()
-	_background.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_background.texture = tex
-	_background.stretch_mode = TextureRect.STRETCH_SCALE
-	_background.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(_background)
+	_frozen_texture = ImageTexture.create_from_image(frozen_image)
 	for item in seed_norm_boxes:
 		if item is Rect2:
 			_model.add_box(item, "highlight")
 	_build_chrome()
+	focus_mode = Control.FOCUS_ALL
+	set_process_input(true)
+	set_process_shortcut_input(true)
 	set_process_unhandled_input(true)
-	call_deferred("_grab_ui_focus")
+	for field in [_note_field, _comment_field]:
+		field.gui_input.connect(_on_text_field_gui_input)
+	call_deferred("_focus_drawing_surface")
+	queue_redraw()
 
 
 func is_active() -> bool:
@@ -55,9 +57,11 @@ func is_active() -> bool:
 
 
 func _build_chrome() -> void:
-	var bar := PanelContainer.new()
-	bar.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-	bar.offset_top = -120
+	_chrome_bar = PanelContainer.new()
+	_chrome_bar.z_index = 10
+	_chrome_bar.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	_chrome_bar.offset_top = -120
+	var bar := _chrome_bar
 	var margin := MarginContainer.new()
 	margin.add_theme_constant_override("margin_left", 12)
 	margin.add_theme_constant_override("margin_right", 12)
@@ -67,7 +71,7 @@ func _build_chrome() -> void:
 	var col := VBoxContainer.new()
 	margin.add_child(col)
 	_hint_label = Label.new()
-	_hint_label.text = "Box (B) · Marker (M) · Undo Ctrl+Z · Enter save · Esc cancel"
+	_hint_label.text = "Click the image, then B box / M marker · Undo Ctrl+Z · Enter save · Esc cancel"
 	col.add_child(_hint_label)
 	_note_field = LineEdit.new()
 	_note_field.placeholder_text = "Note for this snapshot"
@@ -76,12 +80,28 @@ func _build_chrome() -> void:
 	_comment_field.placeholder_text = "Comment for the next highlight"
 	col.add_child(_comment_field)
 	var row := HBoxContainer.new()
+	var box_btn := Button.new()
+	box_btn.text = "Box (B)"
+	box_btn.pressed.connect(func() -> void:
+		_tool = Tool.BOX
+		_release_text_focus()
+	)
+	row.add_child(box_btn)
+	var marker_btn := Button.new()
+	marker_btn.text = "Marker (M)"
+	marker_btn.pressed.connect(func() -> void:
+		_tool = Tool.MARKER
+		_release_text_focus()
+	)
+	row.add_child(marker_btn)
 	var save_btn := Button.new()
 	save_btn.text = "Save snapshot"
+	save_btn.focus_mode = Control.FOCUS_NONE
 	save_btn.pressed.connect(_on_save_pressed)
 	row.add_child(save_btn)
 	var cancel_btn := Button.new()
 	cancel_btn.text = "Cancel"
+	cancel_btn.focus_mode = Control.FOCUS_NONE
 	cancel_btn.pressed.connect(_on_cancel_pressed)
 	row.add_child(cancel_btn)
 	col.add_child(row)
@@ -89,12 +109,14 @@ func _build_chrome() -> void:
 
 
 func _draw() -> void:
+	if _frozen_texture != null:
+		draw_texture_rect(_frozen_texture, Rect2(Vector2.ZERO, size), false)
 	for entry in _model.to_array():
 		_draw_entry(entry)
 	if _dragging and _tool == Tool.BOX and _draft_rect.size.length_squared() > 1.0:
 		_draw_norm_rect(_draft_rect, _model.entry_count() + 1)
 	elif _draft_stroke.size() > 1:
-		_draw_stroke_pixels(_pixel_points_from_norm_stroke(_draft_stroke), _model.entry_count() + 1)
+		_draw_stroke_pixels(_draft_stroke, _model.entry_count() + 1)
 
 
 func _draw_entry(entry: Dictionary) -> void:
@@ -136,49 +158,111 @@ func _draw_badge(at: Vector2, id: int) -> void:
 	draw_string(font, at + Vector2(4, 2), text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, Color.WHITE)
 
 
-func _grab_ui_focus() -> void:
-	if _note_field != null:
-		_note_field.grab_focus()
+func _focus_drawing_surface() -> void:
+	_release_text_focus()
+
+
+func _release_text_focus() -> void:
+	var owner := get_viewport().gui_get_focus_owner()
+	if owner == _note_field or owner == _comment_field:
+		(owner as Control).release_focus()
+	grab_focus()
+
+
+func _text_field_has_focus() -> bool:
+	return _note_field.has_focus() or _comment_field.has_focus()
+
+
+func _is_mouse_over_chrome_ui() -> bool:
+	var mp := get_global_mouse_position()
+	if _chrome_bar != null and _chrome_bar.get_global_rect().has_point(mp):
+		return true
+	return false
+
+
+func handle_key_event(key: InputEventKey) -> bool:
+	if not key.pressed or key.echo:
+		return false
+	return _apply_tool_key(key)
+
+
+func _on_text_field_gui_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo:
+		if _apply_chrome_key(event as InputEventKey):
+			(event as InputEvent).accept_event()
+
+
+func _input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo:
+		if _apply_tool_key(event as InputEventKey):
+			get_viewport().set_input_as_handled()
+
+
+func _shortcut_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo:
+		if _apply_tool_key(event as InputEventKey):
+			accept_event()
 
 
 func _gui_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo:
+		if _apply_tool_key(event as InputEventKey):
+			accept_event()
+			return
 	if event is InputEventMouseButton or event is InputEventMouseMotion:
-		_handle_overlay_input(event)
+		_handle_overlay_pointer(event)
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventKey:
-		_handle_overlay_input(event)
-
-
-func _handle_overlay_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
-		var key := event as InputEventKey
-		if key.keycode == KEY_B:
+		if _apply_tool_key(event as InputEventKey):
+			get_viewport().set_input_as_handled()
+
+
+func _apply_tool_key(key: InputEventKey) -> bool:
+	if _text_field_has_focus():
+		return false
+	if _apply_chrome_key(key):
+		return true
+	match key.keycode:
+		KEY_B:
 			_tool = Tool.BOX
-			accept_event()
-			return
-		if key.keycode == KEY_M:
+			_release_text_focus()
+			return true
+		KEY_M:
 			_tool = Tool.MARKER
-			accept_event()
-			return
-		if key.keycode == KEY_ENTER or key.keycode == KEY_KP_ENTER:
+			_release_text_focus()
+			return true
+	return false
+
+
+func _apply_chrome_key(key: InputEventKey) -> bool:
+	if _text_field_has_focus():
+		return false
+	match key.keycode:
+		KEY_ENTER, KEY_KP_ENTER:
 			_on_save_pressed()
-			accept_event()
-			return
-		if key.keycode == KEY_ESCAPE:
+			return true
+		KEY_ESCAPE:
 			_on_cancel_pressed()
-			accept_event()
-			return
-		if key.keycode == KEY_Z and (key.ctrl_pressed or key.meta_pressed):
-			_model.undo()
-			queue_redraw()
-			accept_event()
-			return
+			return true
+		KEY_Z:
+			if key.ctrl_pressed or key.meta_pressed:
+				_model.undo()
+				queue_redraw()
+				return true
+	return false
+
+
+func _handle_overlay_pointer(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
 		if mb.button_index != MOUSE_BUTTON_LEFT:
 			return
+		if mb.pressed and _is_mouse_over_chrome_ui():
+			return
+		if mb.pressed:
+			_release_text_focus()
 		if _tool == Tool.BOX:
 			if mb.pressed:
 				_dragging = true
@@ -214,9 +298,15 @@ func _handle_overlay_input(event: InputEvent) -> void:
 		accept_event()
 
 
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_VISIBILITY_CHANGED and visible:
+		call_deferred("_focus_drawing_surface")
+
+
 func _commit_box(pixel_rect: Rect2) -> void:
 	var comment := _take_comment()
 	_model.add_box(_Model.norm_rect_from_pixels(pixel_rect, _viewport_size), comment)
+	queue_redraw()
 
 
 func _commit_stroke(pixel_points: PackedVector2Array) -> void:
@@ -225,6 +315,7 @@ func _commit_stroke(pixel_points: PackedVector2Array) -> void:
 		norm_pts.append(_Model.norm_point(p, _viewport_size))
 	var comment := _take_comment()
 	_model.add_stroke(norm_pts, comment)
+	queue_redraw()
 
 
 func _pixel_points_from_norm_stroke(points: PackedVector2Array) -> PackedVector2Array:
@@ -245,6 +336,9 @@ func request_cancel() -> void:
 
 
 func _on_save_pressed() -> void:
+	if _save_committed:
+		return
+	_save_committed = true
 	completed.emit(_model.to_array(), _note_field.text.strip_edges())
 
 

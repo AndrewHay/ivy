@@ -324,9 +324,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	if _snapshot_annotation_overlay != null:
 		if event is InputEventKey and event.pressed and not event.echo:
 			var key := event as InputEventKey
-			if key.keycode == KEY_ESCAPE and _snapshot_annotation_overlay.has_method("request_cancel"):
-				_snapshot_annotation_overlay.call("request_cancel")
-				get_viewport().set_input_as_handled()
+			if _snapshot_annotation_overlay.has_method("handle_key_event"):
+				if _snapshot_annotation_overlay.call("handle_key_event", key):
+					get_viewport().set_input_as_handled()
 		return
 	if _try_plant_input(event):
 		return
@@ -452,9 +452,12 @@ func _save_debug_snapshot(quick: bool) -> void:
 	var clock: SimClock = _sim.get_clock()
 	var prior_speed := clock.speed
 	clock.set_speed(SimClock.Speed.PAUSE)
+	var prior_sun_day := clock.display_game_day()
+	_apply_snapshot_sun_noon(clock)
 	for _i in range(3):
 		await get_tree().process_frame
 	var img: Image = _capture_viewport_image()
+	_world.get_sky_sun().update(prior_sun_day, clock.seconds_per_game_day())
 	if img == null:
 		push_error("Main: snapshot failed — no viewport image")
 		clock.set_speed(prior_speed)
@@ -473,6 +476,7 @@ func _save_debug_snapshot(quick: bool) -> void:
 		if result.get("cancelled", true):
 			clock.set_speed(prior_speed)
 			return
+	print("[snapshot] writing files…")
 	var recipe = _SnapshotCapture.build_recipe(self, _session_log, _free_plant_mode, note)
 	recipe.annotations = _SnapshotCapture.enrich_annotations(self, _sim, annotations, display_size)
 	var folder_name := _SnapshotCapture.make_folder_name(
@@ -481,10 +485,51 @@ func _save_debug_snapshot(quick: bool) -> void:
 	)
 	var dir_path := _SnapshotCapture.write_snapshot(recipe, img, folder_name, annotated_img)
 	clock.set_speed(prior_speed)
-	if _hud != null:
-		_hud.show_snapshot_toast(folder_name)
-	DisplayServer.clipboard_set(folder_name)
-	print("[snapshot] saved ", dir_path)
+	await _notify_snapshot_saved(dir_path)
+
+
+func _notify_snapshot_saved(dir_path: String) -> void:
+	if dir_path.is_empty():
+		push_error("Main: snapshot save failed (no output folder)")
+		return
+	var line := "[snapshot] saved %s" % dir_path
+	print(line)
+	print_rich("[color=#8fd49a]%s[/color]" % line)
+	if _hud != null and _hud.has_method("show_snapshot_toast"):
+		await get_tree().process_frame
+		_hud.show_snapshot_toast(dir_path)
+	DisplayServer.clipboard_set(dir_path)
+
+
+func _close_snapshot_annotation_window(win: Window) -> void:
+	if win == null or not is_instance_valid(win):
+		return
+	win.hide()
+	win.queue_free()
+
+
+func _focus_snapshot_window(win: Window, overlay: Control) -> void:
+	call_deferred("_focus_snapshot_window_deferred", win, overlay)
+
+
+func _focus_snapshot_window_deferred(win: Window, overlay: Control) -> void:
+	if win != null and win.is_inside_tree():
+		win.grab_focus()
+	if overlay != null and overlay.is_inside_tree():
+		overlay.grab_focus()
+
+
+func _apply_snapshot_sun_noon(clock: SimClock) -> void:
+	var solar := Solar.new(params)
+	var day := clock.display_game_day()
+	var hour := solar.hour_of_day(day)
+	var delta_h := 12.0 - hour
+	if delta_h > 12.0:
+		delta_h -= 24.0
+	elif delta_h < -12.0:
+		delta_h += 24.0
+	var noon_day := day + delta_h / 24.0
+	_world.get_sky_sun().update(noon_day, clock.seconds_per_game_day())
 
 
 func _capture_viewport_image() -> Image:
@@ -520,20 +565,26 @@ func _run_snapshot_annotation_ui(frozen: Image, display_size: Vector2, full_imag
 	overlay.setup(frozen, display_size)
 	_refresh_snapshot_controls()
 	win.popup_centered(win.size)
+	_focus_snapshot_window(win, overlay)
 	overlay.completed.connect(func(annotations: Array, note: String) -> void:
-		result = {
-			"cancelled": false,
-			"annotations": annotations,
-			"note": note,
-			"annotated_image": overlay.render_annotated_image(full_image),
-		}
-		win.queue_free()
+		var annotated: Image = null
+		if is_instance_valid(overlay) and full_image != null:
+			annotated = overlay.render_annotated_image(full_image)
+		result["cancelled"] = false
+		result["annotations"] = annotations
+		result["note"] = note
+		result["annotated_image"] = annotated
+		_close_snapshot_annotation_window(win)
 	, CONNECT_ONE_SHOT)
 	overlay.cancelled.connect(func() -> void:
-		result = {"cancelled": true, "annotations": [], "note": "", "annotated_image": null}
-		win.queue_free()
+		result["cancelled"] = true
+		result["annotations"] = []
+		result["note"] = ""
+		result["annotated_image"] = null
+		_close_snapshot_annotation_window(win)
 	, CONNECT_ONE_SHOT)
-	await win.tree_exited
+	while is_instance_valid(win) and win.is_inside_tree():
+		await get_tree().process_frame
 	_snapshot_annotation_overlay = null
 	_refresh_snapshot_controls()
 	return result

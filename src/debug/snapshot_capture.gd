@@ -26,8 +26,12 @@ static func build_recipe(
 		"seed_index": world.get_seed_index() if world.has_method("get_seed_index") else 0,
 		"free_plant_mode": free_plant_mode,
 	}
-	recipe.plant_log = session_log.plant_log.duplicate(true)
-	recipe.param_log = session_log.param_log.duplicate(true)
+	if session_log != null:
+		recipe.plant_log = session_log.plant_log.duplicate(true)
+		recipe.param_log = session_log.param_log.duplicate(true)
+	else:
+		recipe.plant_log = []
+		recipe.param_log = []
 	recipe.param_overrides = _param_overrides(params)
 	recipe.time = {
 		"tick_index": clock.tick_index,
