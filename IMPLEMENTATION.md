@@ -1597,7 +1597,7 @@ rubric, the reference set, M1–M4, non-goals, R-1–R-6, and the 2026-08-09 rat
 `ivy_simulator_v0.1.md` §1–§35 (equations, §30 parameter table) · `TECHNICAL_INDEX.md` (bootstrap
 state) · `assets/CREDITS.md` · `assets/plants/ivy/LeafSet017/leaf_atlas.json` (with the
 `alpha_fill`/`tier` columns from SD-OPEN-4) · `assets/materials/brick/Bricks094/Bricks094_2K-JPG.tres` ·
-`project.godot`, `src/main/*`, `tools/*`, `test/*` · `.cursor/skills/{run-tests,run-ui-script,take-screenshot}` ·
+`project.godot`, `src/main/*`, `tools/*`, `test/*` · `.cursor/skills/{run-tests,run-ui-script,take-screenshot,revisit-snapshot}` ·
 `.cursor/rules/technical-index-maintenance.mdc` · `work-items/WORK_ITEMS.md`.
 
 **Authority order (unchanged).** `DESIGN.md` invariants → `ivy_simulator_v0.1.md` equations →
@@ -2477,7 +2477,7 @@ events (see AR-SNAP-3); it does not serialise `PlantData` or the field hash tabl
 | AR-SNAP-6 | **Annotation overlay (S3).** `SnapshotAnnotationOverlay : Control` lives on a dedicated `CanvasLayer` (layer above HUD/help). `Main` instantiates it only during save. Mouse filter `STOP` (ivy-6hh). Tools: box (B) and freehand marker (M), single highlight colour, numbered badges, per-highlight comment + overall note, undo/clear, Enter save / Esc cancel. Geometry stored normalised 0–1 in `snapshot.json` `annotations[]`. **World anchors:** at save time, raycast from the saved camera through box centre and a 3×3 grid in the box / sampled stroke points against `World`’s static collision (`PhysicsDirectSpaceState3D`); store hit position, normal, collider name. **Nearby plant:** nearest segments/leaves to those hits from `PlantData` (cap ~20), with tip ids/states — best-effort for agent navigation. |
 | AR-SNAP-7 | **`run_ui_script` verb.** `SNAPSHOT_LOAD <folder|latest>` — load recipe, replay to `tick_index`, restore camera; subsequent `ORBIT` / `SCREENSHOT` / `DUMP_*` verbs operate on the restored scene. `--orbit-highlight=<n>` on `replay_snapshot` writes extra PNGs orbiting annotation `n`’s world anchor (reuse `run_ui_script` orbit math). |
 | AR-SNAP-8 | **Determinism contract.** Logging and snapshot I/O perform **no** `randf` / `RandomNumberGenerator` use. Replay only calls existing `plant_at` and `params.set`; growth still advances only inside `SimRoot`’s tick loop (AR-RNG-2). `test_determinism.gd` must stay green; add `test_debug_snapshot.gd` for JSON round-trip, log reset rules, and headless replay hash match on a fixed 3-click script. |
-| AR-SNAP-9 | **Agent skill (S4).** `.cursor/skills/revisit-snapshot/SKILL.md` documents read → optional replay → embed `annotated.png` / `replay.png` / orbit shots; `HelpPanel.sections(dev_build)` gains F9 / Shift+F9 rows when implemented. |
+| AR-SNAP-9 | **Agent skill (S4).** `.cursor/skills/revisit-snapshot/SKILL.md` documents read → optional replay → embed `annotated.png` / `replay.png` / orbit shots; `HelpPanel.sections(dev_build)` lists F9 / Shift+F9. |
 
 **New files (ivy-nrp implementation):**
 
@@ -2486,8 +2486,10 @@ events (see AR-SNAP-3); it does not serialise `PlantData` or the field hash tabl
 | `src/debug/debug_session_log.gd` | `DebugSessionLog` | Append-only `plant_log` / `param_log`; `clear()`. |
 | `src/debug/snapshot_recipe.gd` | `SnapshotRecipe` | Schema v1 read/write; `to_json()` / `from_dict()`. |
 | `src/debug/snapshot_capture.gd` | `SnapshotCapture` | Build recipe from live scene; git metadata; write folder + PNGs. |
+| `src/debug/snapshot_annotation_model.gd` | `SnapshotAnnotationModel` | Normalised annotation geometry (AR-SNAP-6). |
 | `src/ui/snapshot_annotation_overlay.gd` | `SnapshotAnnotationOverlay` | Frozen-frame highlight UI (AR-SNAP-6). |
-| `tools/replay_snapshot.gd` / `.tscn` | — | CLI replay + `replay.png` + optional orbit-highlight (AR-SNAP-3, 7). |
+| `tools/replay_snapshot.gd` / `.tscn` | — | CLI replay + `replay.png` + `--orbit-highlight=<id>` (AR-SNAP-3, 7). |
+| `.cursor/skills/revisit-snapshot/SKILL.md` | — | Agent workflow for reading/replaying snapshots (AR-SNAP-9). |
 | `test/test_debug_snapshot.gd` | — | Log reset, JSON round-trip, headless replay hash (AR-SNAP-8). |
 
 **Touches existing files:** `Main` (log owner, F9, save flow, overlay host), `Hud` (save button), `DevOverlay` (param log callback), `World` (`_active_building_id`, getter), `DebugCamera` (`capture_state` / `restore_state`), `tools/run_ui_script.gd` (`SNAPSHOT_LOAD`), `help_panel.gd` (help rows).

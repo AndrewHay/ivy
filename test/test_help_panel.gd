@@ -30,6 +30,8 @@ func test_dev_keys_listed_only_in_dev_builds() -> void:
 	assert_false(_text(false).contains("`"), "player build must not list the dev panel key")
 	assert_string_contains(_text(true), "`")
 	assert_string_contains(_text(true), "Field")
+	assert_string_contains(_text(true), "F9")
+	assert_string_contains(_text(true), "Shift+F9")
 
 
 ## The speed rows must describe the speeds the number keys really select.

@@ -3,7 +3,7 @@ extends Node
 ## Replay a debug snapshot folder and write replay.png (ivy-nrp S2).
 ##
 ## Usage:
-##   Godot res://tools/replay_snapshot.tscn -- --snapshot=<folder|latest>
+##   Godot res://tools/replay_snapshot.tscn -- --snapshot=<folder|latest> [--orbit-highlight=<id>]
 ##
 ## Non-headless only on macOS (viewport capture).
 
@@ -35,6 +35,8 @@ func _ready() -> void:
 		return
 	var verdict: Dictionary = result.get("verdict", {})
 	var dir: String = result.get("dir", "")
+	var recipe: Variant = result.get("recipe")
+	var highlight_id: int = int(args.get("orbit_highlight", -1))
 	if verdict.get("match", false):
 		print("[replay-snapshot] MATCH run_hash=", verdict.get("actual", ""))
 	else:
@@ -56,6 +58,8 @@ func _ready() -> void:
 		get_tree().quit(1)
 		return
 	print("[replay-snapshot] wrote ", out_path)
+	if highlight_id >= 0 and recipe != null:
+		await _write_orbit_highlights(main, dir, recipe, highlight_id)
 	get_tree().quit(0 if verdict.get("match", false) else 1)
 
 
@@ -79,4 +83,63 @@ func _parse_args() -> Dictionary:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--snapshot="):
 			out["snapshot"] = a.substr(11)
+		elif a.begins_with("--orbit-highlight="):
+			out["orbit_highlight"] = a.substr(18)
 	return out
+
+
+func _write_orbit_highlights(main: Node, dir: String, recipe: Variant, ann_id: int) -> void:
+	var focal: Variant = _focal_for_annotation(recipe, ann_id)
+	if focal == null:
+		printerr("[replay-snapshot] no world_anchors for annotation id ", ann_id)
+		return
+	var world: Node3D = main.get_node_or_null("World") as Node3D
+	if world == null:
+		return
+	var orbit_cam := world.get_node_or_null("ReplayOrbitCam") as Camera3D
+	if orbit_cam == null:
+		orbit_cam = Camera3D.new()
+		orbit_cam.name = "ReplayOrbitCam"
+		world.add_child(orbit_cam)
+	var radius := 5.0
+	var height: float = focal.y + 1.5
+	for az_deg in [0, 90, 180, 270]:
+		var az := deg_to_rad(float(az_deg))
+		var eye := Vector3(
+			focal.x + sin(az) * radius,
+			height,
+			focal.z + cos(az) * radius
+		)
+		orbit_cam.look_at_from_position(eye, focal)
+		orbit_cam.make_current()
+		if not await _present_fresh_frame():
+			continue
+		var shot: Image = get_viewport().get_texture().get_image()
+		if shot == null:
+			continue
+		var orbit_path := dir.path_join("orbit_highlight_%d_%d.png" % [ann_id, az_deg])
+		if shot.save_png(orbit_path) == OK:
+			print("[replay-snapshot] wrote ", orbit_path)
+
+
+func _focal_for_annotation(recipe: Variant, ann_id: int) -> Variant:
+	var annotations: Array = recipe.annotations if recipe != null else []
+	for entry in annotations:
+		if int(entry.get("id", -1)) != ann_id:
+			continue
+		var anchors: Array = entry.get("world_anchors", [])
+		if anchors.is_empty():
+			return null
+		var sum := Vector3.ZERO
+		var count := 0
+		for a in anchors:
+			var pos: Array = a.get("position", [])
+			if pos.size() < 3:
+				continue
+			sum += Vector3(float(pos[0]), float(pos[1]), float(pos[2]))
+			count += 1
+		if count == 0:
+			return null
+		return sum / float(count)
+	printerr("[replay-snapshot] annotation id not found: ", ann_id)
+	return null

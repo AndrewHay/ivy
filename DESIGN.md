@@ -1944,6 +1944,18 @@ rejected as conflating the still-open residual into the baseline.
 
 ---
 
+## Developer debug snapshots (ivy-nrp)
+
+When `dev_build` is on, the owner can save a **debug snapshot** (F9 with optional on-screen
+highlights, Shift+F9 for a quick capture without the overlay). Each save records the camera,
+building, seed, plant/param event log, simulation tick, determinism fingerprint, and optional
+annotated regions with world-space anchors — enough to rebuild the same plant later or to hand
+the folder to an agent. Snapshots live under `.tmp/snapshots/` (not committed). Agents revisit
+them via `.cursor/skills/revisit-snapshot/SKILL.md` (read JSON/PNGs and/or replay with
+`tools/replay_snapshot.gd`). This is a developer handoff affordance, not a player save system.
+
+---
+
 
 
 ## Handoff

@@ -111,6 +111,7 @@ Plain `.txt`, one verb per line, `#` comments and blank lines ignored.
 | `CAMERA <name\|index>` | Switch to a `CameraRig` child camera by name (`sun`, `shade`, `top`, `silhouette`) or 0-based index |
 | `DUMP_LEAF_COLOUR [seed_azimuth_deg]` | Emit LG-2a (area-weighted mean `Color.g` delta, sun vs shade hemisphere) and LG-2b (healthy-tier area-fraction delta). Reports PASS/FAIL against SD-METRIC-7 thresholds |
 | `ORBIT <azimuth_deg> [radius_m=8] [height_m=2]` | Throwaway camera on a circle around `World.get_orbit_pivot()`, aimed at the pivot; 0 = CamSun side; `CAMERA` switches back |
+| `SNAPSHOT_LOAD <folder\|latest>` | Load a debug snapshot recipe, replay to saved tick, restore camera (ivy-nrp) |
 | `SCREENSHOT [name.png]` | Capture a PNG into the output directory |
 
 ## Determinism: always pause, then advance
