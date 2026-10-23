@@ -192,6 +192,7 @@ func _try_load_cached_bake(bounds: AABB, identity: PackedByteArray) -> bool:
 		return true
 	# A rejection and a miss end the same way — re-bake — and differ only in that this one is
 	# loud. `LightBake.bake()` clears the partially loaded grid itself, so nothing to undo.
+	LightBakeCache.remove_entry(identity, LightBakeCache.params_hash(params))
 	push_error(
 		("LightBakeCache: verification probe rejected the cached bake for %s; re-baking. The "
 		+ "cache key is missing an input that changed — see LightBakeCache's header.")
@@ -202,6 +203,11 @@ func _try_load_cached_bake(bounds: AABB, identity: PackedByteArray) -> bool:
 
 func _save_cached_bake(bounds: AABB, identity: PackedByteArray) -> void:
 	if identity.is_empty():
+		return
+	if not LightBakeCache.verify_against_surface(_bake, surface):
+		push_error(
+			"IvyEnvironment: refusing to save an unverified coarse light bake to disk (ivy-76q)"
+		)
 		return
 	LightBakeCache.save(_bake, bounds, identity, LightBakeCache.params_hash(params))
 
@@ -233,6 +239,7 @@ func _try_load_cached_fine(
 		_field = candidate
 		loaded_fine_from_cache = true
 		return true
+	LightBakeCache.remove_fine_entry(identity, fine_ph)
 	# Same asymmetry as the coarse probe: a rejection and a miss both end in a fresh fill: this
 	# one is loud because the cache key matched but the contents did not, which means the key
 	# is missing an input that changed.

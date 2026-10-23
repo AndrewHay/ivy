@@ -33,6 +33,7 @@ func _make_sim_for(preset: ArchetypePreset, spec: WallSpec) -> SimRoot:
 	var wall := Wall.new()
 	add_child_autofree(wall)
 	wall.build_from_spec(spec, true)
+	await get_tree().physics_frame  # ivy-76q: commit trimesh before light-bake raycasts
 
 	var params := preset.build_params()
 	var sq := SurfaceQuery.new()
@@ -51,10 +52,7 @@ func _make_sim_for(preset: ArchetypePreset, spec: WallSpec) -> SimRoot:
 ## Seed the sim from preset positions and advance to preset.day.
 ## Returns the populated sim; caller owns it and must free if needed.
 func _run_preset(preset: ArchetypePreset, spec: WallSpec) -> SimRoot:
-	# _make_sim_for is a plain function (no coroutine / await inside it).
-	# M-2 fix (ivy-6bq): removed the redundant `await` that was a lint smell.
-	var sim := _make_sim_for(preset, spec)
-	await get_tree().physics_frame
+	var sim := await _make_sim_for(preset, spec)
 
 	for pos: Vector3 in preset.seed_positions(spec):
 		sim.plant_at(pos, Conv.SOUTH)

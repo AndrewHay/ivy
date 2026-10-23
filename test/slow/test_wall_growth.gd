@@ -13,11 +13,15 @@ const TICKS_PER_DAY := 24
 const GAME_DAYS := 30
 
 
+## Coroutine: commit the ConcavePolygonShape3D before `SimRoot.setup()` runs the light bake
+## (ivy-76q). Same key as Main's `test_wall` (`wall_spec_default`); baking one frame early
+## wrote leak=1.0 and poisoned `test_change_building`.
 func _make_wall_sim() -> SimRoot:
 	var wall := Wall.new()
 	add_child_autofree(wall)
 	var spec := load("res://src/world/wall_spec_default.tres") as WallSpec
 	wall.build_from_spec(spec, true)
+	await get_tree().physics_frame
 	var sq := SurfaceQuery.new()
 	sq.setup(
 		wall.get_world_3d().direct_space_state,
@@ -34,7 +38,6 @@ func _make_wall_sim() -> SimRoot:
 func test_wall_growth_from_midpoint_seed() -> void:
 	var spec := load("res://src/world/wall_spec_default.tres") as WallSpec
 	var sim := await _make_wall_sim()
-	await get_tree().physics_frame
 	sim.advance_ticks(TICKS_PER_DAY * GAME_DAYS)
 	assert_gt(sim.plant.total_length, 0.0, "expected growth on procedural wall")
 	assert_gt(sim.tips.tips.size(), 0)

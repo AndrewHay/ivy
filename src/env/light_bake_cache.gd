@@ -45,6 +45,7 @@ const _CODE_FILES: Array[String] = [
 	"res://src/world/mesh_sdf.gd",
 	"res://src/world/tower_sdf.gd",
 	"res://src/world/wall_sdf.gd",
+	"res://src/world/overhang_sdf.gd",
 	# Reached through `SurfaceQuery.project_to_shell`, which decides where on the shell each
 	# coarse cell's rays start — for TowerSdf that includes the opening-footprint snap.
 	"res://src/world/opening_footprint.gd",
@@ -105,6 +106,24 @@ static func code_hash() -> PackedByteArray:
 			ctx.update("<unreadable>".to_utf8_buffer())
 	_code_hash_cache = ctx.finish()
 	return _code_hash_cache
+
+
+## Remove a disk entry after verification rejects it so the next load is a miss, not another
+## loud rejection over the same stale file (ivy-76q).
+static func remove_entry(identity: PackedByteArray, params_hash: PackedByteArray) -> void:
+	if identity.size() != HASH_BYTES or params_hash.size() != HASH_BYTES:
+		return
+	var path := cache_path(identity, params_hash)
+	if FileAccess.file_exists(path):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+
+static func remove_fine_entry(identity: PackedByteArray, fine_ph: PackedByteArray) -> void:
+	if identity.size() != HASH_BYTES or fine_ph.size() != HASH_BYTES:
+		return
+	var path := fine_cache_path(identity, fine_ph)
+	if FileAccess.file_exists(path):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 
 
 static func cache_path(identity: PackedByteArray, params_hash: PackedByteArray) -> String:

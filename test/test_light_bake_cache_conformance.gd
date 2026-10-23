@@ -13,6 +13,9 @@ const TowerSpec = preload("res://src/world/tower_spec.gd")
 const TowerSdf = preload("res://src/world/tower_sdf.gd")
 const WallSpec = preload("res://src/world/wall_spec.gd")
 const WallSdf = preload("res://src/world/wall_sdf.gd")
+const Wall = preload("res://src/world/wall.gd")
+const LightBake = preload("res://src/env/light_bake.gd")
+const Solar = preload("res://src/env/solar.gd")
 
 const PARAMS_PATH := "res://src/params/ivy_params.gd"
 
@@ -272,6 +275,41 @@ func test_identity_separates_bakes_with_and_without_a_physics_space() -> void:
 	assert_ne(
 		spaceless.bake_identity(), spaced.bake_identity(),
 		"a space-less bake must not share a cache key with a bake that can see occluders"
+	)
+
+
+## ivy-76q: `bake_identity()` namespaces space vs nospace but not physics-server commit timing.
+## A ConcavePolygonShape3D is invisible to raycasts until after `physics_frame`; baking early
+## shares the committed key yet stores leak/SVF from rays that missed the wall.
+func test_coarse_bake_before_physics_commit_fails_verification_after_commit() -> void:
+	var spec := load("res://src/world/wall_spec_default.tres") as WallSpec
+	var wall := Wall.new()
+	add_child_autofree(wall)
+	wall.build_from_spec(spec, true)
+	var params := IvyParams.new()
+	var sq_early := SurfaceQuery.new()
+	sq_early.setup(
+		wall.get_world_3d().direct_space_state,
+		wall,
+		WallSdf.new(spec),
+		wall.face_material,
+		params
+	)
+	var bounds := sq_early.shell_bounds(params.field_shell_halfwidth + params.field_cell)
+	var bake := LightBake.new(params, Solar.new(params))
+	bake.bake(sq_early, bounds)
+	await get_tree().physics_frame
+	var sq_late := SurfaceQuery.new()
+	sq_late.setup(
+		wall.get_world_3d().direct_space_state,
+		wall,
+		WallSdf.new(spec),
+		wall.face_material,
+		params
+	)
+	assert_false(
+		LightBakeCache.verify_against_surface(bake, sq_late),
+		"a bake run before the trimesh commits must not verify against the same keyed surface afterward"
 	)
 
 
