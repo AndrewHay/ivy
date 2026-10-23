@@ -1,7 +1,7 @@
 class_name PlantingTool
 extends Node3D
 
-signal planted
+signal planted_at(position: Vector3, normal: Vector3)
 
 ## Ground-click ivy placement with a glowing surface marker (M6).
 
@@ -61,12 +61,10 @@ func try_plant(event: InputEvent) -> bool:
 		_last_click_msg = "rejected: %s" % reason
 		print("[plant] ", _last_click_msg)
 		return false
-	if _sim.has_method("plant_at"):
-		_sim.plant_at(hit.position, hit.normal)
-		_last_click_msg = "planted at (%.2f, %.2f, %.2f)" % [hit.position.x, hit.position.y, hit.position.z]
-		print("[plant] ", _last_click_msg)
-		planted.emit()
-		return true
+	_last_click_msg = "planted at (%.2f, %.2f, %.2f)" % [hit.position.x, hit.position.y, hit.position.z]
+	print("[plant] ", _last_click_msg)
+	planted_at.emit(hit.position, hit.normal)
+	return true
 	_last_click_msg = "sim has no plant_at()"
 	return false
 

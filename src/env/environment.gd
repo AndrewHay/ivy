@@ -68,7 +68,8 @@ func build_interactive(
 	surf: SurfaceQuery,
 	tree: SceneTree,
 	on_progress: Callable,
-	sun: Solar = null
+	sun: Solar = null,
+	alive: Callable = Callable()
 ) -> void:
 	const P_ALLOC := 0.06
 	const P_CACHE := 0.10
@@ -83,6 +84,8 @@ func build_interactive(
 	solar = sun if sun != null else Solar.new(p)
 	on_progress.call("Allocating environment field…", P_ALLOC * 0.5)
 	await tree.process_frame
+	if _bootstrap_aborted(alive):
+		return
 	_grid = CellGrid.new(params.field_cell)
 	_field = SparseHashField.new(params.field_cell)
 	var bounds := surface.shell_bounds(params.field_shell_halfwidth + params.field_cell)
@@ -91,6 +94,8 @@ func build_interactive(
 	var identity := _bake_identity()
 	on_progress.call("Checking sunlight cache…", P_CACHE * 0.5)
 	await tree.process_frame
+	if _bootstrap_aborted(alive):
+		return
 	var coarse_loaded := _try_load_cached_bake(bounds, identity)
 	on_progress.call(
 		"Sunlight cache hit — skipping ray trace" if coarse_loaded else "Sunlight cache miss",
@@ -99,6 +104,8 @@ func build_interactive(
 	if not coarse_loaded:
 		on_progress.call("Ray-tracing sunlight (first run ~30–60s)…", P_RAY_START)
 		await tree.process_frame
+		if _bootstrap_aborted(alive):
+			return
 		var ray_span := P_RAY_END - P_RAY_START
 		await _bake.bake_interactive(
 			surface,
@@ -108,12 +115,17 @@ func build_interactive(
 				on_progress.call(
 					"Ray-tracing sunlight (first run ~30–60s)…",
 					P_RAY_START + ray_span * local
-				)
+				),
+			alive
 		)
+		if _bootstrap_aborted(alive):
+			return
 		_save_cached_bake(bounds, identity)
 	var fine_ph := LightBakeCache.fine_params_hash(params)
 	on_progress.call("Checking light-field cache…", P_FILL_CACHE * 0.5)
 	await tree.process_frame
+	if _bootstrap_aborted(alive):
+		return
 	var fine_loaded := _try_load_cached_fine(bounds, identity, fine_ph)
 	on_progress.call(
 		"Light-field cache hit — skipping field fill" if fine_loaded else "Light-field cache miss",
@@ -123,6 +135,8 @@ func build_interactive(
 		_field.allocate_shell(surface, params.field_shell_halfwidth, bounds)
 		on_progress.call("Filling light field…", P_FILL_START)
 		await tree.process_frame
+		if _bootstrap_aborted(alive):
+			return
 		var fill_span := P_FILL_END - P_FILL_START
 		await _bake.fill_field_interactive(
 			surface,
@@ -130,14 +144,21 @@ func build_interactive(
 			_grid,
 			tree,
 			func(local: float) -> void:
-				on_progress.call("Filling light field…", P_FILL_START + fill_span * local)
+				on_progress.call("Filling light field…", P_FILL_START + fill_span * local),
+			alive
 		)
+		if _bootstrap_aborted(alive):
+			return
 		_save_cached_fine(bounds, identity, fine_ph)
 	_field.set_all(SparseHashField.Channel.CROWDING, 0.0)
 	_field.set_all(SparseHashField.Channel.MATERIAL_ID, float(MaterialRegistry.BRICK_WALL))
 	_baseline_p_bar = _bake.diffuse_baseline_p_bar()
 	warm_up(params.light_warmup_days)
 	on_progress.call("Ready", 1.0)
+
+
+static func _bootstrap_aborted(alive: Callable) -> bool:
+	return alive.is_valid() and not alive.call()
 
 
 # --- Coarse-bake disk cache (ivy-9xp). Both build paths share these three steps. ---

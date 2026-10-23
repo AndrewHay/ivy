@@ -8,6 +8,10 @@ const _BuildingPicker = preload("res://src/ui/building_picker.gd")
 const _PlantingTool = preload("res://src/ui/planting_tool.gd")
 
 const _LoadingOverlay = preload("res://src/ui/loading_overlay.gd")
+const _DebugSessionLog = preload("res://src/debug/debug_session_log.gd")
+const _SnapshotCapture = preload("res://src/debug/snapshot_capture.gd")
+const _SnapshotRecipe = preload("res://src/debug/snapshot_recipe.gd")
+const _SnapshotReplay = preload("res://src/debug/snapshot_replay.gd")
 
 @export var params: IvyParams
 @export var mesh_scenario: Resource
@@ -28,6 +32,10 @@ var _field_viz: Node3D
 var _planting_tool: Node3D
 var _free_plant_mode: bool = false
 var _loading_overlay: LoadingOverlay = null
+var _session_log: RefCounted = null
+var _snapshot_save_busy: bool = false
+## Bumped when leaving for the picker so an in-flight interactive env build can abort.
+var _bootstrap_generation: int = 0
 
 
 func _enter_tree() -> void:
@@ -56,6 +64,8 @@ func _show_building_picker() -> void:
 
 
 func _on_building_selected(building_id: String) -> void:
+	_bootstrap_generation += 1
+	_session_log = null
 	_loading_overlay = _LoadingOverlay.new()
 	_loading_overlay.name = "LoadingOverlay"
 	_ui.add_child(_loading_overlay)
@@ -136,6 +146,9 @@ func _bootstrap_simulation(auto_seed: bool) -> bool:
 		push_error("Main: surface query failed during bootstrap")
 		return false
 	if _free_plant_mode:
+		var gen := _bootstrap_generation
+		var alive := func() -> bool:
+			return gen == _bootstrap_generation
 		await _sim.setup_interactive(
 			params,
 			surface,
@@ -144,8 +157,12 @@ func _bootstrap_simulation(auto_seed: bool) -> bool:
 			_world.get_mesh_scenario(),
 			_world.get_seed_index(),
 			_world.get_seed_anchors(),
-			auto_seed
+			auto_seed,
+			alive
 		)
+		if not alive.call():
+			push_warning("Main: interactive bootstrap cancelled (returned to picker)")
+			return false
 	else:
 		_sim.setup(
 			params,
@@ -180,18 +197,28 @@ func _start_free_plant_session() -> bool:
 	_hud = _Hud.new() as Control
 	_hud.name = "Hud"
 	_ui.add_child(_hud)
+	_session_log = _DebugSessionLog.new()
 	_hud.change_building_requested.connect(return_to_picker)
-	_hud.setup(_world, _sim, params, true)
+	_hud.debug_snapshot_requested.connect(_on_debug_snapshot_requested)
+	_hud.setup(_world, _sim, params, true, _session_log)
+	_refresh_snapshot_controls()
 	if params.dev_build:
 		_setup_dev_tools()
 	_planting_tool = _PlantingTool.new()
 	_planting_tool.name = "PlantingTool"
 	_world.add_child(_planting_tool)
 	_planting_tool.setup(_world, _sim, params, _debug_camera)
-	(_planting_tool as PlantingTool).planted.connect(_on_plant_success)
+	(_planting_tool as PlantingTool).planted_at.connect(_on_planted_at)
 	if _hud.has_method("set_planting_tool"):
 		_hud.set_planting_tool(_planting_tool as PlantingTool)
 	return true
+
+
+func _on_planted_at(position: Vector3, normal: Vector3) -> void:
+	if _session_log != null:
+		_session_log.record_plant(_sim.get_clock().tick_index, position, normal)
+	_sim.plant_at(position, normal)
+	_on_plant_success()
 
 
 func _on_plant_success() -> void:
@@ -236,6 +263,7 @@ func _finish_planting_session() -> void:
 func return_to_picker() -> void:
 	if script_driven or _hud == null:
 		return  # no interactive session to leave (also stops a double press)
+	_bootstrap_generation += 1
 	_finish_planting_session()  # tool + its camera/HUD hooks, if the player never planted
 	_discard(_hud)
 	_hud = null
@@ -251,6 +279,7 @@ func return_to_picker() -> void:
 	if clock != null:
 		clock.set_speed(SimClock.Speed.PAUSE)
 	_sim.clear_plants()
+	_session_log = null
 	# The debug camera must not answer keys behind the picker; give the view back to the
 	# authored camera (made current here so debug_camera.gd keeps its write-only-in-input rule).
 	_debug_camera.suspend()
@@ -277,7 +306,10 @@ func _setup_dev_tools() -> void:
 	_dev_overlay = _DevOverlay.new()
 	_dev_overlay.name = "DevOverlay"
 	dev_layer.add_child(_dev_overlay)
-	_dev_overlay.setup(_sim, params)
+	_dev_overlay.setup(_sim, params, func(tick: int, name: String, value: Variant) -> void:
+		if _session_log != null:
+			_session_log.record_param(tick, name, value)
+	)
 	_field_viz = _FieldViz.new() as Node3D
 	_field_viz.name = "FieldViz"
 	_world.add_child(_field_viz)
@@ -287,7 +319,11 @@ func _setup_dev_tools() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if _try_plant_input(event):
 		return
-	if not script_driven and (_handle_help_key(event) or _handle_time_hotkey(event)):
+	if not script_driven and (
+		_handle_help_key(event)
+		or _handle_time_hotkey(event)
+		or _handle_snapshot_key(event)
+	):
 		return
 	if script_driven or params == null or not params.dev_build:
 		return
@@ -325,6 +361,102 @@ func _handle_help_key(event: InputEvent) -> bool:
 
 ## Space toggles pause, 1/2/3 select Watch/Fast/Grow. Inactive until the player has planted:
 ## while aiming the clock is deliberately paused and there is no plant to run.
+func _snapshot_available() -> bool:
+	if script_driven or params == null or not params.dev_build or _hud == null:
+		return false
+	if _ui.get_node_or_null("BuildingPicker") != null:
+		return false
+	if _loading_overlay != null:
+		return false
+	return true
+
+
+func _refresh_snapshot_controls() -> void:
+	if _hud != null and _hud.has_method("set_snapshot_enabled"):
+		_hud.set_snapshot_enabled(_snapshot_available())
+
+
+func _handle_snapshot_key(event: InputEvent) -> bool:
+	if not _snapshot_available() or not event is InputEventKey:
+		return false
+	if _hud.is_help_open():
+		return false
+	var key := event as InputEventKey
+	if not key.pressed or key.echo or key.keycode != KEY_F9:
+		return false
+	_queue_snapshot_save(key.shift_pressed)
+	get_viewport().set_input_as_handled()
+	return true
+
+
+func _on_debug_snapshot_requested() -> void:
+	_queue_snapshot_save(false)
+
+
+func _queue_snapshot_save(quick: bool) -> void:
+	if _snapshot_save_busy or not _snapshot_available():
+		return
+	_snapshot_save_busy = true
+	_co_snapshot_save(quick)
+
+
+func _co_snapshot_save(quick: bool) -> void:
+	await _save_debug_snapshot(quick)
+	_snapshot_save_busy = false
+
+
+## Script-driven replay entry (SNAPSHOT_LOAD / replay_snapshot tool).
+func load_snapshot_recipe(recipe) -> Dictionary:
+	await _load_building(str(recipe.scene.get("building_id", "cylinder")))
+	_free_plant_mode = bool(recipe.scene.get("free_plant_mode", true))
+	_world.set_seed_index(int(recipe.scene.get("seed_index", 0)))
+	var ok := await _bootstrap_simulation(false)
+	if not ok:
+		return {"ok": false, "reason": "bootstrap failed"}
+	_sim.set_seed_index(int(recipe.scene.get("seed_index", 0)))
+	_SnapshotReplay.replay_to_tick(_sim, params, recipe)
+	var verdict: Dictionary = _SnapshotReplay.verify_fingerprint(_sim, recipe)
+	_SnapshotReplay.restore_camera(self, recipe)
+	return {"ok": true, "verdict": verdict}
+
+
+func load_snapshot_from_dir(spec: String) -> Dictionary:
+	var dir := _SnapshotReplay.resolve_dir(spec)
+	if dir.is_empty():
+		return {"ok": false, "reason": "snapshot not found: %s" % spec}
+	var recipe = _SnapshotRecipe.read_json(dir.path_join("snapshot.json"))
+	if recipe == null:
+		return {"ok": false, "reason": "invalid snapshot.json in %s" % dir}
+	var result := await load_snapshot_recipe(recipe)
+	result["dir"] = dir
+	result["recipe"] = recipe
+	return result
+
+
+func _save_debug_snapshot(_quick: bool) -> void:
+	var clock: SimClock = _sim.get_clock()
+	var prior_speed := clock.speed
+	clock.set_speed(SimClock.Speed.PAUSE)
+	for _i in range(3):
+		await get_tree().process_frame
+	var img: Image = get_viewport().get_texture().get_image()
+	if img == null:
+		push_error("Main: snapshot failed — no viewport image")
+		clock.set_speed(prior_speed)
+		return
+	var recipe = _SnapshotCapture.build_recipe(self, _session_log, _free_plant_mode)
+	var folder_name := _SnapshotCapture.make_folder_name(
+		recipe.scene.get("building_id", "unknown"),
+		float(recipe.time.get("game_day", 0.0))
+	)
+	var dir_path := _SnapshotCapture.write_snapshot(recipe, img, folder_name)
+	clock.set_speed(prior_speed)
+	if _hud != null:
+		_hud.show_snapshot_toast(folder_name)
+	DisplayServer.clipboard_set(folder_name)
+	print("[snapshot] saved ", dir_path)
+
+
 func _handle_time_hotkey(event: InputEvent) -> bool:
 	if _hud == null or _planting_tool != null or _sim == null:
 		return false

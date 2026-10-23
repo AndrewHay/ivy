@@ -58,7 +58,8 @@ func setup_interactive(
 	scenario = null,
 	seed_index: int = 0,
 	anchors = null,
-	auto_seed: bool = false
+	auto_seed: bool = false,
+	alive: Callable = Callable()
 ) -> void:
 	params = p
 	for problem in params.validate():
@@ -73,7 +74,9 @@ func setup_interactive(
 	plant = PlantData.new()
 	tips = TipManager.new()
 	env = IvyEnvironment.new()
-	await env.build_interactive(params, surface, tree, on_progress, solar)
+	await env.build_interactive(params, surface, tree, on_progress, solar, alive)
+	if alive.is_valid() and not alive.call():
+		return
 	env.set_writer_guard(Physiology)
 	ctx = SimContext.new(params, env, surface, plant, tips, clock)
 	if _scenario != null:

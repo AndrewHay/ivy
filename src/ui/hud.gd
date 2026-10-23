@@ -5,6 +5,7 @@ extends Control
 
 ## Player asked to leave this building and pick another. Main owns the teardown.
 signal change_building_requested
+signal debug_snapshot_requested
 
 const SeedAnchorsScript = preload("res://src/world/seed_anchors.gd")
 const _HelpPanel = preload("res://src/ui/help_panel.gd")
@@ -30,6 +31,10 @@ var _sim_status: Label = null
 var _planting_tool: PlantingTool = null
 var _help_panel: PanelContainer = null
 var _sun_compass: Control = null
+var _session_log: RefCounted = null
+var _snapshot_button: Button = null
+var _toast_label: Label = null
+var _toast_timer: Timer = null
 
 
 func set_planting_tool(tool: PlantingTool) -> void:
@@ -56,11 +61,18 @@ func finish_planting_mode() -> void:
 				(child as Label).text = _CAMERA_HINT
 
 
-func setup(world: Node, sim: Node, params: IvyParams, free_plant_mode: bool = false) -> void:
+func setup(
+	world: Node,
+	sim: Node,
+	params: IvyParams,
+	free_plant_mode: bool = false,
+	session_log: RefCounted = null
+) -> void:
 	_world = world
 	_sim = sim
 	_params = params
 	_free_plant_mode = free_plant_mode
+	_session_log = session_log
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	_build_ui()
@@ -103,6 +115,20 @@ func toggle_help() -> void:
 func close_help() -> void:
 	if _help_panel != null:
 		_help_panel.visible = false
+
+
+func set_snapshot_enabled(enabled: bool) -> void:
+	if _snapshot_button != null:
+		_snapshot_button.disabled = not enabled
+
+
+func show_snapshot_toast(folder_name: String) -> void:
+	if _toast_label == null:
+		return
+	_toast_label.text = "Snapshot saved — %s" % folder_name
+	_toast_label.visible = true
+	if _toast_timer != null:
+		_toast_timer.start()
 
 
 func is_help_open() -> bool:
@@ -275,6 +301,24 @@ func _build_speed_row(parent: Control) -> void:
 		btn.pressed.connect(_on_speed_pressed.bind(spec[1]))
 		row.add_child(btn)
 		_speed_buttons[spec[1]] = btn
+	if _params != null and _params.dev_build:
+		_snapshot_button = _make_button("Snap (F9)")
+		_snapshot_button.tooltip_text = "Save debug snapshot (F9). Shift+F9 skips annotation."
+		_snapshot_button.pressed.connect(func() -> void: debug_snapshot_requested.emit())
+		row.add_child(_snapshot_button)
+		_toast_label = _make_passthrough_label("")
+		_toast_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_toast_label.add_theme_font_size_override("font_size", 16)
+		_toast_label.visible = false
+		row.get_parent().add_child(_toast_label)
+		_toast_timer = Timer.new()
+		_toast_timer.one_shot = true
+		_toast_timer.wait_time = 4.0
+		_toast_timer.timeout.connect(func() -> void:
+			if _toast_label != null:
+				_toast_label.visible = false
+		)
+		add_child(_toast_timer)
 
 
 func _make_button(text: String) -> Button:
@@ -304,6 +348,8 @@ func _refresh_anchor_buttons() -> void:
 
 
 func _on_clear_pressed() -> void:
+	if _session_log != null:
+		_session_log.clear()
 	if _sim != null and _sim.has_method("clear_plants"):
 		_sim.clear_plants()
 
@@ -316,6 +362,8 @@ func _on_compass_pressed(compass: int) -> void:
 		var anchors: Array = anchors_obj.get_anchors()
 		if compass < anchors.size() and not anchors[compass].available:
 			return
+	if _session_log != null:
+		_session_log.clear()
 	_world.set_seed_index(compass)
 	_sim.set_seed_index(compass)
 	_sim.reseed()
@@ -325,6 +373,8 @@ func _on_compass_pressed(compass: int) -> void:
 func _on_scenario_seed_pressed(index: int) -> void:
 	if _world == null or _sim == null:
 		return
+	if _session_log != null:
+		_session_log.clear()
 	_world.set_seed_index(index)
 	_sim.set_seed_index(index)
 	_sim.reseed()

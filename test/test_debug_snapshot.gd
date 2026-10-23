@@ -1,0 +1,109 @@
+extends GutTest
+
+const DebugSessionLog = preload("res://src/debug/debug_session_log.gd")
+const SnapshotRecipe = preload("res://src/debug/snapshot_recipe.gd")
+const SnapshotCapture = preload("res://src/debug/snapshot_capture.gd")
+const SnapshotReplay = preload("res://src/debug/snapshot_replay.gd")
+const SimRoot = preload("res://src/sim/sim_root.gd")
+const RunHash = preload("res://src/metrics/run_hash.gd")
+const IvyParams = preload("res://src/params/ivy_params.gd")
+const SimClock = preload("res://src/core/sim_clock.gd")
+const Solar = preload("res://src/env/solar.gd")
+const IvyEnvironment = preload("res://src/env/environment.gd")
+const SurfaceQuery = preload("res://src/world/surface_query.gd")
+const TowerSpec = preload("res://src/world/tower_spec.gd")
+const TowerSdf = preload("res://src/world/tower_sdf.gd")
+const PlantData = preload("res://src/sim/plant_data.gd")
+const TipManager = preload("res://src/sim/tip_manager.gd")
+
+
+func test_session_log_records_plants_and_params_and_clears() -> void:
+	var log := DebugSessionLog.new()
+	log.record_plant(5, Vector3(1, 2, 3), Vector3(0, 0, 1))
+	log.record_param(7, "branch_q", 0.42)
+	assert_eq(log.plant_log.size(), 1)
+	assert_eq(log.param_log.size(), 1)
+	assert_eq(log.plant_log[0]["tick"], 5)
+	assert_eq(log.param_log[0]["name"], "branch_q")
+	log.clear()
+	assert_eq(log.plant_log.size(), 0)
+	assert_eq(log.param_log.size(), 0)
+
+
+func test_snapshot_recipe_json_round_trip() -> void:
+	var recipe := SnapshotRecipe.new()
+	recipe.build = {"git_commit": "abc", "git_dirty": true, "godot_version": "4.4"}
+	recipe.scene = {"building_id": "overhang", "seed_index": 0, "free_plant_mode": true}
+	recipe.plant_log = [{"tick": 0, "position": [0.0, 0.1, 0.0], "normal": [0.0, 0.0, 1.0]}]
+	recipe.param_log = [{"tick": 12, "name": "branch_q", "value": 0.05}]
+	recipe.param_overrides = {"branch_q": 0.05}
+	recipe.time = {"tick_index": 48, "game_day": 2.0, "speed": 3}
+	recipe.camera = {"active_camera": "DebugCamera", "fov": 75.0}
+	recipe.view = {"viewport_size": [1920, 1080], "dev_overlay_visible": false}
+	recipe.fingerprint = {
+		"run_hash": "deadbeef",
+		"segment_count": 10,
+		"leaf_count": 4,
+		"tip_count": 1,
+		"live_tip_count": 1,
+		"total_length": 1.25,
+	}
+	recipe.note = "test"
+	var path := "user://test_snapshot_roundtrip.json"
+	var err := recipe.write_json(path)
+	assert_eq(err, OK)
+	var loaded = SnapshotRecipe.read_json(path)
+	assert_not_null(loaded)
+	assert_eq(loaded.schema_version, SnapshotRecipe.SCHEMA_VERSION)
+	assert_eq(loaded.scene["building_id"], "overhang")
+	assert_eq(loaded.plant_log.size(), 1)
+	assert_eq(loaded.param_log[0]["tick"], 12)
+	assert_eq(loaded.fingerprint["run_hash"], "deadbeef")
+	assert_eq(loaded.note, "test")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+
+func test_run_hash_matches_live_fingerprint_helper() -> void:
+	var params := IvyParams.new()
+	var surface := SurfaceQuery.new()
+	surface.setup(null, null, TowerSdf.new(TowerSpec.new()), PackedByteArray(), params)
+	var env := IvyEnvironment.new()
+	env.build(params, surface, Solar.new(params))
+	var plant := PlantData.new()
+	var tips := TipManager.new()
+	var probe := Vector3(0.0, params.ground_y_min, 0.0) + Conv.SOUTH * 8.0
+	var anchor := surface.nearest(probe)
+	tips.add_seed(anchor.position + anchor.normal * 0.01, anchor.normal, 12345, params)
+	var hash_a := RunHash.of(plant, tips)
+	var hash_b := RunHash.of(plant, tips)
+	assert_eq(hash_a, hash_b)
+	assert_false(hash_a.is_empty())
+
+
+func test_replay_to_tick_matches_saved_fingerprint() -> void:
+	var params := IvyParams.new()
+	var surface := SurfaceQuery.new()
+	surface.setup(null, null, TowerSdf.new(TowerSpec.new()), PackedByteArray(), params)
+	var sim := SimRoot.new()
+	add_child_autofree(sim)
+	sim.setup(params, surface, null, 0, null, false)
+	var probe := Vector3(0.0, params.ground_y_min, 0.0) + Conv.SOUTH * 8.0
+	var anchor := surface.nearest(probe)
+	var pos := anchor.position + anchor.normal * 0.01
+	var normal := anchor.normal
+	sim.plant_at(pos, normal)
+	sim.advance_ticks(48)
+	var recipe := SnapshotRecipe.new()
+	recipe.time = {"tick_index": sim.get_clock().tick_index}
+	recipe.plant_log = [{"tick": 0, "position": [pos.x, pos.y, pos.z], "normal": [normal.x, normal.y, normal.z]}]
+	recipe.param_log = []
+	recipe.fingerprint = SnapshotCapture.fingerprint_for(sim)
+	var expected_hash: String = recipe.fingerprint["run_hash"]
+	var sim2 := SimRoot.new()
+	add_child_autofree(sim2)
+	sim2.setup(params, surface, null, 0, null, false)
+	SnapshotReplay.replay_to_tick(sim2, params, recipe)
+	var verdict: Dictionary = SnapshotReplay.verify_fingerprint(sim2, recipe)
+	assert_true(verdict["match"], "replay must MATCH saved run_hash (expected %s got %s)" % [
+		expected_hash, verdict.get("actual", "")
+	])

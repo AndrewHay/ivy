@@ -105,6 +105,57 @@ func get_yaw() -> float:
 	return _yaw
 
 
+## Serializable orbit state for debug snapshots (AR-SNAP-5). Read-only; no transform writes.
+func capture_state() -> Dictionary:
+	var pivot := _pivot()
+	return {
+		"yaw": _yaw,
+		"pitch": _pitch,
+		"radius": _radius,
+		"pan_offset": [_pan_offset.x, _pan_offset.y, _pan_offset.z],
+		"pivot": [pivot.x, pivot.y, pivot.z],
+	}
+
+
+## Restore orbit floats from [capture_state]. Does not make this camera current.
+func restore_state(state: Dictionary) -> void:
+	_yaw = float(state.get("yaw", _yaw))
+	_pitch = float(state.get("pitch", _pitch))
+	_radius = float(state.get("radius", _radius))
+	var pan: Array = state.get("pan_offset", [0.0, 0.0, 0.0])
+	_pan_offset = Vector3(float(pan[0]), float(pan[1]), float(pan[2]))
+
+
+## Script-driven replay only (AR-DBGCAM-5). Restores a saved snapshot camera block.
+func apply_scripted_snapshot(block: Dictionary) -> void:
+	if not script_driven:
+		push_error("DebugCamera.apply_scripted_snapshot is script_driven only")
+		return
+	if block.has("debug_camera"):
+		restore_state(block["debug_camera"] as Dictionary)
+	if block.has("global_transform"):
+		global_transform = _transform_from_array(block["global_transform"] as Array)
+	if block.has("fov"):
+		fov = float(block["fov"])
+	if block.has("near"):
+		near = float(block["near"])
+	if block.has("far"):
+		far = float(block["far"])
+	current = true
+
+
+static func _transform_from_array(values: Array) -> Transform3D:
+	if values.size() < 12:
+		return Transform3D.IDENTITY
+	var b := Basis(
+		Vector3(float(values[0]), float(values[1]), float(values[2])),
+		Vector3(float(values[4]), float(values[5]), float(values[6])),
+		Vector3(float(values[8]), float(values[9]), float(values[10]))
+	)
+	var o := Vector3(float(values[3]), float(values[7]), float(values[11]))
+	return Transform3D(b, o)
+
+
 func set_orbit_pivot(p: Vector3) -> void:
 	_orbit_pivot_override = p
 	_pan_offset = Vector3.ZERO

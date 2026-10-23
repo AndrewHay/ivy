@@ -518,6 +518,25 @@ func _ready() -> void:
 				print("[ui-script]   DUMP tip0 pos=", t0.position, " dir=", t0.direction,
 					" vigour=", t0.vigour, " budget=", t0.growth_budget,
 					" segs=", t0.segment_count, " float_len=", t0.floating_length)
+		elif line.begins_with("SNAPSHOT_LOAD "):
+			var snap_spec := line.substr(14).strip_edges()
+			if not main.has_method("load_snapshot_from_dir"):
+				printerr("[ui-script] FAILED step ", step, ": Main has no load_snapshot_from_dir()")
+				get_tree().quit(1)
+				return
+			var snap_result: Dictionary = await main.load_snapshot_from_dir(snap_spec)
+			if not snap_result.get("ok", false):
+				printerr("[ui-script] FAILED step ", step, ": SNAPSHOT_LOAD ", snap_result.get("reason", ""))
+				get_tree().quit(1)
+				return
+			var verdict: Dictionary = snap_result.get("verdict", {})
+			if verdict.get("match", false):
+				print("[ui-script]   SNAPSHOT_LOAD MATCH run_hash=", verdict.get("actual", ""))
+			else:
+				printerr("[ui-script]   SNAPSHOT_LOAD MISMATCH expected=", verdict.get("expected", ""),
+					" actual=", verdict.get("actual", ""))
+			for _f in range(3):
+				await get_tree().process_frame
 		elif line.begins_with("ORBIT "):
 			# ORBIT <azimuth_deg> [radius_m=8] [height_m=2]: a throwaway camera on a circle
 			# around World.get_orbit_pivot(), looking at the pivot. Azimuth 0 is +Z (the

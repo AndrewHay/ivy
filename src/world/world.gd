@@ -27,6 +27,7 @@ var seed_index: int = 0
 var _structure  # StructureBody
 var _mesh_sdf  # MeshSdf
 var _procedural_id: String = "cylinder"
+var _active_building_id: String = "cylinder"
 var _tower_built: bool = false
 var _wall_built: bool = false
 var _seed_anchors  # SeedAnchors
@@ -69,8 +70,13 @@ func ensure_mesh_scenario_loaded() -> void:
 			_tower.build_from_spec(tower_spec, true)
 
 
+func get_active_building_id() -> String:
+	return _active_building_id
+
+
 func load_building(building_id: String) -> void:
 	_teardown_active_building()
+	_active_building_id = building_id
 	if BuildingCatalog.is_procedural(building_id):
 		_procedural_id = building_id
 		if building_id == "test_wall":

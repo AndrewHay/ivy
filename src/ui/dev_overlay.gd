@@ -8,13 +8,15 @@ const _Tooltips = preload("res://src/ui/dev_overlay_tooltips.gd")
 
 var _sim: Node = null
 var _params: IvyParams = null
+var _param_log_cb: Callable = Callable()
 var _as3_label: Label = null
 var _scroll: ScrollContainer = null
 
 
-func setup(sim: Node, params: IvyParams) -> void:
+func setup(sim: Node, params: IvyParams, param_log_cb: Callable = Callable()) -> void:
 	_sim = sim
 	_params = params
+	_param_log_cb = param_log_cb
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color(0.08, 0.09, 0.11, 0.94)
@@ -127,7 +129,7 @@ func _make_editor(name: String, prop_type: int, inert: bool, tip: String) -> Con
 			spin.editable = not inert
 			spin.tooltip_text = tip
 			if not inert:
-				spin.value_changed.connect(func(v: float) -> void: _params.set(name, v))
+				spin.value_changed.connect(func(v: float) -> void: _set_param(name, v))
 			return spin
 		TYPE_INT:
 			var spin := SpinBox.new()
@@ -140,7 +142,7 @@ func _make_editor(name: String, prop_type: int, inert: bool, tip: String) -> Con
 			spin.editable = not inert
 			spin.tooltip_text = tip
 			if not inert:
-				spin.value_changed.connect(func(v: float) -> void: _params.set(name, int(v)))
+				spin.value_changed.connect(func(v: float) -> void: _set_param(name, int(v)))
 			return spin
 		TYPE_BOOL:
 			var check := CheckButton.new()
@@ -148,7 +150,7 @@ func _make_editor(name: String, prop_type: int, inert: bool, tip: String) -> Con
 			check.disabled = inert
 			check.tooltip_text = tip
 			if not inert:
-				check.toggled.connect(func(v: bool) -> void: _params.set(name, v))
+				check.toggled.connect(func(v: bool) -> void: _set_param(name, v))
 			return check
 		TYPE_COLOR:
 			var picker := ColorPickerButton.new()
@@ -156,7 +158,18 @@ func _make_editor(name: String, prop_type: int, inert: bool, tip: String) -> Con
 			picker.disabled = inert
 			picker.tooltip_text = tip
 			if not inert:
-				picker.color_changed.connect(func(c: Color) -> void: _params.set(name, c))
+				picker.color_changed.connect(func(c: Color) -> void: _set_param(name, c))
 			return picker
 		_:
 			return null
+
+
+func _set_param(name: String, value: Variant) -> void:
+	_params.set(name, value)
+	if _param_log_cb.is_valid():
+		var tick := 0
+		if _sim != null and _sim.has_method("get_clock"):
+			var clock: SimClock = _sim.get_clock()
+			if clock != null:
+				tick = clock.tick_index
+		_param_log_cb.call(tick, name, value)

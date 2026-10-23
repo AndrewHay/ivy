@@ -190,14 +190,15 @@ func bake_interactive(
 	surface: SurfaceQuery,
 	bounds: AABB,
 	tree: SceneTree,
-	on_step: Callable = Callable()
+	on_step: Callable = Callable(),
+	alive: Callable = Callable()
 ) -> void:
 	_slot_of.clear()
 	_svf = PackedFloat32Array()
 	_vis = PackedInt32Array()
 	_leak = PackedFloat32Array()
 	_bake_normal = PackedVector3Array()
-	await rebake_region_interactive(surface, bounds, tree, on_step)
+	await rebake_region_interactive(surface, bounds, tree, on_step, alive)
 
 
 ## Re-bakes the coarse cells intersecting `bounds`, leaving the rest untouched. This is
@@ -216,7 +217,8 @@ func rebake_region_interactive(
 	surface: SurfaceQuery,
 	bounds: AABB,
 	tree: SceneTree,
-	on_step: Callable = Callable()
+	on_step: Callable = Callable(),
+	alive: Callable = Callable()
 ) -> void:
 	var lo := _coarse.cell_of(bounds.position)
 	var hi := _coarse.cell_of(bounds.end)
@@ -234,6 +236,8 @@ func rebake_region_interactive(
 					if on_step.is_valid():
 						on_step.call(float(n) / float(total))
 					await tree.process_frame
+					if alive.is_valid() and not alive.call():
+						return
 
 
 func coarse_count() -> int:
@@ -355,6 +359,7 @@ func fill_field_interactive(
 	grid: CellGrid,
 	tree: SceneTree,
 	on_step: Callable = Callable(),
+	alive: Callable = Callable(),
 	region: AABB = AABB()
 ) -> void:
 	var limited := region.size.length_squared() > 0.0
@@ -373,6 +378,8 @@ func fill_field_interactive(
 			if on_step.is_valid():
 				on_step.call(float(n) / float(total))
 			await tree.process_frame
+			if alive.is_valid() and not alive.call():
+				return
 
 
 func _write_fine_cell(field: SparseHashField, slot: int, result: Dictionary) -> void:

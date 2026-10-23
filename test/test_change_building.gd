@@ -27,7 +27,11 @@ func _boot(building_id: String) -> Node:
 func _pick(main: Node, building_id: String) -> void:
 	var picker: Node = main.get_node("UI/BuildingPicker")
 	picker._on_entry_pressed(building_id)
-	for _i in range(900):
+	# After switching buildings, a coarse-cache verification miss can trigger a full
+	# interactive ray bake (~30–60s). Headless runs ~100+ process frames/s; 900 frames
+	# was too tight for cylinder → test_wall (ivy-nrp / change-building flake).
+	const MAX_FRAMES := 7200
+	for _i in range(MAX_FRAMES):
 		if main._hud != null:
 			break
 		await get_tree().process_frame
