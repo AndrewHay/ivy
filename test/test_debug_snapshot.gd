@@ -6,6 +6,7 @@ const SnapshotCapture = preload("res://src/debug/snapshot_capture.gd")
 const SnapshotReplay = preload("res://src/debug/snapshot_replay.gd")
 const SnapshotAnnotationModel = preload("res://src/debug/snapshot_annotation_model.gd")
 const SnapshotAnnotationOverlay = preload("res://src/ui/snapshot_annotation_overlay.gd")
+const MainScene = preload("res://src/main/main.tscn")
 const SimRoot = preload("res://src/sim/sim_root.gd")
 const RunHash = preload("res://src/metrics/run_hash.gd")
 const IvyParams = preload("res://src/params/ivy_params.gd")
@@ -198,6 +199,13 @@ func test_overlay_esc_emits_cancelled_without_completed() -> void:
 	overlay._input(esc)
 	assert_signal_emitted(overlay, "cancelled")
 	assert_signal_not_emitted(overlay, "completed")
+
+
+func test_snapshot_save_unavailable_on_building_picker() -> void:
+	var main := MainScene.instantiate()
+	add_child_autofree(main)
+	await get_tree().process_frame
+	assert_false(main._snapshot_available(), "F9 must be disabled while the picker is up")
 
 
 func test_overlay_esc_twice_discards_when_highlights_exist() -> void:
