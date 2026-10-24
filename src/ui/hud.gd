@@ -257,8 +257,8 @@ func _speed_label(speed: SimClock.Speed) -> String:
 	match speed:
 		SimClock.Speed.PAUSE:
 			return "pause"
-		SimClock.Speed.WATCH:
-			return "watch"
+		SimClock.Speed.NORMAL:
+			return "normal"
 		SimClock.Speed.FAST:
 			return "fast"
 		SimClock.Speed.GROW:
@@ -312,7 +312,7 @@ func _build_speed_row(parent: Control) -> void:
 	parent.add_child(row)
 	for spec in [
 		["Pause (Space)", SimClock.Speed.PAUSE],
-		["Watch (1)", SimClock.Speed.WATCH],
+		["Normal (1)", SimClock.Speed.NORMAL],
 		["Fast (2)", SimClock.Speed.FAST],
 		["Grow (3)", SimClock.Speed.GROW],
 	]:

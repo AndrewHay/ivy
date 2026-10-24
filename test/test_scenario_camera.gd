@@ -11,6 +11,7 @@ const IvyParams = preload("res://src/params/ivy_params.gd")
 const SurfaceQuery = preload("res://src/world/surface_query.gd")
 const TowerSpec = preload("res://src/world/tower_spec.gd")
 const TowerSdf = preload("res://src/world/tower_sdf.gd")
+const SimClock = preload("res://src/core/sim_clock.gd")
 
 const _FOV_DEG := 75.0
 const _CAM_SUN_T := Transform3D(
@@ -87,8 +88,10 @@ func test_reseed_resets_simulation_and_applies_seed_index() -> void:
 	scenario.sdf_path = "res://assets/structures/square_sim.sdf"
 	scenario.camera_pivot = Vector3(-7, 1.56, 0)
 	sim.setup(params, sq, scenario, 0)
-	sim.advance_ticks(24)
+	sim.get_clock().set_speed(SimClock.Speed.GROW)
+	sim.advance_ticks(SimClock.ticks_for_game_days(1.0, SimClock.Speed.GROW))
 	var len_after := sim.plant.total_length
+	assert_gt(len_after, 0.0, "precondition: one game-day of growth")
 	sim.set_seed_index(1)
 	sim.reseed()
 	assert_eq(sim.clock.tick_index, 0, "reseed must reset tick index")

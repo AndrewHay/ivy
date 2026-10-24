@@ -15,7 +15,7 @@ extends Node
 const _MAIN_SCENE := "res://src/main/main.tscn"
 const _GROW_TARGET_DAY := 150.0
 const _CANONICAL_DAY := 150.25
-const _TICKS_PER_DAY := 24.0
+const _TICKS_PER_DAY := SimClock.ticks_per_game_day_for(SimClock.Speed.GROW)
 const _GROW_TOLERANCE := 1.02
 const _FPS_FLOOR := 60.0
 const _WARMUP_FRAMES := 90

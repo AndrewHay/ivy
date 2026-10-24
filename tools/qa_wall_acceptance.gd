@@ -8,7 +8,7 @@ const _BuildingCatalog = preload("res://src/world/building_catalog.gd")
 const _Conv = preload("res://src/core/conv.gd")
 const _OUTDIR := "res://.tmp/ui_scripts/qa_3hg_wall/"
 const _PRESENT_TIMEOUT_MS := 4000
-const _TICKS_PER_DAY := 24
+const _TICKS_PER_DAY := int(SimClock.ticks_per_game_day_for(SimClock.Speed.NORMAL))
 const _GROWTH_DAYS := 30
 
 

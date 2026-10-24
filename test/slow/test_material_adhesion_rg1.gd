@@ -11,7 +11,8 @@ const MaterialRegistry = preload("res://src/world/material_registry.gd")
 
 const SURFACE_WALL_GLB := "res://assets/structures/surface_wall_sim.glb"
 const SURFACE_WALL_SDF := "res://assets/structures/surface_wall_sim.sdf"
-const TICKS_PER_DAY := 24
+const SimClock = preload("res://src/core/sim_clock.gd")
+const TICKS_PER_DAY := int(SimClock.ticks_per_game_day_for(SimClock.Speed.NORMAL))
 const GAME_DAYS := 60
 const MIN_STEM_PER_MATERIAL := 0.05
 

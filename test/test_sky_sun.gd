@@ -110,3 +110,38 @@ func test_background_energy_full_at_day() -> void:
 func test_background_energy_increases_from_night_to_day() -> void:
 	assert_gt(SkySun.background_energy_for(1.0), SkySun.background_energy_for(0.0),
 		"background energy must increase from night to day")
+
+
+func test_twilight_glow_zero_when_unlit() -> void:
+	assert_almost_eq(SkySun.twilight_glow_for(0.05, 0.0), 0.0, 1e-6)
+
+
+func test_twilight_glow_peaks_near_horizon() -> void:
+	var low := SkySun.twilight_glow_for(0.02, 1.0)
+	var mid := SkySun.twilight_glow_for(0.25, 1.0)
+	assert_gt(low, mid, "twilight glow should peak when the sun is low")
+
+
+func test_sky_horizon_warmer_at_twilight_than_at_noon() -> void:
+	var dawn_h := SkySun.sky_horizon_color_for(0.04, 1.0)
+	var noon_h := SkySun.sky_horizon_color_for(0.85, 1.0)
+	assert_gt(dawn_h.r / maxf(dawn_h.b, 0.001), noon_h.r / maxf(noon_h.b, 0.001),
+		"horizon sky should read warmer at low sun")
+
+
+func test_fog_warmer_at_twilight() -> void:
+	var dawn_f := SkySun.fog_color_for(0.04, 1.0)
+	var noon_f := SkySun.fog_color_for(0.85, 1.0)
+	assert_gt(dawn_f.r, noon_f.r, "fog should pick up sunset warmth near the horizon")
+
+
+func test_ambient_light_color_uses_sky_gradient_not_clouds() -> void:
+	var c := SkySun.ambient_light_color_for(0.5, 1.0)
+	assert_almost_eq(c.r, (SkySun.sky_top_color_for(0.5, 1.0).r + SkySun.sky_horizon_color_for(0.5, 1.0).r) * 0.5, 0.02)
+
+
+func test_twilight_rim_warm_at_low_sun() -> void:
+	var dawn_rim := SkySun.twilight_rim_color_for(0.04, 1.0)
+	var noon_rim := SkySun.twilight_rim_color_for(0.85, 1.0)
+	assert_gt(dawn_rim.r / maxf(dawn_rim.b, 0.001), noon_rim.r / maxf(noon_rim.b, 0.001),
+		"rim color warms at twilight (higher red/blue ratio)")

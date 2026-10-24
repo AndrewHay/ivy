@@ -16,7 +16,7 @@ extends Node
 
 const _MAIN_SCENE := "res://src/main/main.tscn"
 const _OUTDIR := "res://.tmp/eave_wall/"
-const _TICKS_PER_DAY := 24
+const _TICKS_PER_DAY := int(SimClock.ticks_per_game_day_for(SimClock.Speed.GROW))
 const _PRESENT_TIMEOUT_MS := 4000
 
 const _SEED_XS: Array = [-4.0, -2.0, 0.0, 2.0, 4.0]

@@ -133,8 +133,8 @@ func _ready() -> void:
 			match speed_name:
 				"pause":
 					clock.set_speed(clock.Speed.PAUSE)
-				"watch":
-					clock.set_speed(clock.Speed.WATCH)
+				"watch", "normal":
+					clock.set_speed(clock.Speed.NORMAL)
 				"fast":
 					clock.set_speed(clock.Speed.FAST)
 				"grow":
@@ -145,8 +145,12 @@ func _ready() -> void:
 					return
 		elif line.begins_with("ADVANCE_DAYS "):
 			var days := float(line.substr(13).strip_edges())
-			var ticks := int(round(days * 24.0))
 			var sim := main.get_node("Sim")
+			var clock_adv = sim.get_clock() if sim.has_method("get_clock") else null
+			var tpgd := 24.0
+			if clock_adv != null:
+				tpgd = SimClock.ticks_per_game_day_for(clock_adv.speed)
+			var ticks := int(round(days * tpgd))
 			if sim.has_method("advance_ticks"):
 				sim.advance_ticks(ticks)
 			for _f in range(3):
@@ -261,7 +265,12 @@ func _ready() -> void:
 			# instead of reasoning backwards from a wildly different end state.
 			var days := float(line.substr(6).strip_edges())
 			var sim := main.get_node("Sim")
-			for _t in range(int(round(days * 24.0))):
+			var trace_clock = sim.get_clock() if sim.has_method("get_clock") else null
+			var trace_speed := SimClock.Speed.NORMAL
+			if trace_clock != null:
+				trace_speed = trace_clock.speed
+			var trace_ticks := SimClock.ticks_for_game_days(days, trace_speed)
+			for _t in range(trace_ticks):
 				sim.advance_ticks(1)
 				var t0 = sim.tips.tips[0]
 				print("[trace] tick=", sim.clock.tick_index,
@@ -537,6 +546,35 @@ func _ready() -> void:
 					" actual=", verdict.get("actual", ""))
 			for _f in range(3):
 				await get_tree().process_frame
+		elif line.begins_with("SKYCAM "):
+			# SKYCAM <pitch_deg> [yaw_deg=0] [eye_height_m=1.75]: throwaway camera for sky
+			# framing. pitch +88 ≈ straight up; pitch +8 ≈ above horizon.
+			var skycam_parts := line.split(" ", false)
+			if skycam_parts.size() < 2:
+				printerr("[ui-script] FAILED step ", step, ": SKYCAM needs pitch_deg")
+				get_tree().quit(1)
+				return
+			var pitch := float(skycam_parts[1])
+			var yaw := float(skycam_parts[2]) if skycam_parts.size() >= 3 else 0.0
+			var eye_h := float(skycam_parts[3]) if skycam_parts.size() >= 4 else 1.75
+			var world_skycam := main.get_node("World")
+			var sky_cam := world_skycam.get_node_or_null("UiScriptSkyCam") as Camera3D
+			if sky_cam == null:
+				sky_cam = Camera3D.new()
+				sky_cam.name = "UiScriptSkyCam"
+				sky_cam.fov = 70.0
+				world_skycam.add_child(sky_cam)
+			var cp := cos(deg_to_rad(pitch))
+			var sp := sin(deg_to_rad(pitch))
+			var cy := cos(deg_to_rad(yaw))
+			var sy := sin(deg_to_rad(yaw))
+			var view_dir := Vector3(cp * sy, sp, cp * cy)
+			sky_cam.global_position = Vector3(0.0, eye_h, 0.0)
+			sky_cam.look_at(sky_cam.global_position + view_dir, Vector3.UP)
+			sky_cam.make_current()
+			for _f in range(3):
+				await get_tree().process_frame
+			print("[ui-script]   SKYCAM pitch=", pitch, " yaw=", yaw, " eye_h=", eye_h)
 		elif line.begins_with("ORBIT "):
 			# ORBIT <azimuth_deg> [radius_m=8] [height_m=2]: a throwaway camera on a circle
 			# around World.get_orbit_pivot(), looking at the pivot. Azimuth 0 is +Z (the

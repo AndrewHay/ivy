@@ -1,4 +1,4 @@
-[gd_scene load_steps=20 format=3 uid="uid://8lhbed2h12ph"]
+[gd_scene load_steps=21 format=3 uid="uid://8lhbed2h12ph"]
 
 [ext_resource type="Script" uid="uid://bjvp2g014gqul" path="res://src/main/main.gd" id="1"]
 [ext_resource type="Script" uid="uid://dhq7o4g8cnv6l" path="res://src/world/world.gd" id="2"]
@@ -12,22 +12,44 @@
 [ext_resource type="Script" uid="uid://dp4wktxr3yh1b" path="res://src/world/camera_rig.gd" id="10"]
 [ext_resource type="Script" path="res://src/world/wall.gd" id="11"]
 [ext_resource type="PackedScene" path="res://src/world/village_backdrop.tscn" id="12_backdrop"]
+[ext_resource type="Shader" uid="uid://cckuextcauor4" path="res://src/render/sky/atmospheric_sky.gdshader" id="13_sky_shader"]
 
-[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
-sky_top_color = Color(0.361, 0.561, 0.722, 1)
-sky_horizon_color = Color(0.784, 0.851, 0.91, 1)
-sky_energy_multiplier = 1.4
-ground_bottom_color = Color(0.08, 0.09, 0.06, 1)
-ground_horizon_color = Color(0.35, 0.38, 0.32, 1)
-sun_angle_max = 2.0
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_sky"]
+shader = ExtResource("13_sky_shader")
+shader_parameter/sky_top_color = Color(0.361, 0.561, 0.722, 1)
+shader_parameter/sky_horizon_color = Color(0.784, 0.851, 0.91, 1)
+shader_parameter/sky_curve = 0.12
+shader_parameter/sky_energy = 1.4
+shader_parameter/ground_bottom_color = Color(0.08, 0.09, 0.06, 1)
+shader_parameter/ground_horizon_color = Color(0.35, 0.38, 0.32, 1)
+shader_parameter/ground_curve = 0.04
+shader_parameter/ground_energy = 0.0
+shader_parameter/sun_angle_max = 0.35
+shader_parameter/sun_curve = 0.12
+shader_parameter/cloud_cover = 0.46
+shader_parameter/cloud_softness = 0.16
+shader_parameter/cloud_plane_scale = 0.34
+shader_parameter/cloud_zenith_bias = 0.42
+shader_parameter/cloud_horizon_fade = 0.2
+shader_parameter/cloud_far_clip = 13.0
+shader_parameter/cloud_wind_dir = Vector2(1, 0)
+shader_parameter/cloud_advect_speed = 0.0042
+shader_parameter/cloud_tint = Color(0.88, 0.9, 0.93, 1)
+shader_parameter/cloud_brightness = 0.42
+shader_parameter/cloud_sky_cap = 0.96
+shader_parameter/twilight_glow = 0.0
+shader_parameter/twilight_rim_color = Color(1, 0.55, 0.32, 1)
+shader_parameter/mie_g = 0.82
+shader_parameter/rim_strength = 1.25
 
 [sub_resource type="Sky" id="Sky_main"]
-sky_material = SubResource("ProceduralSkyMaterial_sky")
+sky_material = SubResource("ShaderMaterial_sky")
 
 [sub_resource type="Environment" id="Environment_sky"]
 background_mode = 2
 sky = SubResource("Sky_main")
-ambient_light_source = 3
+ambient_light_source = 2
+ambient_light_color = Color(0.55, 0.65, 0.72, 1)
 ambient_light_energy = 0.8
 fog_enabled = true
 fog_mode = 1

@@ -69,11 +69,19 @@ static func growth_rate(tip: Tip, g_hat: float, ctx: SimContext) -> float:
 	return r
 
 
+## Unitless 0–1 strength for this segment slot (light, crowding, diel gate, etc.).
+static func growth_fraction(tip: Tip, g_hat: float, ctx: SimContext) -> float:
+	var cap := ctx.params.max_growth_rate
+	if cap <= 0.0:
+		return 0.0
+	return clampf(growth_rate(tip, g_hat, ctx) / cap, 0.0, 1.0)
+
+
 static func accumulate_budget(tip: Tip, g_hat: float, ctx: SimContext) -> void:
 	if not tip.is_live():
 		return
-	var r := growth_rate(tip, g_hat, ctx)
-	tip.growth_budget += r * ctx.clock.dt_sim()
+	# SD-TIME-2: each growth step is a segment slot, not a legacy 1/24-day sim_tick.
+	tip.growth_budget += ctx.params.segment_length * growth_fraction(tip, g_hat, ctx)
 
 
 static func lambda_b(f_l: float, c: float, params: IvyParams) -> float:

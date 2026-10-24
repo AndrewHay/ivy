@@ -1,0 +1,11 @@
+# Horizon (CamSun) vs straight-up zenith. Zenith at dawn avoids noon sun blowout.
+SPEED pause
+CAMERA sun
+SCREENSHOT horizon_cam_dawn.png
+SKYCAM 88
+SCREENSHOT zenith_dawn.png
+ADVANCE_DAYS 0.25
+CAMERA sun
+SCREENSHOT horizon_cam_noon.png
+SKYCAM 88
+SCREENSHOT zenith_noon.png

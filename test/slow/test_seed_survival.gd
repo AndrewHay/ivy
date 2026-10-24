@@ -12,9 +12,10 @@ const SurfaceQuery = preload("res://src/world/surface_query.gd")
 const SeedAnchors = preload("res://src/world/seed_anchors.gd")
 const SimRoot = preload("res://src/sim/sim_root.gd")
 const IvyParams = preload("res://src/params/ivy_params.gd")
+const SimClock = preload("res://src/core/sim_clock.gd")
 
 const SOUTH := 2
-const DAY_30_TICKS := 30 * 24
+const DAY_30_TICKS := SimClock.ticks_for_game_days(30.0, SimClock.Speed.NORMAL)
 const FORMERLY_FATAL_SEEDS := [777, 2024, 101]
 const MIN_SEGMENTS_DAY_30 := 500
 

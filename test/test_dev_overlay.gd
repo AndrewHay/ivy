@@ -10,8 +10,13 @@ const SurfaceQuery = preload("res://src/world/surface_query.gd")
 const IvyParams = preload("res://src/params/ivy_params.gd")
 
 
-func test_overlay_inert_list_empty_after_w086() -> void:
-	assert_eq(IvyParams.OVERLAY_INERT.size(), 0, "W-086 resolved: no declared-but-unread knobs remain")
+func test_overlay_inert_lists_legacy_speed_knobs() -> void:
+	# SD-TIME-2: SimClock owns speeds; legacy IvyParams fields stay exported for saves.
+	assert_eq(
+		IvyParams.OVERLAY_INERT,
+		["speed_watch", "speed_fast", "speed_grow"],
+		"legacy speed_* exports must stay marked inert"
+	)
 
 
 ## ivy-n2l: the tuning panel covers a third of the screen, so it starts hidden; ` brings it up.

@@ -22,7 +22,8 @@ const Conv = preload("res://src/core/conv.gd")
 const ArchetypePreset = preload("res://src/params/archetype_preset.gd")
 const WallCoverageMetric = preload("res://src/metrics/wall_coverage.gd")
 
-const TICKS_PER_DAY := 24
+const SimClock = preload("res://src/core/sim_clock.gd")
+const TICKS_PER_DAY := int(SimClock.ticks_per_game_day_for(SimClock.Speed.NORMAL))
 
 
 # ── Shared helper ──────────────────────────────────────────────────────────

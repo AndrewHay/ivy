@@ -10,7 +10,7 @@ extends Node
 
 const _MAIN_SCENE := "res://src/main/main.tscn"
 const _OUTDIR := "res://.tmp/eave_repro/"
-const _TICKS_PER_DAY := 24
+const _TICKS_PER_DAY := int(SimClock.ticks_per_game_day_for(SimClock.Speed.GROW))
 ## South wall exterior face of square_sim.glb (wall node z=2.91, face at local z=0).
 const _WALL_FACE_Z := 2.91
 const _CLICK_XS := [-9.2, -8.4, -5.6, -4.9]

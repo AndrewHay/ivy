@@ -106,6 +106,8 @@ func _is_read(name: String, sources: Dictionary) -> bool:
 		var trimmed := line.strip_edges()
 		if trimmed.begins_with("@export var " + name):
 			continue
+		if trimmed.begins_with("const OVERLAY_INERT"):
+			continue  # SD-TIME-2 legacy speed_* exports; not simulation reads
 		if trimmed.begins_with("\"") or trimmed.begins_with("var names"):
 			continue  # content_hash()'s name list
 		return true

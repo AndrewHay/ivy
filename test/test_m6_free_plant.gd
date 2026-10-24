@@ -35,5 +35,5 @@ func test_plant_at_grows_segments_on_cylinder() -> void:
 	assert_eq(sim.tips.tips.size(), 1)
 	var clock: SimClock = sim.get_clock()
 	clock.set_speed(SimClock.Speed.GROW)
-	sim.call("advance_ticks", 48)
+	sim.call("advance_ticks", SimClock.ticks_for_game_days(2.0, SimClock.Speed.GROW))
 	assert_gt(sim.plant.segment_count(), 0, "expected stem segments after 2 game-days")

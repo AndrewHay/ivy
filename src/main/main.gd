@@ -227,6 +227,7 @@ func _on_plant_success() -> void:
 	_finish_planting_session()
 	var clock: SimClock = _sim.get_clock()
 	clock.tick_index = 0
+	clock._accumulator = 0.0
 	clock._update_game_day()
 	clock.set_speed(SimClock.Speed.GROW)
 	print(

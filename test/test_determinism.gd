@@ -46,11 +46,9 @@ const GrowthStep = preload("res://src/sim/growth_step.gd")
 ## will use, so a determinism failure here is a real harness failure.
 const SEED := 12345
 
-## Five game-days = 120 ticks.  Short enough to finish in < 2 s on a laptop;
-## long enough for several branch events (branching probability ~0.05/segment
-## gives ~24 expected events in 480 segments), which makes the growth-step
-## stream draw-count comparison meaningful rather than vacuous.
-const TICKS_5_DAYS := 5 * 24
+## Grow segment slots for branches + non-vacuous equality (AS-4). ~0.12 game-day;
+## a full five game-days would be 7k+ steps and is too slow with one segment/slot.
+const DETERMINISM_TICKS := int(round(0.12 * 24.0 * SimClock.GROW_SEGMENTS_PER_SIM_HOUR))
 
 
 ## Builds one completely independent simulation from scratch.
@@ -60,6 +58,7 @@ const TICKS_5_DAYS := 5 * 24
 func _build_sim() -> Dictionary:
 	var params := IvyParams.new()
 	var clock := SimClock.new(params)
+	clock.set_speed(SimClock.Speed.GROW)
 	var solar := Solar.new(params)
 	var surface := SurfaceQuery.new()
 	surface.setup(null, null, TowerSdf.new(TowerSpec.new()), PackedByteArray(), params)
@@ -119,8 +118,8 @@ func test_two_identical_seed_runs_produce_identical_outputs() -> void:
 	# different segment/leaf/tip counts.
 	var run_a := _build_sim()
 	var run_b := _build_sim()
-	_run_for_ticks(run_a, TICKS_5_DAYS)
-	_run_for_ticks(run_b, TICKS_5_DAYS)
+	_run_for_ticks(run_a, DETERMINISM_TICKS)
+	_run_for_ticks(run_b, DETERMINISM_TICKS)
 
 	var plant_a: PlantData = run_a.plant
 	var plant_b: PlantData = run_b.plant
@@ -129,9 +128,9 @@ func test_two_identical_seed_runs_produce_identical_outputs() -> void:
 
 	# Sanity guard: a run that produced nothing would make equality vacuous.
 	assert_gt(plant_a.segment_count(), 0,
-		"run_a must produce at least one segment in %d ticks" % TICKS_5_DAYS)
+		"run_a must produce at least one segment in %d ticks" % DETERMINISM_TICKS)
 	assert_gt(plant_a.leaf_count(), 0,
-		"run_a must produce at least one leaf in %d ticks" % TICKS_5_DAYS)
+		"run_a must produce at least one leaf in %d ticks" % DETERMINISM_TICKS)
 
 	assert_eq(plant_a.segment_count(), plant_b.segment_count(),
 		"segment count must be identical across runs (SD-RNG-5)")

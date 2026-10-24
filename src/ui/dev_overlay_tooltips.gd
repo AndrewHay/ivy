@@ -31,9 +31,9 @@ const _TIPS: Dictionary = {
 
 	# Time
 	"sim_tick": "Simulation step size in game-days per tick. Normally fixed; changing it retunes all time-based behaviour.",
-	"speed_watch": "Real seconds per game-day at Watch speed. Only affects playback, not final plant shape.",
-	"speed_fast": "Real seconds per game-day at Fast speed. Playback only.",
-	"speed_grow": "Real seconds per game-day at Grow speed. Playback only.",
+	"speed_watch": "Legacy param (unused). Playback rates are defined in SimClock (SD-TIME-2).",
+	"speed_fast": "Legacy param (unused). See SimClock FAST_TIME_MULTIPLIER.",
+	"speed_grow": "Legacy param (unused). See SimClock GROW_SEGMENTS_PER_SIM_HOUR.",
 	"render_sun_blend_lo": "Sun elevation (degrees) where render sun starts blending. Affects on-screen lighting smoothness at dawn/dusk.",
 	"render_sun_blend_hi": "Sun elevation where render sun is fully 'day'. Higher widens the soft dawn/dusk transition.",
 	"latitude": "Site latitude for solar path. Changes season length, sun height, and which wall faces get more light.",

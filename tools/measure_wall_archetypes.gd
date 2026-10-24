@@ -17,7 +17,7 @@ const SurfaceQueryScript = preload("res://src/world/surface_query.gd")
 const SimRootScript = preload("res://src/sim/sim_root.gd")
 const IvyParamsScript = preload("res://src/params/ivy_params.gd")
 
-const TICKS_PER_DAY := 24
+const TICKS_PER_DAY := int(SimClock.ticks_per_game_day_for(SimClock.Speed.NORMAL))
 const TARGET_DAY := 150
 
 ## Rough wall-plane coverage grid, independent of CoverageMetric (which is cylinder-only

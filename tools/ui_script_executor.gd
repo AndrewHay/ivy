@@ -69,8 +69,8 @@ static func _dispatch_line(
 		match speed_name:
 			"pause":
 				clock.set_speed(clock.Speed.PAUSE)
-			"watch":
-				clock.set_speed(clock.Speed.WATCH)
+			"watch", "normal":
+				clock.set_speed(clock.Speed.NORMAL)
 			"fast":
 				clock.set_speed(clock.Speed.FAST)
 			"grow":
@@ -80,8 +80,12 @@ static func _dispatch_line(
 				return 1
 	elif line.begins_with("ADVANCE_DAYS "):
 		var days := float(line.substr(13).strip_edges())
-		var ticks := int(round(days * 24.0))
 		var sim := main.get_node("Sim")
+		var clock_adv = sim.get_clock() if sim.has_method("get_clock") else null
+		var tpgd := 24.0
+		if clock_adv != null:
+			tpgd = SimClock.ticks_per_game_day_for(clock_adv.speed)
+		var ticks := int(round(days * tpgd))
 		if sim.has_method("advance_ticks"):
 			sim.advance_ticks(ticks)
 		for _f in range(3):
@@ -175,7 +179,12 @@ static func _dispatch_line(
 	elif line.begins_with("TRACE "):
 		var days := float(line.substr(6).strip_edges())
 		var sim := main.get_node("Sim")
-		for _t in range(int(round(days * 24.0))):
+		var trace_clock = sim.get_clock() if sim.has_method("get_clock") else null
+		var trace_speed := SimClock.Speed.NORMAL
+		if trace_clock != null:
+			trace_speed = trace_clock.speed
+		var trace_ticks := SimClock.ticks_for_game_days(days, trace_speed)
+		for _t in range(trace_ticks):
 			sim.advance_ticks(1)
 			var t0 = sim.tips.tips[0]
 			print("[trace] tick=", sim.clock.tick_index,

@@ -4,6 +4,7 @@ extends GutTest
 ## SD-CONV-2 frame: azimuth 0 = north = -Z, south = +Z.
 
 const IvyParams = preload("res://src/params/ivy_params.gd")
+const SimClock = preload("res://src/core/sim_clock.gd")
 const Solar = preload("res://src/env/solar.gd")
 
 var _params: IvyParams
@@ -77,22 +78,26 @@ func test_day_average_direction_points_south_and_up() -> void:
 	assert_almost_eq(avg.x, 0.0, 0.05, "mean sun has no net east/west bias")
 
 
-func test_render_blend_is_one_at_watch_and_zero_at_time_lapse() -> void:
-	assert_almost_eq(_solar.render_blend(_params.speed_watch), 1.0, 1e-9, "Watch is instantaneous")
-	assert_almost_eq(_solar.render_blend(_params.speed_fast), 0.0, 1e-9, "Fast is day-average")
-	assert_almost_eq(_solar.render_blend(_params.speed_grow), 0.0, 1e-9, "Grow is day-average")
+func test_render_blend_is_one_at_gameplay_speeds() -> void:
+	var clock := SimClock.new(_params)
+	for s in [SimClock.Speed.NORMAL, SimClock.Speed.FAST, SimClock.Speed.GROW]:
+		clock.set_speed(s)
+		assert_almost_eq(
+			_solar.render_blend(clock.seconds_per_game_day()), 1.0, 1e-9,
+			"live sun at gameplay speeds"
+		)
 
 
 func test_render_direction_follows_blend() -> void:
 	var game_day := 0.5
 	var live := _solar.direction_at(game_day)
-	var avg := _solar.day_average_direction()
-	assert_almost_eq(
-		_solar.render_direction(game_day, _params.speed_watch).distance_to(live), 0.0, 1e-5
-	)
-	assert_almost_eq(
-		_solar.render_direction(game_day, _params.speed_grow).distance_to(avg), 0.0, 1e-5
-	)
+	var clock := SimClock.new(_params)
+	for s in [SimClock.Speed.NORMAL, SimClock.Speed.FAST, SimClock.Speed.GROW]:
+		clock.set_speed(s)
+		assert_almost_eq(
+			_solar.render_direction(game_day, clock.seconds_per_game_day()).distance_to(live),
+			0.0, 1e-5
+		)
 
 
 func test_light_field_sun_is_never_blended() -> void:

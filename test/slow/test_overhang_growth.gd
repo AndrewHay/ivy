@@ -27,7 +27,8 @@ const SimRoot = preload("res://src/sim/sim_root.gd")
 const IvyParams = preload("res://src/params/ivy_params.gd")
 const Conv = preload("res://src/core/conv.gd")
 
-const TICKS_PER_DAY := 24
+const SimClock = preload("res://src/core/sim_clock.gd")
+const TICKS_PER_DAY := int(SimClock.ticks_per_game_day_for(SimClock.Speed.NORMAL))
 const GAME_DAYS := 100
 
 ## Seeds: x in {-4,-2,0,2,4}, y=0.05, z=0.01

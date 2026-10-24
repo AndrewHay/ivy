@@ -56,7 +56,7 @@ const _Conv = preload("res://src/core/conv.gd")
 const WallSpec = preload("res://src/world/wall_spec.gd")
 const ArchetypePreset = preload("res://src/params/archetype_preset.gd")
 const _OUTDIR := "res://.tmp/wall_archetypes/"
-const _TICKS_PER_DAY := 24
+const _TICKS_PER_DAY := int(SimClock.ticks_per_game_day_for(SimClock.Speed.NORMAL))
 const _PRESENT_TIMEOUT_MS := 4000
 
 

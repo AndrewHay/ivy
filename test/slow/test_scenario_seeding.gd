@@ -7,6 +7,7 @@ const StructureScenario = preload("res://src/world/structure_scenario.gd")
 const SurfaceQuery = preload("res://src/world/surface_query.gd")
 const SimRoot = preload("res://src/sim/sim_root.gd")
 const IvyParams = preload("res://src/params/ivy_params.gd")
+const SimClock = preload("res://src/core/sim_clock.gd")
 
 const SQUARE_GLB := "res://assets/structures/square_sim.glb"
 const SQUARE_SDF := "res://assets/structures/square_sim.sdf"
@@ -83,7 +84,7 @@ func test_both_square_seeds_grow_by_day10() -> void:
 	) as StructureScenario
 	var sim := await _make_square_sim(scenario, 0)
 	assert_eq(sim.tips.tips.size(), 2, "setup must plant every authored scenario seed")
-	sim.advance_ticks(int(10.25 * 24.0))
+	sim.advance_ticks(SimClock.ticks_for_game_days(10.25, SimClock.Speed.NORMAL))
 	assert_gt(sim.plant.total_length, 0.0,
 		"both seeds must produce stem length by day 10.25; got %.3f m" % sim.plant.total_length)
 	assert_gt(sim.plant.segment_count(), 0,
@@ -99,7 +100,7 @@ func test_sg3_no_float_death_day30_seed0() -> void:
 		"res://assets/structures/scenarios/square.tres"
 	) as StructureScenario
 	var sim := await _make_square_sim(scenario, 0)
-	sim.advance_ticks(720)  # 30 days × 24 ticks/day
+	sim.advance_ticks(SimClock.ticks_for_game_days(30.0, SimClock.Speed.NORMAL))
 	var t0: Tip = sim.tips.tips[0]
 	assert_ne(t0.state, Tip.State.DEAD,
 		"tip-0 must not die from max_float by day 30 (SG-3); "

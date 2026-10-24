@@ -177,7 +177,7 @@ extends Resource
 ## W-086 / W-013: declared in IvyParams but not read by simulation — overlay shows
 ## these as inert (disabled) so tuning sessions are not misled. Empty after W-086
 ## (tip_cap_m1 deleted; the ten §30 presentation knobs are wired).
-const OVERLAY_INERT: Array[String] = []
+const OVERLAY_INERT: Array[String] = ["speed_watch", "speed_fast", "speed_grow"]
 
 ## Parameters the *coarse* light bake's output depends on (ivy-9xp). `LightBakeCache` keys on
 ## these, so a cached bake is only reused when every one of them matches.

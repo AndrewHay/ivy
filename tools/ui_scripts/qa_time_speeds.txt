@@ -1,0 +1,14 @@
+# Wall-clock feel check for SD-TIME-2 (Normal / Fast / Grow).
+SPEED pause
+WAIT 500
+SCREENSHOT qa_time_t0_pause.png
+SPEED normal
+WAIT 16000
+SCREENSHOT qa_time_normal_16s.png
+SPEED fast
+WAIT 1600
+SCREENSHOT qa_time_fast_1_6s.png
+SPEED grow
+WAIT 16000
+SCREENSHOT qa_time_grow_16s.png
+SPEED pause

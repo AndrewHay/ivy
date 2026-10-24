@@ -5,10 +5,8 @@ extends Node3D
 ## `Solar`, applying the SD-TIME-4 render blend so the sun does not strobe at
 ## time-lapse speeds. The light field never sees this blend.
 ##
-## The ProceduralSkyMaterial in the WorldEnvironment automatically draws a sun disc
-## at the DirectionalLight's position (Godot 4 built-in behaviour), so no separate
-## sky-sun direction is needed — the light and sky sun are the same object by
-## construction.
+## The WorldEnvironment sky shader draws the sun disc from the first
+## DirectionalLight (LIGHT0), so the light and sky sun stay aligned by construction.
 
 ## Elevation band (as sin of angle) over which the rendered light fades in at dawn.
 ## Wider than a hard horizon test so sunrise is a fade rather than a pop.
@@ -34,10 +32,24 @@ const _SKY_NIGHT := 0.02
 const _AMBIENT_NIGHT := 0.06
 const _AMBIENT_DAY   := 1.0
 
+## Authored sky palette (matches main.tscn defaults). Runtime twilight tints blend
+## toward the warm / violet endpoints below when the sun hugs the horizon.
+const _SKY_TOP_DAY := Color(0.361, 0.561, 0.722)
+const _SKY_HORIZON_DAY := Color(0.784, 0.851, 0.91)
+const _SKY_TOP_TWILIGHT := Color(0.22, 0.28, 0.52)
+const _SKY_HORIZON_TWILIGHT := Color(1.0, 0.52, 0.32)
+
+const _FOG_DAY := Color(0.78, 0.84, 0.91)
+const _FOG_TWILIGHT := Color(0.96, 0.58, 0.40)
+
+## Matches ProceduralSkyMaterial.sky_energy_multiplier in main.tscn.
+const _SKY_ENERGY_BASE := 1.4
+
 var solar: Solar
 
 var _sun: DirectionalLight3D
 var _env: WorldEnvironment
+var _sky_shader: ShaderMaterial
 var _base_energy: float = 1.2
 
 
@@ -47,6 +59,10 @@ func setup(s: Solar) -> void:
 	_env = get_node_or_null("WorldEnvironment") as WorldEnvironment
 	if _sun != null:
 		_base_energy = _sun.light_energy
+	if _env != null and _env.environment != null and _env.environment.sky != null:
+		var mat := _env.environment.sky.sky_material
+		if mat is ShaderMaterial:
+			_sky_shader = mat as ShaderMaterial
 
 
 ## `seconds_per_game_day` comes from `SimClock.seconds_per_game_day()`.
@@ -67,8 +83,25 @@ func update(game_day: float, seconds_per_game_day: float) -> void:
 	_sun.visible = lit > 0.0
 	_sun.light_color = light_color_for(s.y)
 	if _env != null and _env.environment != null:
-		_env.environment.background_energy_multiplier = background_energy_for(lit)
+		var bg := background_energy_for(lit)
+		_env.environment.background_energy_multiplier = bg
+		# Cloud-free ambient: SKY radiance includes bright clouds and washes out the
+		# meadow. COLOR + gradient from sky palette until we split sky lighting.
+		_env.environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+		_env.environment.ambient_light_color = ambient_light_color_for(s.y, lit)
 		_env.environment.ambient_light_energy = ambient_energy_for(lit)
+		_env.environment.fog_light_color = fog_color_for(s.y, lit)
+		if _sky_shader != null:
+			var tw := twilight_glow_for(s.y, lit)
+			_sky_shader.set_shader_parameter("sky_top_color", sky_top_color_for(s.y, lit))
+			_sky_shader.set_shader_parameter("sky_horizon_color", sky_horizon_color_for(s.y, lit))
+			_sky_shader.set_shader_parameter("sky_energy", bg * _SKY_ENERGY_BASE)
+			_sky_shader.set_shader_parameter("twilight_glow", tw)
+			var cloud_tint := Color(0.88, 0.90, 0.93).lerp(Color(0.95, 0.72, 0.55), tw * 0.65)
+			_sky_shader.set_shader_parameter("cloud_tint", Vector3(cloud_tint.r, cloud_tint.g, cloud_tint.b))
+			var rim := twilight_rim_color_for(s.y, lit)
+			_sky_shader.set_shader_parameter(
+				"twilight_rim_color", Vector3(rim.r, rim.g, rim.b))
 
 
 ## True when the rendered sun is showing daily-average light rather than the live
@@ -105,3 +138,40 @@ static func background_energy_for(lit: float) -> float:
 ## illumination so shaded surfaces read as shaded rather than as black.
 static func ambient_energy_for(lit: float) -> float:
 	return lerpf(_AMBIENT_NIGHT, _AMBIENT_DAY, lit)
+
+
+## Gaussian-ish weight peaking when the sun is near the horizon — drives sky and fog
+## colour shifts without a second solar read.
+static func twilight_glow_for(s_y: float, lit: float) -> float:
+	if lit <= 0.0:
+		return 0.0
+	var band := exp(-s_y * s_y / 0.014)
+	return clampf(band * lit, 0.0, 1.0)
+
+
+static func sky_top_color_for(s_y: float, lit: float) -> Color:
+	var tw := twilight_glow_for(s_y, lit)
+	return _SKY_TOP_DAY.lerp(_SKY_TOP_TWILIGHT, tw * 0.75)
+
+
+static func sky_horizon_color_for(s_y: float, lit: float) -> Color:
+	var tw := twilight_glow_for(s_y, lit)
+	return _SKY_HORIZON_DAY.lerp(_SKY_HORIZON_TWILIGHT, tw)
+
+
+static func fog_color_for(s_y: float, lit: float) -> Color:
+	var tw := twilight_glow_for(s_y, lit)
+	return _FOG_DAY.lerp(_FOG_TWILIGHT, tw)
+
+
+## Diffuse ambient without cloud radiance — blend of authored sky gradient colors.
+static func ambient_light_color_for(s_y: float, lit: float) -> Color:
+	var top := sky_top_color_for(s_y, lit)
+	var hor := sky_horizon_color_for(s_y, lit)
+	return top.lerp(hor, 0.5)
+
+
+## Silver lining at noon; warm gold rim at twilight (shader mixes by twilight_glow).
+static func twilight_rim_color_for(s_y: float, lit: float) -> Color:
+	var tw := twilight_glow_for(s_y, lit)
+	return Color(1.0, 1.0, 1.0).lerp(Color(1.0, 0.48, 0.28), tw)

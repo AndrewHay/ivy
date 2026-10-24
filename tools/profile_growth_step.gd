@@ -15,7 +15,7 @@ extends Node
 const _MAIN_SCENE := "res://src/main/main.tscn"
 const _DEFAULT_BUILDINGS := ["square", "overhang", "cylinder"]
 const _DEFAULT_DAYS := 20
-const _TICKS_PER_DAY := 24
+const _TICKS_PER_DAY := int(SimClock.ticks_per_game_day_for(SimClock.Speed.NORMAL))
 const _SEED_RAY_Y := 0.3
 const _SEED_RAY_REACH := 15.0
 const _COUNTERS := ["raycast_count", "nearest_count", "project_count", "project_miss_count"]

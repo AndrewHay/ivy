@@ -134,7 +134,8 @@ func apply_lifecycle(ctx: SimContext) -> void:
 		# Mesh-backed scenarios elongate slowly; stall dormancy was blocking SG-3/SG-7
 		# acceptance on real geometry (ivy-c7e.6 / ivy-hob).
 		var skip_stall := ctx.surface.backend_tag() == "MeshSdf"
-		TipManager._check_stall(t, ctx.params, ctx.clock.tick_index, skip_stall)
+		var tpd := maxi(1, int(round(SimClock.ticks_per_game_day_for(ctx.clock.speed))))
+		TipManager._check_stall(t, ctx.params, ctx.clock.tick_index, tpd, skip_stall)
 	TipManager._apply_feeler_thinning(tips, ctx.params)
 
 
@@ -171,13 +172,18 @@ func can_branch(_params: IvyParams) -> bool:
 ##
 ## tick_index: ctx.clock.tick_index at the time of apply_lifecycle (before the clock
 ## increments at the end of _tick()).
-static func _check_stall(tip: Tip, params: IvyParams, tick_index: int, skip_on_mesh: bool = false) -> void:
+static func _check_stall(
+	tip: Tip,
+	params: IvyParams,
+	tick_index: int,
+	ticks_per_game_day: int,
+	skip_on_mesh: bool = false
+) -> void:
 	if skip_on_mesh:
 		return
 	if tip.state != Tip.State.GROWING:
 		return
-	# Integer ticks per game-day.  At defaults: sim_tick = 1/24, so tpd = 24.
-	var tpd: int = roundi(1.0 / params.sim_tick)
+	var tpd: int = maxi(1, ticks_per_game_day)
 	var day_idx: int = tick_index / tpd
 	if tip.stall_day_last < 0:
 		# First encounter: establish baseline.  Do not count this as a stall day.

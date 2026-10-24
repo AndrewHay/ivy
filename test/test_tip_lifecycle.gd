@@ -268,25 +268,25 @@ func test_stall_rule_tip_below_rate_goes_dormant_after_stall_days() -> void:
 	var tip := _make_growing_tip_with_shoot(0.0)
 
 	# Day 0 — initialise (tick 0, first encounter).
-	TipManager._check_stall(tip, params, 0)
+	TipManager._check_stall(tip, params, 0, tpd)
 	assert_eq(tip.stall_day_last, 0, "stall_day_last must be set on first encounter")
 	assert_eq(tip.state, Tip.State.GROWING, "must still be GROWING after initialisation")
 
 	# Day 0 → 1: 0.001 m grown (< 0.01 stall_rate) → stall count = 1.
 	tip.shoot_length = 0.001
-	TipManager._check_stall(tip, params, tpd)
+	TipManager._check_stall(tip, params, tpd, tpd)
 	assert_eq(tip.stall_consecutive_days, 1, "stall count must be 1 after first stall day")
 	assert_eq(tip.state, Tip.State.GROWING, "must still be GROWING after 1 stall day (need 3)")
 
 	# Day 1 → 2: 0.001 m more → stall count = 2.
 	tip.shoot_length = 0.002
-	TipManager._check_stall(tip, params, 2 * tpd)
+	TipManager._check_stall(tip, params, 2 * tpd, tpd)
 	assert_eq(tip.stall_consecutive_days, 2, "stall count must be 2 after second stall day")
 	assert_eq(tip.state, Tip.State.GROWING, "must still be GROWING after 2 stall days")
 
 	# Day 2 → 3: 0.001 m more → stall count = 3 → DORMANT.
 	tip.shoot_length = 0.003
-	TipManager._check_stall(tip, params, 3 * tpd)
+	TipManager._check_stall(tip, params, 3 * tpd, tpd)
 	assert_eq(tip.stall_consecutive_days, 3, "stall count must reach stall_days (3)")
 	assert_eq(tip.state, Tip.State.DORMANT,
 		"SD-TIP (W-040): tip below stall_rate for stall_days days must become DORMANT")
@@ -298,12 +298,12 @@ func test_stall_rule_tip_above_rate_stays_growing() -> void:
 	var tpd: int = roundi(1.0 / params.sim_tick)
 
 	var tip := _make_growing_tip_with_shoot(0.0)
-	TipManager._check_stall(tip, params, 0)  # init
+	TipManager._check_stall(tip, params, 0, tpd)  # init
 
 	# Simulate stall_days + 1 days of healthy growth (0.05 m/day >> stall_rate 0.01).
 	for day in range(params.stall_days + 1):
 		tip.shoot_length += 0.05  # well above 0.01 m/day
-		TipManager._check_stall(tip, params, (day + 1) * tpd)
+		TipManager._check_stall(tip, params, (day + 1) * tpd, tpd)
 
 	assert_eq(tip.stall_consecutive_days, 0,
 		"stall counter must stay 0 when elongation exceeds stall_rate every day")
@@ -318,29 +318,29 @@ func test_stall_rule_counter_resets_on_good_day() -> void:
 	var tpd: int = roundi(1.0 / params.sim_tick)
 
 	var tip := _make_growing_tip_with_shoot(0.0)
-	TipManager._check_stall(tip, params, 0)  # init
+	TipManager._check_stall(tip, params, 0, tpd)  # init
 
 	# Day 0→1: stall.
 	tip.shoot_length = 0.001
-	TipManager._check_stall(tip, params, tpd)
+	TipManager._check_stall(tip, params, tpd, tpd)
 	assert_eq(tip.stall_consecutive_days, 1)
 
 	# Day 1→2: stall.
 	tip.shoot_length = 0.002
-	TipManager._check_stall(tip, params, 2 * tpd)
+	TipManager._check_stall(tip, params, 2 * tpd, tpd)
 	assert_eq(tip.stall_consecutive_days, 2)
 
 	# Day 2→3: GOOD day — resets counter to 0.
 	tip.shoot_length = 0.052  # 0.05 m added this day >> stall_rate
-	TipManager._check_stall(tip, params, 3 * tpd)
+	TipManager._check_stall(tip, params, 3 * tpd, tpd)
 	assert_eq(tip.stall_consecutive_days, 0, "good day must reset the stall counter")
 	assert_eq(tip.state, Tip.State.GROWING, "must still be GROWING after counter reset")
 
 	# Day 3→4 and 4→5: two more stall days — still only 2 consecutive, not dormant yet.
 	tip.shoot_length = 0.053
-	TipManager._check_stall(tip, params, 4 * tpd)
+	TipManager._check_stall(tip, params, 4 * tpd, tpd)
 	tip.shoot_length = 0.054
-	TipManager._check_stall(tip, params, 5 * tpd)
+	TipManager._check_stall(tip, params, 5 * tpd, tpd)
 	assert_eq(tip.stall_consecutive_days, 2, "counter must be 2 after reset + 2 new stall days")
 	assert_eq(tip.state, Tip.State.GROWING,
 		"must still be GROWING — needs stall_days=3 consecutive, not 2")
@@ -353,11 +353,11 @@ func test_stall_rule_floating_tip_is_not_checked() -> void:
 
 	var tip := _make_growing_tip_with_shoot(0.0)
 	tip.state = Tip.State.FLOATING  # FLOATING tip
-	TipManager._check_stall(tip, params, 0)
+	TipManager._check_stall(tip, params, 0, tpd)
 
 	# Drive three day boundaries with zero growth
 	for day in range(params.stall_days + 1):
-		TipManager._check_stall(tip, params, (day + 1) * tpd)
+		TipManager._check_stall(tip, params, (day + 1) * tpd, tpd)
 
 	assert_ne(tip.state, Tip.State.DORMANT,
 		"SD-TIP: FLOATING tips must not go dormant via the stall rule")
@@ -367,8 +367,9 @@ func test_stall_rule_initialises_baseline_on_first_call() -> void:
 	# On the very first call (stall_day_last == -1), the function initialises the
 	# baseline and must NOT fire dormancy, even if shoot_length is already non-zero.
 	var params := IvyParams.new()
+	var tpd: int = roundi(1.0 / params.sim_tick)
 	var tip := _make_growing_tip_with_shoot(5.0)  # big head-start
-	TipManager._check_stall(tip, params, 0)
+	TipManager._check_stall(tip, params, 0, tpd)
 
 	assert_eq(tip.stall_day_last, 0, "stall_day_last must be set to 0 on first call")
 	assert_almost_eq(tip.stall_day_shoot, 5.0, 1e-5, "stall_day_shoot must match current shoot_length")

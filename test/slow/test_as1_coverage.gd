@@ -8,9 +8,10 @@ const SurfaceQuery = preload("res://src/world/surface_query.gd")
 const SeedAnchors = preload("res://src/world/seed_anchors.gd")
 const SimRoot = preload("res://src/sim/sim_root.gd")
 const IvyParams = preload("res://src/params/ivy_params.gd")
+const SimClock = preload("res://src/core/sim_clock.gd")
 const CoverageMetric = preload("res://src/metrics/coverage.gd")
 
-const TICKS_150_DAYS := 150 * 24
+const TICKS_150_DAYS := SimClock.ticks_for_game_days(150.0, SimClock.Speed.NORMAL)
 const SOUTH_AZIMUTH_DEG := 180.0
 
 

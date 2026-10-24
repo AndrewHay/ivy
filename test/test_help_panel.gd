@@ -36,7 +36,7 @@ func test_dev_keys_listed_only_in_dev_builds() -> void:
 
 ## The speed rows must describe the speeds the number keys really select.
 func test_time_rows_match_the_real_hotkeys() -> void:
-	assert_eq(SimClock.speed_for_hotkey(KEY_1), SimClock.Speed.WATCH)
+	assert_eq(SimClock.speed_for_hotkey(KEY_1), SimClock.Speed.NORMAL)
 	assert_eq(SimClock.speed_for_hotkey(KEY_2), SimClock.Speed.FAST)
 	assert_eq(SimClock.speed_for_hotkey(KEY_3), SimClock.Speed.GROW)
 	assert_string_contains(_text(false), "Watch / Fast / Grow")
