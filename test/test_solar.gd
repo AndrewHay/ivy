@@ -40,6 +40,13 @@ func test_sun_is_below_horizon_at_solar_midnight() -> void:
 	assert_lt(_solar.elevation_deg(0.0), 0.0)
 
 
+func test_is_geometric_night_matches_horizon() -> void:
+	var noon_day := (12.0 - _params.start_hour) / 24.0
+	var midnight_day := (24.0 - _params.start_hour) / 24.0
+	assert_false(_solar.is_geometric_night(noon_day))
+	assert_true(_solar.is_geometric_night(midnight_day))
+
+
 func test_elevation_rises_monotonically_to_solar_noon() -> void:
 	var prev := _solar.sin_elevation(_solar.sunrise_hour())
 	var hour := _solar.sunrise_hour() + 0.5

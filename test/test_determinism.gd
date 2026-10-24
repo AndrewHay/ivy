@@ -92,16 +92,17 @@ func _run_for_ticks(d: Dictionary, n: int) -> void:
 	var ctx: SimContext = d.ctx
 	for _i in range(n):
 		env.tick(clock.dt_sim(), clock.game_day)
-		var g_hat := solar.diel_gate(clock.game_day)
 		tips.refresh_vigour(ctx)
-		for tip in tips.live_in_id_order():
-			Physiology.accumulate_budget(tip, g_hat, ctx)
-			var emitted := 0
-			while (tip.growth_budget >= params.segment_length
-					and emitted < params.max_segments_per_tick):
-				GrowthStep.step_tip(tip, ctx)
-				tip.growth_budget -= params.segment_length
-				emitted += 1
+		if not solar.is_geometric_night(clock.game_day):
+			var g_hat := solar.diel_gate(clock.game_day)
+			for tip in tips.live_in_id_order():
+				Physiology.accumulate_budget(tip, g_hat, ctx)
+				var emitted := 0
+				while (tip.growth_budget >= params.segment_length
+						and emitted < params.max_segments_per_tick):
+					GrowthStep.step_tip(tip, ctx)
+					tip.growth_budget -= params.segment_length
+					emitted += 1
 		tips.apply_pending_branches()
 		tips.apply_lifecycle(ctx)
 		clock.advance_ticks(1)

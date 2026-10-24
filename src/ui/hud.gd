@@ -21,6 +21,7 @@ var _anchor_buttons: Array[Button] = []
 var _speed_buttons: Dictionary = {}
 var _date_label: Label = null
 var _timelapse_label: Label = null
+var _night_growth_label: Label = null
 var _scenario_seed_count: int = 0
 var _free_plant_mode: bool = false
 var _anchor_row: HBoxContainer = null
@@ -204,6 +205,9 @@ func refresh(clock: SimClock, sky_sun: SkySun, camera_yaw: float = 0.0) -> void:
 	if _timelapse_label != null and sky_sun != null and clock != null:
 		var show := sky_sun.is_time_lapse(clock.seconds_per_game_day())
 		_timelapse_label.visible = show
+	if _night_growth_label != null and sky_sun != null and sky_sun.solar != null and clock != null:
+		var night := sky_sun.solar.is_geometric_night(clock.display_game_day())
+		_night_growth_label.visible = night and clock.speed != SimClock.Speed.PAUSE
 
 
 func _build_ui() -> void:
@@ -230,6 +234,10 @@ func _build_ui() -> void:
 	_timelapse_label = _make_passthrough_label("time-lapse — average daylight")
 	_timelapse_label.visible = false
 	root.add_child(_timelapse_label)
+	_night_growth_label = _make_passthrough_label("night — too little light to grow")
+	_night_growth_label.add_theme_font_size_override("font_size", 11)
+	_night_growth_label.visible = false
+	root.add_child(_night_growth_label)
 	if _free_plant_mode:
 		# What the player needs while aiming: plain language, always shown.
 		_plant_hint = _make_passthrough_label("")

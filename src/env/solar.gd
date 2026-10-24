@@ -64,6 +64,11 @@ func hour_angle_deg(hour: float) -> float:
 	return true_solar_minutes / MINUTES_PER_DEGREE_HOUR_ANGLE - 180.0
 
 
+## SD-TIME-NIGHT: sun at or below the geometric horizon (matches SimClock night compression).
+func is_geometric_night(game_day: float) -> bool:
+	return sin_elevation(hour_of_day(game_day)) <= 0.0
+
+
 func sin_elevation(hour: float) -> float:
 	var phi := deg_to_rad(params.latitude)
 	var dec := declination_rad(hour)
