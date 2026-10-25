@@ -1,7 +1,7 @@
 extends GutTest
 
 ## Imported atlas alpha should match on-disk PNG (catches stale VRAM after repaint).
-## Organic scans are not mirror-perfect; this only guards import drift + documents mirror MAE.
+## Mirror symmetry itself is asserted in test_leaf_atlas_mirror.gd.
 const SymmetryScript = preload("res://src/render/leaf_atlas_symmetry.gd")
 const ATLAS_PNG := "res://assets/plants/ivy/LeafSet017/LeafSet017_Leaves_RGBA.png"
 const JSON_PATH := "res://assets/plants/ivy/LeafSet017/leaf_atlas.json"
