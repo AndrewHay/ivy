@@ -22,6 +22,35 @@ func test_cup_mesh_has_depth() -> void:
 	assert_gt(mesh.get_aabb().size.z, 0.02, "cup mesh extends in z")
 
 
+func test_crease_peaks_on_midrib_and_vanishes_at_edges() -> void:
+	var amp := 0.1
+	assert_almost_eq(LeafCupMeshScript._crease_offset(0.0, amp), amp, 1e-5)
+	assert_almost_eq(LeafCupMeshScript._crease_offset(0.5, amp), 0.0, 1e-5)
+	assert_almost_eq(LeafCupMeshScript._crease_offset(-0.5, amp), 0.0, 1e-5)
+
+
+func test_blade_is_full_width_rectangle_with_petiole_below() -> void:
+	var mesh := LeafCupMeshScript.build() as ArrayMesh
+	var aabb := mesh.get_aabb()
+	assert_almost_eq(aabb.size.x, 1.0, 1e-4, "no apical taper: blade spans full width")
+	assert_almost_eq(aabb.position.y, 0.0, 1e-5, "petiole starts at the node")
+	assert_almost_eq(aabb.end.y, LeafCupMeshScript.PETIOLE_LEN + 1.0, 1e-4,
+		"blade sits above the petiole")
+
+
+func test_petiole_uvs_are_outside_atlas_rect() -> void:
+	var mesh := LeafCupMeshScript.build() as ArrayMesh
+	var arrays := mesh.surface_get_arrays(0)
+	var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+	var found := false
+	for k in range(verts.size()):
+		if verts[k].y < 0.01:
+			found = true
+			assert_gt(uvs[k].y, 1.25, "node-end petiole vertex must carry v past the shader's 1.25 split")
+	assert_true(found, "mesh has a petiole vertex at the node")
+
+
 func test_s_age_smoothstep() -> void:
 	var expand := 0.12
 	assert_almost_eq(LeafRenderer.s_age_for(0.0, expand), 0.0, 1e-5)

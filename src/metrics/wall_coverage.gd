@@ -38,7 +38,7 @@ const _LeafAtlas = preload("res://src/render/leaf_atlas.gd")
 static var _ref_leaf_area_cache: float = -1.0
 
 ## Fixed canonical leaf area in m²:
-##   alpha_fill_for('a') × REF_LEAF_WIDTH² / aspect_for('a') ≈ 0.003392 m².
+##   reference_alpha_fill() × REF_LEAF_WIDTH² / aspect_for('a') (pinned in leaf_atlas.json; ≈ 0.003392 m²).
 ## Exposed as static so unit tests can assert the expected value.
 ## Result is cached in _ref_leaf_area_cache — this function is called once per
 ## test/tool run (not per-tick) but there is no reason to allocate a LeafAtlas
@@ -47,7 +47,7 @@ static func ref_leaf_area() -> float:
 	if _ref_leaf_area_cache >= 0.0:
 		return _ref_leaf_area_cache
 	var atlas := _LeafAtlas.new()
-	_ref_leaf_area_cache = atlas.alpha_fill_for("a") * REF_LEAF_WIDTH * REF_LEAF_WIDTH / atlas.aspect_for("a")
+	_ref_leaf_area_cache = atlas.reference_alpha_fill() * REF_LEAF_WIDTH * REF_LEAF_WIDTH / atlas.aspect_for("a")
 	return _ref_leaf_area_cache
 
 

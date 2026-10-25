@@ -520,10 +520,10 @@ func test_w076_ref_area_is_fixed_and_correct() -> void:
 	var m := CoverageMetric.new()
 	m.setup(spec, params)
 	var atlas := LeafAtlas.new()
-	var expected_ref := atlas.alpha_fill_for("a") * params.leaf_width_base \
+	var expected_ref := atlas.reference_alpha_fill() * params.leaf_width_base \
 		* params.leaf_width_base / atlas.aspect_for("a")
 	assert_almost_eq(m._ref_area, expected_ref, 1e-9,
-		"_ref_area must equal alpha_fill('a')·leaf_width_base²/aspect('a') (AR-METRIC-1)")
+		"_ref_area must equal reference_alpha_fill()·leaf_width_base²/aspect('a') (AR-METRIC-1)")
 
 	var bucket_area := 2.0 * PI * spec.radius_outer / float(CoverageMetric.AZIMUTH_BINS) \
 		* CoverageMetric.HEIGHT_BIN_SIZE

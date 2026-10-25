@@ -20,7 +20,7 @@ License: https://docs.ambientcg.com/license
 
 | Asset ID | Used for | Path |
 |---|---|---|
-| `LeafSet017` | **Primary ivy leaves.** Photographed *Hedera helix*; 6 leaves, muted weathered sage-green. Chosen for the classic palmate silhouette and flat photography that suits leaf cards. | `plants/ivy/LeafSet017/` |
+| `LeafSet017` | **Primary ivy leaves.** ambientCG *Hedera helix* scan. Albedo, normal and roughness are **bilaterally symmetrized in-repo** (each leaf's cleaner half reflected about its midrib, `tools/symmetrize_leaf_atlas.tscn`). Original scans kept as `*_scan.png` / `*_scan.jpg`. | `plants/ivy/LeafSet017/` |
 | `LeafSet029` | **Seasonal leaf variation.** Brighter green plus autumn-tinted leaves; also ships a Scattering map for backlit translucency. | `plants/ivy/LeafSet029/` |
 | `Bricks094` | **Primary tower material.** Old weathered red brick. Chosen for contrast — green ivy reads clearly against warm red. | `materials/brick/Bricks094/` |
 | `Bricks102` | **Alternate tower material.** Warm sandy medieval stonework, Cotswolds/cottagecore feel. Kept for in-engine A/B. | `materials/brick/Bricks102/` |

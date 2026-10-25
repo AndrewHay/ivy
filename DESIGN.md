@@ -122,8 +122,11 @@ Two levers only:
   sufficient). The player picks one, or moves the plant to another and re-runs. Discrete anchors,
    not free placement — it makes the north-vs-south comparison immediate and legible, which is
    exactly the belief we are trying to install in the player.
-2. **Time.** Pause, play, and at least two speeds: a *watch* speed where the day/night cycle is
-  readable, and a *grow* speed that reaches full coverage in a tolerable wall-clock time.
+2. **Time.** Pause, play, and three speeds (**Normal**, **Fast**, **Grow**): Normal makes one
+  simulated hour pass in fifteen wall seconds with about one growth segment slot per second; Grow
+  uses the same calendar but four segment slots per wall second; Fast runs Normal’s calendar ten
+  times faster. Geometric night compresses wall time eightfold and halts stem growth (HUD explains
+  why).
 
 Nothing else. No pruning, no painting, no placing objects, no camera-locked cursor tools.
 
@@ -146,23 +149,26 @@ day's mean direction so that it does not strobe, and the UI must say so when it 
 inputs are never blended. (Amended 2026-08-09: the original wording claimed render and field are
 always the same sun. Ratifying `SD-TIME-4` makes that untrue at high speed, and this document has
 to be accurate about which of the two is authoritative — the field is.)
-- Below the horizon, direct light goes to zero and growth falls to near zero — not to exactly zero,
-which reads as a broken simulation rather than as night. Night is real. See INV-3a.
+- Below the geometric horizon (`sin_elevation ≤ 0`), direct light goes to zero. **Stem growth stops**
+  entirely during that interval (SD-TIME-NIGHT); the HUD shows “night — too little light to grow.”
+  During daylight the diel gate still shapes midday vs morning/evening vigour (INV-3a). Night still
+  advances quickly in wall time so the player is not stuck waiting.
 - Fixed date and latitude in Phase 1. Seasons and latitude control are later.
 
 Weather, clouds, and rain are Phase 2. The spec's weather multipliers `W(t)` and `W_sky(t)` should
 exist in the code and be pinned to 1.0.
 
-**Open questions for later discussion (2026-10-22, project owner; not yet scheduled):**
+**Playback model (SD-TIME-2, landed 2026-10-24):** `SimClock` drives wall-clock rates. Each growth
+step is a **segment slot** (budget up to one internode at full vigour). Normal uses fifteen slots
+per simulated hour; Grow uses sixty on the same calendar; Fast multiplies calendar speed tenfold.
+Light-EWMA and the field still use `dt_sim()` per step. Legacy `IvyParams.speed_*` seconds-per-day
+knobs are inert; rates live on `SimClock` constants. Implementation: `src/core/sim_clock.gd`,
+`IMPLEMENTATION.md` SD-TIME rows.
 
-- **Rethink the "hour" model.** The current design ticks the simulation once per game-hour, with
-  light, the diel gate, and the light-EWMA all keyed to the hour index. The project owner has a
-  significant gameplay change in mind here. It has not been designed yet and should be discussed
-  before anything changes. Until then the requirements above stand.
-- **Player-placed dynamic light sources.** We want the player to be able to place light sources
-  themselves, dynamically, as an alternative or a supplement to the sun. This probably interacts
-  with the hour rethink above, because both change how the light field is driven over time, so the
-  two should be discussed together.
+**Open questions for later discussion:**
+
+- **Player-placed dynamic light sources.** Place lights dynamically as a supplement to the sun;
+  design together with any future change to how the light field is driven at night.
 
 ---
 
