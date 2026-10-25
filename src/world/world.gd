@@ -370,3 +370,5 @@ func _apply_scenario_camera_framing(scenario) -> void:
 		_village_backdrop.visible = true
 		if _fauna_controller != null and _village_backdrop is VillageBackdrop:
 			_fauna_controller.bind_backdrop(_village_backdrop as VillageBackdrop)
+		elif _fauna_controller != null:
+			push_warning("[fauna] VillageBackdrop missing — fauna will not spawn")

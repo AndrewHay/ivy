@@ -1,0 +1,37 @@
+[gd_scene load_steps=4 format=3 uid="uid://btestfauna001"]
+
+[ext_resource type="Script" path="res://scenes/test_fauna/test_fauna.gd" id="1"]
+[ext_resource type="Script" path="res://src/presentation/fauna/fauna_controller.gd" id="2"]
+[ext_resource type="Script" path="res://src/presentation/fauna/ambient_wind.gd" id="3"]
+
+[node name="Test Fauna" type="Node3D"]
+script = ExtResource("1")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.819152, -0.40558, 0.40558, 0, 0.707107, 0.707107, -0.573576, -0.579228, 0.579228, 0, 8, 0)
+shadow_enabled = true
+
+[node name="GardenPatch" type="Node3D" parent="."]
+
+[node name="FaunaPivot" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6.55, 0, 0.05)
+
+[node name="FaunaController" type="Node3D" parent="."]
+script = ExtResource("2")
+console_log = true
+debug_spawn_near_pivot_only = false
+ambient_spawn_enabled = false
+ignore_lod_despawn = true
+uncapped_population = true
+
+[node name="AmbientWind" type="Node" parent="."]
+script = ExtResource("3")
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(0.939693, -0.17101, 0.296198, 0, 0.866025, 0.5, -0.34202, -0.469846, 0.813798, 4.85, 2.05, 2.35)
+fov = 55.0
+near = 0.05
+far = 80.0
+current = true

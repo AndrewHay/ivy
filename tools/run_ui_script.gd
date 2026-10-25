@@ -575,6 +575,65 @@ func _ready() -> void:
 			for _f in range(3):
 				await get_tree().process_frame
 			print("[ui-script]   SKYCAM pitch=", pitch, " yaw=", yaw, " eye_h=", eye_h)
+		elif line.begins_with("ORBIT_AIM "):
+			# ORBIT_AIM <world_x> <world_z> [standoff_m=2.5] [eye_height_m=1.3]: place the
+			# ui-script orbit camera `standoff_m` toward the hero pivot from (x,z), looking at
+			# the aim point at knee height. Used for garden/fauna QA (flower ring), not the hero.
+			var aim_parts := line.split(" ", false)
+			if aim_parts.size() < 3:
+				printerr("[ui-script] FAILED step ", step, ": ORBIT_AIM requires <world_x> <world_z>")
+				get_tree().quit(1)
+				return
+			var aim_x := float(aim_parts[1])
+			var aim_z := float(aim_parts[2])
+			var standoff := float(aim_parts[3]) if aim_parts.size() >= 4 else 2.5
+			var eye_h := float(aim_parts[4]) if aim_parts.size() >= 5 else 1.3
+			var world_aim := main.get_node("World")
+			if not world_aim.has_method("get_orbit_pivot"):
+				printerr("[ui-script] FAILED step ", step, ": World has no get_orbit_pivot()")
+				get_tree().quit(1)
+				return
+			var pivot_aim: Vector3 = world_aim.get_orbit_pivot()
+			var orbit_cam_aim := world_aim.get_node_or_null("UiScriptOrbitCam") as Camera3D
+			if orbit_cam_aim == null:
+				orbit_cam_aim = Camera3D.new()
+				orbit_cam_aim.name = "UiScriptOrbitCam"
+				world_aim.add_child(orbit_cam_aim)
+			var aim_pt := Vector3(aim_x, 0.45, aim_z)
+			var to_pivot := Vector2(pivot_aim.x - aim_x, pivot_aim.z - aim_z)
+			if to_pivot.length_squared() < 1e-6:
+				to_pivot = Vector2(0.0, -1.0)
+			to_pivot = to_pivot.normalized()
+			var eye_aim := Vector3(aim_x + to_pivot.x * standoff, eye_h, aim_z + to_pivot.y * standoff)
+			orbit_cam_aim.look_at_from_position(eye_aim, aim_pt + Vector3(0.0, 0.15, 0.0))
+			orbit_cam_aim.make_current()
+			for _f in range(3):
+				await get_tree().process_frame
+			print("[ui-script]   ORBIT_AIM aim=", aim_pt, " standoff=", standoff, " eye=", eye_aim)
+		elif line.begins_with("FAUNA_COUNT"):
+			var fc := main.get_node_or_null("World/FaunaController")
+			var n := 0
+			if fc != null and fc.has_method("get_active_agent_count"):
+				n = fc.get_active_agent_count()
+			var clk_spd := "?"
+			var sim_n := main.get_node_or_null("Sim")
+			if sim_n != null and sim_n.has_method("get_clock"):
+				var cl = sim_n.get_clock()
+				if cl != null:
+					clk_spd = str(cl.speed)
+			var dbg := ""
+			if fc != null:
+				dbg = (" enabled=%s anchors=%d lit=%.3f hour=%.1f paused=%s spawn_tries=%d ok=%d peak=%d"
+					+ " fail(species=%d cap=%d anchor=%d weight=%d rng=%d dist=%d) clock=%s") % [
+					fc.get("_enabled"), fc.get("debug_anchor_count"),
+					fc.get("debug_last_lit"), fc.get("debug_last_hour"),
+					fc.get("debug_last_paused"), fc.get("debug_spawn_attempts"),
+					fc.get("debug_spawn_ok"), fc.get("debug_peak_agents"),
+					fc.get("debug_fail_no_species"),
+					fc.get("debug_fail_cap"), fc.get("debug_fail_anchor"),
+					fc.get("debug_fail_weight"), fc.get("debug_fail_rng"),
+					fc.get("debug_fail_distance"), clk_spd]
+			print("[ui-script]   FAUNA_COUNT ", n, dbg)
 		elif line.begins_with("ORBIT "):
 			# ORBIT <azimuth_deg> [radius_m=8] [height_m=2]: a throwaway camera on a circle
 			# around World.get_orbit_pivot(), looking at the pivot. Azimuth 0 is +Z (the

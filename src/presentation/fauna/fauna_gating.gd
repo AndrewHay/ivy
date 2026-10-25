@@ -1,8 +1,18 @@
 class_name FaunaGating
 extends RefCounted
 
-static func hour_from_game_day(game_day: float) -> float:
-	return fposmod(game_day, 1.0) * 24.0
+## Human-readable hint when `_pick_species` fails (hour gates, etc.).
+static func spawn_hour_hint(local_solar_hour: float) -> String:
+	var bee := species_hour_gate(FaunaConstants.Species.BEE, local_solar_hour)
+	var fly := species_hour_gate(FaunaConstants.Species.BUTTERFLY, local_solar_hour)
+	if bee > 0.0 and fly > 0.0:
+		return ""
+	if bee <= 0.0 and fly <= 0.0:
+		return ("no bees/butterflies at solar %.1fh (bees ~6:30–18:00, butterflies ~7:30–17:00)"
+			% local_solar_hour)
+	if bee <= 0.0:
+		return "bees off at solar %.1fh (active ~6:30–18:00)" % local_solar_hour
+	return "butterflies off at solar %.1fh (active ~7:30–17:00)" % local_solar_hour
 
 
 static func hero_weight_at_xz(xz: Vector2) -> float:
@@ -24,12 +34,16 @@ static func timelapse_density_scale(render_blend: float) -> float:
 static func species_hour_gate(species: FaunaConstants.Species, hour: float) -> float:
 	match species:
 		FaunaConstants.Species.BEE:
-			if hour < 8.0 or hour >= 18.0:
+			if hour < 6.5 or hour >= 18.0:
 				return 0.0
+			if hour < 8.0:
+				return 0.45
 			return _peak_boost(hour, 10.0, 15.0)
 		FaunaConstants.Species.BUTTERFLY:
-			if hour < 9.0 or hour >= 17.0:
+			if hour < 7.5 or hour >= 17.0:
 				return 0.0
+			if hour < 9.0:
+				return 0.45
 			return _peak_boost(hour, 11.0, 14.0)
 		FaunaConstants.Species.LADYBIRD:
 			if hour < 10.0 or hour >= 16.0:
@@ -50,11 +64,10 @@ static func combined_activity(
 		render_blend: float,
 		weather_activity_scale: float,
 		species: FaunaConstants.Species,
-		game_day: float) -> float:
+		local_solar_hour: float) -> float:
 	if lit < FaunaConstants.LIT_SPAWN_CUTOFF:
 		return 0.0
-	var hour := hour_from_game_day(game_day)
-	var gate := species_hour_gate(species, hour)
+	var gate := species_hour_gate(species, local_solar_hour)
 	if gate <= 0.0:
 		return 0.0
 	return lit * gate * weather_activity_scale * timelapse_density_scale(render_blend)
@@ -73,14 +86,16 @@ static func effective_species_cap(
 		lit: float,
 		render_blend: float,
 		weather_activity_scale: float,
-		game_day: float,
+		local_solar_hour: float,
 		camera_global: Vector3,
 		pivot_global: Vector3) -> int:
 	var base := _base_cap(species)
-	var activity := combined_activity(lit, render_blend, weather_activity_scale, species, game_day)
+	var activity := combined_activity(lit, render_blend, weather_activity_scale, species, local_solar_hour)
 	if activity <= 0.0:
 		return 0
 	var scaled := int(floor(float(base) * activity * camera_cap_scale(camera_global, pivot_global)))
+	if activity > 0.08 and scaled == 0:
+		scaled = 1
 	return maxi(scaled, 0)
 
 
@@ -101,7 +116,9 @@ static func should_despawn_agent(camera_global: Vector3, agent_global: Vector3) 
 
 
 static func spawn_distance_allowed(camera_global: Vector3, spawn_global: Vector3) -> bool:
-	return _xz_distance(camera_global, spawn_global) <= FaunaConstants.LOD_SPAWN_FORBID_M
+	# Must match LOD_DESPAWN_M — spawning in the 18–22 m band (old SPAWN_FORBID) caused
+	# one-frame spawn→despawn (ivy-177 QA: spawn_ok>0 but FAUNA_COUNT 0).
+	return _xz_distance(camera_global, spawn_global) <= FaunaConstants.LOD_DESPAWN_M
 
 
 static func anchor_in_species_ring(species: FaunaConstants.Species, anchor: FaunaAnchor) -> bool:

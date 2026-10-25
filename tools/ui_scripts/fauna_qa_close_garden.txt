@@ -1,7 +1,16 @@
-# QA close-up garden ring — square mesh noon
+# QA close-up on garden flower cluster — square mesh noon.
+# REQUIRED: --scenario=res://assets/structures/scenarios/square.tres
+# (without it the procedural bootstrap hides VillageBackdrop → FAUNA_COUNT anchors=0).
+# Aim point: first LCG flower anchor in backdrop space, world ≈ (pivot.x+7, pivot.z+9.2).
+# Square scenario camera_pivot.x is -7 → world X ≈ 0, Z ≈ 9.2.
 SPEED pause
 ADVANCE_DAYS 0.25
 SPEED watch
-WAIT 8000
-ORBIT 200 6.5 1.0
-SCREENSHOT fauna_noon_close.png
+ORBIT_AIM 0.0 9.2 1.8 1.35
+WAIT 12000
+FAUNA_COUNT
+SCREENSHOT fauna_bush_close.png
+ORBIT_AIM 0.0 9.2 1.2 1.25
+WAIT 2000
+SCREENSHOT fauna_bush_closer.png
+FAUNA_COUNT

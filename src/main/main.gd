@@ -66,6 +66,10 @@ func _show_building_picker() -> void:
 
 
 func _on_building_selected(building_id: String) -> void:
+	var standalone := BuildingCatalog.standalone_scene_for(building_id)
+	if not standalone.is_empty():
+		get_tree().change_scene_to_file(standalone)
+		return
 	_bootstrap_generation += 1
 	_session_log = null
 	_loading_overlay = _LoadingOverlay.new()
@@ -611,7 +615,7 @@ func _handle_time_hotkey(event: InputEvent) -> bool:
 	return true
 
 
-func _tick_fauna(clock: SimClock) -> void:
+func _tick_fauna(clock: SimClock, delta: float) -> void:
 	var fauna: FaunaController = _world.get_fauna_controller()
 	if fauna == null:
 		return
@@ -623,6 +627,7 @@ func _tick_fauna(clock: SimClock) -> void:
 	var s: Vector3 = sky.solar.render_direction(game_day, spd)
 	var ctx := FaunaPresentationContext.new()
 	ctx.game_day = game_day
+	ctx.local_solar_hour = sky.solar.hour_of_day(game_day)
 	ctx.lit = SkySun.lit_for(s.y)
 	ctx.render_blend = sky.solar.render_blend(spd)
 	ctx.weather_activity_scale = 1.0
@@ -634,17 +639,17 @@ func _tick_fauna(clock: SimClock) -> void:
 	if backdrop != null and backdrop.visible:
 		ctx.backdrop_global_transform = backdrop.global_transform
 	ctx.paused = clock.speed == SimClock.Speed.PAUSE
-	fauna.tick(ctx, get_process_delta_time())
+	fauna.tick(ctx, delta)
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if not _sim.has_method("get_clock"):
 		return
 	var clock: SimClock = _sim.get_clock()
 	if clock == null:
 		return
 	_world.get_sky_sun().update(clock.display_game_day(), clock.seconds_per_game_day())
-	_tick_fauna(clock)
+	_tick_fauna(clock, delta)
 	if _hud != null:
 		_hud.refresh(clock, _world.get_sky_sun(), _debug_camera.get_yaw())
 	if _dev_overlay != null and _dev_overlay.has_method("refresh"):

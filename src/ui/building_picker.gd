@@ -27,7 +27,7 @@ func _ready() -> void:
 	center.add_child(panel)
 
 	var title := Label.new()
-	title.text = "Choose a building"
+	title.text = "Choose a scenario"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 28)
 	panel.add_child(title)

@@ -198,7 +198,8 @@ in the garden is busier and night is quiet; they never see spawn meters, counter
 **Coordination:** Epic `ivy-4gn` (chimney smoke + foliage sway) shares `AmbientWind` phase so sway
 and insect drift feel like one breeze. Combined motion stays subtle; hero ivy remains the subject.
 
-Contracts: `IMPLEMENTATION.md` § SD-FAUNA. Tracking: bead `ivy-ckq`.
+Contracts: `IMPLEMENTATION.md` § SD-FAUNA. Behaviour summary and status: **`FAUNA_DESIGN.md`**.
+Tracking: bead `ivy-ckq`.
 
 
 
