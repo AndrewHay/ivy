@@ -26,6 +26,15 @@ func alpha_fill_for(id: String) -> float:
 	return float(_by_id[id].alpha_fill)
 
 
+## Leaf-"a" fill used by simulation (crowding deposit) and coverage metrics (SD-METRIC-7j). Pinned in
+## leaf_atlas.json so atlas art passes cannot move growth or the AS-1 gates; falls back to the measured
+## value when the pin is absent.
+func reference_alpha_fill() -> float:
+	if _data.has("reference_alpha_fill_a"):
+		return float(_data.reference_alpha_fill_a)
+	return alpha_fill_for("a")
+
+
 ## W-062 — SD-LEAF-6 tier accessors.
 ## Returns the health tier ("H" = healthy, "W" = weathered) for a given leaf id.
 func tier_for(id: String) -> String:

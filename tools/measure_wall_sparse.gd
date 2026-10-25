@@ -56,7 +56,7 @@ func _ready() -> void:
 	var label := String(args.get("label", "case"))
 
 	var atlas := AtlasScript.new()
-	var ref_area := atlas.alpha_fill_for("a") * REF_LEAF_WIDTH * REF_LEAF_WIDTH / atlas.aspect_for("a")
+	var ref_area := atlas.reference_alpha_fill() * REF_LEAF_WIDTH * REF_LEAF_WIDTH / atlas.aspect_for("a")
 
 	print("[measure-sparse] label=%s" % label)
 

@@ -35,9 +35,12 @@ static func should_freeze(stem_past_node: float, expand_distance: float) -> bool
 
 func sync_static_from(plant: PlantData, from_index: int, tip_shoot: Dictionary = {}) -> void:
 	assert(not _is_growing_buffer)
-	multimesh.visible_instance_count = plant.leaf_frozen_count
+	var cap := multimesh.instance_count
+	var frozen := mini(plant.leaf_frozen_count, cap)
+	multimesh.visible_instance_count = frozen
 	var expand := _params.leaf_expand_distance
-	for i in range(from_index, plant.leaf_frozen_count):
+	var start := clampi(from_index, 0, frozen)
+	for i in range(start, frozen):
 		var shoot: float = tip_shoot.get(plant.leaf_tip[i], plant.leaf_s_at_node[i] + expand)
 		var past := shoot - plant.leaf_s_at_node[i]
 		var age := s_age_for(past, expand)
@@ -46,11 +49,12 @@ func sync_static_from(plant: PlantData, from_index: int, tip_shoot: Dictionary =
 
 func sync_growing_from(plant: PlantData, tip_shoot: Dictionary, frozen_count: int) -> void:
 	assert(_is_growing_buffer)
+	var cap := multimesh.instance_count
 	var total := plant.leaf_count()
-	var growing := total - frozen_count
+	var growing := mini(maxi(0, total - frozen_count), cap)
 	multimesh.visible_instance_count = growing
 	var slot := 0
-	for i in range(frozen_count, total):
+	for i in range(frozen_count, frozen_count + growing):
 		var shoot: float = tip_shoot.get(plant.leaf_tip[i], plant.leaf_s_at_node[i] + _params.leaf_expand_distance)
 		var past := shoot - plant.leaf_s_at_node[i]
 		var age := s_age_for(past, _params.leaf_expand_distance)
@@ -67,7 +71,7 @@ func _write_instance(slot: int, plant: PlantData, leaf_index: int, s_age: float)
 	var w := bx.length() * s_age
 	var h := by.length() * s_age
 	var xf := Transform3D(
-		Basis(bx.normalized() * w, by.normalized() * h, bz.normalized()),
+		Basis(bx.normalized() * w, by.normalized() * h, bz.normalized() * w),
 		origin)
 	multimesh.set_instance_transform(slot, xf)
 	var cbase := leaf_index * 4

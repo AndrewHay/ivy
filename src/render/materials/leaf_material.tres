@@ -1,9 +1,13 @@
-[gd_resource type="ShaderMaterial" load_steps=3 format=3]
+[gd_resource type="ShaderMaterial" load_steps=5 format=3]
 
 [ext_resource type="Shader" path="res://src/render/shaders/leaf.gdshader" id="1"]
 [ext_resource type="Texture2D" path="res://assets/plants/ivy/LeafSet017/LeafSet017_Leaves_RGBA.png" id="2"]
+[ext_resource type="Texture2D" path="res://assets/plants/ivy/LeafSet017/LeafSet017_2K-JPG_NormalGL.jpg" id="3"]
+[ext_resource type="Texture2D" path="res://assets/plants/ivy/LeafSet017/LeafSet017_2K-JPG_Roughness.jpg" id="4"]
 
 [resource]
 render_priority = 0
 shader = ExtResource("1")
 shader_parameter/albedo_tex = ExtResource("2")
+shader_parameter/normal_tex = ExtResource("3")
+shader_parameter/roughness_tex = ExtResource("4")

@@ -182,7 +182,7 @@ static func advance(
 	# (tier selection, s_light, phototropic cant) do not perturb the crowding field.
 	# "Leaf appearance is presentation; leaf placement is simulation." (W-060 constraints)
 	if ctx.env != null:
-		var deposit_area := atlas.alpha_fill_for("a") * params.leaf_width_base \
+		var deposit_area := atlas.reference_alpha_fill() * params.leaf_width_base \
 			* (params.leaf_width_base / atlas.aspect_for("a"))
 		Physiology.deposit_leaf_crowding(deposit_pos, deposit_area, ctx)
 	# Pass f_l as leaf_light (AR-METRIC-2). No RNG draw consumed — f_l is an existing input (INV-7).

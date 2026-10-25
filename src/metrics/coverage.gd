@@ -68,7 +68,7 @@ func setup(spec: TowerSpec, params: IvyParams) -> void:
 	_eligible = _build_opening_mask(spec)
 	# AR-METRIC-1 amendment: fixed leaf-"a" reference footprint, independent of variant/tier/s_light.
 	var atlas := _LeafAtlas.new()
-	_ref_area = atlas.alpha_fill_for("a") * params.leaf_width_base * params.leaf_width_base \
+	_ref_area = atlas.reference_alpha_fill() * params.leaf_width_base * params.leaf_width_base \
 		/ atlas.aspect_for("a")
 
 

@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://civy_capture_single_leaf_card"]
+
+[ext_resource type="Script" path="res://tools/capture_single_leaf_card.gd" id="1"]
+
+[node name="CaptureSingleLeafCard" type="Node"]
+script = ExtResource("1")
