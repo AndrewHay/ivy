@@ -1,0 +1,15 @@
+# Fauna accept — square mesh scenario, garden ring at noon then midnight.
+# Run: --scenario=res://assets/structures/scenarios/square.tres --outdir=res://.tmp/fauna/square/
+WAIT 120000
+SPEED pause
+ADVANCE_DAYS 0.25
+SPEED watch
+WAIT 6000
+ORBIT 90 10 1.2
+SCREENSHOT fauna_noon_garden.png
+SPEED pause
+ADVANCE_DAYS 0.5
+SCREENSHOT fauna_midnight.png
+SPEED watch
+WAIT 2000
+SCREENSHOT fauna_midnight_watch.png

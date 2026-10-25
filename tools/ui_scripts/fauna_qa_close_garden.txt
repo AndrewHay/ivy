@@ -1,0 +1,7 @@
+# QA close-up garden ring — square mesh noon
+SPEED pause
+ADVANCE_DAYS 0.25
+SPEED watch
+WAIT 8000
+ORBIT 200 6.5 1.0
+SCREENSHOT fauna_noon_close.png

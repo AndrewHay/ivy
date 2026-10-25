@@ -1,0 +1,9 @@
+# Fauna accept — default procedural tower (backdrop hidden, no fauna).
+# No --scenario flag.
+WAIT 120000
+SPEED pause
+ADVANCE_DAYS 0.25
+SPEED watch
+WAIT 4000
+CAMERA sun
+SCREENSHOT fauna_procedural_noon.png

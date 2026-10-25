@@ -1,4 +1,4 @@
-[gd_scene load_steps=21 format=3 uid="uid://8lhbed2h12ph"]
+[gd_scene load_steps=23 format=3 uid="uid://8lhbed2h12ph"]
 
 [ext_resource type="Script" uid="uid://bjvp2g014gqul" path="res://src/main/main.gd" id="1"]
 [ext_resource type="Script" uid="uid://dhq7o4g8cnv6l" path="res://src/world/world.gd" id="2"]
@@ -13,6 +13,8 @@
 [ext_resource type="Script" path="res://src/world/wall.gd" id="11"]
 [ext_resource type="PackedScene" path="res://src/world/village_backdrop.tscn" id="12_backdrop"]
 [ext_resource type="Shader" uid="uid://cckuextcauor4" path="res://src/render/sky/atmospheric_sky.gdshader" id="13_sky_shader"]
+[ext_resource type="Script" path="res://src/presentation/fauna/ambient_wind.gd" id="14_wind"]
+[ext_resource type="Script" path="res://src/presentation/fauna/fauna_controller.gd" id="15_fauna"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_sky"]
 shader = ExtResource("13_sky_shader")
@@ -157,6 +159,12 @@ transform = Transform3D(1, 0, 0, 0, 0.70711, 0.70711, 0, -0.70711, 0.70711, 0, 7
 
 [node name="CamSilhouette" type="Camera3D" parent="World/CameraRig"]
 transform = Transform3D(1, 0, 0, 0, 0.97014, -0.24254, 0, 0.24254, 0.97014, 0, 0.5, 8)
+
+[node name="AmbientWind" type="Node" parent="World"]
+script = ExtResource("14_wind")
+
+[node name="FaunaController" type="Node3D" parent="World"]
+script = ExtResource("15_fauna")
 
 [node name="VillageBackdrop" parent="World" instance=ExtResource("12_backdrop")]
 visible = false

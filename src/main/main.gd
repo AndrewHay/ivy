@@ -611,6 +611,32 @@ func _handle_time_hotkey(event: InputEvent) -> bool:
 	return true
 
 
+func _tick_fauna(clock: SimClock) -> void:
+	var fauna: FaunaController = _world.get_fauna_controller()
+	if fauna == null:
+		return
+	var sky: SkySun = _world.get_sky_sun()
+	if sky.solar == null:
+		return
+	var game_day := clock.display_game_day()
+	var spd := clock.seconds_per_game_day()
+	var s: Vector3 = sky.solar.render_direction(game_day, spd)
+	var ctx := FaunaPresentationContext.new()
+	ctx.game_day = game_day
+	ctx.lit = SkySun.lit_for(s.y)
+	ctx.render_blend = sky.solar.render_blend(spd)
+	ctx.weather_activity_scale = 1.0
+	ctx.wind = _world.get_ambient_wind()
+	ctx.pivot_global_position = _world.get_orbit_pivot()
+	var cam := get_viewport().get_camera_3d()
+	ctx.camera_global_position = cam.global_position if cam != null else _debug_camera.global_position
+	var backdrop := _world.get_node_or_null("VillageBackdrop")
+	if backdrop != null and backdrop.visible:
+		ctx.backdrop_global_transform = backdrop.global_transform
+	ctx.paused = clock.speed == SimClock.Speed.PAUSE
+	fauna.tick(ctx, get_process_delta_time())
+
+
 func _process(_delta: float) -> void:
 	if not _sim.has_method("get_clock"):
 		return
@@ -618,6 +644,7 @@ func _process(_delta: float) -> void:
 	if clock == null:
 		return
 	_world.get_sky_sun().update(clock.display_game_day(), clock.seconds_per_game_day())
+	_tick_fauna(clock)
 	if _hud != null:
 		_hud.refresh(clock, _world.get_sky_sun(), _debug_camera.get_yaw())
 	if _dev_overlay != null and _dev_overlay.has_method("refresh"):

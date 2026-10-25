@@ -17,6 +17,8 @@ const BuildingCatalog = preload("res://src/world/building_catalog.gd")
 @onready var sky_sun: SkySun = $SkySun
 @onready var _camera_rig: Node3D = $CameraRig
 @onready var _village_backdrop: Node3D = $VillageBackdrop
+@onready var _fauna_controller: FaunaController = $FaunaController
+@onready var _ambient_wind: AmbientWind = $AmbientWind
 
 var surface: SurfaceQuery
 var tower_spec: TowerSpec
@@ -106,6 +108,8 @@ func _teardown_active_building() -> void:
 	seed_index = 0
 	if _village_backdrop != null:
 		_village_backdrop.visible = false
+	if _fauna_controller != null:
+		_fauna_controller.clear_environment()
 
 
 func _show_procedural_wall() -> void:
@@ -192,6 +196,14 @@ func _show_procedural_tower() -> void:
 
 func get_sky_sun() -> SkySun:
 	return sky_sun
+
+
+func get_fauna_controller() -> FaunaController:
+	return _fauna_controller
+
+
+func get_ambient_wind() -> AmbientWind:
+	return _ambient_wind
 
 
 func uses_mesh_backend() -> bool:
@@ -356,3 +368,5 @@ func _apply_scenario_camera_framing(scenario) -> void:
 	if _village_backdrop != null:
 		_village_backdrop.position = Vector3(pivot.x, 0.0, pivot.z)
 		_village_backdrop.visible = true
+		if _fauna_controller != null and _village_backdrop is VillageBackdrop:
+			_fauna_controller.bind_backdrop(_village_backdrop as VillageBackdrop)

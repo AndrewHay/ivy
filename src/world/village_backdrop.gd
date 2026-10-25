@@ -229,15 +229,15 @@ func _apply_subtree(node: Node) -> void:
 func _setup_multimesh_scatter() -> void:
 	_create_scatter(
 		"res://assets/backdrop/pieces/Grass_Wispy_Short.gltf",
-		"Scatter_Grass", _grass_positions(),
+		"Scatter_Grass", VillageScatterPositions.grass_positions(),
 		GeometryInstance3D.SHADOW_CASTING_SETTING_OFF)
 	_create_scatter(
 		"res://assets/backdrop/pieces/Flower_3_Group.gltf",
-		"Scatter_Flower", _flower_positions(),
+		"Scatter_Flower", VillageScatterPositions.flower_positions(),
 		GeometryInstance3D.SHADOW_CASTING_SETTING_OFF)
 	_create_scatter(
 		"res://assets/backdrop/pieces/Clover_1.gltf",
-		"Scatter_Clover", _clover_positions(),
+		"Scatter_Clover", VillageScatterPositions.clover_positions(),
 		GeometryInstance3D.SHADOW_CASTING_SETTING_OFF)
 	_create_scatter(
 		"res://assets/backdrop/pieces/Pine_2.gltf",
@@ -381,61 +381,32 @@ func _patch_bush_green_material() -> void:
 
 # ── Deterministic scatter positions (seeded LCG) ─────────────────────────────
 #
-# LCG: state = (state * 1664525 + 1013904223) & 0x7FFFFFFF  (Knuth §3.6)
-# Seeds are unique per scatter type; layout is identical every run.
-# _lcg_step() advances the state; _lcg_f01() converts to [0, 1) float.
+# Grass/flower/clover arrays live in VillageScatterPositions (shared with fauna).
+# Bush/pine/path LCG below uses the same Knuth constants.
 
 func _lcg_step(state: int) -> int:
-	return (state * 1664525 + 1013904223) & 0x7FFFFFFF
+	return VillageScatterPositions.lcg_step(state)
 
 
 func _lcg_f01(state: int) -> float:
-	return float(state & 0x7FFFFFFF) / float(0x7FFFFFFF)
+	return VillageScatterPositions.lcg_f01(state)
 
 
-## 30 grass tufts scattered in the near-mid ring (r=6.5-15 m).
-## Grass_Wispy_Short: 1.07 m at scale=1.0 → scale 0.18-0.24 → ~0.19-0.26 m height.
-func _grass_positions() -> Array[Transform3D]:
-	var out: Array[Transform3D] = []
-	var st := 42
-	for _i in range(30):
-		st = _lcg_step(st); var angle: float = _lcg_f01(st) * TAU
-		st = _lcg_step(st); var r: float = lerpf(6.5, 15.0, _lcg_f01(st))
-		st = _lcg_step(st); var s: float = lerpf(0.18, 0.24, _lcg_f01(st))
-		st = _lcg_step(st); var rot: float = _lcg_f01(st) * TAU
-		var basis := Basis.from_euler(Vector3(0.0, rot, 0.0)).scaled(Vector3(s, s, s))
-		out.append(Transform3D(basis, Vector3(cos(angle) * r, 0.0, sin(angle) * r)))
-	return out
-
-
-## 16 flower clusters in the near garden ring (r=5.5-12 m).
-## Flower_3_Group: 2.05 m at scale=1.0 → scale 0.18-0.22 → ~0.37-0.45 m height (knee-high).
-func _flower_positions() -> Array[Transform3D]:
-	var out: Array[Transform3D] = []
-	var st := 137
-	for _i in range(16):
-		st = _lcg_step(st); var angle: float = _lcg_f01(st) * TAU
-		st = _lcg_step(st); var r: float = lerpf(5.5, 12.0, _lcg_f01(st))
-		st = _lcg_step(st); var s: float = lerpf(0.18, 0.22, _lcg_f01(st))
-		st = _lcg_step(st); var rot: float = _lcg_f01(st) * TAU
-		var basis := Basis.from_euler(Vector3(0.0, rot, 0.0)).scaled(Vector3(s, s, s))
-		out.append(Transform3D(basis, Vector3(cos(angle) * r, 0.0, sin(angle) * r)))
-	return out
-
-
-## 20 clover patches in the near-mid ring (r=5.0-14 m).
-## Clover_1: 1.14 m at scale=1.0 → scale 0.12-0.16 → ~0.14-0.18 m height (ground cover).
-func _clover_positions() -> Array[Transform3D]:
-	var out: Array[Transform3D] = []
-	var st := 99
-	for _i in range(20):
-		st = _lcg_step(st); var angle: float = _lcg_f01(st) * TAU
-		st = _lcg_step(st); var r: float = lerpf(5.0, 14.0, _lcg_f01(st))
-		st = _lcg_step(st); var s: float = lerpf(0.12, 0.16, _lcg_f01(st))
-		st = _lcg_step(st); var rot: float = _lcg_f01(st) * TAU
-		var basis := Basis.from_euler(Vector3(0.0, rot, 0.0)).scaled(Vector3(s, s, s))
-		out.append(Transform3D(basis, Vector3(cos(angle) * r, 0.0, sin(angle) * r)))
-	return out
+func export_fauna_anchors() -> FaunaEnvironment:
+	var env := FaunaEnvironment.new()
+	for t in VillageScatterPositions.flower_positions():
+		var a := FaunaAnchor.new()
+		a.kind = FaunaConstants.AnchorKind.FLOWER
+		a.local_transform = t
+		a.hero_weight = FaunaGating.hero_weight_at_xz(Vector2(t.origin.x, t.origin.z))
+		env.anchors.append(a)
+	for t in VillageScatterPositions.clover_positions():
+		var a := FaunaAnchor.new()
+		a.kind = FaunaConstants.AnchorKind.CLOVER
+		a.local_transform = t
+		a.hero_weight = FaunaGating.hero_weight_at_xz(Vector2(t.origin.x, t.origin.z))
+		env.anchors.append(a)
+	return env
 
 
 ## True if p lies inside any cottage's wall exterior grown by `margin` metres.

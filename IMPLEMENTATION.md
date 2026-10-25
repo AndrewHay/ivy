@@ -1529,6 +1529,56 @@ All of these live in the same authoritative resource as the §30 defaults (INV-6
 
 ---
 
+## SD-FAUNA — Ambient fauna (presentation layer)  *(ivy-ckq)*
+
+Render-only pollinators and micro-fauna in the village garden ring. Systems design ratified on
+2026-10-24 for implementation on `feat/animals`. Player-facing intent in `DESIGN.md` § Ambient fauna.
+
+### Architecture
+
+- **`VillageBackdrop.export_fauna_anchors()`** builds an immutable **`FaunaEnvironment`** once per
+  backdrop ready pass, reusing the same LCG transform arrays as scatter (not MultiMesh buffer reads).
+- **`FaunaPresentationContext`** is assembled each frame in `main.gd` after `SkySun.update` (game
+  day, presentation `lit`, render blend, `AmbientWind`, `weather_activity_scale`).
+- **`FaunaController`** (`World/FaunaController`, sibling of `VillageBackdrop`) owns the agent pool;
+  spawn decisions throttled to 4 Hz.
+
+Forbidden imports from `src/presentation/fauna/*`: `src/sim/*`, env/light-bake/growth paths.
+
+### SD-FAUNA rules (testable)
+
+1. **SD-FAUNA-1 (layer):** Presentation-only; no sim, env field, or growth writes; no collision on
+   layer bit 1.
+2. **SD-FAUNA-2 (anchors):** Bloom anchors only from `export_fauna_anchors()`; no runtime MultiMesh
+   buffer parsing.
+3. **SD-FAUNA-3 (space):** Anchor math in backdrop-local pivot space; world via `global_transform`.
+4. **SD-FAUNA-4 (ring):** Bees/butterflies: anchor XZ ∈ [5.5, 12] m; ladybird may use clover to 14 m.
+5. **SD-FAUNA-5 (hero):** No spawn within 5.0 m XZ of pivot; weight → 0 by 7.0 m.
+6. **SD-FAUNA-6 (diel):** Activity uses `SkySun.lit_for` on **render** sun elevation plus
+   `display_game_day` hour windows per species.
+7. **SD-FAUNA-7 (timelapse):** At `render_blend < 1`, multiply spawn rate and caps by
+   `lerp(0.25, 1.0, b)`; `lit` from rendered sun, not tick-snapped sim sun alone.
+8. **SD-FAUNA-8 (caps):** Global ≤ 12 agents; max bee 8, butterfly 6, ladybird 1.
+9. **SD-FAUNA-9 (LOD):** Despawn beyond 18 m camera distance; no new spawns beyond 22 m; close hero
+   camera (< 6 m XZ to pivot) scales effective caps × 0.4.
+10. **SD-FAUNA-10 (weather stub):** `weather_activity_scale` defaults to 1.0; no weather module in MVP.
+11. **SD-FAUNA-11 (wind):** `World/AmbientWind` owns shared phase for ivy-4gn foliage sway and fauna
+    drift (butterflies full, bees ~30%).
+12. **SD-FAUNA-12 (determinism):** Fauna RNG is outside sim determinism; fauna state not in growth
+    snapshots.
+
+### Species hour windows (multiply by `lit` and weather stub)
+
+| Species | Active hours (local solar) | Peak |
+|---------|---------------------------|------|
+| Bee | 08:00–18:00 | 10:00–15:00 |
+| Butterfly | 09:00–17:00 | 11:00–14:00 |
+| Ladybird | 10:00–16:00 | — |
+
+`lit < 0.05`: despawn over ~1 s; no new spawns.
+
+---
+
 ## SD-SCEN — Example scenarios (expected behaviour, for the Architect and QA)
 
 **Scenario A — south anchor, Watch then Grow.** Player seeds at the south anchor at 06:00 and leaves

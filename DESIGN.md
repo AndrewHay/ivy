@@ -168,6 +168,34 @@ exist in the code and be pinned to 1.0.
 
 
 
+## Ambient fauna (presentation layer)
+
+Small garden wildlife sells the village as a place that was already alive before the player arrived.
+It rewards the contemplative loop without adding levers, scores, or sim coupling.
+
+**Boundary:** Fauna lives under `src/presentation/fauna/` (and shared `AmbientWind` with village
+signs of life). It does not read or write growth, light bake, physiology, or `IvyParams`. Zero
+collision on gameplay layers. When `VillageBackdrop` is hidden (procedural-only scenarios), fauna is
+off.
+
+**MVP species:** bees and butterflies in the garden ring (flower scatter band); rare ladybirds on
+clover. Moths, swallows, and ivy-bloom pollinators are later beats.
+
+**Flower coupling:** Backdrop flower clusters, clover, and bushes are static bloom anchors. Future
+simulated ivy flowers may bias pollinator attention toward the hero — a silent compliment, not a
+quest. Fauna must not depend on tip counts or segment length.
+
+**Hidden algorithms:** When and where animals appear is computed from designer-only signals (anchor
+weights, diel gates, density caps, camera distance, hero exclusion). Players may feel that midday
+in the garden is busier and night is quiet; they never see spawn meters, counters, or ecology UI.
+
+**Coordination:** Epic `ivy-4gn` (chimney smoke + foliage sway) shares `AmbientWind` phase so sway
+and insect drift feel like one breeze. Combined motion stays subtle; hero ivy remains the subject.
+
+Contracts: `IMPLEMENTATION.md` § SD-FAUNA. Tracking: bead `ivy-ckq`.
+
+
+
 ## Design goals
 
 
