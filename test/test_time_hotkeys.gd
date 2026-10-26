@@ -42,4 +42,4 @@ func test_number_keys_map_to_speeds_and_other_keys_do_not() -> void:
 	assert_eq(SimClock.speed_for_hotkey(KEY_2), SimClock.Speed.FAST)
 	assert_eq(SimClock.speed_for_hotkey(KEY_3), SimClock.Speed.GROW)
 	assert_eq(SimClock.speed_for_hotkey(KEY_4), -1, "no fourth speed")
-	assert_eq(SimClock.speed_for_hotkey(KEY_W), -1, "W is camera zoom, not a time key")
+	assert_eq(SimClock.speed_for_hotkey(KEY_W), -1, "W is camera rotate, not a time key")

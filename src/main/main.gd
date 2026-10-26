@@ -180,6 +180,7 @@ func _bootstrap_simulation(auto_seed: bool) -> bool:
 		)
 	_plant_render.setup(params)
 	_debug_camera.setup(_world.tower_spec, _world.get_debug_camera_zoom_bounds())
+	_debug_camera.set_surface_query(surface)
 	_world.get_sky_sun().setup(_sim.solar)
 	if not script_driven and not _free_plant_mode:
 		_sim.get_clock().set_speed(SimClock.Speed.GROW)

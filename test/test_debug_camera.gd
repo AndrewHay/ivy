@@ -75,19 +75,19 @@ func test_setup_wall_bounds_use_readable_default_radius() -> void:
 func test_tower_zoom_bounds_unchanged_for_cylinder() -> void:
 	var spec := TowerSpec.new()
 	var bounds: Vector2 = DebugCameraScript.tower_zoom_bounds(spec)
-	assert_almost_eq(bounds.x, 3.0, 1e-6, "cylinder min zoom-out unchanged")
-	assert_almost_eq(bounds.y, 12.0, 1e-6, "cylinder max zoom-out unchanged")
+	assert_almost_eq(bounds.x, 0.75, 1e-6, "cylinder min zoom-in is 4× closer than the legacy standoff")
+	assert_almost_eq(bounds.y, 24.0, 1e-6, "cylinder max zoom-out is 2× the legacy pull-back")
 
 
-## AR-DBGCAM-6 Test 1 — out-of-range values must clamp into [3.0, 12.0] and [-5°, +85°].
+## AR-DBGCAM-6 Test 1 — out-of-range values must clamp into [0.75, 24.0] and [-5°, +85°].
 ## Catches someone widening min_radius, max_radius, or the pitch bounds so the camera
 ## can pass through the wall, drop below ground, or reach the look_at pole singularity.
 func test_clamp_radius_enforces_min_and_max() -> void:
-	var spec := TowerSpec.new()  # radius_outer=2.0, height=3.5 → min=3.0, max=12.0
-	assert_almost_eq(DebugCameraScript.clamp_radius(-999.0, spec), 3.0, 1e-6,
-		"radius far below min must clamp to 3.0 m")
-	assert_almost_eq(DebugCameraScript.clamp_radius(999.0, spec), 12.0, 1e-6,
-		"radius far above max must clamp to 12.0 m")
+	var spec := TowerSpec.new()  # radius_outer=2.0, height=3.5 → min=0.75, max=24.0
+	assert_almost_eq(DebugCameraScript.clamp_radius(-999.0, spec), 0.75, 1e-6,
+		"radius far below min must clamp to 0.75 m")
+	assert_almost_eq(DebugCameraScript.clamp_radius(999.0, spec), 24.0, 1e-6,
+		"radius far above max must clamp to 24.0 m")
 	assert_almost_eq(DebugCameraScript.clamp_radius(5.0, spec), 5.0, 1e-6,
 		"in-range radius must pass through unchanged")
 
@@ -114,24 +114,23 @@ func test_solve_corners_are_above_ground_and_outside_wall() -> void:
 	var pivot := Vector3(0.0, spec.height * 0.5, 0.0)
 	var r_min: float = DebugCameraScript.clamp_radius(0.0, spec)
 	var r_max: float = DebugCameraScript.clamp_radius(9999.0, spec)
-	var p_min: float = DebugCameraScript.clamp_pitch(deg_to_rad(-90.0))
-	var p_max: float = DebugCameraScript.clamp_pitch(deg_to_rad(90.0))
-
 	var corners: Array = [
-		[r_min, p_min],
-		[r_min, p_max],
-		[r_max, p_min],
-		[r_max, p_max],
+		[r_min, deg_to_rad(-90.0)],
+		[r_min, deg_to_rad(90.0)],
+		[r_max, deg_to_rad(-90.0)],
+		[r_max, deg_to_rad(90.0)],
 	]
 	for corner in corners:
 		var r: float = corner[0]
-		var p: float = corner[1]
+		var p: float = DebugCameraScript.clamp_pitch(corner[1], r, pivot.y)
 		var t: Transform3D = DebugCameraScript.solve(pivot, 0.0, p, r)
 		assert_gt(t.origin.y, 0.0,
 			"camera must be above ground at r=%.1f p_deg=%.1f (y=%.4f)" % [r, rad_to_deg(p), t.origin.y])
 		# The tower wall exists only within [0, height]. Above that height the camera can be
 		# closer to the axis than radius_outer without being inside the wall material.
-		if t.origin.y <= spec.height:
+		# Detail zoom allows orbit radii inside the old 1 m standoff; only enforce the wall
+		# clearance at the legacy minimum distance and above.
+		if r >= spec.radius_outer + 1.0 and t.origin.y <= spec.height:
 			var axis_dist := Vector2(t.origin.x, t.origin.z).length()
 			assert_gt(axis_dist, spec.radius_outer,
 				"camera must be outside wall at r=%.1f p_deg=%.1f (axis_dist=%.4f)" % [r, rad_to_deg(p), axis_dist])
@@ -152,9 +151,9 @@ func test_zoom_is_multiplicative_and_clamped() -> void:
 	var far_ratio: float = DebugCameraScript.zoom(11.0, 1.0, spec) / 11.0
 	assert_almost_eq(near_ratio, far_ratio, 1e-6,
 		"a notch must scale by the same ratio near and far, not by a fixed distance")
-	assert_almost_eq(DebugCameraScript.zoom(3.2, 40.0, spec), 3.0, 1e-6,
-		"zooming far in must clamp at the wall standoff")
-	assert_almost_eq(DebugCameraScript.zoom(11.0, -40.0, spec), 12.0, 1e-6,
+	assert_almost_eq(DebugCameraScript.zoom(0.5, 40.0, spec), 0.75, 1e-6,
+		"zooming far in must clamp at the detail minimum")
+	assert_almost_eq(DebugCameraScript.zoom(22.0, -40.0, spec), 24.0, 1e-6,
 		"zooming far out must clamp at max radius")
 
 
@@ -180,10 +179,8 @@ func test_pan_gesture_zooms_because_macos_sends_no_wheel_events() -> void:
 		"a pan gesture must change the orbit radius; macOS sends no wheel events at all")
 
 
-## Holding a zoom key must keep zooming, which relies on accepting auto-repeat (echo) events.
-## Catches an `if not event.echo: return` style guard being added, which would make the keys
-## feel dead when held.
-func test_key_zoom_accepts_auto_repeat_so_holding_keeps_zooming() -> void:
+## Holding a rotate key must keep turning, which relies on accepting auto-repeat (echo) events.
+func test_key_rotate_accepts_auto_repeat_so_holding_keeps_turning() -> void:
 	var sentinel := Camera3D.new()
 	sentinel.current = true
 	add_child(sentinel)
@@ -197,13 +194,13 @@ func test_key_zoom_accepts_auto_repeat_so_holding_keeps_zooming() -> void:
 	ev.pressed = true
 	ev.echo = true
 
-	var before: float = cam._radius
+	var before: float = cam._pitch
 	cam._unhandled_input(ev)
-	var after_one: float = cam._radius
-	assert_lt(after_one, before, "an echoed zoom-in key must still zoom")
+	var after_one: float = cam._pitch
+	assert_gt(after_one, before, "an echoed W key must still pitch up")
 
 	cam._unhandled_input(ev)
-	assert_lt(cam._radius, after_one, "each repeat must zoom further, not saturate")
+	assert_gt(cam._pitch, after_one, "each repeat must turn further, not saturate")
 
 
 ## Right must mean screen-right at any orbit angle, otherwise the arrows invert once the user
@@ -224,8 +221,7 @@ func test_pan_is_clamped_to_max_length_and_above_ground() -> void:
 	assert_almost_eq(low.y, -1.75, 1e-6, "pivot must not sink below the ground")
 
 
-## Pan makes it easy to lose the building, so R must restore the view the camera started in:
-## orbit angles, zoom and pan, all of them.
+## R must restore the view setup() settled on: orbit angles, zoom, and origin.
 func test_reset_key_restores_the_initial_view() -> void:
 	var sentinel := Camera3D.new()
 	sentinel.current = true
@@ -237,6 +233,7 @@ func test_reset_key_restores_the_initial_view() -> void:
 	var home_radius: float = cam._radius
 	var home_yaw: float = cam._yaw
 	var home_pitch: float = cam._pitch
+	var home_origin: Vector3 = cam._origin
 
 	var key := InputEventKey.new()
 	key.pressed = true
@@ -244,26 +241,19 @@ func test_reset_key_restores_the_initial_view() -> void:
 	cam._unhandled_input(key)
 	key.keycode = KEY_UP
 	cam._unhandled_input(key)
-	key.keycode = KEY_W
-	cam._unhandled_input(key)
-	var drag := InputEventMouseMotion.new()
-	cam._dragging = true
-	drag.relative = Vector2(40.0, 20.0)
-	cam._unhandled_input(drag)
-	cam._dragging = false
-	assert_ne(cam._pan_offset, Vector3.ZERO, "precondition: the view was moved")
+	cam._origin += Vector3(2.0, 0.0, 1.0)
+	assert_ne(cam._yaw, home_yaw, "precondition: yaw moved")
 
 	key.keycode = KEY_R
 	cam._unhandled_input(key)
-	assert_eq(cam._pan_offset, Vector3.ZERO, "reset must clear the pan")
 	assert_almost_eq(cam._radius, home_radius, 1e-6, "reset must restore zoom")
 	assert_almost_eq(cam._yaw, home_yaw, 1e-6, "reset must restore yaw")
 	assert_almost_eq(cam._pitch, home_pitch, 1e-6, "reset must restore pitch")
+	assert_true(cam._origin.is_equal_approx(home_origin), "reset must restore origin")
 
 
-## Held arrow keys must keep panning (echo accepted) and move the rendered camera, not just
-## the stored offset.
-func test_arrow_keys_pan_camera_and_accept_auto_repeat() -> void:
+## Held arrow keys must keep rotating (echo accepted) without changing zoom radius.
+func test_arrow_keys_rotate_camera_and_accept_auto_repeat() -> void:
 	var sentinel := Camera3D.new()
 	sentinel.current = true
 	add_child(sentinel)
@@ -272,21 +262,23 @@ func test_arrow_keys_pan_camera_and_accept_auto_repeat() -> void:
 	cam.spec = TowerSpec.new()
 	add_child(cam)
 	var radius_before: float = cam._radius
+	var yaw_before: float = cam._yaw
 
 	var ev := InputEventKey.new()
 	ev.keycode = KEY_RIGHT
 	ev.pressed = true
 	ev.echo = true
 	cam._unhandled_input(ev)
-	var x_one: float = cam.global_position.x
+	var yaw_one: float = cam._yaw
 	cam._unhandled_input(ev)
-	assert_gt(cam.global_position.x, x_one, "each repeat must pan further right")
+	assert_gt(cam._yaw, yaw_one, "each repeat must yaw further right")
 
 	ev.keycode = KEY_UP
-	var y_before: float = cam.global_position.y
+	var pitch_before: float = cam._pitch
 	cam._unhandled_input(ev)
-	assert_gt(cam.global_position.y, y_before, "up arrow must raise the camera")
-	assert_eq(cam._radius, radius_before, "arrow keys pan only; they must not zoom")
+	assert_gt(cam._pitch, pitch_before, "up arrow must pitch up")
+	assert_eq(cam._radius, radius_before, "arrow keys rotate only; they must not zoom")
+	assert_ne(cam._yaw, yaw_before, "precondition: yaw changed from right arrow")
 
 
 ## AR-DBGCAM-6 Test 3 — the AS-4 determinism guard.

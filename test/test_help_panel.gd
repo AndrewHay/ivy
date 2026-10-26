@@ -21,7 +21,7 @@ func _text(dev_build: bool) -> String:
 
 func test_lists_camera_time_and_interface_commands() -> void:
 	var text := _text(false)
-	for needle in ["Camera", "Time", "Interface", "Arrow keys", "W / S", "Home", "Space", "1 / 2 / 3", "F1", "Esc"]:
+	for needle in ["Camera", "Time", "Interface", "nearest surface", "While planting", "W A S D or arrows", "Scroll", "Tab", "Home", "Space", "1 / 2 / 3", "F1", "Esc"]:
 		assert_string_contains(text, needle, "help must mention '%s'" % needle)
 
 

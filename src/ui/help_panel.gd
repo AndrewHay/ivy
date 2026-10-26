@@ -13,10 +13,12 @@ static func sections(dev_build: bool) -> Array:
 		{
 			"title": "Camera",
 			"rows": [
-				["Left-drag", "Orbit (right-drag until you plant)"],
-				["Scroll / W / S", "Zoom in / out"],
-				["Arrow keys", "Pan left / right / up / down"],
-				["R or Home", "Reset the view"],
+				["Left-click", "Glide the orbit origin to the nearest surface under the cursor (wall, mesh, or ground)"],
+				["Scroll", "Zoom in / out (wide pull-back and close-up detail)"],
+				["Tab", "Unlock — captured mouse orbits · Lock — free cursor for HUD and buttons"],
+				["W A S D or arrows", "Rotate the view up, down, left, and right"],
+				["R or Home", "Reset orbit, zoom, and origin to the starting view"],
+				["While planting", "Left-click plants ivy · Tab still unlocks orbit · origin click is off"],
 			],
 		},
 		{

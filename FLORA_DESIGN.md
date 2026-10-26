@@ -3,7 +3,8 @@
 Companion to `FAUNA_DESIGN.md` (bees/butterflies), `assets/CREDITS.md` (provenance), and
 `assets/ASSET_LIBRARIES.md` (Quaternius nature kit policy).
 
-Tracking: informal until wired into beads for a flora scatter epic.
+Tracking: **ivy-86l** (pond + clover ring), **ivy-3ge** (mushrooms under trees). Tall grass
+(10–11) still unbeaded.
 
 ---
 

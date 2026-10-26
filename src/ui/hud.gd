@@ -12,7 +12,7 @@ const _HelpPanel = preload("res://src/ui/help_panel.gd")
 const _SunCompass = preload("res://src/ui/sun_compass.gd")
 ## Gap between the compass and the window edge.
 const _COMPASS_MARGIN := 12.0
-const _CAMERA_HINT := "Left-drag to orbit · arrows pan · scroll or W/S zoom · R reset view · ? help"
+const _CAMERA_HINT := "Click surface to move origin · scroll zoom · Tab mouse-look · WASD/arrows rotate · R reset · ? help"
 
 var _world: Node = null
 var _sim: Node = null
@@ -293,7 +293,7 @@ func _build_anchor_row(parent: Control) -> void:
 		help_button.pressed.connect(toggle_help)
 		_anchor_row.add_child(help_button)
 		var hint := _make_passthrough_label(
-			"Left-click glow to plant · right-drag to orbit · arrows pan · W/S zoom · R reset view · ? help")
+			"Left-click glow to plant · Tab mouse-look orbit · scroll zoom · WASD/arrows rotate · R reset · ? help")
 		_anchor_row.add_child(hint)
 		return
 	var scenario = _world.get_mesh_scenario() if _world.has_method("get_mesh_scenario") else null

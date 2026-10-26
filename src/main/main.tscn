@@ -10,7 +10,7 @@
 [ext_resource type="Script" uid="uid://d28hetmh5scyg" path="res://src/world/sky_sun.gd" id="8"]
 [ext_resource type="Script" uid="uid://bke588qp0n7dd" path="res://src/world/debug_camera.gd" id="9"]
 [ext_resource type="Script" uid="uid://dp4wktxr3yh1b" path="res://src/world/camera_rig.gd" id="10"]
-[ext_resource type="Script" uid="uid://k3insak4bpxn" path="res://src/world/wall.gd" id="11"]
+[ext_resource type="Script" path="res://src/world/wall.gd" id="11"]
 [ext_resource type="PackedScene" path="res://src/world/village_backdrop.tscn" id="12_backdrop"]
 [ext_resource type="Shader" uid="uid://cckuextcauor4" path="res://src/render/sky/atmospheric_sky.gdshader" id="13_sky_shader"]
 [ext_resource type="Script" uid="uid://bkd1h2todhvlt" path="res://src/presentation/fauna/ambient_wind.gd" id="14_wind"]
