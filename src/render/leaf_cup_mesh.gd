@@ -14,6 +14,10 @@ const PETIOLE_LEN := 0.30
 const PETIOLE_WIDTH := 0.028
 ## Petiole overlaps under the blade base so there is no gap at the junction.
 const PETIOLE_OVERLAP := 0.06
+## Segmented strip along a shallow arc (LEAF_STANDARD.md); UV v still ∈ [1.5, 2.5].
+const PETIOLE_SEGMENTS := 4
+## Peak outward bend at mid-petiole, in blade-width units (local +z).
+const PETIOLE_BEND := 0.11
 
 
 static func build_flat(subdiv: int = 4) -> ArrayMesh:
@@ -58,21 +62,27 @@ static func _build_mesh(grid: int, cup_degrees: float, crease_degrees: float, pe
 		var hw := PETIOLE_WIDTH * 0.5
 		var y_top := y_base + PETIOLE_OVERLAP
 		var z_top := _crease_offset(0.0, crease_amp)
-		var corners := [
-			[Vector3(-hw, y_top, z_top), Vector2(0.0, 1.5)],
-			[Vector3(hw, y_top, z_top), Vector2(1.0, 1.5)],
-			[Vector3(-hw, 0.0, 0.0), Vector2(0.0, 2.5)],
-			[Vector3(hw, 0.0, 0.0), Vector2(1.0, 2.5)],
-		]
-		for c: Array in corners:
-			st.set_uv(c[1])
-			st.add_vertex(c[0])
-		st.add_index(base_i)
-		st.add_index(base_i + 1)
-		st.add_index(base_i + 3)
-		st.add_index(base_i)
-		st.add_index(base_i + 3)
-		st.add_index(base_i + 2)
+		var rows := PETIOLE_SEGMENTS + 1
+		for row in range(rows):
+			var t := float(row) / float(PETIOLE_SEGMENTS)
+			var y := lerpf(0.0, y_top, t)
+			var z := lerpf(0.0, z_top, t) + PETIOLE_BEND * 4.0 * t * (1.0 - t)
+			var v_uv := lerpf(2.5, 1.5, t)
+			st.set_uv(Vector2(0.0, v_uv))
+			st.add_vertex(Vector3(-hw, y, z))
+			st.set_uv(Vector2(1.0, v_uv))
+			st.add_vertex(Vector3(hw, y, z))
+		for row in range(PETIOLE_SEGMENTS):
+			var i00 := base_i + row * 2
+			var i10 := i00 + 1
+			var i01 := i00 + 2
+			var i11 := i01 + 1
+			st.add_index(i00)
+			st.add_index(i10)
+			st.add_index(i11)
+			st.add_index(i00)
+			st.add_index(i11)
+			st.add_index(i01)
 	st.generate_normals(true)
 	st.generate_tangents()
 	return st.commit()

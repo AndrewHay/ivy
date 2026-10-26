@@ -6,7 +6,7 @@ extends Node
 ##   Godot res://tools/capture_single_leaf_card.tscn -- --id=a --view=oblique
 ##   Godot res://tools/capture_single_leaf_card.tscn -- --id=all
 ##
-## view=front (default): face-on. view=oblique: ~45° yaw so cup/taper read in-game.
+## view=front (default) | oblique | side | low | three_quarter — petiole arc reads on side/low.
 
 const LeafAtlasScript = preload("res://src/render/leaf_atlas.gd")
 const LeafCupMeshScript = preload("res://src/render/leaf_cup_mesh.gd")
@@ -30,7 +30,7 @@ func _ready() -> void:
 		var grid_path: String = outdir.path_join("leaf_card_all.png")
 		await _capture_grid(atlas, grid_path)
 	else:
-		var suffix := "_oblique" if view == "oblique" else ""
+		var suffix := "" if view == "front" else ("_%s" % view)
 		var path: String = str(args.get("out", ""))
 		if path.is_empty():
 			path = outdir.path_join("leaf_card_%s%s.png" % [leaf_id, suffix])
@@ -108,18 +108,33 @@ func _place_camera(cam: Camera3D, half_ext: float, view: String) -> void:
 	cam.near = 0.02
 	cam.far = 10.0
 	var dist := _camera_distance(cam, half_ext)
-	if view == "oblique":
-		# ~45° azimuth + slight elevation — reads cup depth and edge taper like on a wall.
-		var yaw := deg_to_rad(45.0)
-		var pitch := deg_to_rad(18.0)
-		var offset := Vector3(
+	var yaw_deg := 0.0
+	var pitch_deg := 0.0
+	match view:
+		"oblique":
+			yaw_deg = 45.0
+			pitch_deg = 18.0
+		"side":
+			yaw_deg = 90.0
+			pitch_deg = 8.0
+		"low":
+			yaw_deg = 25.0
+			pitch_deg = -24.0
+		"three_quarter":
+			yaw_deg = 32.0
+			pitch_deg = 28.0
+		_:
+			pass
+	if view == "front":
+		cam.global_position = Vector3(0.0, 0.0, dist)
+	else:
+		var yaw := deg_to_rad(yaw_deg)
+		var pitch := deg_to_rad(pitch_deg)
+		cam.global_position = Vector3(
 			sin(yaw) * cos(pitch) * dist,
 			sin(pitch) * dist,
 			cos(yaw) * cos(pitch) * dist
 		)
-		cam.global_position = offset
-	else:
-		cam.global_position = Vector3(0.0, 0.0, dist)
 	cam.look_at(Vector3.ZERO, Vector3.UP)
 	cam.current = true
 

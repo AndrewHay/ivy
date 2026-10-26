@@ -73,6 +73,20 @@ func test_static_sync_uses_tip_shoot_past_node_for_s_age() -> void:
 		"static sync path must derive s_age from tip_shoot past-node distance")
 
 
+func test_petiole_strip_is_segmented_with_outward_arc() -> void:
+	var mesh := LeafCupMeshScript.build() as ArrayMesh
+	var arrays := mesh.surface_get_arrays(0)
+	var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	assert_gte(verts.size(), 9 + (LeafCupMeshScript.PETIOLE_SEGMENTS + 1) * 2,
+		"petiole must add segmented rows beyond the blade grid")
+	var max_z := 0.0
+	for v in verts:
+		if v.y < LeafCupMeshScript.PETIOLE_LEN * 0.95 and v.y > 0.02:
+			max_z = maxf(max_z, v.z)
+	assert_gt(max_z, LeafCupMeshScript.PETIOLE_BEND * 0.5,
+		"mid-petiole should bow outward (+z) along the arc")
+
+
 func test_instance_color_alpha_carries_s_age() -> void:
 	var plant := PlantData.new()
 	plant.append_leaf(
