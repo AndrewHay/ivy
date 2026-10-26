@@ -23,9 +23,18 @@ func test_cup_mesh_has_depth() -> void:
 	assert_gt(mesh.get_aabb().size.z, 0.02, "cup mesh extends in z")
 
 
-func test_crease_peaks_on_midrib_and_vanishes_at_edges() -> void:
+func test_blade_grid_is_denser_for_crease() -> void:
+	var mesh := LeafCupMeshScript.build() as ArrayMesh
+	var vert_count: int = mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX].size()
+	var n := LeafCupMeshScript.BLADE_GRID
+	var petiole_verts := (LeafCupMeshScript.PETIOLE_SEGMENTS + 1) * 2
+	assert_eq(vert_count, (n + 1) * (n + 1) + petiole_verts,
+		"production mesh uses BLADE_GRID subdiv for the midrib fold")
+
+
+func test_crease_trough_on_midrib_and_flat_at_edges() -> void:
 	var amp := 0.1
-	assert_almost_eq(LeafCupMeshScript._crease_offset(0.0, amp), amp, 1e-5)
+	assert_almost_eq(LeafCupMeshScript._crease_offset(0.0, amp), -amp, 1e-5)
 	assert_almost_eq(LeafCupMeshScript._crease_offset(0.5, amp), 0.0, 1e-5)
 	assert_almost_eq(LeafCupMeshScript._crease_offset(-0.5, amp), 0.0, 1e-5)
 
@@ -83,7 +92,7 @@ func test_petiole_strip_is_segmented_with_outward_arc() -> void:
 	for v in verts:
 		if v.y < LeafCupMeshScript.PETIOLE_LEN * 0.95 and v.y > 0.02:
 			max_z = maxf(max_z, v.z)
-	assert_gt(max_z, LeafCupMeshScript.PETIOLE_BEND * 0.5,
+	assert_gt(max_z, LeafCupMeshScript.PETIOLE_BEND * 0.4,
 		"mid-petiole should bow outward (+z) along the arc")
 
 

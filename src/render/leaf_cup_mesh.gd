@@ -9,7 +9,9 @@ extends RefCounted
 ## Petiole vertices carry UV v ∈ [1.5, 2.5] so the shader can paint them as stalk, not atlas. The gap
 ## above 1.0 keeps MSAA-extrapolated blade-edge UVs (v ≈ 1.0+ε) out of the petiole branch.
 const CUP_DEGREES := 10.0
-const CREASE_DEGREES := 9.0
+## Midrib V-fold (trough at x=0); tuned for oblique read without paper-dart cup depth.
+const CREASE_DEGREES := 15.0
+const BLADE_GRID := 3
 const PETIOLE_LEN := 0.30
 const PETIOLE_WIDTH := 0.028
 ## Petiole overlaps under the blade base so there is no gap at the junction.
@@ -25,7 +27,7 @@ static func build_flat(subdiv: int = 4) -> ArrayMesh:
 
 
 static func build() -> ArrayMesh:
-	return _build_mesh(2, CUP_DEGREES, CREASE_DEGREES, true)
+	return _build_mesh(BLADE_GRID, CUP_DEGREES, CREASE_DEGREES, true)
 
 
 static func _build_mesh(grid: int, cup_degrees: float, crease_degrees: float, petiole: bool) -> ArrayMesh:
@@ -94,6 +96,7 @@ static func _cup_offset(x: float, y: float, amp: float) -> float:
 	return amp * along * across
 
 
-## Midrib ridge: halves fall away linearly from x=0, constant along the blade.
+## Midrib valley: symmetric trough at x=0 so each lobe tilts and catches light separately.
 static func _crease_offset(x: float, amp: float) -> float:
-	return amp * (1.0 - absf(2.0 * x))
+	var half := 1.0 - absf(2.0 * x)
+	return -amp * half
