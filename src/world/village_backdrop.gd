@@ -72,8 +72,10 @@ const _P_ROOF := {3: "Roof_RoundTiles_4x6", 4: "Roof_RoundTiles_4x8"}
 func _ready() -> void:
 	_apply_subtree(self)
 	_build_cottages()
-	_setup_multimesh_scatter()
-	_create_paths()
+	var path_stones := VillageScatterPositions.path_stone_transforms(
+		path_polylines(), Callable(self, "_reject_path_stone_xz"))
+	_create_paths_from_transforms(path_stones)
+	_setup_multimesh_scatter(path_stones)
 	_add_hill_ring()
 
 
@@ -223,33 +225,47 @@ func _apply_subtree(node: Node) -> void:
 
 # ── MultiMesh scatter setup ───────────────────────────────────────────────────
 
-## Procedural scatter: grass tufts, flower clusters, clover patches (near ring),
-## and a dense far pine treeline (horizon fill).
-## Each MultiMesh draws all its instances in ONE draw call per mesh surface.
-func _setup_multimesh_scatter() -> void:
+## Procedural scatter: grass, flower clusters (FLORA_DESIGN), path-side petals,
+## plants, far treeline, and bushes. Clover deferred (pond ring).
+func _setup_multimesh_scatter(path_stones: Array[Transform3D]) -> void:
 	_create_scatter(
 		"res://assets/backdrop/pieces/Grass_Wispy_Short.gltf",
 		"Scatter_Grass", VillageScatterPositions.grass_positions(),
 		GeometryInstance3D.SHADOW_CASTING_SETTING_OFF)
-	_create_scatter(
-		"res://assets/backdrop/pieces/Flower_3_Group.gltf",
-		"Scatter_Flower", VillageScatterPositions.flower_positions(),
+	_scatter_piece_layers(
+		VillageScatterPositions.flower_cluster_layers(),
+		"Scatter_Flower",
 		GeometryInstance3D.SHADOW_CASTING_SETTING_OFF)
-	_create_scatter(
-		"res://assets/backdrop/pieces/Clover_1.gltf",
-		"Scatter_Clover", VillageScatterPositions.clover_positions(),
+	_scatter_piece_layers(
+		VillageScatterPositions.petal_layers(path_stones),
+		"Scatter_Petal",
+		GeometryInstance3D.SHADOW_CASTING_SETTING_OFF)
+	_scatter_piece_layers(
+		VillageScatterPositions.plant_layers(),
+		"Scatter_Plant",
 		GeometryInstance3D.SHADOW_CASTING_SETTING_OFF)
 	_create_scatter(
 		"res://assets/backdrop/pieces/Pine_2.gltf",
 		"FarTreeline", _pine_positions(),
 		GeometryInstance3D.SHADOW_CASTING_SETTING_ON)
 	_patch_far_treeline_leaf_threshold()
-	## Bush_Common: 45 plain-green bushes clustered near cottage walls and path edges.
 	_create_scatter(
 		"res://assets/backdrop/pieces/Bush_Common.gltf",
 		"Scatter_Bush_Common", _bush_common_positions(),
 		GeometryInstance3D.SHADOW_CASTING_SETTING_OFF)
 	_patch_bush_green_material()
+
+
+func _scatter_piece_layers(
+		layers: Dictionary,
+		name_prefix: String,
+		shadow: GeometryInstance3D.ShadowCastingSetting) -> void:
+	for piece_name: String in layers.keys():
+		var transforms: Array[Transform3D] = layers[piece_name]
+		if transforms.is_empty():
+			continue
+		var path: String = _PIECE_DIR + piece_name + ".gltf"
+		_create_scatter(path, "%s_%s" % [name_prefix, piece_name], transforms, shadow)
 
 
 func _create_scatter(
@@ -393,20 +409,20 @@ func _lcg_f01(state: int) -> float:
 
 
 func export_fauna_anchors() -> FaunaEnvironment:
+	var path_stones := VillageScatterPositions.path_stone_transforms(
+		path_polylines(), Callable(self, "_reject_path_stone_xz"))
 	var env := FaunaEnvironment.new()
-	for t in VillageScatterPositions.flower_positions():
+	for t in VillageScatterPositions.fauna_flower_anchor_transforms_with_paths(path_stones):
 		var a := FaunaAnchor.new()
 		a.kind = FaunaConstants.AnchorKind.FLOWER
 		a.local_transform = t
 		a.hero_weight = FaunaGating.hero_weight_at_xz(Vector2(t.origin.x, t.origin.z))
 		env.anchors.append(a)
-	for t in VillageScatterPositions.clover_positions():
-		var a := FaunaAnchor.new()
-		a.kind = FaunaConstants.AnchorKind.CLOVER
-		a.local_transform = t
-		a.hero_weight = FaunaGating.hero_weight_at_xz(Vector2(t.origin.x, t.origin.z))
-		env.anchors.append(a)
 	return env
+
+
+func _reject_path_stone_xz(cx: float, cz: float) -> bool:
+	return Vector2(cx, cz).length() < 4.5 or inside_any_cottage(Vector2(cx, cz), 0.2)
 
 
 ## True if p lies inside any cottage's wall exterior grown by `margin` metres.
@@ -487,36 +503,12 @@ func _pine_positions() -> Array[Transform3D]:
 ## Uses three RockPath_Round_Small variants as a single MultiMesh each, sharing
 ## the same seeded LCG layout for deterministic placement.
 ## Paths stop at r≥5 m from the hero pivot — never on the hero footprint.
-func _create_paths() -> void:
+func _create_paths_from_transforms(all_xf: Array[Transform3D]) -> void:
 	var stone_glb := [
 		"res://assets/backdrop/pieces/RockPath_Round_Small_1.gltf",
 		"res://assets/backdrop/pieces/RockPath_Round_Small_2.gltf",
 		"res://assets/backdrop/pieces/RockPath_Round_Small_3.gltf",
 	]
-	var all_xf: Array[Transform3D] = []
-	var segs := path_polylines()
-	var st := 9999
-	for seg_raw in segs:
-		var seg := seg_raw as Array
-		# Sample stones at ~0.9 m spacing along the polyline.
-		for i in range(seg.size() - 1):
-			var a := seg[i] as Vector2
-			var b := seg[i + 1] as Vector2
-			var seg_len: float = a.distance_to(b)
-			var n_stones := maxi(1, int(seg_len / 0.9))
-			for k in range(n_stones):
-				var t: float = float(k) / float(n_stones)
-				var pos: Vector2 = a.lerp(b, t)
-				# Small random perpendicular offset for organic look.
-				st = _lcg_step(st); var jx: float = (_lcg_f01(st) - 0.5) * 0.35
-				st = _lcg_step(st); var jz: float = (_lcg_f01(st) - 0.5) * 0.35
-				var cx: float = pos.x + jx
-				var cz: float = pos.y + jz
-				if Vector2(cx, cz).length() < 4.5 or inside_any_cottage(Vector2(cx, cz), 0.2):
-					continue  # skip stones on the hero base or under a cottage
-				st = _lcg_step(st); var rot_y: float = _lcg_f01(st) * TAU
-				var basis := Basis.from_euler(Vector3(0.0, rot_y, 0.0))
-				all_xf.append(Transform3D(basis, Vector3(cx, 0.0, cz)))
 	# Distribute instances across 3 stone-type MultiMesh nodes (round-robin by type).
 	var b0: Array[Transform3D] = []
 	var b1: Array[Transform3D] = []

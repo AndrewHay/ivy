@@ -17,7 +17,15 @@ func test_export_anchor_counts() -> void:
 	add_child_autofree(backdrop)
 	await get_tree().process_frame
 	var env := backdrop.export_fauna_anchors()
-	assert_eq(env.anchors.size(), 36, "16 flowers + 20 clover")
+	var flowers := 0
+	for a in env.anchors:
+		if a.kind == FaunaConstants.AnchorKind.FLOWER:
+			flowers += 1
+		assert_ne(a.kind, FaunaConstants.AnchorKind.CLOVER,
+			"Clover anchors deferred until pond (FLORA_DESIGN)")
+	assert_eq(env.anchors.size(), flowers)
+	assert_gte(flowers, 40,
+		"expect cluster blooms + path-side petals as flower anchors")
 
 
 func test_flower_anchors_in_garden_ring() -> void:
@@ -33,7 +41,7 @@ func test_flower_anchors_in_garden_ring() -> void:
 		var r := Vector2(a.local_transform.origin.x, a.local_transform.origin.z).length()
 		assert_true(r >= FaunaConstants.GARDEN_RING_INNER_M)
 		assert_true(r <= FaunaConstants.GARDEN_RING_OUTER_M)
-	assert_eq(flowers, 16)
+	assert_gte(flowers, 40)
 
 
 func test_hero_weight_monotone_with_radius() -> void:
