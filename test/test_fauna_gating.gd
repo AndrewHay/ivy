@@ -1,6 +1,23 @@
 extends GutTest
 
 
+func before_each() -> void:
+	FaunaIntegration.set_gut_fauna_test_active(true)
+
+
+func after_each() -> void:
+	FaunaIntegration.set_gut_fauna_test_active(false)
+
+
+func test_world_runtime_enabled_during_fauna_gut() -> void:
+	assert_true(FaunaIntegration.world_runtime_enabled())
+
+
+func test_world_runtime_disabled_when_meta_cleared() -> void:
+	FaunaIntegration.set_gut_fauna_test_active(false)
+	assert_false(FaunaIntegration.world_runtime_enabled())
+
+
 func test_lit_cutoff_zero_activity() -> void:
 	var act := FaunaGating.combined_activity(
 		0.04, 1.0, 1.0, FaunaConstants.Species.BEE, 12.0)

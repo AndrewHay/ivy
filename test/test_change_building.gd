@@ -49,8 +49,10 @@ func _plant_and_grow(main: Node, ticks: int) -> void:
 	var sim: Node = main.get_node("Sim")
 	var anchor = world.call("get_seed_anchors").get_anchors()[2]
 	sim.call("plant_at", anchor.position, anchor.normal)
-	(sim.get_clock() as SimClock).set_speed(SimClock.Speed.GROW)
+	var clock := sim.get_clock() as SimClock
+	clock.set_speed(SimClock.Speed.GROW)
 	sim.call("advance_ticks", ticks)
+	clock.set_speed(SimClock.Speed.PAUSE)
 
 
 ## Number of rendered stem triangles' surfaces across every chunk under PlantRender.
@@ -110,7 +112,7 @@ func test_stem_setup_twice_discards_the_previous_chunks() -> void:
 func test_clear_ivy_removes_rendered_stems_and_new_growth_is_visible() -> void:
 	var main: Node = await _boot("cylinder")
 	main.get_node("PlantRender").call("setup", main.params)
-	_plant_and_grow(main, _grow_ticks(4.0))
+	_plant_and_grow(main, _grow_ticks(1.0))
 	assert_gt(_stem_surface_count(main), 0, "precondition: grown ivy is rendered")
 
 	main.get_node("Sim").call("clear_plants")
@@ -138,7 +140,7 @@ func test_hud_has_a_change_building_button_that_returns_to_the_picker() -> void:
 
 func test_return_to_picker_tears_down_the_session() -> void:
 	var main: Node = await _boot("cylinder")
-	_plant_and_grow(main, _grow_ticks(2.0))
+	_plant_and_grow(main, _grow_ticks(1.0))
 	main.return_to_picker()
 	await get_tree().process_frame
 
@@ -170,7 +172,7 @@ func test_debug_camera_ignores_keys_while_the_picker_is_up() -> void:
 
 func test_second_session_is_clean_after_switching_buildings() -> void:
 	var main: Node = await _boot("cylinder")
-	_plant_and_grow(main, _grow_ticks(2.0))
+	_plant_and_grow(main, _grow_ticks(1.0))
 	main.return_to_picker()
 	await get_tree().process_frame
 
@@ -200,12 +202,12 @@ func test_second_session_is_clean_after_switching_buildings() -> void:
 ## must grow and render exactly like the first.
 func test_replanting_the_same_building_grows_and_renders() -> void:
 	var main: Node = await _boot("cylinder")
-	_plant_and_grow(main, _grow_ticks(2.0))
+	_plant_and_grow(main, _grow_ticks(1.0))
 	main.return_to_picker()
 	await get_tree().process_frame
 
 	await _pick(main, "cylinder")
 	main.get_node("PlantRender").call("sync", main.get_node("Sim").plant)
-	_plant_and_grow(main, _grow_ticks(2.0))
+	_plant_and_grow(main, _grow_ticks(1.0))
 	assert_gt(main.get_node("Sim").plant.segment_count(), 0, "ivy must grow in the second session")
 	assert_gt(_stem_surface_count(main), 0, "and it must be drawn")

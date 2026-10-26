@@ -616,6 +616,8 @@ func _handle_time_hotkey(event: InputEvent) -> bool:
 
 
 func _tick_fauna(clock: SimClock, delta: float) -> void:
+	if not FaunaIntegration.world_runtime_enabled():
+		return
 	var fauna: FaunaController = _world.get_fauna_controller()
 	if fauna == null:
 		return

@@ -3,6 +3,15 @@ extends GutTest
 const VillageBackdropScene = preload("res://src/world/village_backdrop.tscn")
 
 
+func before_each() -> void:
+	FaunaIntegration.set_gut_fauna_test_active(true)
+
+
+func after_each() -> void:
+	FaunaIntegration.set_gut_fauna_test_active(false)
+
+
+
 func test_export_anchor_counts() -> void:
 	var backdrop: VillageBackdrop = VillageBackdropScene.instantiate()
 	add_child_autofree(backdrop)

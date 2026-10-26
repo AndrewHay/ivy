@@ -1,6 +1,15 @@
 extends GutTest
 
 const FaunaControllerScript = preload("res://src/presentation/fauna/fauna_controller.gd")
+
+
+func before_each() -> void:
+	FaunaIntegration.set_gut_fauna_test_active(true)
+
+
+func after_each() -> void:
+	FaunaIntegration.set_gut_fauna_test_active(false)
+
 const FaunaMotionScript = preload("res://src/presentation/fauna/fauna_motion.gd")
 
 
