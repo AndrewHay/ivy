@@ -889,14 +889,36 @@ f_L = Physiology.f_L(env.sample_D_L(seg_start, tip.id, tip.segment_count))
 
 ### SD-LEAF-1 — The card
 
-A leaf is a **3×3 vertex patch (9 verts, 8 tris)**, not a flat quad, cupped 8–12° along its long
-axis. A flat quad reads as a decal and never catches a highlight; the cup is the single cheapest and
-strongest anti-decal measure and it also guarantees no two leaves are ever exactly coplanar.
-Material: single atlas texture, `cull_mode = disabled`, **alpha scissor at 0.5 with alpha-to-coverage**
-— not alpha blend, which sorts badly across thousands of MultiMesh instances and is a direct route
-to artifact-blacklist item 4. Roughness from the atlas roughness map (ivy is glossy; the specular
-is a large part of "reads as real"). Transmittance/backlight tint `(0.30, 0.45, 0.18)` so leaves lit
-from behind glow — this matters specifically in the ground-level silhouette camera that AS-6 uses.
+Production mesh: `LeafCupMesh.build()` in `src/render/leaf_cup_mesh.gd` (see also
+`assets/plants/ivy/LEAF_STANDARD.md`).
+
+**Blade** — a **4×4 grid (16 verts, 18 tris)**, not a flat quad, in local space with `x` = width
+(−0.5…0.5), `y` = petiole→tip, `z` = outward (all in **blade-width units**):
+
+- **Cup:** ~10° (`CUP_DEGREES`) along the long axis (8–12° spec). A flat quad reads as a decal;
+  the cup is the cheapest anti-decal measure and keeps adjacent leaves from being exactly coplanar.
+- **Midrib fold:** ~15° (`CREASE_DEGREES`) as a **symmetric valley at `x = 0`** (trough, not a center
+  bump) so each lobe tilts and catches light separately at oblique angles (LEAF_STANDARD crease).
+
+**Petiole (render-only)** — a **4-segment strip** (`PETIOLE_SEGMENTS`) below the blade with a shallow
+outward arc (`PETIOLE_BEND`), width `PETIOLE_WIDTH`, length `PETIOLE_LEN = 0.30` × height. Blade sits
+at `y ∈ [PETIOLE_LEN, PETIOLE_LEN + 1]`. Petiole UV **`v ∈ [1.5, 2.5]`**; atlas blade UV ends at
+`v = 1.0`. The gap above 1.0 and the shader split at **`UV.y > 1.25`** keep MSAA-extrapolated blade
+edge UVs out of the petiole branch (`leaf.gdshader` paints the stalk `petiole_color`).
+
+**Instance transform** — `LeafRenderer._write_instance` scales basis **x, y, and z by blade width**
+(`w = |bx|·s_age`, `h = |by|·s_age`, z axis also × `w`). Using a unit-length z basis made the cup
+depth read in metres (~9 cm on a 5–7 cm leaf) and produced a paper-dart look; z must track width.
+
+**Atlas / simulation boundary** — `leaf_atlas.json` pins `reference_alpha_fill_a` (scan-measured
+0.641). Crowding deposit and AS-1 coverage use `LeafAtlas.reference_alpha_fill()`; per-id
+`alpha_fill` is the measured **render** value only. Art or mesh changes must not move growth gates.
+
+**Material** — single atlas texture, `cull_mode = disabled`, **alpha scissor at 0.5 with
+alpha-to-coverage** (not alpha blend). Roughness from the atlas roughness map. Transmittance/backlight
+`(0.30, 0.45, 0.18)` for silhouette reads (AS-6). Grading, tier tints, young-leaf lightening (`s_age`
+in instance `COLOR.a`), and weathered rect tints are in `leaf.gdshader` + `LeafRenderer` (presentation
+only unless noted above).
 
 ### SD-LEAF-2 — Node spacing (spawn rate)
 
@@ -2377,10 +2399,11 @@ Three implementation traps, called out because each one silently produces a blac
    0.5 scissor the surviving texels have α≈1 either way, but the import flag will darken the AA
    fringe if enabled.
 
-Card geometry: M1 is a flat quad (4 verts); full is the SD-LEAF-1 cupped 3×3 patch (9 verts, 8 tris).
-Both are pivoted at the petiole `(0.5, 1.0)` from `leaf_atlas.json`, so local +Y runs petiole → blade
-tip and the SD-LEAF-4 rotations are all about sensible axes. Aspect comes from `atlas.aspect[id]` via
-non-uniform basis scale — the photograph is never stretched (SD-LEAF-5).
+Card geometry: M1 is a flat quad (4 verts); production is SD-LEAF-1 (`LeafCupMesh.build()`): 4×4 cupped
+blade + segmented petiole strip (see SD-LEAF-1). Atlas rects still anchor at petiole `(0.5, 1.0)` in
+`leaf_atlas.json`; local +Y runs petiole → blade tip. Aspect comes from `atlas.aspect[id]` via
+non-uniform basis scale on x/y; z depth scales with width in `LeafRenderer` (SD-LEAF-5 size animation
+uses the same basis).
 
 ---
 
