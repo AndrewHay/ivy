@@ -78,6 +78,7 @@ const BAKE_IRRELEVANT: Array[String] = [
 	"leaf_sun_tint",
 	"leaf_tip_suppress",
 	"leaf_weathered_tint",
+	"leaf_young_tint",
 	"leaf_width_base",
 	"light_K",
 	# Coarse-irrelevant (no ray in light_bake.gd's coarse pass reads it), but ivy-k99 made it
