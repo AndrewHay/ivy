@@ -1,0 +1,27 @@
+# ivy-7ka grass phase 2: lawn density, blade read, and shared gusts.
+# Static frames at local noon (paused), then a NORMAL-speed frame pair for wind motion.
+# Run with --scenario=res://assets/structures/scenarios/tower.tres --outdir=res://.tmp/grass_7ka/<label>
+SPEED pause
+ADVANCE_DAYS 0.25
+ORBIT 45 10 2
+SCREENSHOT grass_eye_045.png
+ORBIT 200 10 2
+SCREENSHOT grass_eye_200.png
+ORBIT 45 16 9
+SCREENSHOT grass_high_045.png
+ORBIT 120 7 0.6
+SCREENSHOT grass_low_120.png
+ORBIT 300 6.5 0.45
+SCREENSHOT grass_low_300.png
+# Wind: NORMAL speed, let gusts build, then two frames 0.8 s apart from the same camera.
+ORBIT 120 7 0.6
+SPEED watch
+WAIT 4000
+SCREENSHOT wind_low_120_a.png
+WAIT 800
+SCREENSHOT wind_low_120_b.png
+ORBIT 45 16 9
+WAIT 1500
+SCREENSHOT wind_high_045_a.png
+WAIT 800
+SCREENSHOT wind_high_045_b.png

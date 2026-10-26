@@ -20,13 +20,15 @@ func test_normal_integrates_phase_and_strength() -> void:
 	assert_gt(w.get_effective_strength(), 0.0, "Strength positive at NORMAL")
 
 
-func test_pause_freezes_phase_zero_strength() -> void:
+func test_pause_freezes_phase_holds_strength() -> void:
 	var w := _wind()
 	w.advance(SimClock.Speed.NORMAL, 1.0)
 	var p := w.get_phase()
+	var s := w.get_effective_strength()
+	assert_gt(s, 0.0, "Strength positive before PAUSE")
 	w.advance(SimClock.Speed.PAUSE, 1.0)
 	assert_almost_eq(w.get_phase(), p, 1e-6, "Phase frozen at PAUSE")
-	assert_almost_eq(w.get_effective_strength(), 0.0, 1e-6)
+	assert_almost_eq(w.get_effective_strength(), s, 1e-6, "Strength held at PAUSE")
 
 
 func test_fast_and_grow_no_integration() -> void:
@@ -36,7 +38,7 @@ func test_fast_and_grow_no_integration() -> void:
 		var p := w.get_phase()
 		w.advance(spd, 1.0)
 		assert_almost_eq(w.get_phase(), p, 1e-6, "Phase frozen at %s" % spd)
-		assert_almost_eq(w.get_effective_strength(), 0.0, 1e-6)
+		assert_lt(w.get_effective_strength(), 0.001, "Gate eases strength to zero at %s" % spd)
 
 
 func test_fauna_wind_product() -> void:

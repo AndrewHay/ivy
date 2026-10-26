@@ -28,3 +28,30 @@ enabled=PackedStringArray("res://addons/gut/plugin.cfg")
 [rendering]
 
 anti_aliasing/quality/msaa_3d=2
+
+[shader_globals]
+
+ivy_wind_dir={
+"type": "vec2",
+"value": Vector2(1, 0)
+}
+ivy_wind_strength={
+"type": "float",
+"value": 0.0
+}
+ivy_wind_scroll={
+"type": "vec2",
+"value": Vector2(0, 0)
+}
+ivy_wind_flutter_phase={
+"type": "float",
+"value": 0.0
+}
+ivy_wind_gust_tile_m={
+"type": "float",
+"value": 24.0
+}
+ivy_wind_gust_noise={
+"type": "sampler2D",
+"value": "res://assets/render/wind_gust_noise.tres"
+}

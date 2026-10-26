@@ -655,6 +655,7 @@ func _process(delta: float) -> void:
 	var wind: AmbientWind = _world.get_ambient_wind()
 	if wind != null:
 		wind.advance(clock.speed, delta)
+		wind.push_shader_globals()
 		var backdrop := _world.get_node_or_null("VillageBackdrop")
 		if backdrop != null and backdrop.visible and backdrop.has_method("push_foliage_wind"):
 			backdrop.push_foliage_wind(wind)
