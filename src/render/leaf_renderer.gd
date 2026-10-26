@@ -18,9 +18,13 @@ func setup(params: IvyParams, capacity: int, is_growing: bool) -> void:
 	multimesh = mm
 	multimesh.mesh = LeafCupMeshScript.build()
 	material_override = load("res://src/render/materials/leaf_material.tres")
-	(material_override as ShaderMaterial).set_shader_parameter(
+	var mat := material_override as ShaderMaterial
+	mat.set_shader_parameter(
 		"weathered_tint",
 		Vector3(params.leaf_weathered_tint.r, params.leaf_weathered_tint.g, params.leaf_weathered_tint.b))
+	mat.set_shader_parameter(
+		"young_tint",
+		Vector3(params.leaf_young_tint.r, params.leaf_young_tint.g, params.leaf_young_tint.b))
 
 
 ## SD-LEAF-5 s_age: metres of stem grown past the node, smoothed over leaf_expand_distance.
@@ -31,6 +35,14 @@ static func s_age_for(stem_past_node: float, expand_distance: float) -> float:
 
 static func should_freeze(stem_past_node: float, expand_distance: float) -> bool:
 	return stem_past_node >= expand_distance
+
+
+## Sun/shade tint in rgb; alpha carries s_age for young-leaf lightening (ivy-qfo.2).
+static func instance_color_for(plant: PlantData, leaf_index: int, s_age: float) -> Color:
+	var cbase := leaf_index * 4
+	return Color(
+		plant.leaf_color[cbase], plant.leaf_color[cbase + 1],
+		plant.leaf_color[cbase + 2], s_age)
 
 
 func sync_static_from(plant: PlantData, from_index: int, tip_shoot: Dictionary = {}) -> void:
@@ -74,10 +86,7 @@ func _write_instance(slot: int, plant: PlantData, leaf_index: int, s_age: float)
 		Basis(bx.normalized() * w, by.normalized() * h, bz.normalized() * w),
 		origin)
 	multimesh.set_instance_transform(slot, xf)
-	var cbase := leaf_index * 4
-	multimesh.set_instance_color(slot, Color(
-		plant.leaf_color[cbase], plant.leaf_color[cbase + 1],
-		plant.leaf_color[cbase + 2], plant.leaf_color[cbase + 3]))
+	multimesh.set_instance_color(slot, instance_color_for(plant, leaf_index, s_age))
 	var ubase := leaf_index * 4
 	multimesh.set_instance_custom_data(slot, Color(
 		plant.leaf_custom[ubase], plant.leaf_custom[ubase + 1],

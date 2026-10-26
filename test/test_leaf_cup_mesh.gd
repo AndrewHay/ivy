@@ -3,6 +3,7 @@ extends GutTest
 const LeafCupMeshScript = preload("res://src/render/leaf_cup_mesh.gd")
 const LeafRenderer = preload("res://src/render/leaf_renderer.gd")
 const IvyParams = preload("res://src/params/ivy_params.gd")
+const PlantData = preload("res://src/sim/plant_data.gd")
 
 
 func test_cup_offset_is_flat_at_petiole_and_tip() -> void:
@@ -70,3 +71,17 @@ func test_static_sync_uses_tip_shoot_past_node_for_s_age() -> void:
 	var shoot := s_at + expand * 0.4
 	assert_almost_eq(LeafRenderer.s_age_for(shoot - s_at, expand), 0.352, 0.02,
 		"static sync path must derive s_age from tip_shoot past-node distance")
+
+
+func test_instance_color_alpha_carries_s_age() -> void:
+	var plant := PlantData.new()
+	plant.append_leaf(
+		Transform3D(Basis.IDENTITY, Vector3.ZERO),
+		Color(1.06, 1.04, 0.86, 1.0),
+		Vector4(0.0, 0.0, 0.25, 0.25),
+		0, 1.0, 0.01, 1.0)
+	var expand := IvyParams.new().leaf_expand_distance
+	var s_age := LeafRenderer.s_age_for(expand * 0.5, expand)
+	var inst := LeafRenderer.instance_color_for(plant, 0, s_age)
+	assert_almost_eq(inst.a, s_age, 1e-5, "COLOR.a must carry s_age for young-leaf shader")
+	assert_almost_eq(inst.g, 1.04, 0.001, "sun/shade tint stays in rgb from sim")

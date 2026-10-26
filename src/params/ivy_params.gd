@@ -121,6 +121,9 @@ extends Resource
 ## W-080: multiplicative tint on weathered-tier atlas rects — cools/desaturates the
 ## reddish CC0 weathered variants so they read as summer chlorosis, not autumn speckle.
 @export var leaf_weathered_tint: Color = Color(0.82, 0.98, 0.86)
+## SD-LEAF-7 age lightening (render-only; not in content_hash). Applied in leaf.gdshader
+## when LeafRenderer passes s_age in instance COLOR.a.
+@export var leaf_young_tint: Color = Color(1.10, 1.08, 0.92)
 @export var leaf_crowd_suppress: float = 0.70
 @export var leaf_crowd_floor: float = 0.30
 ## SD-LEAF-8b (W-015): experienced-light floor for sun-saturated dense nodes only.

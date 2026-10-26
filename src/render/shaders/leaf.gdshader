@@ -27,6 +27,7 @@ uniform float midrib_width_base = 0.012;
 uniform float midrib_width_tip = 0.004;
 uniform vec3 healthy_tint = vec3(0.92, 1.0, 0.88);
 uniform vec3 weathered_tint = vec3(0.88, 0.96, 0.82);
+uniform vec3 young_tint = vec3(1.10, 1.08, 0.92);
 uniform vec3 petiole_color : source_color = vec3(0.62, 0.74, 0.38);
 uniform vec3 backlight = vec3(0.30, 0.45, 0.18);
 
@@ -41,7 +42,8 @@ void vertex() {
 void fragment() {
 	// Petiole strip (LeafCupMesh UV v ∈ [1.5, 2.5]).
 	if (UV.y > 1.25) {
-		ALBEDO = petiole_color * COLOR.rgb;
+		vec3 age_mul_p = mix(young_tint, vec3(1.0), COLOR.a);
+		ALBEDO = petiole_color * COLOR.rgb * age_mul_p;
 		ROUGHNESS = 0.5;
 		BACKLIGHT = backlight;
 	} else {
@@ -65,7 +67,8 @@ void fragment() {
 		blade = max(mix(vec3(dot(blade, lw)), blade, blade_saturation), vec3(0.0));
 		blade *= rect_uv.x > 0.5 ? weathered_tint : healthy_tint;
 		vec3 albedo = mix(blade, vein_color, vein);
-		ALBEDO = albedo * COLOR.rgb;
+		vec3 age_mul = mix(young_tint, vec3(1.0), COLOR.a);
+		ALBEDO = albedo * COLOR.rgb * age_mul;
 		ALPHA = a * edge;
 		vec3 nmap = texture(normal_tex, atlas_uv).rgb;
 		nmap.xy = (nmap.xy - 0.5) * normal_scale + 0.5;
