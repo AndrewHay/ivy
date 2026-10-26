@@ -1787,7 +1787,7 @@ Main                        (Node3D, src/main/main.gd)                   composi
 │   │   ├── CamShade        (Camera3D)  shade-facing elevation, −Z side, y≈1.8, looking +Z
 │   │   ├── CamAerial       (Camera3D)  45° from above, azimuth 135°
 │   │   └── CamSilhouette   (Camera3D)  ground level y≈0.35, looking up at the lip against sky
-│   └── DebugCamera         (Camera3D, src/world/debug_camera.gd)  current=false; orbit/zoom, AR-DBGCAM
+│   └── DebugCamera         (Camera3D, src/world/debug_camera.gd)  current=false; rooted orbit, AR-DBGCAM
 │                                                                  never captured by AS-4 (excluded)
 ├── Sim                     (Node, src/sim/sim_root.gd)                  no transform, no 3D
 ├── PlantRender             (Node3D, src/render/plant_render.gd)
@@ -1825,42 +1825,46 @@ fine headless because that is scene-graph state, not render state.
 
 ## AR-DBGCAM — Interactive debug camera (developer affordance)
 
-**System goal in implementation terms.** When a developer presses Play in the editor, let them
-mouse-wheel to zoom and click-drag to orbit the view around the tower, so the *shaded* half of the
-tower — which no screenshot has ever shown, because `CamSun` sits due south at the seeded, sunlit
-face — becomes inspectable. This is a look-at-the-thing convenience, **not** a gameplay mechanic and
-**not** a player-facing feature. It has no acceptance signal and touches no invariant. It exists to
-serve `DESIGN.md`'s "visible causation" property from the developer's side — you cannot judge the
+**System goal in implementation terms.** When a developer presses Play in the editor, let them orbit
+a **rooted** point on the building or ground, zoom in for ivy detail, and glide that root onto any
+surface under the cursor — so the *shaded* half of the tower (which `CamSun` never frames) becomes
+inspectable. This is a look-at-the-thing convenience, **not** a gameplay mechanic and **not** a
+player-facing feature. It has no acceptance signal and touches no invariant. It exists to serve
+`DESIGN.md`'s "visible causation" property from the developer's side — you cannot judge the
 sun/shade asymmetry you cannot see.
 
-**This is not a camera framework.** One `Camera3D`, one script, three state floats (`yaw`, `pitch`,
-`radius`), one `_unhandled_input`. No input-map actions, no config resource, no easing/inertia, no
-settings UI, no separate pivot node, no free-fly mode. If the Programmer feels the pull toward any of
-those, that is scope creep and should bounce back to this stage.
+**This is not a camera framework.** One `Camera3D`, one script, orbit floats (`yaw`, `pitch`,
+`radius`), a world-space `_origin`, and input in `_unhandled_input` plus a single `_process` path
+for origin glides only. No input-map actions, no config resource, no settings UI, no separate pivot
+node, no free-fly mode. If the Programmer feels the pull toward a general camera rig, that is scope
+creep and should bounce back to this stage.
 
-**Zoom must be bound to three input sources, not one (W-058).** On macOS a trackpad two-finger
-scroll is delivered as `InputEventPanGesture` and **never** as an `InputEventMouseButton` wheel
-event, so a wheel-only handler is silently dead on a MacBook — which is how this shipped. Bind
-wheel (external mouse), pan gesture (trackpad), and `W` / `S` keys (works everywhere, and
-the fallback when a platform surprises us again). Keyboard repeat is handled by accepting `echo`
-events inside `_unhandled_input` rather than integrating in `_process`, because a `_process`
-transform write would forfeit the AR-DBGCAM-5 guarantee — smoothness is not worth that trade.
+**Controls (player-facing copy lives in `help_panel.gd` / HUD hints).**
 
-**Arrow keys pan the orbit pivot (ivy-pmj).** `←`/`→` slide it along the camera's horizontal right
-vector (from `_yaw`, so "right" stays screen-right after orbiting); `↑`/`↓` move it along world up.
-This is a `Vector3` offset added in `_pivot()`, not a pivot node and not free-fly: the camera still
-orbits and zooms around the (moved) pivot. One press = 6 % of the current radius. The offset is
-clamped to the max zoom radius and kept above ground, and `set_orbit_pivot` resets it. Moving the
-arrows off zoom freed them for this; zoom keeps `W`/`S`.
+| Input | Effect |
+|---|---|
+| **Scroll** / trackpad two-finger scroll | Zoom in/out (`InputEventPanGesture` on macOS — W-058). |
+| **Left-click** (not while planting) | Raycast from the camera; glide `_origin` to the nearest hit on structure (layer 1 / `SurfaceQuery`) or ground (layer 2). Smoothstep ease in `_process`. |
+| **Tab** | Toggle **lock** (visible cursor, HUD clicks) vs **unlock** (captured mouse; motion orbits like the old left-drag). |
+| **W A S D** and **arrow keys** | Rotate view (yaw on A/D and ←/→, pitch on W/S and ↑/↓). Auto-repeat (`echo`) accepted in `_unhandled_input`. |
+| **R** / **Home** | Reset yaw, pitch, radius, and origin to the view `setup()` / `set_orbit_pivot()` settled on. |
+
+During **planting**, left-click belongs to `PlantingTool`; Tab still unlocks orbit. `Main` passes the
+session `SurfaceQuery` via `set_surface_query()` after bootstrap so picks match ivy raycasts.
+
+**Zoom must stay bound to two delivery paths (W-058).** Wheel (external mouse) and
+`InputEventPanGesture` (trackpad). Do not rely on wheel alone on macOS. Keyboard rotation does not
+zoom; holding a rotate key accepts `echo` events in `_unhandled_input` rather than integrating in
+`_process`, except for the origin-glide exception below.
 
 | ID | Rule |
 |---|---|
 | AR-DBGCAM-1 | **Node, file, class.** Node path `Main/World/DebugCamera`, type `Camera3D`, authored **`current = false`**. Script `src/world/debug_camera.gd`, `class_name DebugCamera`. It is a **sibling of `CameraRig`, deliberately not a child** — so `CameraRig` stays the pure set of four immutable AS-4 fixtures and the "four authored transforms" AR-SCENE-3 freezes is literally unchanged. This is also the project's **first input-handling code**; the precedent it sets is: input lives on the node that owns the affordance, handled in `_unhandled_input` (not `_input`, so UI/HUD can consume events first at M3), and no global input-map actions are introduced for a dev-only tool. |
-| AR-DBGCAM-2 | **`CamSun` stays default-`current`; the debug camera is opt-in.** Nothing selects a camera when you press Play, so the authored `CamSun.current = true` is what renders — the correct, sunlit, canonical framing. `DebugCamera` makes itself `current` only on the **first** interactive input (a wheel or drag event, and only when not `script_driven`). To avoid a view jump on that first activation, `DebugCamera` seeds `yaw/pitch/radius` at `_ready` from `CamSun`'s authored transform relative to the pivot (from `(0, 2, 8)` this is `radius ≈ 8.01 m`, `pitch ≈ 1.8°`, `yaw = 0°` — all inside the AR-DBGCAM-4 bounds), so activation is seamless. Making the debug camera default-`current` was rejected: it would make every automated capture render the debug view and break AS-4/AS-6 outright. |
+| AR-DBGCAM-2 | **`CamSun` stays default-`current`; the debug camera is opt-in.** Nothing selects a camera when you press Play, so the authored `CamSun.current = true` is what renders — the correct, sunlit, canonical framing. `DebugCamera` makes itself `current` only on the **first** interactive input (wheel, origin click, Tab unlock, or rotate key — and only when not `script_driven`). To avoid a view jump on that first activation, `DebugCamera` seeds `yaw/pitch/radius` in `setup()` from `CamSun`'s authored transform relative to the pivot (from `(0, 2, 8)` this is `radius ≈ 8.01 m`, `pitch ≈ 1.8°`, `yaw = 0°`), so activation is seamless. Making the debug camera default-`current` was rejected: it would make every automated capture render the debug view and break AS-4/AS-6 outright. |
 | AR-DBGCAM-3 | **Pivot = tower mid-height on the tower axis: `Vector3(0, TowerSpec.height * 0.5, 0)` = `(0, 1.75, 0)`.** The tower occupies `y ∈ [0, H]` (lip at ≈ `H`) and is centred on the world origin, so mid-height is also the bounding-box centre for the cylinder — the two candidates coincide, and mid-height is the simpler expression of it. It is chosen over the **base** (`y = 0`) because the sun/shade asymmetry and the seed-to-lip climb run the *full* height: centring vertically keeps the base seed and the top lip roughly equidistant so orbiting does not drift the subject out of frame, whereas a base pivot tilts the whole tower into the top of the frame and centres empty ground. Derive it from the injected `TowerSpec`, never hardcode `1.75`. |
-| AR-DBGCAM-4 | **Bounds, all derived from `TowerSpec` (`radius_outer = 2.0`, `height = 3.5`).** Radius clamp `[min_radius, max_radius]` with `min_radius = radius_outer + 1.0 = 3.0 m` (a 1 m standoff so the camera and its near plane never enter the wall) and `max_radius = (height + 2·radius_outer)·1.6 = 12.0 m` (whole tower plus ground context still framed; beyond this the 3.5 m tower is a speck). Pitch clamp `[-5°, +85°]`: the upper bound stops short of the `+90°` `look_at`-up-vector singularity (the pole flip); the lower bound is set so that even at `max_radius` the camera stays above ground — `cam_y = pivot.y + radius·sin(pitch)`, and at `r = 12, pitch = -5°` that is `1.75 − 12·0.0872 = 0.70 m > 0`. Yaw is unbounded (wraps 360° — that is the orbit). Feel constants are the Programmer's latitude *within* these clamps: suggest a **multiplicative** wheel step (`radius *= 0.9` / `/= 0.9` per notch, uniform zoom feel across the range) and a fixed pixels→degrees drag sensitivity; the clamp numbers above are not negotiable, the sensitivities are. |
-| AR-DBGCAM-5 | **Scripted-run isolation — two independent guarantees.** *(a, load-bearing):* `DebugCamera` writes `current` **and** its transform **only** inside `_unhandled_input`, in response to real `InputEventMouseButton` (wheel) / `InputEventMouseMotion` (drag) events. No automated runner injects such events — `take_screenshot.gd`, `run_ui_script.gd`, and GUT all drive the scene programmatically — so in every automated run `CamSun` stays `current` and no debug transform is ever written. Note `take_screenshot.gd` does **not** set `script_driven`, so guarantee (a) is the one that protects the screenshot path. *(b, defence-in-depth for the UI-script path):* `Main` passes `script_driven` into `DebugCamera` (inject at setup, or read from the owner), and when it is true `DebugCamera` calls `set_process_unhandled_input(false)` in `_ready`, killing the input path entirely. **What a Code Reviewer must check:** (1) grep `debug_camera.gd` — the only writes to `current`, `transform`/`global_transform`/`position`/`look_at` occur inside `_unhandled_input`; the `_ready` seed writes only the private `yaw/pitch/radius` floats, never `current`; (2) the scene authors `DebugCamera.current = false`; (3) `set_process_unhandled_input(false)` fires under `script_driven`; (4) run `tools/ui_scripts/smoke.txt` and confirm the resulting screenshot still frames `CamSun` and is byte-identical to the pre-change capture — the proof that the debug camera was never captured. |
-| AR-DBGCAM-6 | **Test surface — honest split.** *Testable headless (GUT):* factor the transform math into a **pure** helper (e.g. `DebugCamera.solve(pivot, yaw, pitch, radius) -> Transform3D` plus `clamp_radius`/`clamp_pitch`). Test 1: feed out-of-range radius and pitch, assert they clamp into `[3.0, 12.0]` and `[-5°, 85°]`. Test 2: over the four corners of the bounds box (`{min,max} radius × {min,max} pitch`) assert the solved camera `y > 0` (never underground) and its distance from the tower axis `> radius_outer` (never inside the wall). **Regression each catches:** someone widening a clamp constant so the camera can pass through the wall or drop below ground, or reaching the `+90°` pole. Test 3 (the determinism guard): instantiate `DebugCamera` with `script_driven = true`, deliver a synthetic `InputEventMouseButton`, and assert `current` is still `false` and the transform is unchanged — catches removal of the `script_driven` gate, which is the one regression that would corrupt AS-4. *Genuinely not testable without a human at a real mouse in an editor Play session:* that dragging feels like orbiting and the wheel zooms the expected direction, that first-activation produces no visible jump, that the framing and sensitivity are pleasant. Headless has neither a rendering device nor a pointing device. **Do not** write a "simulated drag moves the camera" GUT test that would still pass with the handler stubbed — that is the could-not-fail test trap this project has hit before (W-053). The positive interactive check is the developer pressing Play; the automated `smoke.txt` check (AR-DBGCAM-5) is the *negative* one and is the correct scripted surface here — a `run-ui-script` scenario cannot drive this affordance, and adding a verb that could would defeat the isolation. |
+| AR-DBGCAM-4 | **Bounds, derived from `TowerSpec` / `WallSpec` via `tower_zoom_bounds` / `wall_zoom_bounds`.** Baseline (legacy AR-DBGCAM-4) for the default cylinder: `min₀ = radius_outer + 1.0 = 3.0 m`, `max₀ = (height + 2·radius_outer)·1.6 = 12.0 m`. **Applied limits:** `min = min₀ / 4` (4× closer detail — default **0.75 m**), `max = max₀ × 2` (2× pull-back — default **24 m**). Pitch clamp `[-5°, +85°]` with **`min_pitch_for_radius`**: at wide zoom-out the floor rises so `cam_y = pivot.y + radius·sin(pitch)` stays above ground (needed once `max` doubled). Yaw is unbounded. **Multiplicative** wheel step (`radius *= 0.9` per notch). Mouse-look uses the same pixels→degrees sensitivity as the old left-drag. Detail zoom may orbit inside the old 1 m wall standoff — intentional for ivy close-ups. |
+| AR-DBGCAM-5 | **Scripted-run isolation — two independent guarantees.** *(a, load-bearing):* `DebugCamera` claims `current` from `_unhandled_input` only (real wheel / click / Tab / key events). Transform updates happen in `_unhandled_input` and, **only while already `current`**, in `_process` during an origin glide — never to steal the view from `CamSun`. Additional writers: `activate_for_planting()`, `apply_scripted_snapshot()` (script replay only). No automated runner injects mouse/key events, so `CamSun` stays `current` in screenshot and UI-script paths. *(b, defence-in-depth):* under `script_driven`, `set_process_unhandled_input(false)` and `set_process(false)` in `_ready`. **Reviewer checks:** grep transform/`current` writers; scene authors `DebugCamera.current = false`; run `tools/ui_scripts/smoke.txt` — still frames `CamSun`. |
+| AR-DBGCAM-6 | **Test surface — honest split.** *Testable headless (GUT):* pure helpers `solve`, `clamp_radius`, `clamp_pitch`, `min_pitch_for_radius`, legacy `pan` (snapshots). Test 1: radius clamps to `[0.75, 24.0]` on the default cylinder; pitch to `[-5°, 85°]`. Test 2: bounds corners keep `y > 0`; wall standoff check only at radii ≥ the legacy `radius_outer + 1.0` (detail zoom may sit closer). Test 3: `script_driven` blocks synthetic input from touching `current`/transform. Pan-gesture zoom branch present (W-058); rotate keys accept echo. *Not headless:* Tab capture, glide feel, surface pick on a real wall — human Play + `smoke.txt` negative check. **Do not** write a could-not-fail "simulated drag" test (W-053). |
 
 ---
 
@@ -1884,7 +1888,7 @@ reference these types directly.
 | `src/world/seed_anchors.gd` | `SeedAnchors` | SD-AGENCY-1/2/3 derivation and cache. |
 | `src/world/sky_sun.gd` | `SkySun` | Drives `DirectionalLight3D` + procedural sky from `Solar`, applies the SD-TIME-4 render blend. |
 | `src/world/camera_rig.gd` | `CameraRig` | `select(index_or_name)`; never writes transforms. |
-| `src/world/debug_camera.gd` | `DebugCamera : Camera3D` | Developer-only orbit/zoom camera (AR-DBGCAM). Authored `current = false`; writes `current`/transform only from `_unhandled_input`; disabled under `script_driven`. Excluded from AS-4 by AR-SCENE-3. |
+| `src/world/debug_camera.gd` | `DebugCamera : Camera3D` | Rooted orbit camera (AR-DBGCAM): scroll zoom, click-to-glide origin on surfaces, Tab mouse-look, WASD/arrows rotate. Authored `current = false`; disabled under `script_driven`. Excluded from AS-4 by AR-SCENE-3. |
 
 ### Core
 
