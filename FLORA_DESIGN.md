@@ -85,7 +85,10 @@ when captured with `--out=`.
 
 ### Current main-scene baseline (implemented 2026-10-26)
 
-- **Grass:** `Grass_Wispy_Short` (unchanged).
+- **Grass (hybrid SD-GRASS-1):** flat lawn read from **`World/Ground`** (main scene); hill ring
+  uses **`village_ground.gdshader`**; `LawnGround` disk is sunk below the plane (no z-fight);
+  **cross-card MultiMesh** in garden ring r ≈ 5.5–12 m; **sparse `Grass_Wispy_Short` accents**
+  (~28) — not a full wispy carpet. Exclusions unchanged (paths, cottages, flowers, plants, bushes).
 - **Flower clusters:** `Flower_3_Group`, `Flower_3_Single`, `Flower_4_Group`, `Flower_4_Single` —
   10 clusters × 3–4 members (`VillageScatterPositions.flower_cluster_layers()`).
 - **Path petals:** `Petal_1`–`Petal_5` beside path stones (`petal_layers()`).

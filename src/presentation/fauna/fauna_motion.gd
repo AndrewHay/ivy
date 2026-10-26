@@ -100,7 +100,8 @@ static func advance(
 	var wind_phase := 0.0
 	if ctx.wind != null:
 		wind_dir = ctx.wind.get_horizontal_direction()
-		wind_strength = ctx.wind.strength_for_species(agent.species)
+		wind_strength = ctx.wind.strength_for_species(agent.species) \
+			* ctx.wind.get_effective_strength()
 		wind_phase = ctx.wind.get_phase()
 	match agent.species:
 		FaunaConstants.Species.BEE:

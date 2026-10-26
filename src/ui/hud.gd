@@ -10,6 +10,7 @@ signal debug_snapshot_requested
 const SeedAnchorsScript = preload("res://src/world/seed_anchors.gd")
 const _HelpPanel = preload("res://src/ui/help_panel.gd")
 const _SunCompass = preload("res://src/ui/sun_compass.gd")
+const _WindIndicator = preload("res://src/ui/wind_indicator.gd")
 ## Gap between the compass and the window edge.
 const _COMPASS_MARGIN := 12.0
 const _CAMERA_HINT := "Click surface to move origin · scroll zoom · Tab mouse-look · WASD/arrows rotate · R reset · ? help"
@@ -32,6 +33,7 @@ var _sim_status: Label = null
 var _planting_tool: PlantingTool = null
 var _help_panel: PanelContainer = null
 var _sun_compass: Control = null
+var _wind_indicator: Control = null
 var _session_log: RefCounted = null
 var _snapshot_button: Button = null
 var _toast_panel: PanelContainer = null
@@ -81,6 +83,7 @@ func setup(
 	if free_plant_mode:
 		_build_help()
 		_build_sun_compass()
+		_build_wind_indicator()
 	_refresh_anchor_buttons()
 
 
@@ -97,13 +100,24 @@ func _build_sun_compass() -> void:
 	get_viewport().size_changed.connect(_place_sun_compass)
 
 
+func _build_wind_indicator() -> void:
+	_wind_indicator = _WindIndicator.new()
+	add_child(_wind_indicator)
+	_place_sun_compass()
+
+
 func _place_sun_compass() -> void:
-	if _sun_compass == null:
-		return
 	var viewport := get_viewport_rect().size
-	_sun_compass.position = Vector2(
-		_COMPASS_MARGIN, viewport.y - _sun_compass.size.y - _COMPASS_MARGIN
-	).floor()
+	var bottom := viewport.y - _COMPASS_MARGIN
+	if _sun_compass != null:
+		_sun_compass.position = Vector2(
+			_COMPASS_MARGIN, bottom - _sun_compass.size.y
+		).floor()
+		bottom -= _sun_compass.size.y + 6.0
+	if _wind_indicator != null:
+		_wind_indicator.position = Vector2(
+			_COMPASS_MARGIN, bottom - _wind_indicator.size.y
+		).floor()
 
 
 func toggle_help() -> void:
@@ -174,12 +188,22 @@ func _center_help() -> void:
 
 
 ## `camera_yaw` turns the sun compass so its top is the way the camera is looking.
-func refresh(clock: SimClock, sky_sun: SkySun, camera_yaw: float = 0.0) -> void:
+func refresh(
+		clock: SimClock,
+		sky_sun: SkySun,
+		camera_yaw: float = 0.0,
+		wind: AmbientWind = null) -> void:
 	if _sun_compass != null and sky_sun != null and sky_sun.solar != null and clock != null:
 		_sun_compass.set_sun(
 			sky_sun.solar.render_direction(clock.display_game_day(), clock.seconds_per_game_day()),
 			camera_yaw
 		)
+	if _wind_indicator != null and clock != null and wind != null:
+		_wind_indicator.set_wind(
+			wind.get_horizontal_direction(),
+			wind.get_effective_strength(),
+			clock.speed,
+			camera_yaw)
 	if _date_label != null and clock != null and _params != null:
 		var display_day := clock.display_game_day()
 		var hour := display_day * 24.0 + _params.start_hour

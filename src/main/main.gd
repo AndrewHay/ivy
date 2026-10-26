@@ -652,8 +652,16 @@ func _process(delta: float) -> void:
 	if clock == null:
 		return
 	_world.get_sky_sun().update(clock.display_game_day(), clock.seconds_per_game_day())
+	var wind: AmbientWind = _world.get_ambient_wind()
+	if wind != null:
+		wind.advance(clock.speed, delta)
+		var backdrop := _world.get_node_or_null("VillageBackdrop")
+		if backdrop != null and backdrop.visible and backdrop.has_method("push_foliage_wind"):
+			backdrop.push_foliage_wind(wind)
+		if _plant_render.has_method("push_wind"):
+			_plant_render.push_wind(wind)
 	_tick_fauna(clock, delta)
 	if _hud != null:
-		_hud.refresh(clock, _world.get_sky_sun(), _debug_camera.get_yaw())
+		_hud.refresh(clock, _world.get_sky_sun(), _debug_camera.get_yaw(), wind)
 	if _dev_overlay != null and _dev_overlay.has_method("refresh"):
 		_dev_overlay.refresh(clock)

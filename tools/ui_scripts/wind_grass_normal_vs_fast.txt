@@ -1,0 +1,11 @@
+# ivy-qg7.9 — wind active at NORMAL, static at FAST (same camera).
+# Run: --scenario=res://assets/structures/scenarios/tower.tres
+SPEED pause
+ADVANCE_DAYS 0.25
+ORBIT 45 10 2
+SPEED normal
+WAIT 2500
+SCREENSHOT wind_normal_orbit.png
+SPEED fast
+WAIT 800
+SCREENSHOT wind_fast_orbit.png

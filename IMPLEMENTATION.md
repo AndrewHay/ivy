@@ -1585,7 +1585,8 @@ Forbidden imports from `src/presentation/fauna/*`: `src/sim/*`, env/light-bake/g
    camera (< 6 m XZ to pivot) scales effective caps × 0.4.
 10. **SD-FAUNA-10 (weather stub):** `weather_activity_scale` defaults to 1.0; no weather module in MVP.
 11. **SD-FAUNA-11 (wind):** `World/AmbientWind` owns shared phase for ivy-4gn foliage sway and fauna
-    drift (butterflies full, bees ~30%).
+    drift (butterflies full, bees ~30%). **SimClock gating and `effective_strength`:** see **SD-WIND-1**
+    *(ivy-qg7)* — fauna drift uses `strength_for_species(species) × effective_strength()`.
 12. **SD-FAUNA-12 (determinism):** Fauna RNG is outside sim determinism; fauna state not in growth
     snapshots.
 
@@ -1598,6 +1599,142 @@ Forbidden imports from `src/presentation/fauna/*`: `src/sim/*`, env/light-bake/g
 | Ladybird | 10:00–16:00 | — |
 
 `lit < 0.05`: despawn over ~1 s; no new spawns.
+
+---
+
+## SD-GRASS / SD-WIND — Village lawn grass & ambient wind  *(ivy-qg7)*
+
+Player intent: `DESIGN.md` § **Village wind & ground cover**. **Hybrid lawn:** procedural
+**`World/Ground`** (main.tscn procedural plane at y=0) is the visible flat lawn; **`LawnGround`**
+disk sits at **`LAWN_GROUND_Y_OFFSET`** (−0.03 m) under it (no z-fight); **`HillRing`** keeps
+**`village_ground.gdshader`**; **cross-card**
+MultiMesh in the near garden annulus; **sparse `Grass_Wispy_Short` accents** — not a dense wispy
+carpet. Presentation-only — no sim, env-field, or growth writes.
+
+### SD-GRASS-1 (placement)
+
+**Owner:** `VillageScatterPositions.grass_card_positions(ctx)`,
+`grass_wispy_accent_positions(ctx)`; alias `grass_positions(ctx)` → cards. **`VillageBackdrop`**
+builds `VillageGrassExclusionContext`, `_setup_hybrid_grass`, quadrants card chunks for culling.
+
+**Geometry tiers:**
+
+| Tier | Range (XZ) | Implementation |
+|------|------------|----------------|
+| Far | `r > 12 m` to horizon | `village_ground.gdshader` on disk + hill |
+| Near cards | `5.5–12 m` | `VillageGrassMesh.cross_card_mesh()` + `grass_card.gdshader` |
+| Accents | garden band | ≤ `GRASS_ACCENT_COUNT` wispy GLTF instances |
+
+Not tiers 10–11 (`Grass_Common_*`). Shadow policy: OFF.
+
+**RNG:** Same Knuth LCG as other scatter — `lcg_step` / `lcg_f01` with seed **`GRASS_LCG_SEED`**
+(`42007`). Two calls with the same inputs must yield **bit-identical** `Transform3D` arrays (order
+included).
+
+**Sampling field:** Polar annulus in backdrop pivot XZ. Iterate a fixed **square grid** over
+\([-R_{out}, R_{out}]^2\), keep cells whose centre lies in the annulus, then apply per-cell LCG
+jitter (≤ half grid step). Alternative implementations may use polar stepping if they preserve
+determinism and the same rejection rules.
+
+| Constant | Value | Role |
+|----------|-------|------|
+| `GRASS_RING_INNER_M` | `5.5` | Near card annulus inner edge (garden ring). |
+| `GRASS_RING_OUTER_M` | `12.0` | Near cards end; beyond this, ground shader only. |
+| `GRASS_GRID_STEP_M` | `0.58` | Card grid spacing before jitter. |
+| `GRASS_MAX_INSTANCES` | `650` | Hard cap on cross-cards. |
+| `GRASS_ACCENT_COUNT` | `28` | Sparse wispy tufts (`grass_wispy_accent_positions`). |
+| `COTTAGE_MARGIN` | `0.35` | Reject if `inside_any_cottage(p, COTTAGE_MARGIN)`. |
+| `PATH_CLEARANCE_M` | `0.55` | Reject if XZ distance to any segment of `path_polylines()` `< PATH_CLEARANCE_M`. |
+| `PLANT_CLEARANCE_M` | `0.45` | **MVP** single exclusion radius from scatter anchor XZ (see below). |
+
+**Per-instance variation (LCG after accept):**
+
+- Uniform yaw `∈ [0, TAU)`.
+- Cards: scale `∈ [0.85, 1.05]`. Accents: scale `∈ [0.18, 0.24]`.
+
+**Reject rules (all must pass):**
+
+1. Annulus: `GRASS_RING_INNER_M ≤ ‖p‖ ≤ GRASS_RING_OUTER_M`.
+2. Cottage footprint: not `inside_any_cottage(p, COTTAGE_MARGIN)`.
+3. Path corridor: min distance from `p` to every polyline segment in `path_polylines()` ≥
+   `PATH_CLEARANCE_M`.
+4. **Scatter exclusion:** min distance from `p` to every anchor XZ in the union of:
+   - all transforms from `flower_cluster_layers()` (every piece bucket),
+   - all transforms from `petal_layers(path_stone_transforms(...))` (same path stones as backdrop),
+   - all transforms from `plant_layers()`,
+   - all path stone transforms from `path_stone_transforms(path_polylines(), …)` (no extra reject beyond stones themselves),
+   - all **`Bush_Common`** transforms from `VillageBackdrop` bush scatter (same array used for
+     `Scatter_Bush_Common`),
+   must be ≥ `PLANT_CLEARANCE_M`.
+
+Optional later splits (`FLOWER_CLEARANCE_M`, `BUSH_CLEARANCE_M`, …) are **non-goals for MVP**;
+tune `PLANT_CLEARANCE_M` once in QA if clumps overlap.
+
+**Mechanical tests (GUT — suggest `test/test_village_grass_scatter.gd`):**
+
+| Test | Assert |
+|------|--------|
+| Determinism | Two calls → equal array size and per-index `origin` / basis (or hash of serialized transforms). |
+| Cap | Cards: `80 ≤ size() ≤ GRASS_MAX_INSTANCES`. Accents: `size() == GRASS_ACCENT_COUNT`. |
+| Hero disk | Every origin XZ has `length() ≥ GRASS_RING_INNER_M`. |
+| Outer bound | Every origin XZ has `length() ≤ GRASS_RING_OUTER_M + GRASS_GRID_STEP_M` (grid slack). |
+| Cottage | No origin inside `inside_any_cottage(p, COTTAGE_MARGIN)`. |
+| Path | No origin within `PATH_CLEARANCE_M` of any path segment. |
+| Scatter | No origin within `PLANT_CLEARANCE_M` of any excluded scatter anchor listed above. |
+| Regression vs legacy | `size() > 30` (replaces old tuft count). |
+
+### SD-WIND-1 (presentation wind)
+
+**Owner:** `World/AmbientWind` (`src/presentation/fauna/ambient_wind.gd`). **Gate input:**
+`SimClock.Speed` (read each frame from the active clock — same node/wiring as `FaunaPresentationContext`
+assembly in `main.gd`). **Forbidden:** imports from `src/sim/*`, env/light-bake, or growth paths;
+wind must not write sim or baked fields.
+
+**Public signals (testable getters):**
+
+| Method | Contract |
+|--------|----------|
+| `get_phase()` | Radians, wraps `[0, TAU)`. Advances only while `SimClock.speed == NORMAL`. |
+| `get_horizontal_direction()` | Unit XZ vector; slow drift tied to phase (existing `cos/sin(phase × 0.13)` pattern). Frozen when not advancing phase. |
+| `get_gust_envelope()` | Scalar in `[0, 1]` — slow amplitude modulator (e.g. second sine on phase or independent period **`WIND_GUST_PERIOD_SEC`** `28.0`). Frozen when phase frozen. |
+| `get_effective_strength()` | `0.0` unless `speed == NORMAL`; else `WIND_BASE_STRENGTH` (`1.0`) × `get_gust_envelope()` (optional upper cap **`WIND_STRENGTH_CAP`** `1.0`). |
+
+**SimClock gate (amplitude + phase integration):**
+
+| `SimClock.Speed` | Phase / direction / gust integration | `get_effective_strength()` |
+|------------------|----------------------------------------|----------------------------|
+| `NORMAL` | Advance with `delta` | `> 0` (subject to gust envelope) |
+| `PAUSE` | **Freeze** (hold last values) | `0.0` |
+| `FAST` | Do not advance | `0.0` |
+| `GROW` | Do not advance | `0.0` |
+
+Phase rate: `delta × (TAU / WIND_CYCLE_SEC)` with **`WIND_CYCLE_SEC`** = `FaunaConstants.WIND_CYCLE_SEC` (`10.0`).
+
+**Consumer response (shader-first — uniforms driven from getters above):**
+
+| Consumer | Wind use | Notes |
+|----------|----------|-------|
+| Backdrop grass (`Scatter_Grass`) | High-frequency blade shimmer; direction from `get_horizontal_direction()`; amplitude ∝ `get_effective_strength()` | Must stay subtle at orbit distance; no CPU mesh deformation required. |
+| Hero ivy leaves | Lower frequency than grass; separate petiole vs blade weights in shader; amplitude capped (**`IVY_WIND_AMPLITUDE_SCALE`** `0.35` × `effective_strength`) | Climbing ivy remains visual subject — do not exceed grass read loudness. |
+| Ambient fauna | Existing **`strength_for_species(species)`** × **`get_effective_strength()`** | Extends SD-FAUNA-11; zero drift at FAST/GROW/PAUSE. |
+| ivy-4gn follow-on (trees, smoke) | Same `get_phase()` / direction / `effective_strength()` | Not in ivy-qg7 scope; contract reserved for shared clock. |
+
+**Mechanical tests (GUT — suggest extend `test/test_ambient_wind.gd` or fauna wind tests):**
+
+| Test | Assert |
+|------|--------|
+| Normal integrates | Under mocked NORMAL + fixed `delta`, `get_phase()` increases; `get_effective_strength() > 0`. |
+| Pause freeze | After PAUSE, phase unchanged over further frames; strength `0.0`. |
+| Fast/Grow zero | FAST and GROW: phase unchanged; strength `0.0`. |
+| Fauna product | Butterfly drift uses `0.35 × effective_strength` at NORMAL; `0.0` at GROW. |
+| Layer boundary | `AmbientWind` script must not reference `src/sim/*` (static import scan or documented allowlist). |
+
+**Coordination:** Epic **`ivy-4gn`** (chimney smoke, tree sway) and **`SD-FAUNA-11`** share this
+clock — do not fork a second wind phase. Grow/Fast static foliage is an acceptance signal in
+`DESIGN.md` § Village wind & ground cover.
+
+**Implementation plan:** **AR-WIND-GRASS** (file touch list, call graph, bead order ivy-qg7.4–7.7,
+`grass_positions` API, shader include, tests, perf checklist).
 
 ---
 
@@ -2408,6 +2545,198 @@ blade + segmented petiole strip (see SD-LEAF-1). Atlas rects still anchor at pet
 `leaf_atlas.json`; local +Y runs petiole → blade tip. Aspect comes from `atlas.aspect[id]` via
 non-uniform basis scale on x/y; z depth scales with width in `LeafRenderer` (SD-LEAF-5 size animation
 uses the same basis).
+
+---
+
+## AR-WIND-GRASS — Village lawn grass & ambient wind *(ivy-qg7)*
+
+**Contracts:** SD-GRASS-1, SD-WIND-1 (`DESIGN.md` § Village wind & ground cover). **Beads:**
+ivy-qg7.4 → ivy-qg7.5 → ivy-qg7.6 / ivy-qg7.7 (shaders parallel after .4+.5).
+
+### AR-WIND-GRASS-1 — System goal (implementation terms)
+
+Replace the legacy 30-tuft `grass_positions()` ring with a capped deterministic lawn MultiMesh on
+`VillageBackdrop/Scatter_Grass`, excluding cottages, paths, and existing scatter anchors. Drive all
+visible wind motion (backdrop grass, hero ivy leaves, ambient fauna drift) from one **`AmbientWind`**
+clock that **integrates phase only at `SimClock.Speed.NORMAL`** and reports **`get_effective_strength()
+== 0`** at PAUSE/FAST/GROW. Presentation-only: no sim, env-field, or growth writes; wind state is not
+in growth snapshots (SD-FAUNA-12 unchanged).
+
+### AR-WIND-GRASS-2 — Call graph (runtime)
+
+```
+Main._process(delta)
+  clock := Sim.get_clock()
+  World.get_sky_sun().update(game_day, spd)
+  AmbientWind.advance(clock.speed, delta)          # ivy-qg7.5 — before consumers
+  _tick_fauna(clock, delta)
+    FaunaMotion → drift uses
+      strength_for_species(species) * wind.get_effective_strength()
+  [optional same frame, after advance]
+  VillageBackdrop.push_grass_wind(wind)            # ivy-qg7.6 — ShaderMaterial on Scatter_Grass
+  PlantRender.push_leaf_wind(wind)                 # ivy-qg7.7 — leaf ShaderMaterial uniforms
+```
+
+**Load-time (once per backdrop `_ready`):**
+
+```
+path_stones := VillageScatterPositions.path_stone_transforms(
+    VillageBackdrop.path_polylines(), reject_callable)
+bushes := VillageScatterPositions.bush_common_positions()   # moved from backdrop private
+ctx := VillageGrassExclusionContext.for_village(path_stones, bushes)
+grass := VillageScatterPositions.grass_positions(ctx)
+_create_scatter(..., "Scatter_Grass", grass)
+```
+
+`Main` is the only frame driver that knows `SimClock`; **`AmbientWind` must not `preload` or import
+`src/sim/*`**. Pass `SimClock.Speed` as an enum int into `advance(speed, delta)` (SD-WIND-1 layer
+boundary).
+
+### AR-WIND-GRASS-3 — File touch list
+
+| File | Bead | Responsibility |
+|------|------|----------------|
+| `src/world/village_scatter_positions.gd` | qg7.4 | SD-GRASS-1 grid + LCG; exclusion helpers; **`grass_positions(ctx)`**; **`bush_common_positions()`** (logic lifted from backdrop); path-segment distance helper; exported constants (`GRASS_*`, `PLANT_CLEARANCE_M`, …). |
+| `src/world/village_backdrop.gd` | qg7.4, qg7.6 | Build **`VillageGrassExclusionContext`** once in `_setup_multimesh_scatter`; call new `grass_positions`; delegate bushes to scatter module; **`push_grass_wind(wind)`** or `_process` hook from Main — sets wind uniforms on `Scatter_Grass` `ShaderMaterial`. |
+| `src/world/village_grass_exclusion_context.gd` *(new, optional)* | qg7.4 | **`VillageGrassExclusionContext : RefCounted`** — bundles path polylines, path stones, bush transforms, cottage reject callable. Keeps `grass_positions` signature stable if exclusions grow. *If skipped, use inline class in `village_scatter_positions.gd`.* |
+| `src/presentation/fauna/ambient_wind.gd` | qg7.5 | **`advance(speed, delta)`**; **`get_gust_envelope()`**, **`get_effective_strength()`**; freeze phase/direction/gust when not NORMAL; keep existing **`get_phase()`** / **`get_horizontal_direction()`** / **`strength_for_species()`**. |
+| `src/main/main.gd` | qg7.5, qg7.6, qg7.7 | After sky update, **`get_ambient_wind().advance(clock.speed, delta)`**; then fauna tick; then push wind to backdrop grass + `PlantRender` (order: wind advance before any consumer). |
+| `src/presentation/fauna/fauna_motion.gd` | qg7.5 | Multiply species strength by **`ctx.wind.get_effective_strength()`** once at read site (SD-WIND-1 fauna product test). |
+| `src/render/shaders/foliage_wind.gdshaderinc` | qg7.6, qg7.7 | Shared wind uniforms + vertex displacement helpers (phase, direction XZ, strength, per-consumer frequency/amplitude scales). |
+| `src/render/shaders/grass_wispy.gdshader` | qg7.6 | Spatial shader for `Grass_Wispy_Short` mesh; `#include` foliage include; higher **`GRASS_WIND_FREQ_SCALE`** than ivy. |
+| `src/render/materials/grass_wispy_wind.tres` | qg7.6 | `ShaderMaterial` referencing grass shader + albedo from glTF (duplicate textures or `source_color` from existing import). |
+| `src/render/shaders/leaf.gdshader` | qg7.7 | `#include` foliage include; petiole vs blade weights; **`IVY_WIND_AMPLITUDE_SCALE`** (0.35 × effective strength in CPU push). |
+| `src/render/plant_render.gd` | qg7.7 | **`push_leaf_wind(wind: AmbientWind)`** — sets shared uniforms on both leaf `ShaderMaterial`s (static + growing share override). |
+| `src/render/leaf_renderer.gd` | qg7.7 | Optional: expose material ref helper if `PlantRender` should not reach into child nodes. |
+| `test/test_village_grass_scatter.gd` | qg7.4 | SD-GRASS-1 mechanical table (determinism, cap, annulus, cottage, path, scatter, `size() > 30`). |
+| `test/test_ambient_wind.gd` | qg7.5 | SD-WIND-1 gate table; no `src/sim/*` import scan. |
+| `test/test_fauna_motion.gd` or `test/test_fauna_gating.gd` | qg7.5 | Butterfly drift product at NORMAL vs zero at GROW (one focused test). |
+| `tools/ui_scripts/wind_grass_normal_vs_fast.txt` *(new, QA)* | qg7.9 | Normal screenshot → switch Fast → screenshot; wind off acceptance (not required for qg7.4–7.7 close). |
+
+**Backward compatibility:** `grass_positions()` with **no args** may remain as a thin wrapper that
+builds a default context using **`VillageBackdrop.path_polylines()`** and empty bush list only for
+legacy callers — **backdrop must not use it** (would false-pass bush clearance). Prefer removing
+zero-arg form once tests migrate.
+
+### AR-WIND-GRASS-4 — `grass_positions` and exclusion context (API)
+
+**Problem:** Bush transforms today live in **`VillageBackdrop._bush_common_positions()`** (private).
+Grass reject rule 4 requires the **same** bush array as `Scatter_Bush_Common` (SD-GRASS-1 failure
+mode: grass-only reject source → tests false-pass).
+
+**Resolution:**
+
+1. Move bush LCG layout to **`VillageScatterPositions.bush_common_positions() -> Array[Transform3D]`**
+   (copy verbatim; backdrop calls this static).
+2. Introduce exclusion bundle and single entry point:
+
+```gdscript
+# src/world/village_grass_exclusion_context.gd (recommended)
+class_name VillageGrassExclusionContext
+extends RefCounted
+
+## Path polylines: Array of Array[Vector2] — VillageBackdrop.path_polylines().
+var path_segments: Array = []
+var path_stones: Array[Transform3D] = []
+var bush_transforms: Array[Transform3D] = []
+## Callable(Vector2) -> bool; margin baked in (SD-GRASS-1 COTTAGE_MARGIN).
+var is_inside_cottage: Callable
+
+static func for_village(
+        path_stones: Array[Transform3D],
+        bush_transforms: Array[Transform3D]) -> VillageGrassExclusionContext:
+    var ctx := VillageGrassExclusionContext.new()
+    ctx.path_segments = VillageBackdrop.path_polylines()
+    ctx.path_stones = path_stones
+    ctx.bush_transforms = bush_transforms
+    const MARGIN := 0.35  # SD-GRASS-1 COTTAGE_MARGIN
+    ctx.is_inside_cottage = func(p: Vector2) -> bool:
+        return VillageBackdrop.inside_any_cottage(p, MARGIN)
+    return ctx
+```
+
+```gdscript
+# village_scatter_positions.gd
+static func grass_positions(ctx: VillageGrassExclusionContext) -> Array[Transform3D]:
+    # SD-GRASS-1: grid + LCG; reject via ctx + static helpers:
+    #   _scatter_exclusion_xz(ctx) -> PackedVector2Array or lazy union of
+    #   flower_cluster_layers(), petal_layers(ctx.path_stones), plant_layers(),
+    #   ctx.path_stones, ctx.bush_transforms
+    ...
+```
+
+**GUT fixture:** Build `ctx` with **`VillageScatterPositions.bush_common_positions()`** and
+**`path_stone_transforms(VillageBackdrop.path_polylines(), reject)`** using the same reject callable
+backdrop uses (`_reject_path_stone_xz` logic duplicated as static test helper or
+`VillageBackdrop`-callable in test scene).
+
+**Internal helpers (same module):** `min_xz_dist_to_path_segments(p: Vector2, segments: Array) -> float`;
+`_collect_scatter_anchor_xz(ctx) -> Array[Vector2]` for rule 4.
+
+### AR-WIND-GRASS-5 — Shader include path (`foliage_wind.gdshaderinc`)
+
+| Item | Choice |
+|------|--------|
+| Path | **`res://src/render/shaders/foliage_wind.gdshaderinc`** |
+| Include | `#include "res://src/render/shaders/foliage_wind.gdshaderinc"` from **`grass_wispy.gdshader`** and **`leaf.gdshader`** |
+| Shared uniforms (set from CPU each frame) | `wind_phase`, `wind_dir_xz` (vec2), `wind_strength` (float, already × gust × gate) |
+| Include provides | `foliage_wind_displace(local_pos, world_xz, freq_scale, amp_scale) -> vec3` — sine-based, direction in XZ, **object/world consistent per consumer** |
+| Grass consumer | New shader + **`material_override`** on `Scatter_Grass` only; do not rewrite glTF on disk |
+| Ivy consumer | Vertex stage only; amplitudes **`IVY_WIND_AMPLITUDE_SCALE * wind_strength`**; lower **`freq_scale`** than grass; stronger weight on petiole UV band (`UV.y > 1.25`) vs blade |
+
+CPU push copies **`wind.get_phase()`**, **`get_horizontal_direction()`**, **`get_effective_strength()`**
+— do not re-derive gust in materials.
+
+### AR-WIND-GRASS-6 — Implementation order (matches beads)
+
+| Step | Bead | Depends on | Done when |
+|------|------|------------|-----------|
+| 1 | **ivy-qg7.4** | qg7.3 | Lawn MultiMesh count ≪ 3500, exclusions pass GUT; backdrop still static grass (no shader required). |
+| 2 | **ivy-qg7.5** | qg7.3 | `advance(speed, delta)` gated; fauna × `effective_strength`; GUT green; **no visible grass/leaf motion yet OK**. |
+| 3a | **ivy-qg7.6** | qg7.4 + qg7.5 | `Scatter_Grass` material sways Normal-only; Fast/Grow static. |
+| 3b | **ivy-qg7.7** | qg7.5 | Hero leaves subtle sway Normal-only; existing leaf render smoke unchanged. |
+
+**Parallelism:** 3a and 3b may proceed in parallel once step 2 lands. **Do not** wire wind uniforms
+before step 2 (avoids duplicating gate logic in shaders).
+
+**Refactor note (qg7.4):** Reorder `_setup_multimesh_scatter` so **path stones and bushes are computed
+once** before grass, flowers, and petals — grass context must see final bush list; flower/petal layers
+already depend on `path_stones` (unchanged order after bush lift).
+
+### AR-WIND-GRASS-7 — Tests
+
+| Test file | Covers |
+|-----------|--------|
+| **`test/test_village_grass_scatter.gd`** *(create)* | Full SD-GRASS-1 mechanical table; uses **`grass_positions(ctx)`** with real `for_village()` fixture. |
+| **`test/test_ambient_wind.gd`** *(create)* | Instantiate `AmbientWind`, call **`advance`** with mocked speeds + fixed `delta`; assert phase freeze and strength rows from SD-WIND-1. |
+| **`test/test_fauna_motion.gd`** or **`test/test_fauna_gating.gd`** | One test: effective drift scale 0 at GROW after qg7.5. |
+| **Regression** | Full GUT suite (`run-tests` skill); **`tools/ui_scripts/smoke.txt`** still passes (CamSun, no wind regression on HUD). |
+| **QA (qg7.9, not programmer gate)** | **`wind_grass_normal_vs_fast.txt`** + before/after PNGs per epic acceptance. |
+
+### AR-WIND-GRASS-8 — Performance checklist
+
+| Check | Target / method |
+|-------|-----------------|
+| Grass instance cap | **`GRASS_MAX_INSTANCES` = 3500** hard stop in generator; assert in GUT. |
+| Draw calls | One **`MultiMeshInstance3D`** for `Scatter_Grass` (unchanged pattern). |
+| CPU per frame | Wind: **O(1)** — one `advance` + **2–3 material uniform writes** (grass + leaf materials); **no** per-grass-instance CPU. |
+| GPU | Vertex displacement in shader only; grass freq higher than ivy but **amplitude capped** for orbit moiré (tune `GRASS_GRID_STEP_M` / scale max before QA). |
+| Load time | Generating ~3k transforms once at backdrop `_ready` — acceptable; profile if > 50 ms (unlikely). |
+| Fauna | Existing agent cap (SD-FAUNA-8); wind multiply is scalar — negligible. |
+| Determinism | Grass layout deterministic from LCG; wind **explicitly non-deterministic** w.r.t. growth snapshots (SD-FAUNA-12). |
+
+### AR-WIND-GRASS-9 — Non-goals (programmer)
+
+- Chimney smoke / tree sway (**ivy-4gn**); tall grass tiers 10–11 on lawn; per-species clearance radii
+  beyond `PLANT_CLEARANCE_M`; second wind phase; CPU skinning or MultiMesh buffer rewrites for wind;
+  coupling wind to `IvyParams`, light bake, or growth vigour; moving **`AmbientWind`** under `SimRoot`.
+
+### AR-WIND-GRASS-10 — Handoff to Gameplay Programmer
+
+Start **ivy-qg7.4**: lift bushes, implement **`VillageGrassExclusionContext`** + **`grass_positions(ctx)`**,
+wire backdrop, add **`test_village_grass_scatter.gd`**. Then **ivy-qg7.5** (`advance` + fauna multiply +
+**`test_ambient_wind.gd`**). Shaders **qg7.6** / **qg7.7** last. Cite **`AR-WIND-GRASS-*`** and
+**SD-GRASS-1 / SD-WIND-1** in bead close notes.
 
 ---
 

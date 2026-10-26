@@ -33,6 +33,25 @@ func reset() -> void:
 			leaves.multimesh.visible_instance_count = 0
 
 
+func push_wind(wind: AmbientWind) -> void:
+	if wind == null:
+		return
+	var dir := wind.get_horizontal_direction()
+	var strength := wind.get_effective_strength() * 0.35
+	var phase := wind.get_phase()
+	for leaves in [_leaves_static, _leaves_growing]:
+		if leaves == null or leaves.material_override == null:
+			continue
+		var mat := leaves.material_override as ShaderMaterial
+		if mat == null:
+			continue
+		mat.set_shader_parameter("wind_direction_xz", dir)
+		mat.set_shader_parameter("wind_strength", strength)
+		mat.set_shader_parameter("wind_phase", phase)
+		mat.set_shader_parameter("wind_freq_scale", 0.42)
+		mat.set_shader_parameter("wind_amplitude", 0.06)
+
+
 func sync(plant: PlantData, tip_shoot: Dictionary = {}) -> void:
 	if plant.segment_count() > _seg_hw:
 		_stem.sync_from(plant, _seg_hw)

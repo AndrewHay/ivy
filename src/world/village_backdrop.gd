@@ -75,6 +75,7 @@ func _ready() -> void:
 	var path_stones := VillageScatterPositions.path_stone_transforms(
 		path_polylines(), Callable(self, "_reject_path_stone_xz"))
 	_create_paths_from_transforms(path_stones)
+	_add_village_lawn_ground()
 	_setup_multimesh_scatter(path_stones)
 	_add_hill_ring()
 
@@ -228,10 +229,9 @@ func _apply_subtree(node: Node) -> void:
 ## Procedural scatter: grass, flower clusters (FLORA_DESIGN), path-side petals,
 ## plants, far treeline, and bushes. Clover deferred (pond ring).
 func _setup_multimesh_scatter(path_stones: Array[Transform3D]) -> void:
-	_create_scatter(
-		"res://assets/backdrop/pieces/Grass_Wispy_Short.gltf",
-		"Scatter_Grass", VillageScatterPositions.grass_positions(),
-		GeometryInstance3D.SHADOW_CASTING_SETTING_OFF)
+	var bush_transforms := VillageScatterPositions.bush_common_positions()
+	var grass_ctx := VillageGrassExclusionContext.for_village(path_stones, bush_transforms)
+	_setup_hybrid_grass(grass_ctx)
 	_scatter_piece_layers(
 		VillageScatterPositions.flower_cluster_layers(),
 		"Scatter_Flower",
@@ -251,7 +251,7 @@ func _setup_multimesh_scatter(path_stones: Array[Transform3D]) -> void:
 	_patch_far_treeline_leaf_threshold()
 	_create_scatter(
 		"res://assets/backdrop/pieces/Bush_Common.gltf",
-		"Scatter_Bush_Common", _bush_common_positions(),
+		"Scatter_Bush_Common", bush_transforms,
 		GeometryInstance3D.SHADOW_CASTING_SETTING_OFF)
 	_patch_bush_green_material()
 
@@ -268,6 +268,42 @@ func _scatter_piece_layers(
 		_create_scatter(path, "%s_%s" % [name_prefix, piece_name], transforms, shadow)
 
 
+func _setup_hybrid_grass(ctx: VillageGrassExclusionContext) -> void:
+	var cards := VillageScatterPositions.grass_card_positions(ctx)
+	_add_grass_card_chunks(cards)
+	var accents := VillageScatterPositions.grass_wispy_accent_positions(ctx)
+	_create_scatter(
+		"res://assets/backdrop/pieces/Grass_Wispy_Short.gltf",
+		"Scatter_Grass_Accent", accents,
+		GeometryInstance3D.SHADOW_CASTING_SETTING_OFF)
+
+
+func _add_grass_card_chunks(all: Array[Transform3D]) -> void:
+	if all.is_empty():
+		return
+	var mesh := VillageGrassMesh.cross_card_mesh()
+	var mat := ShaderMaterial.new()
+	mat.shader = load("res://src/render/shaders/grass_card.gdshader") as Shader
+	var buckets: Array[Array] = [[], [], [], []]
+	for t in all:
+		var idx := 0
+		if t.origin.x >= 0.0:
+			idx += 1
+		if t.origin.z >= 0.0:
+			idx += 2
+		(buckets[idx] as Array).append(t)
+	var names := ["Scatter_Grass_Card_NW", "Scatter_Grass_Card_NE",
+		"Scatter_Grass_Card_SW", "Scatter_Grass_Card_SE"]
+	for i in range(4):
+		var transforms: Array[Transform3D] = []
+		for item in buckets[i]:
+			transforms.append(item as Transform3D)
+		if transforms.is_empty():
+			continue
+		_add_multimesh(mesh, names[i], transforms,
+			GeometryInstance3D.SHADOW_CASTING_SETTING_OFF, mat)
+
+
 func _create_scatter(
 		path: String, node_name: String,
 		transforms: Array[Transform3D],
@@ -281,7 +317,8 @@ func _create_scatter(
 func _add_multimesh(
 		mesh: Mesh, node_name: String,
 		transforms: Array[Transform3D],
-		shadow: GeometryInstance3D.ShadowCastingSetting) -> void:
+		shadow: GeometryInstance3D.ShadowCastingSetting,
+		material_override: Material = null) -> void:
 	if transforms.is_empty():
 		return
 	var mm := MultiMesh.new()
@@ -308,6 +345,8 @@ func _add_multimesh(
 	mmi.name = node_name
 	mmi.multimesh = mm
 	mmi.cast_shadow = shadow
+	if material_override != null:
+		mmi.material_override = material_override
 	add_child(mmi)
 
 
@@ -433,52 +472,6 @@ static func inside_any_cottage(p: Vector2, margin: float) -> bool:
 	return false
 
 
-## ~45 plain-green bushes (Bush_Common: ~1.0 m at scale 0.55-0.80) hugging the
-## outside of each cottage's walls, plus loose clumps in the mid ring.
-## Seeded LCG, no randf. Clear of doors, wall bodies and the hero footprint (r<5 m).
-func _bush_common_positions() -> Array[Transform3D]:
-	var out: Array[Transform3D] = []
-	var st := 1234
-	for spec in COTTAGES:
-		var rect := cottage_exterior_rect(spec).grow(0.8)
-		var door: Vector2 = cottage_door(spec)[0]
-		var corners: Array[Vector2] = [
-			rect.position, Vector2(rect.end.x, rect.position.y),
-			rect.end, Vector2(rect.position.x, rect.end.y)]
-		var count := 6
-		st = _lcg_step(st); count += (st & 1)  # 6 or 7
-		for _j in range(count):
-			st = _lcg_step(st); var edge: int = int(_lcg_f01(st) * 4.0) % 4
-			st = _lcg_step(st); var t: float = _lcg_f01(st)
-			var p: Vector2 = corners[edge].lerp(corners[(edge + 1) % 4], t)
-			if p.distance_to(door) < 1.6 or p.length() < 5.0:
-				continue
-			if inside_any_cottage(p, 0.3):
-				continue
-			var cx: float = p.x
-			var cz: float = p.y
-			st = _lcg_step(st); var s: float = lerpf(0.55, 0.80, _lcg_f01(st))
-			st = _lcg_step(st); var rot: float = _lcg_f01(st) * TAU
-			var basis := Basis.from_euler(Vector3(0.0, rot, 0.0)).scaled(Vector3(s, s, s))
-			out.append(Transform3D(basis, Vector3(cx, 0.0, cz)))
-	# Additional loose clumps scattered in the mid-ring (r=8-15 m).
-	var st2 := 5678
-	var placed_extra := 0
-	while placed_extra < 10:
-		st2 = _lcg_step(st2); var angle: float = _lcg_f01(st2) * TAU
-		st2 = _lcg_step(st2); var r: float = lerpf(8.0, 15.0, _lcg_f01(st2))
-		var cx: float = cos(angle) * r
-		var cz: float = sin(angle) * r
-		if Vector2(cx, cz).length() < 5.0 or inside_any_cottage(Vector2(cx, cz), 1.0):
-			continue
-		st2 = _lcg_step(st2); var s: float = lerpf(0.55, 0.80, _lcg_f01(st2))
-		st2 = _lcg_step(st2); var rot: float = _lcg_f01(st2) * TAU
-		var basis := Basis.from_euler(Vector3(0.0, rot, 0.0)).scaled(Vector3(s, s, s))
-		out.append(Transform3D(basis, Vector3(cx, 0.0, cz)))
-		placed_extra += 1
-	return out
-
-
 ## 22 pines evenly spaced around the horizon ring (r=19-28 m), with per-tree jitter.
 ## Pine_2: 7.14 m at scale=1.0 → scale 1.0-1.5 → ~7.1-10.7 m height.
 ## Crown starts at y=1.12 m (scale=1.0), so foliage covers most of the visible trunk.
@@ -546,6 +539,62 @@ static func path_polylines() -> Array:
 	return out
 
 
+# ── Village lawn ground (far-tier grass read) ─────────────────────────────────
+
+## Sits under `World/Ground` (main.tscn procedural plane at y=0) to avoid z-fight.
+const LAWN_GROUND_Y_OFFSET := -0.03
+
+func push_foliage_wind(wind: AmbientWind) -> void:
+	if wind == null:
+		return
+	var dir := wind.get_horizontal_direction()
+	var strength := wind.get_effective_strength()
+	var phase := wind.get_phase()
+	for child in get_children():
+		if not child is MultiMeshInstance3D:
+			continue
+		if not str(child.name).begins_with("Scatter_Grass_Card"):
+			continue
+		var mat := child.material_override as ShaderMaterial
+		if mat == null:
+			continue
+		mat.set_shader_parameter("wind_direction_xz", dir)
+		mat.set_shader_parameter("wind_strength", strength)
+		mat.set_shader_parameter("wind_phase", phase)
+		mat.set_shader_parameter("wind_freq_scale", 1.15)
+		mat.set_shader_parameter("wind_amplitude", 0.11)
+
+
+func _lawn_ground_material() -> ShaderMaterial:
+	var mat := ShaderMaterial.new()
+	mat.shader = load("res://src/render/shaders/village_ground.gdshader") as Shader
+	return mat
+
+
+## Disk under the global ground plane; visible lawn read is `World/Ground` (main.tscn).
+func _add_village_lawn_ground() -> void:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var r := 20.0
+	var segs := 72
+	var y := LAWN_GROUND_Y_OFFSET
+	for i in range(segs):
+		var a0 := (float(i) / segs) * TAU
+		var a1 := (float(i + 1) / segs) * TAU
+		st.add_vertex(Vector3(0.0, y, 0.0))
+		st.add_vertex(Vector3(cos(a0) * r, y, sin(a0) * r))
+		st.add_vertex(Vector3(cos(a1) * r, y, sin(a1) * r))
+	st.generate_normals()
+	var mesh := st.commit()
+	var mat := _lawn_ground_material()
+	mesh.surface_set_material(0, mat)
+	var mi := MeshInstance3D.new()
+	mi.name = "LawnGround"
+	mi.mesh = mesh
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(mi)
+
+
 # ── Horizon hill ring ─────────────────────────────────────────────────────────
 
 ## Visual-only raised ground ring at r=20-44 m that lifts the horizon above a flat line.
@@ -570,11 +619,7 @@ func _add_hill_ring() -> void:
 		st.add_vertex(v1); st.add_vertex(v2); st.add_vertex(v3)
 	st.generate_normals()
 	var mesh := st.commit()
-	# Sage-green ground colour to match the lawn; roughness=1.0 avoids any specular glint.
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.38, 0.50, 0.33)
-	mat.roughness = 1.0
-	mat.metallic = 0.0
+	var mat := _lawn_ground_material()
 	mesh.surface_set_material(0, mat)
 	var mi := MeshInstance3D.new()
 	mi.name = "HillRing"
