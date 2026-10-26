@@ -90,7 +90,7 @@ extends Resource
 @export var silhouette_min_tips: int = 3
 
 @export_group("Leaf")
-@export var internode_base: float = 0.040
+@export var internode_base: float = 0.030
 @export var internode_shade_gain: float = 0.85
 @export var internode_jitter: float = 0.25
 @export var leaf_tip_suppress: float = 0.06
@@ -106,9 +106,9 @@ extends Resource
 @export var leaf_offset_base: float = 0.004
 @export var leaf_offset_step: float = 0.0015
 @export var leaf_offset_ladder: int = 5
-@export var leaf_width_base: float = 0.075
+@export var leaf_width_base: float = 0.092
 @export var leaf_order_falloff: float = 0.18
-@export var leaf_expand_distance: float = 0.12
+@export var leaf_expand_distance: float = 0.10
 @export var leaf_light_scale_base: float = 0.80
 @export var leaf_light_scale_gain: float = 0.30
 @export var leaf_size_sigma: float = 0.16

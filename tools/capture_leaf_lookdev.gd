@@ -10,6 +10,7 @@ extends Node
 ##     --out=res://.tmp/leaf-lookdev/leaf_after_closeup.png
 ##
 ## Optional: --day=30 --leaf_index=0 --dist=1.5
+##   --view=leaf (default) | stem — stem uses a fixed south-side rig for density before/after compares
 
 const _MAIN_SCENE := "res://src/main/main.tscn"
 const _BuildingCatalog = preload("res://src/world/building_catalog.gd")
@@ -20,29 +21,50 @@ const _TICKS_PER_DAY := 360
 const _PRESENT_TIMEOUT_MS := 4000
 const _DEFAULT_DIST := 1.5
 const _MACRO_FOV := 38.0
+const _STEM_FOV := 42.0
+## South-side offset from stem centroid (test_wall day~30 single seed).
+const _STEM_EYE_OFFSET := Vector3(0.42, -0.72, 1.5)
+const _STEM_LOOK_OFFSET := Vector3(0.0, 0.35, 0.0)
+
+var _t0_ms: int = 0
+var _run_start_ms: int = 0
+
+
+func _mark(phase: String) -> void:
+	var now := Time.get_ticks_msec()
+	var dt := now - _t0_ms
+	_t0_ms = now
+	print("[leaf-lookdev] timing +%dms  %s" % [dt, phase])
 
 
 func _ready() -> void:
+	_run_start_ms = Time.get_ticks_msec()
+	_t0_ms = _run_start_ms
+	print("[leaf-lookdev] timing start")
 	var args := _parse_args()
 	var out_rel: String = args.get("out", _DEFAULT_OUT)
 	var day: int = int(args.get("day", 30))
 	var dist: float = float(args.get("dist", _DEFAULT_DIST))
 	var leaf_index: int = int(args.get("leaf_index", -1))
+	var view: String = str(args.get("view", "leaf"))
 
 	var out_path := ProjectSettings.globalize_path(out_rel)
 	DirAccess.make_dir_recursive_absolute(out_path.get_base_dir())
 
 	var main := await _spawn_main()
+	_mark("spawn_main")
 	var params: IvyParams = main.get("params") as IvyParams
 	params.branch_rate = 0.0
 	params.tip_cap_soft = 2
 	params.tip_cap_hard = 4
 
 	await _select_building(main, "test_wall")
+	_mark("select_building(test_wall)")
 	if not await _wait_for_free_plant(main, 600000):
 		printerr("[leaf-lookdev] wall load timed out")
 		get_tree().quit(1)
 		return
+	_mark("wait_for_free_plant")
 
 	_hide_chrome(main)
 
@@ -55,11 +77,16 @@ func _ready() -> void:
 		main.call("_on_plant_success")
 	clock.set_speed(SimClock.Speed.PAUSE)
 	await _settle(5)
+	_mark("plant_at + settle")
 
+	var tick_total := _TICKS_PER_DAY * day + 6
+	print("[leaf-lookdev] sim advance_ticks %d (~%d game-days) — no further logs until this returns"
+		% [tick_total, day])
 	var t0 := Time.get_ticks_msec()
-	sim.advance_ticks(_TICKS_PER_DAY * day + 6)
+	sim.advance_ticks(tick_total)
 	var elapsed_ms := Time.get_ticks_msec() - t0
 	await _settle(10)
+	_mark("advance_ticks (%d ms wall)" % elapsed_ms)
 
 	var plant: PlantData = sim.get("plant") as PlantData
 	var n_leaves := plant.leaf_count()
@@ -70,11 +97,15 @@ func _ready() -> void:
 		get_tree().quit(1)
 		return
 
-	var idx := leaf_index if leaf_index >= 0 else _pick_hero_leaf(plant)
-	await _capture_leaf_macro(main, plant, idx, dist, out_path)
+	if view == "stem":
+		await _capture_stem_macro(main, plant, dist, out_path)
+	else:
+		var idx := leaf_index if leaf_index >= 0 else _pick_hero_leaf(plant)
+		await _capture_leaf_macro(main, plant, idx, dist, out_path)
+	_mark("capture")
 
 	main.queue_free()
-	print("[leaf-lookdev] done")
+	print("[leaf-lookdev] done total_ms=%d" % (Time.get_ticks_msec() - _run_start_ms))
 	get_tree().quit(0)
 
 
@@ -107,6 +138,68 @@ func _leaf_frame(plant: PlantData, idx: int) -> Dictionary:
 	return {"center": center, "normal": normal, "bx": bx, "by": by}
 
 
+func _capture_stem_macro(main: Node, plant: PlantData, _dist: float, path: String) -> void:
+	## Stem-centroid rig for ivy-qfo density QA (independent of hero-leaf pick / leaf size retune).
+	var center := _stem_look_target(plant)
+	var eye := center + _STEM_EYE_OFFSET
+	var look := center + _STEM_LOOK_OFFSET
+	await _place_capture_cam(main, eye, look, _STEM_FOV, path, "stem")
+
+
+func _stem_look_target(plant: PlantData) -> Vector3:
+	var n := plant.leaf_count()
+	if n == 0:
+		return Vector3(0.0, 1.0, 0.02)
+	var sum := Vector3.ZERO
+	var ymin := INF
+	var ymax := -INF
+	for i in range(n):
+		var base := i * 12
+		var o := Vector3(plant.leaf_xform[base + 3], plant.leaf_xform[base + 7], plant.leaf_xform[base + 11])
+		sum += o
+		ymin = minf(ymin, o.y)
+		ymax = maxf(ymax, o.y)
+	var mean := sum / float(n)
+	return Vector3(mean.x * 0.35, (ymin + ymax) * 0.5, mean.z)
+
+
+func _place_capture_cam(main: Node, eye: Vector3, look: Vector3, fov: float, path: String, tag: String) -> void:
+	var world := main.get_node_or_null("World") as Node3D
+	if world == null:
+		printerr("[leaf-lookdev] World node missing on main")
+		return
+	var cam := Camera3D.new()
+	cam.name = "LeafLookdevCam"
+	cam.fov = fov
+	cam.near = 0.02
+	world.add_child(cam)
+	cam.global_position = eye
+	cam.look_at(look, Vector3.UP)
+	cam.current = true
+
+	await _settle(12)
+	if not await _present_fresh_frame():
+		push_warning("[leaf-lookdev] frame_post_draw timeout — capturing anyway")
+	if RenderingServer.has_method("force_draw"):
+		RenderingServer.force_draw(false)
+	var tex := get_viewport().get_texture()
+	if tex == null:
+		printerr("[leaf-lookdev] viewport texture is null")
+		cam.queue_free()
+		return
+	var img: Image = tex.get_image()
+	if img == null:
+		printerr("[leaf-lookdev] viewport get_image() returned null")
+		cam.queue_free()
+		return
+	var err := img.save_png(path)
+	if err != OK:
+		printerr("[leaf-lookdev] save_png failed err=", err, " path=", path)
+	else:
+		print("[leaf-lookdev] saved ", path, " view=", tag, " size=", img.get_size())
+	cam.queue_free()
+
+
 func _capture_leaf_macro(main: Node, plant: PlantData, idx: int, dist: float, path: String) -> void:
 	var frame := _leaf_frame(plant, idx)
 	var center: Vector3 = frame["center"]
@@ -116,27 +209,7 @@ func _capture_leaf_macro(main: Node, plant: PlantData, idx: int, dist: float, pa
 	var lateral := bx.normalized() if bx.length_squared() > 1e-6 else Vector3.RIGHT
 	var eye := center + normal * dist + lateral * 0.12 + Vector3(0.0, 0.08, 0.0)
 
-	var cam := Camera3D.new()
-	cam.name = "LeafMacroCam"
-	cam.fov = _MACRO_FOV
-	cam.near = 0.02
-	(main.get_node("World") as Node3D).add_child(cam)
-	cam.global_position = eye
-	cam.look_at(center, Vector3.UP)
-	cam.current = true
-
-	await _settle(4)
-	if not await _present_fresh_frame():
-		printerr("[leaf-lookdev] no frame for ", path)
-		cam.queue_free()
-		return
-	var img: Image = get_viewport().get_texture().get_image()
-	var err := img.save_png(path)
-	if err != OK:
-		printerr("[leaf-lookdev] save_png failed ", err, " ", path)
-	else:
-		print("[leaf-lookdev] saved ", path, " leaf_index=", idx, " size=", img.get_size())
-	cam.queue_free()
+	await _place_capture_cam(main, eye, center, _MACRO_FOV, path, "leaf idx=%d" % idx)
 
 
 func _hide_chrome(main: Node) -> void:
@@ -198,16 +271,24 @@ func _building_id_for_label(label: String) -> String:
 
 func _wait_for_free_plant(main: Node, timeout_ms: int) -> bool:
 	var deadline := Time.get_ticks_msec() + timeout_ms
+	var wait_start := Time.get_ticks_msec()
+	var last_log := wait_start
 	while Time.get_ticks_msec() < deadline:
 		var ui: CanvasLayer = main.get_node_or_null("UI") as CanvasLayer
 		var has_picker := ui != null and ui.get_node_or_null("BuildingPicker") != null
 		var overlay := ui.get_node_or_null("LoadingOverlay") if ui != null else null
 		var tool := main.get_node_or_null("World/PlantingTool")
 		var hud := ui.get_node_or_null("Hud") if ui != null else null
+		var now := Time.get_ticks_msec()
+		if now - last_log >= 5000:
+			last_log = now
+			print("[leaf-lookdev] waiting free_plant +%dms picker=%s overlay=%s tool=%s hud=%s"
+				% [now - wait_start, has_picker, overlay != null, tool != null, hud != null])
 		if not has_picker and overlay == null and tool != null and hud != null:
 			await _settle(15)
 			return true
 		await get_tree().process_frame
+	print("[leaf-lookdev] wait_for_free_plant TIMEOUT after %d ms" % (Time.get_ticks_msec() - wait_start))
 	return false
 
 

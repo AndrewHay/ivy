@@ -335,7 +335,7 @@ func test_s_light_sun_leaf_wider_than_shade() -> void:
 	var w_sun := Vector3(plant_sun.leaf_xform[0], plant_sun.leaf_xform[1], plant_sun.leaf_xform[2]).length()
 	var w_shade := Vector3(plant_shade.leaf_xform[0], plant_shade.leaf_xform[1], plant_shade.leaf_xform[2]).length()
 	assert_gt(w_sun, w_shade, "sun leaf must be wider than shade leaf (SD-LEAF-5 s_light)")
-	# At defaults: sun=0.075*1.10=0.0825, shade=0.075*0.80=0.060, ratio=1.375
+	# s_light ratio sun/shade = 1.10/0.80 = 1.375 (independent of leaf_width_base)
 	assert_almost_eq(w_sun / w_shade, 1.375, 0.01,
 		"sun-to-shade width ratio must match 1.10/0.80 = 1.375")
 

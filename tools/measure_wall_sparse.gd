@@ -34,7 +34,8 @@ const IvyParamsScript = preload("res://src/params/ivy_params.gd")
 const AtlasScript = preload("res://src/render/leaf_atlas.gd")
 const Conv = preload("res://src/core/conv.gd")
 
-const TICKS_PER_DAY := int(SimClock.ticks_per_game_day_for(SimClock.Speed.NORMAL))
+## Speed.NORMAL: 24 h × 15 segment slots/h (SD-TIME-2).
+const TICKS_PER_DAY := 360
 
 ## Wall-plane placement-occupancy coverage (AS-1 philosophy, adapted to a flat wall).
 ## Bucket grid: CELL x CELL metres over x in [-L/2, L/2], y in [0, H].

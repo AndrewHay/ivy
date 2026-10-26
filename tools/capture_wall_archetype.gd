@@ -54,9 +54,10 @@ const _MAIN_SCENE := "res://src/main/main.tscn"
 const _BuildingCatalog = preload("res://src/world/building_catalog.gd")
 const _Conv = preload("res://src/core/conv.gd")
 const WallSpec = preload("res://src/world/wall_spec.gd")
-const ArchetypePreset = preload("res://src/params/archetype_preset.gd")
+const _ArchetypePreset = preload("res://src/params/archetype_preset.gd")
 const _OUTDIR := "res://.tmp/wall_archetypes/"
-const _TICKS_PER_DAY := int(SimClock.ticks_per_game_day_for(SimClock.Speed.NORMAL))
+## SimClock.Speed.NORMAL: 24 h × 15 growth steps/h (SD-TIME-2).
+const _TICKS_PER_DAY := 360
 const _PRESENT_TIMEOUT_MS := 4000
 
 
@@ -67,14 +68,14 @@ func _ready() -> void:
 
 	var main := await _spawn_main()
 
-	var params: IvyParams = main.get("params") as IvyParams
+	var params = main.get("params")
 
 	# ── Step 1: apply archetype preset (if --archetype= given) ──────────────
 	# IMPORTANT: leaf_cap must be set BEFORE the building is loaded (it sizes
 	# plant_render.gd's MultiMesh buffer once at _bootstrap_simulation).
-	var preset: ArchetypePreset = null
+	var preset = null
 	if args.has("archetype"):
-		preset = ArchetypePreset.for_name(args["archetype"])
+		preset = _ArchetypePreset.for_name(args["archetype"])
 		preset.apply_to(params)
 		print("[capture-wall] archetype=%s applied (day=%d seeds=%d seed_y=%.3f)"
 			% [preset.label, preset.day, preset.seeds, preset.seed_y])
@@ -148,7 +149,7 @@ func _ready() -> void:
 	var elapsed_ms := Time.get_ticks_msec() - t0
 	await _settle(10)
 
-	var plant: PlantData = sim.get("plant") as PlantData
+	var plant = sim.get("plant")
 	var tips = sim.get("tips")
 	print("[capture-wall] day=%d elapsed_ms=%d total_length=%.3f segs=%d leaves=%d tips_live=%d"
 		% [day, elapsed_ms, plant.total_length, plant.segment_count(), plant.leaf_count(),
@@ -231,7 +232,7 @@ const _CLOSEUP_DIST := 1.5
 const _CLOSEUP_FOV := 50.0
 
 
-func _leaf_centroid(plant: PlantData, spec: WallSpec) -> Vector2:
+func _leaf_centroid(plant, spec: WallSpec) -> Vector2:
 	var n: int = plant.leaf_count()
 	if n <= 0:
 		# No leaves placed (shouldn't happen for any shipped archetype, but don't crash
@@ -253,7 +254,7 @@ func _leaf_centroid(plant: PlantData, spec: WallSpec) -> Vector2:
 	return Vector2(cx, cy)
 
 
-func _capture_close_up(main: Node, spec: WallSpec, plant: PlantData, path: String) -> void:
+func _capture_close_up(main: Node, spec: WallSpec, plant, path: String) -> void:
 	var world: Node3D = main.get_node("World") as Node3D
 	var centroid := _leaf_centroid(plant, spec)
 	var cam := Camera3D.new()

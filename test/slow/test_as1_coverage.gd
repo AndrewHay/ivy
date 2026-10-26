@@ -8,10 +8,10 @@ const SurfaceQuery = preload("res://src/world/surface_query.gd")
 const SeedAnchors = preload("res://src/world/seed_anchors.gd")
 const SimRoot = preload("res://src/sim/sim_root.gd")
 const IvyParams = preload("res://src/params/ivy_params.gd")
-const SimClock = preload("res://src/core/sim_clock.gd")
 const CoverageMetric = preload("res://src/metrics/coverage.gd")
 
-const TICKS_150_DAYS := SimClock.ticks_for_game_days(150.0, SimClock.Speed.NORMAL)
+## 150 game-days at Speed.NORMAL (24 × 15 segment slots/h — SD-TIME-2; not a const expr via SimClock).
+const TICKS_150_DAYS := 54000
 const SOUTH_AZIMUTH_DEG := 180.0
 
 
