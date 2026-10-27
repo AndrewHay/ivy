@@ -205,26 +205,27 @@ Tracking: bead `ivy-ckq`.
 
 ## Village wind & ground cover
 
-The village lawn should read as a cared-for garden floor — soft sage ground with a dense carpet of
-short wispy grass — while a single, shared breeze ties the scene together without competing with the
-hero ivy. Wind and grass are **presentation only**: they sell place and calm; they do not change
-growth, light bake, or sim determinism.
+The village lawn should read as a cared-for garden floor — sage ground and a dense carpet of fine
+blade tufts — while a single, shared gust field ties grass, ground sheen, and accents together without
+competing with the hero ivy. Wind and grass are **presentation only**: they sell place and calm; they
+do not change growth, light bake, or sim determinism.
 
 **Player fantasy:** At **Normal** speed, visiting the garden feels like standing in a light breeze:
-grass shimmers, ivy leaves flutter subtly, and ambient fauna drifts with the same air. **Grow** and
-**Fast** are time tools — growth and sun read take priority — so **wind animation is off** (static
-foliage). That avoids timelapse moiré and keeps fast-forward from feeling like a storm. **Pause**
-freezes wind like everything else on screen.
+soft gust bands roll across the lawn (blades lean together, ground brightens slightly in the crest),
+wispy accent tufts sway on the same field, ivy leaves flutter subtly, and ambient fauna drifts with
+the same air. **Grow** and **Fast** are time tools — growth and sun read take priority — so **wind
+animation is off** (static foliage). That avoids timelapse moiré and keeps fast-forward from feeling
+like a storm. **Pause** freezes wind like everything else on screen.
 
-**Grass (this milestone):** Dense `Grass_Wispy_Short` tufts everywhere the lawn reads as open
-ground, with clear exclusions so paths and structures stay readable: cottage footprints, path
-polylines and their corridor, flowers and fallen petals, planted beds, bushes, and path stones. This
-is ground-cover lawn, **not** the tall grass tiers (10–11) used elsewhere in flora design.
+**Grass (ivy-7ka):** Opaque **blade tufts** fill the lawn annulus (hero disk 4.5 m inner edge unchanged)
+with the same path/cottage/flower/bush/stone exclusions as before; **48** sparse **`Grass_Wispy_Short`**
+accents add texture in the garden band. Ground shaders match the blade sage family so gaps and the hero
+ring read as lawn base, not a pale disc. **Not** the tall grass tiers (10–11) from flora design.
 
-**Wind (this milestone):** One shared **`AmbientWind`** phase drives backdrop grass, hero ivy leaf
-motion, and fauna drift (same gating as insects — no wind nudge when wind is off). Motion stays
-**subtle**; the climbing ivy remains the visual subject. Coordination with epic **`ivy-4gn`**
-(chimney smoke, tree sway) uses the same wind clock so future signs of life feel like one breeze.
+**Wind (ivy-7ka):** **`AmbientWind`** pushes global gust uniforms consumed by blade, ground, and accent
+shaders (`SD-WIND-2`); hero ivy leaves still use the earlier foliage wind until **`ivy-ens`**. Fauna
+uses the same strength gate (no drift at FAST/GROW/PAUSE). Motion stays **subtle**; the climbing ivy
+remains the visual subject. Epic **`ivy-4gn`** (chimney smoke, tree sway) will share the same clock.
 
 **Non-goals (explicit):** Chimney smoke and tree sway can follow in **`ivy-4gn`**; a full weather
 module; coupling wind strength to growth vigour or light bake; changing sim determinism for wind;
@@ -235,7 +236,8 @@ motion and fauna respects the breeze. The same view at **Fast** (or **Grow**) sh
 foliage. Bare strips remain visible along paths, around cottages, and where flowers, plants, bushes,
 or stones sit — no grass clutter on gameplay-readable corridors.
 
-Tracking: epic **`ivy-qg7`**. Systems contracts: **`ivy-qg7.2`** → `IMPLEMENTATION.md`.
+Tracking: epic **`ivy-7ka`** (phase 2 lawn); prior **`ivy-qg7`** contracts in `IMPLEMENTATION.md`
+(SD-GRASS-1 / SD-WIND-1 superseded where noted).
 
 
 

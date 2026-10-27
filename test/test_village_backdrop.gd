@@ -131,6 +131,44 @@ func test_far_treeline_leaf_alpha_threshold_low() -> void:
 	fail_test("FarTreeline MultiMeshInstance3D not found in VillageBackdrop")
 
 
+func test_grass_wispy_accent_uses_grass_accent_shader() -> void:
+	var found := false
+	for child in _backdrop.get_children():
+		if child.name != "Scatter_Grass_Accent" or not child is MultiMeshInstance3D:
+			continue
+		found = true
+		var mmi := child as MultiMeshInstance3D
+		assert_not_null(mmi.material_override, "Grass accent scatter must use material_override")
+		var mat := mmi.material_override as ShaderMaterial
+		assert_not_null(mat, "Grass accent material must be ShaderMaterial")
+		if mat == null:
+			return
+		var sh: Shader = mat.shader
+		assert_not_null(sh, "Grass accent shader must be set")
+		if sh != null:
+			assert_true(
+				sh.resource_path.ends_with("grass_accent.gdshader"),
+				"Expected grass_accent.gdshader, got %s" % sh.resource_path)
+		assert_gte(mmi.multimesh.instance_count, 1, "Grass accent scatter must have instances")
+		return
+	assert_true(found, "Scatter_Grass_Accent MultiMeshInstance3D must exist after _ready")
+
+
+func test_main_tscn_world_ground_is_external_shader() -> void:
+	var f := FileAccess.open("res://src/main/main.tscn", FileAccess.READ)
+	if f == null:
+		pending("Could not open main.tscn")
+		return
+	var text := f.get_as_text()
+	f.close()
+	assert_true(
+		text.contains("world_ground.gdshader"),
+		"main.tscn World/Ground must reference world_ground.gdshader")
+	assert_false(
+		text.contains("Shader_grass"),
+		"main.tscn must not keep inline Shader_grass sub_resource")
+
+
 # ── (d) Triangle and draw call budget — slices 1-3 merged (ivy-3cx.7) ───────
 ## Slices 1-3 merged cap: tri < 120000, surface <= 160 (ivy-3cx.2 §5 full-village cap).
 

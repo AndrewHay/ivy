@@ -271,11 +271,17 @@ func _scatter_piece_layers(
 func _setup_hybrid_grass(ctx: VillageGrassExclusionContext) -> void:
 	var tufts := VillageScatterPositions.grass_blade_positions(ctx)
 	_add_grass_blade_chunks(tufts)
+	var accent_path := "res://assets/backdrop/pieces/Grass_Wispy_Short.gltf"
+	var accent_mesh := _extract_first_mesh(accent_path)
+	var accent_mat: Material = null
+	if accent_mesh != null:
+		accent_mat = _grass_wispy_accent_material(accent_mesh)
 	var accents := VillageScatterPositions.grass_wispy_accent_positions(ctx)
 	_create_scatter(
-		"res://assets/backdrop/pieces/Grass_Wispy_Short.gltf",
+		accent_path,
 		"Scatter_Grass_Accent", accents,
-		GeometryInstance3D.SHADOW_CASTING_SETTING_OFF)
+		GeometryInstance3D.SHADOW_CASTING_SETTING_OFF,
+		accent_mat)
 
 
 const GRASS_BLADE_CHUNK_M := 6.0
@@ -308,11 +314,24 @@ func _add_grass_blade_chunks(all: Array[Transform3D]) -> void:
 func _create_scatter(
 		path: String, node_name: String,
 		transforms: Array[Transform3D],
-		shadow: GeometryInstance3D.ShadowCastingSetting) -> void:
+		shadow: GeometryInstance3D.ShadowCastingSetting,
+		material_override: Material = null) -> void:
 	var mesh := _extract_first_mesh(path)
 	if mesh == null:
 		return
-	_add_multimesh(mesh, node_name, transforms, shadow)
+	_add_multimesh(mesh, node_name, transforms, shadow, material_override)
+
+
+func _grass_wispy_accent_material(mesh: Mesh) -> ShaderMaterial:
+	var mat := ShaderMaterial.new()
+	mat.shader = load("res://src/render/shaders/grass_accent.gdshader") as Shader
+	var albedo := load("res://assets/backdrop/textures/Grass.png") as Texture2D
+	mat.set_shader_parameter("albedo_texture", albedo)
+	var aabb := mesh.get_aabb()
+	var accent_h := maxf(aabb.position.y + aabb.size.y, 0.01)
+	mat.set_shader_parameter("accent_height", accent_h)
+	mat.set_shader_parameter("alpha_scissor_threshold", 0.5)
+	return mat
 
 
 func _add_multimesh(

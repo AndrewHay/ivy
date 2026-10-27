@@ -1604,14 +1604,15 @@ Forbidden imports from `src/presentation/fauna/*`: `src/sim/*`, env/light-bake/g
 
 ## SD-GRASS / SD-WIND — Village lawn grass & ambient wind  *(ivy-qg7)*
 
-Player intent: `DESIGN.md` § **Village wind & ground cover**. **Hybrid lawn:** procedural
-**`World/Ground`** (main.tscn procedural plane at y=0) is the visible flat lawn; **`LawnGround`**
-disk sits at **`LAWN_GROUND_Y_OFFSET`** (−0.03 m) under it (no z-fight); **`HillRing`** keeps
-**`village_ground.gdshader`**; **cross-card**
-MultiMesh in the near garden annulus; **sparse `Grass_Wispy_Short` accents** — not a dense wispy
-carpet. Presentation-only — no sim, env-field, or growth writes.
+Player intent: `DESIGN.md` § **Village wind & ground cover**. **Hybrid lawn (ivy-7ka):** procedural
+**`World/Ground`** (`world_ground.gdshader` on main.tscn plane at y=0) is the visible flat lawn;
+**`LawnGround`** disk at **`LAWN_GROUND_Y_OFFSET`** (−0.03 m) under it (no z-fight); **`HillRing`**
+uses **`village_ground.gdshader`**; **blade tuft** MultiMesh chunks fill the garden annulus;
+**`Grass_Wispy_Short` accents** (48, `grass_accent.gdshader`) add sparse texture tufts — not a dense
+wispy carpet. All ground tiers and foliage share **`wind_gust.gdshaderinc`** gust sampling.
+Presentation-only — no sim, env-field, or growth writes.
 
-### SD-GRASS-1 (placement)
+### SD-GRASS-1 (placement) *(superseded — card tier; see SD-GRASS-2, ivy-7ka)*
 
 **Owner:** `VillageScatterPositions.grass_card_positions(ctx)`,
 `grass_wispy_accent_positions(ctx)`; alias `grass_positions(ctx)` → cards. **`VillageBackdrop`**
@@ -1682,6 +1683,56 @@ tune `PLANT_CLEARANCE_M` once in QA if clumps overlap.
 | Path | No origin within `PATH_CLEARANCE_M` of any path segment. |
 | Scatter | No origin within `PLANT_CLEARANCE_M` of any excluded scatter anchor listed above. |
 | Regression vs legacy | `size() > 30` (replaces old tuft count). |
+
+### SD-GRASS-2 (blade tuft lawn) *(ivy-7ka)*
+
+**Owner:** `VillageScatterPositions.grass_blade_positions(ctx)`; alias `grass_positions(ctx)`.
+**`VillageBackdrop._setup_hybrid_grass`** builds 6 m world-aligned **`Scatter_Grass_Blades_*`**
+chunks with shared **`grass_blade.gdshader`**. Card tier removed (`cross_card_mesh`, `grass_card.gdshader`).
+
+**Geometry:** `VillageGrassMesh.blade_tuft_mesh()` — 7 tapered blades × 5 tris (35 tris/tuft), opaque,
+`cull_disabled`, no alpha. Per-blade hash in `COLOR.r`; UV.y 1 at root / 0 at tip.
+
+**Placement constants:** inner ring **`GRASS_RING_INNER_M` `4.5`**, outer **`GRASS_RING_OUTER_M` `14.5`**,
+full density to **`GRASS_FULL_DENSITY_OUTER_M` `12.0`**, linear fade band 12–14.5 m, hero height fade
+4.5–5.5 m, grid **`GRASS_GRID_STEP_M` `0.17`**, cap **`GRASS_MAX_INSTANCES` `18000`**, patch height noise
+(cell 2.5 m). Spatial-hash anchor rejection; generation **< 400 ms** headless.
+
+**Shipped stats (tower scenario, headless):** **14 315 tufts**, **31 chunks**, **248 ms** generation.
+
+**Ground colour alignment (ivy-7ka.6):** `world_ground.gdshader` + `village_ground.gdshader` retuned toward
+blade root/mid sage; **±5% gust sheen** from `ivy_gust_at(world_xz)` × `ivy_wind_strength`.
+
+**Accents:** `grass_wispy_accent_positions` → **`GRASS_ACCENT_COUNT` `48`**; `Scatter_Grass_Accent` uses
+**`grass_accent.gdshader`** (glTF `Grass.png` albedo, alpha scissor, SD-WIND-2 bend via include).
+
+**Mechanical tests:** `test/test_village_grass_scatter.gd`, `test/test_village_grass_mesh.gd`,
+`test/test_village_backdrop.gd` (budget + accent shader).
+
+### SD-WIND-2 (shared gust field) *(ivy-7ka)*
+
+**Owner:** `AmbientWind` v3 pushes **global shader uniforms** (`ivy_wind_dir`, `ivy_wind_strength`,
+`ivy_wind_scroll`, `ivy_wind_flutter_phase`, `ivy_wind_gust_tile_m`, `ivy_wind_gust_noise`).
+**Include:** `src/render/shaders/wind_gust.gdshaderinc` — `ivy_gust_at(vec2 world_xz)` and
+`ivy_wind_tip_displace_model(...)` (world-space wind direction → model space, height² lean + flutter + droop).
+
+**SimClock gate:** `ivy_wind_strength` → `0` at PAUSE/FAST/GROW (frozen scroll/phase at PAUSE); consumers
+need no per-node wind push for grass.
+
+**Consumers (ivy-7ka):** blade tufts, ground sheen, wispy accents. Hero ivy leaves still SD-WIND-1 /
+foliage include until follow-up **`ivy-ens`**.
+
+**Mechanical tests:** `test/test_ambient_wind_gust.gd`.
+
+### AR-WIND-GRASS-2 *(ivy-7ka implementation map)*
+
+| Area | Files |
+|------|--------|
+| Gust field | `src/presentation/fauna/ambient_wind.gd`, `assets/render/wind_gust_noise.tres`, `wind_gust.gdshaderinc` |
+| Blade lawn | `village_grass_mesh.gd`, `village_scatter_positions.gd`, `village_backdrop.gd`, `grass_blade.gdshader` |
+| Ground + accents | `world_ground.gdshader`, `village_ground.gdshader`, `grass_accent.gdshader`, `main.tscn` ground material |
+| Tests | `test_village_grass_scatter.gd`, `test_village_grass_mesh.gd`, `test_village_backdrop.gd`, `test_ambient_wind_gust.gd` |
+| QA script | `tools/ui_scripts/qa_grass_wind.txt` (non-headless; shaders compile only in windowed Godot) |
 
 ### SD-WIND-1 (presentation wind)
 

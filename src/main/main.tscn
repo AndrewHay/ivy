@@ -1,4 +1,4 @@
-[gd_scene load_steps=23 format=3 uid="uid://8lhbed2h12ph"]
+[gd_scene load_steps=24 format=3 uid="uid://8lhbed2h12ph"]
 
 [ext_resource type="Script" uid="uid://bjvp2g014gqul" path="res://src/main/main.gd" id="1"]
 [ext_resource type="Script" uid="uid://dhq7o4g8cnv6l" path="res://src/world/world.gd" id="2"]
@@ -15,6 +15,7 @@
 [ext_resource type="Shader" uid="uid://cckuextcauor4" path="res://src/render/sky/atmospheric_sky.gdshader" id="13_sky_shader"]
 [ext_resource type="Script" uid="uid://bkd1h2todhvlt" path="res://src/presentation/fauna/ambient_wind.gd" id="14_wind"]
 [ext_resource type="Script" uid="uid://tagmeobedofg" path="res://src/presentation/fauna/fauna_controller.gd" id="15_fauna"]
+[ext_resource type="Shader" uid="uid://cworldground7ka6" path="res://src/render/shaders/world_ground.gdshader" id="16_world_ground"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_sky"]
 shader = ExtResource("13_sky_shader")
@@ -66,52 +67,11 @@ size = Vector2(512, 512)
 subdivide_width = 64
 subdivide_depth = 64
 
-[sub_resource type="Shader" id="Shader_grass"]
-code = "
-// Procedural grass — ivy-3cx slice 1.
-// Mottles albedo between sage #6E8F62 and sun-kiss #7FA872 using world-XZ noise.
-shader_type spatial;
-render_mode blend_mix, depth_draw_opaque, cull_back, diffuse_lambert, specular_disabled;
-
-uniform vec3 color_sage  : source_color = vec3(0.431, 0.561, 0.384);
-uniform vec3 color_sunkiss : source_color = vec3(0.498, 0.659, 0.447);
-uniform float noise_scale : hint_range(0.01, 1.0) = 0.08;
-uniform float roughness : hint_range(0.0, 1.0) = 0.9;
-
-// Simple hash noise from world XZ
-float hash(vec2 p) {
-	p = fract(p * vec2(127.1, 311.7));
-	p += dot(p, p + 19.19);
-	return fract(p.x * p.y);
-}
-
-float noise(vec2 p) {
-	vec2 i = floor(p);
-	vec2 f = fract(p);
-	f = f * f * (3.0 - 2.0 * f);
-	float a = hash(i + vec2(0, 0));
-	float b = hash(i + vec2(1, 0));
-	float c = hash(i + vec2(0, 1));
-	float d = hash(i + vec2(1, 1));
-	return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
-}
-
-void fragment() {
-	vec2 world_xz = (INV_VIEW_MATRIX * vec4(VERTEX, 1.0)).xz;
-	float n = noise(world_xz * noise_scale);
-	// Second octave for more variation
-	n = mix(n, noise(world_xz * noise_scale * 3.1 + vec2(5.7, 2.3)), 0.35);
-	ALBEDO = mix(color_sage, color_sunkiss, n);
-	ROUGHNESS = roughness;
-	METALLIC = 0.0;
-}
-"
-
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_grass"]
 render_priority = 0
-shader = SubResource("Shader_grass")
-shader_parameter/color_sage = Color(0.431, 0.561, 0.384, 1)
-shader_parameter/color_sunkiss = Color(0.498, 0.659, 0.447, 1)
+shader = ExtResource("16_world_ground")
+shader_parameter/color_lo = Color(0.26, 0.4, 0.18, 1)
+shader_parameter/color_hi = Color(0.4, 0.56, 0.28, 1)
 shader_parameter/noise_scale = 0.08
 shader_parameter/roughness = 0.9
 
