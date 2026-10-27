@@ -24,14 +24,16 @@ const PLANT_PIECES: Array[String] = [
 	"Plant_7_Big",
 ]
 
-# SD-GRASS-1 hybrid lawn: ground shader (far) + card MultiMesh (near) + wispy accents.
+# SD-GRASS-2 blade tuft lawn + wispy accents (SD-GRASS-1 card tier superseded).
 const GRASS_LCG_SEED := 42007
 const GRASS_ACCENT_LCG_SEED := 42042
-## Near-ring card geometry (garden band); far ring is procedural ground only.
-const GRASS_RING_INNER_M := 5.5
-const GRASS_RING_OUTER_M := 12.0
-const GRASS_GRID_STEP_M := 0.58
-const GRASS_MAX_INSTANCES := 650
+const GRASS_RING_INNER_M := 4.5
+const GRASS_FULL_DENSITY_OUTER_M := 12.0
+const GRASS_RING_OUTER_M := 14.5
+const GRASS_GRID_STEP_M := 0.17
+const GRASS_MAX_INSTANCES := 18000
+const GRASS_PATCH_CELL_M := 2.5
+const GRASS_ANCHOR_HASH_CELL_M := 1.0
 const GRASS_ACCENT_COUNT := 28
 const GRASS_ACCENT_INNER_M := 6.0
 const GRASS_ACCENT_OUTER_M := 11.5
@@ -90,10 +92,9 @@ static func bush_common_positions() -> Array[Transform3D]:
 	return out
 
 
-## Near-ring cross-card instances (geometry up close).
-static func grass_card_positions(ctx: VillageGrassExclusionContext) -> Array[Transform3D]:
-	return _grass_grid_positions(ctx, GRASS_LCG_SEED, GRASS_RING_INNER_M, GRASS_RING_OUTER_M,
-		GRASS_GRID_STEP_M, GRASS_MAX_INSTANCES, 0.85, 1.05)
+## Dense blade tuft instances (SD-GRASS-2).
+static func grass_blade_positions(ctx: VillageGrassExclusionContext) -> Array[Transform3D]:
+	return _grass_blade_grid_positions(ctx)
 
 
 ## Sparse Grass_Wispy_Short accents in the garden band (not a full carpet).
@@ -117,45 +118,119 @@ static func grass_wispy_accent_positions(ctx: VillageGrassExclusionContext) -> A
 
 
 static func grass_positions(ctx: VillageGrassExclusionContext) -> Array[Transform3D]:
-	return grass_card_positions(ctx)
+	return grass_blade_positions(ctx)
 
 
-static func _grass_grid_positions(
-		ctx: VillageGrassExclusionContext,
-		seed: int,
-		inner_m: float,
-		outer_m: float,
-		step: float,
-		max_count: int,
-		scale_lo: float,
-		scale_hi: float) -> Array[Transform3D]:
+static func _grass_blade_grid_positions(ctx: VillageGrassExclusionContext) -> Array[Transform3D]:
 	var out: Array[Transform3D] = []
 	var anchors := collect_scatter_anchor_xz(ctx)
-	var half := outer_m + step
-	var n_cells := int(ceil((2.0 * half) / step))
-	var st := seed
+	var anchor_hash := _build_anchor_spatial_hash(anchors, GRASS_ANCHOR_HASH_CELL_M)
+	var half := GRASS_RING_OUTER_M + GRASS_GRID_STEP_M
+	var n_cells := int(ceil((2.0 * half) / GRASS_GRID_STEP_M))
+	var st := GRASS_LCG_SEED
 	for iy in range(n_cells):
 		for ix in range(n_cells):
-			if out.size() >= max_count:
+			if out.size() >= GRASS_MAX_INSTANCES:
 				return out
-			var cx := -half + (float(ix) + 0.5) * step
-			var cz := -half + (float(iy) + 0.5) * step
+			var cx := -half + (float(ix) + 0.5) * GRASS_GRID_STEP_M
+			var cz := -half + (float(iy) + 0.5) * GRASS_GRID_STEP_M
 			var center := Vector2(cx, cz)
 			var r_center := center.length()
-			if r_center < inner_m or r_center > outer_m:
+			if r_center < GRASS_RING_INNER_M or r_center > GRASS_RING_OUTER_M:
 				continue
 			st = lcg_step(st)
-			var jx: float = (lcg_f01(st) - 0.5) * step
+			var jx: float = (lcg_f01(st) - 0.5) * GRASS_GRID_STEP_M
 			st = lcg_step(st)
-			var jz: float = (lcg_f01(st) - 0.5) * step
+			var jz: float = (lcg_f01(st) - 0.5) * GRASS_GRID_STEP_M
 			var p := center + Vector2(jx, jz)
-			if not _grass_cell_accepted(p, ctx, anchors, inner_m, outer_m):
+			var r := p.length()
+			if r < GRASS_RING_INNER_M or r > GRASS_RING_OUTER_M:
 				continue
-			st = lcg_step(st); var rot: float = lcg_f01(st) * TAU
-			st = lcg_step(st); var s: float = lerpf(scale_lo, scale_hi, lcg_f01(st))
+			if ctx.is_inside_cottage.is_valid() and ctx.is_inside_cottage.call(p):
+				continue
+			if min_xz_dist_to_path_segments(p, ctx.path_segments) < PATH_CLEARANCE_M:
+				continue
+			if _anchor_blocks(p, anchor_hash, PLANT_CLEARANCE_M, GRASS_ANCHOR_HASH_CELL_M):
+				continue
+			if r > GRASS_FULL_DENSITY_OUTER_M:
+				var keep_p := 1.0 - (r - GRASS_FULL_DENSITY_OUTER_M) \
+						/ (GRASS_RING_OUTER_M - GRASS_FULL_DENSITY_OUTER_M)
+				st = lcg_step(st)
+				if lcg_f01(st) > keep_p:
+					continue
+			st = lcg_step(st)
+			var rot: float = lcg_f01(st) * TAU
+			st = lcg_step(st)
+			var s_rand: float = lerpf(0.8, 1.1, lcg_f01(st))
+			var patch := lerpf(0.8, 1.15, _grass_patch_noise(p))
+			var hero := _grass_hero_height_scale(r)
+			var fade_h := _grass_fade_height_scale(r)
+			var s: float = s_rand * patch * hero * fade_h
 			var basis := Basis.from_euler(Vector3(0.0, rot, 0.0)).scaled(Vector3(s, s, s))
 			out.append(Transform3D(basis, Vector3(p.x, 0.0, p.y)))
 	return out
+
+
+static func _grass_hero_height_scale(r: float) -> float:
+	if r <= GRASS_RING_INNER_M:
+		return 0.6
+	if r >= GRASS_RING_INNER_M + 1.0:
+		return 1.0
+	return lerpf(0.6, 1.0, (r - GRASS_RING_INNER_M) / 1.0)
+
+
+static func _grass_fade_height_scale(r: float) -> float:
+	if r <= GRASS_FULL_DENSITY_OUTER_M:
+		return 1.0
+	if r >= GRASS_RING_OUTER_M:
+		return 0.6
+	return lerpf(1.0, 0.6, (r - GRASS_FULL_DENSITY_OUTER_M) \
+			/ (GRASS_RING_OUTER_M - GRASS_FULL_DENSITY_OUTER_M))
+
+
+static func _grass_patch_noise(p: Vector2) -> float:
+	var cell := GRASS_PATCH_CELL_M
+	var i0 := Vector2(floor(p.x / cell), floor(p.y / cell))
+	var f := Vector2(
+		(p.x / cell) - i0.x,
+		(p.y / cell) - i0.y)
+	f.x = f.x * f.x * (3.0 - 2.0 * f.x)
+	f.y = f.y * f.y * (3.0 - 2.0 * f.y)
+	var a := _hash21(i0)
+	var b := _hash21(i0 + Vector2(1.0, 0.0))
+	var c := _hash21(i0 + Vector2(0.0, 1.0))
+	var d := _hash21(i0 + Vector2(1.0, 1.0))
+	return lerpf(lerpf(a, b, f.x), lerpf(c, d, f.x), f.y)
+
+
+static func _hash21(p: Vector2) -> float:
+	var v := sin(p.dot(Vector2(127.1, 311.7))) * 43758.5453
+	return v - floor(v)
+
+
+static func _build_anchor_spatial_hash(anchors: Array[Vector2], cell_m: float) -> Dictionary:
+	var grid: Dictionary = {}
+	for a in anchors:
+		var key := Vector2i(int(floor(a.x / cell_m)), int(floor(a.y / cell_m)))
+		if not grid.has(key):
+			grid[key] = [] as Array[Vector2]
+		(grid[key] as Array[Vector2]).append(a)
+	return grid
+
+
+static func _anchor_blocks(
+		p: Vector2, grid: Dictionary, clearance: float, cell_m: float) -> bool:
+	var cx := int(floor(p.x / cell_m))
+	var cz := int(floor(p.y / cell_m))
+	for dx in [-1, 0, 1]:
+		for dz in [-1, 0, 1]:
+			var key := Vector2i(cx + dx, cz + dz)
+			if not grid.has(key):
+				continue
+			for a in grid[key] as Array[Vector2]:
+				if p.distance_to(a) < clearance:
+					return true
+	return false
 
 
 static func min_xz_dist_to_path_segments(p: Vector2, segments: Array) -> float:

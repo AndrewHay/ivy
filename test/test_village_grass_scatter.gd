@@ -1,9 +1,10 @@
-## SD-GRASS-1 mechanical tests for VillageScatterPositions.grass_positions(ctx).
+## SD-GRASS-2 mechanical tests for VillageScatterPositions.grass_positions(ctx).
 extends GutTest
 
 const GRASS_MAX := VillageScatterPositions.GRASS_MAX_INSTANCES
 const GRASS_INNER := VillageScatterPositions.GRASS_RING_INNER_M
 const GRASS_OUTER := VillageScatterPositions.GRASS_RING_OUTER_M
+const GRASS_FULL := VillageScatterPositions.GRASS_FULL_DENSITY_OUTER_M
 const GRASS_STEP := VillageScatterPositions.GRASS_GRID_STEP_M
 const COTTAGE_MARGIN := VillageScatterPositions.COTTAGE_MARGIN
 const PATH_CLEAR := VillageScatterPositions.PATH_CLEARANCE_M
@@ -41,8 +42,17 @@ func test_grass_deterministic() -> void:
 func test_grass_count_bounds() -> void:
 	var grass := _grass_transforms()
 	assert_lte(grass.size(), GRASS_MAX, "Cap GRASS_MAX_INSTANCES")
-	assert_gte(grass.size(), 80, "Near-ring card lawn should be well populated")
-	assert_lte(grass.size(), 650, "Hybrid tier stays sparse vs full-carpet")
+	assert_gte(grass.size(), 6000, "Blade lawn should be densely populated")
+	assert_lte(grass.size(), 18000, "Cap expected tuft range")
+
+
+func test_grass_generation_under_400ms() -> void:
+	var ctx := _make_ctx()
+	var t0 := Time.get_ticks_msec()
+	var grass := VillageScatterPositions.grass_blade_positions(ctx)
+	var elapsed := Time.get_ticks_msec() - t0
+	assert_gte(grass.size(), 1, "Generated tufts")
+	assert_lt(elapsed, 400, "Generation must stay under 400 ms headless; got %d ms" % elapsed)
 
 
 func test_grass_wispy_accent_count() -> void:
@@ -56,6 +66,26 @@ func test_grass_hero_annulus() -> void:
 		var r := Vector2(t.origin.x, t.origin.z).length()
 		assert_gte(r, GRASS_INNER, "Hero disk inner bound")
 		assert_lte(r, GRASS_OUTER + GRASS_STEP, "Outer bound with grid slack")
+
+
+func test_grass_fade_band_sparser_than_full() -> void:
+	var grass := _grass_transforms()
+	var full := 0
+	var fade := 0
+	for t in grass:
+		var r := Vector2(t.origin.x, t.origin.z).length()
+		if r >= GRASS_FULL and r <= GRASS_OUTER:
+			fade += 1
+		elif r >= GRASS_INNER and r < GRASS_FULL:
+			full += 1
+	assert_gt(full, 0, "Full-density band populated")
+	assert_gt(fade, 0, "Fade band populated")
+	var full_area := PI * (GRASS_FULL * GRASS_FULL - GRASS_INNER * GRASS_INNER)
+	var fade_area := PI * (GRASS_OUTER * GRASS_OUTER - GRASS_FULL * GRASS_FULL)
+	var full_density := float(full) / full_area
+	var fade_density := float(fade) / fade_area
+	assert_lt(fade_density, full_density * 0.85,
+		"Fade band area density lower than full band (prob + height fade)")
 
 
 func test_grass_no_cottage_footprint() -> void:

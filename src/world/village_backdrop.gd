@@ -269,8 +269,8 @@ func _scatter_piece_layers(
 
 
 func _setup_hybrid_grass(ctx: VillageGrassExclusionContext) -> void:
-	var cards := VillageScatterPositions.grass_card_positions(ctx)
-	_add_grass_card_chunks(cards)
+	var tufts := VillageScatterPositions.grass_blade_positions(ctx)
+	_add_grass_blade_chunks(tufts)
 	var accents := VillageScatterPositions.grass_wispy_accent_positions(ctx)
 	_create_scatter(
 		"res://assets/backdrop/pieces/Grass_Wispy_Short.gltf",
@@ -278,30 +278,31 @@ func _setup_hybrid_grass(ctx: VillageGrassExclusionContext) -> void:
 		GeometryInstance3D.SHADOW_CASTING_SETTING_OFF)
 
 
-func _add_grass_card_chunks(all: Array[Transform3D]) -> void:
+const GRASS_BLADE_CHUNK_M := 6.0
+
+
+func _add_grass_blade_chunks(all: Array[Transform3D]) -> void:
 	if all.is_empty():
 		return
-	var mesh := VillageGrassMesh.cross_card_mesh()
+	var mesh := VillageGrassMesh.blade_tuft_mesh()
 	var mat := ShaderMaterial.new()
-	mat.shader = load("res://src/render/shaders/grass_card.gdshader") as Shader
-	var buckets: Array[Array] = [[], [], [], []]
+	mat.shader = load("res://src/render/shaders/grass_blade.gdshader") as Shader
+	var origin_xz := Vector2(global_position.x, global_position.z)
+	var buckets: Dictionary = {}
 	for t in all:
-		var idx := 0
-		if t.origin.x >= 0.0:
-			idx += 1
-		if t.origin.z >= 0.0:
-			idx += 2
-		(buckets[idx] as Array).append(t)
-	var names := ["Scatter_Grass_Card_NW", "Scatter_Grass_Card_NE",
-		"Scatter_Grass_Card_SW", "Scatter_Grass_Card_SE"]
-	for i in range(4):
-		var transforms: Array[Transform3D] = []
-		for item in buckets[i]:
-			transforms.append(item as Transform3D)
-		if transforms.is_empty():
-			continue
-		_add_multimesh(mesh, names[i], transforms,
-			GeometryInstance3D.SHADOW_CASTING_SETTING_OFF, mat)
+		var wx := origin_xz.x + t.origin.x
+		var wz := origin_xz.y + t.origin.z
+		var ix := int(floor(wx / GRASS_BLADE_CHUNK_M))
+		var iz := int(floor(wz / GRASS_BLADE_CHUNK_M))
+		var key := Vector2i(ix, iz)
+		if not buckets.has(key):
+			buckets[key] = [] as Array[Transform3D]
+		(buckets[key] as Array[Transform3D]).append(t)
+	for key in buckets.keys():
+		var transforms: Array[Transform3D] = buckets[key] as Array[Transform3D]
+		var node_name := "Scatter_Grass_Blades_%d_%d" % [key.x, key.y]
+		_add_multimesh(mesh, node_name, transforms,
+			GeometryInstance3D.SHADOW_CASTING_SETTING_OFF, mat, mesh.get_aabb().grow(0.3))
 
 
 func _create_scatter(
@@ -318,13 +319,16 @@ func _add_multimesh(
 		mesh: Mesh, node_name: String,
 		transforms: Array[Transform3D],
 		shadow: GeometryInstance3D.ShadowCastingSetting,
-		material_override: Material = null) -> void:
+		material_override: Material = null,
+		custom_aabb: AABB = AABB()) -> void:
 	if transforms.is_empty():
 		return
 	var mm := MultiMesh.new()
 	mm.mesh = mesh
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.instance_count = transforms.size()
+	if custom_aabb.size.length_squared() > 0.0:
+		mm.custom_aabb = custom_aabb
 	# Write transforms. set_instance_transform can silently fail on some meshes
 	# in headless mode; use the raw buffer as a reliable fallback.
 	# The buffer is row-major (3×4 matrix rows), i.e. the basis *columns* are
@@ -544,25 +548,9 @@ static func path_polylines() -> Array:
 ## Sits under `World/Ground` (main.tscn procedural plane at y=0) to avoid z-fight.
 const LAWN_GROUND_Y_OFFSET := -0.03
 
-func push_foliage_wind(wind: AmbientWind) -> void:
-	if wind == null:
-		return
-	var dir := wind.get_horizontal_direction()
-	var strength := wind.get_effective_strength()
-	var phase := wind.get_phase()
-	for child in get_children():
-		if not child is MultiMeshInstance3D:
-			continue
-		if not str(child.name).begins_with("Scatter_Grass_Card"):
-			continue
-		var mat := child.material_override as ShaderMaterial
-		if mat == null:
-			continue
-		mat.set_shader_parameter("wind_direction_xz", dir)
-		mat.set_shader_parameter("wind_strength", strength)
-		mat.set_shader_parameter("wind_phase", phase)
-		mat.set_shader_parameter("wind_freq_scale", 1.15)
-		mat.set_shader_parameter("wind_amplitude", 0.11)
+func push_foliage_wind(_wind: AmbientWind) -> void:
+	## SD-WIND-2: blade grass reads global ivy_wind_* shader uniforms from AmbientWind.
+	pass
 
 
 func _lawn_ground_material() -> ShaderMaterial:
