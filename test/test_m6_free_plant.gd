@@ -37,3 +37,11 @@ func test_plant_at_grows_segments_on_cylinder() -> void:
 	clock.set_speed(SimClock.Speed.GROW)
 	sim.call("advance_ticks", SimClock.ticks_for_game_days(2.0, SimClock.Speed.GROW))
 	assert_gt(sim.plant.segment_count(), 0, "expected stem segments after 2 game-days")
+	var plant_render: Node = main.get_node("PlantRender")
+	assert_true(plant_render.call("is_configured"), "PlantRender must receive params when Sim.setup runs")
+	var stem_surfaces := 0
+	for chunk in main.get_node("PlantRender/StemChunks").get_children():
+		var mesh := (chunk as MeshInstance3D).mesh
+		if mesh != null:
+			stem_surfaces += mesh.get_surface_count()
+	assert_gt(stem_surfaces, 0, "stem mesh must be built after growth sync")

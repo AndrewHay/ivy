@@ -11,6 +11,10 @@ var _seg_hw: int = 0
 var _frozen_hw: int = 0
 
 
+func is_configured() -> bool:
+	return _params != null
+
+
 func setup(params: IvyParams) -> void:
 	_params = params
 	_seg_hw = 0

@@ -48,6 +48,7 @@ func setup(
 	else:
 		if auto_seed:
 			_seed_tower(_seed_index)
+	_ensure_plant_render_wired()
 
 
 func setup_interactive(
@@ -85,6 +86,7 @@ func setup_interactive(
 	else:
 		if auto_seed:
 			_seed_tower(_seed_index)
+	_ensure_plant_render_wired()
 
 
 func rebind_surface(
@@ -214,12 +216,24 @@ func _process(delta: float) -> void:
 	_sync_plant_render()
 
 
+func _ensure_plant_render_wired() -> void:
+	if not is_inside_tree() or params == null:
+		return
+	var pr := get_parent().get_node_or_null("PlantRender")
+	if pr == null or not pr.has_method("setup"):
+		return
+	if pr.has_method("is_configured") and pr.is_configured():
+		return
+	pr.setup(params)
+
+
 func _sync_plant_render() -> void:
 	# Guard: advance_ticks() is used in headless test contexts where SimRoot is not
 	# added to a scene tree; get_parent() would be null there (and there is nothing
 	# to render to anyway).
 	if not is_inside_tree() or plant == null or tips == null:
 		return
+	_ensure_plant_render_wired()
 	var pr := get_parent().get_node_or_null("PlantRender")
 	if pr != null and pr.has_method("sync"):
 		pr.sync(plant, tips.shoot_lengths())
