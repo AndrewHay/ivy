@@ -51,6 +51,16 @@ func test_blade_tuft_color_hash_per_blade() -> void:
 	assert_gte(seen.size(), 5, "Distinct per-blade hashes in COLOR.r")
 
 
+func test_grass_blade_shader_albedo_srgb_to_linear() -> void:
+	var f := FileAccess.open("res://src/render/shaders/grass_blade.gdshader", FileAccess.READ)
+	assert_not_null(f, "grass_blade.gdshader must exist")
+	var text := f.get_as_text()
+	f.close()
+	assert_true(
+		text.contains("srgb_to_linear") or text.contains("pow("),
+		"Blade albedo colours must be converted sRGB→linear for ALBEDO")
+
+
 func test_blade_tuft_roots_near_origin() -> void:
 	var mesh := _tuft_mesh()
 	var verts: PackedVector3Array = mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]

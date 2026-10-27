@@ -4,8 +4,8 @@ render_mode blend_mix, depth_draw_opaque, cull_back, diffuse_lambert, specular_d
 
 #include "res://src/render/shaders/wind_gust.gdshaderinc"
 
-uniform vec3 color_lo : source_color = vec3(0.26, 0.40, 0.18);
-uniform vec3 color_hi : source_color = vec3(0.40, 0.56, 0.28);
+uniform vec3 color_lo : source_color = vec3(0.22, 0.34, 0.16);
+uniform vec3 color_hi : source_color = vec3(0.30, 0.42, 0.21);
 uniform float noise_scale : hint_range(0.01, 1.0) = 0.08;
 uniform float roughness : hint_range(0.0, 1.0) = 0.9;
 

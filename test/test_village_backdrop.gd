@@ -164,6 +164,12 @@ func test_main_tscn_world_ground_is_external_shader() -> void:
 	assert_true(
 		text.contains("world_ground.gdshader"),
 		"main.tscn World/Ground must reference world_ground.gdshader")
+	var wg_uid := false
+	for line in text.split("\n"):
+		if line.contains("world_ground.gdshader"):
+			wg_uid = line.contains("uid=")
+			break
+	assert_true(wg_uid, "main.tscn world_ground ext_resource must include Godot uid")
 	assert_false(
 		text.contains("Shader_grass"),
 		"main.tscn must not keep inline Shader_grass sub_resource")

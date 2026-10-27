@@ -4,11 +4,11 @@ shader_type spatial;
 
 #include "res://src/render/shaders/wind_gust.gdshaderinc"
 
-uniform vec3 base_color : source_color = vec3(0.36, 0.52, 0.26);
-uniform vec3 patch_hi : source_color = vec3(0.44, 0.58, 0.30);
-uniform vec3 patch_lo : source_color = vec3(0.22, 0.36, 0.18);
+uniform vec3 base_color : source_color = vec3(0.30, 0.44, 0.22);
+uniform vec3 patch_hi : source_color = vec3(0.34, 0.46, 0.24);
+uniform vec3 patch_lo : source_color = vec3(0.20, 0.32, 0.16);
 uniform float patch_scale : hint_range(0.05, 2.0, 0.01) = 0.22;
-uniform float patch_contrast : hint_range(0.0, 1.0, 0.01) = 0.48;
+uniform float patch_contrast : hint_range(0.0, 1.0, 0.01) = 0.26;
 
 varying vec3 v_world_pos;
 

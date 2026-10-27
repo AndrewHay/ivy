@@ -1,4 +1,4 @@
-[gd_scene load_steps=24 format=3 uid="uid://8lhbed2h12ph"]
+[gd_scene load_steps=23 format=3 uid="uid://8lhbed2h12ph"]
 
 [ext_resource type="Script" uid="uid://bjvp2g014gqul" path="res://src/main/main.gd" id="1"]
 [ext_resource type="Script" uid="uid://dhq7o4g8cnv6l" path="res://src/world/world.gd" id="2"]
@@ -15,7 +15,7 @@
 [ext_resource type="Shader" uid="uid://cckuextcauor4" path="res://src/render/sky/atmospheric_sky.gdshader" id="13_sky_shader"]
 [ext_resource type="Script" uid="uid://bkd1h2todhvlt" path="res://src/presentation/fauna/ambient_wind.gd" id="14_wind"]
 [ext_resource type="Script" uid="uid://tagmeobedofg" path="res://src/presentation/fauna/fauna_controller.gd" id="15_fauna"]
-[ext_resource type="Shader" uid="uid://cworldground7ka6" path="res://src/render/shaders/world_ground.gdshader" id="16_world_ground"]
+[ext_resource type="Shader" uid="uid://cfvxhgje1onym" path="res://src/render/shaders/world_ground.gdshader" id="16_world_ground"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_sky"]
 shader = ExtResource("13_sky_shader")
@@ -70,10 +70,6 @@ subdivide_depth = 64
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_grass"]
 render_priority = 0
 shader = ExtResource("16_world_ground")
-shader_parameter/color_lo = Color(0.26, 0.4, 0.18, 1)
-shader_parameter/color_hi = Color(0.4, 0.56, 0.28, 1)
-shader_parameter/noise_scale = 0.08
-shader_parameter/roughness = 0.9
 
 [sub_resource type="WorldBoundaryShape3D" id="WorldBoundaryShape3D_ground"]
 

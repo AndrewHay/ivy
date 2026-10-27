@@ -3,6 +3,8 @@ extends GutTest
 
 const GRASS_MAX := VillageScatterPositions.GRASS_MAX_INSTANCES
 const GRASS_INNER := VillageScatterPositions.GRASS_RING_INNER_M
+const GRASS_FRINGE_INNER := VillageScatterPositions.GRASS_HERO_FRINGE_INNER_M
+const GRASS_FOOTPRINT_R := VillageScatterPositions.GRASS_HERO_FOOTPRINT_R
 const GRASS_OUTER := VillageScatterPositions.GRASS_RING_OUTER_M
 const GRASS_FULL := VillageScatterPositions.GRASS_FULL_DENSITY_OUTER_M
 const GRASS_STEP := VillageScatterPositions.GRASS_GRID_STEP_M
@@ -64,8 +66,25 @@ func test_grass_wispy_accent_count() -> void:
 func test_grass_hero_annulus() -> void:
 	for t in _grass_transforms():
 		var r := Vector2(t.origin.x, t.origin.z).length()
-		assert_gte(r, GRASS_INNER, "Hero disk inner bound")
+		assert_gte(r, GRASS_FRINGE_INNER, "Hero fringe inner bound")
 		assert_lte(r, GRASS_OUTER + GRASS_STEP, "Outer bound with grid slack")
+
+
+func test_grass_no_hero_footprint_disk() -> void:
+	for t in _grass_transforms():
+		var r := Vector2(t.origin.x, t.origin.z).length()
+		assert_gte(
+			r, GRASS_FOOTPRINT_R,
+			"Grass must not sit inside hero footprint disk (r < %.1f m)" % GRASS_FOOTPRINT_R)
+
+
+func test_grass_hero_fringe_band() -> void:
+	var fringe := 0
+	for t in _grass_transforms():
+		var r := Vector2(t.origin.x, t.origin.z).length()
+		if r >= GRASS_FRINGE_INNER and r < GRASS_INNER:
+			fringe += 1
+	assert_gt(fringe, 0, "Sparse hero fringe 4.0–4.5 m should have tufts")
 
 
 func test_grass_hero_density_fade() -> void:

@@ -8,7 +8,11 @@ varying float v_hash;
 varying vec3 v_world_pos;
 varying vec2 v_uv;
 
-const vec3 GROUND_MEAN = vec3(0.36, 0.52, 0.26);
+vec3 srgb_to_linear(vec3 c) {
+	return pow(max(c, vec3(0.0)), vec3(2.2));
+}
+
+const vec3 GROUND_MEAN = pow(vec3(0.36, 0.52, 0.26), vec3(2.2));
 
 
 float patch_hash21(vec2 p) {
@@ -45,28 +49,30 @@ void vertex() {
 
 void fragment() {
 	float h = clamp(v_h, 0.0, 1.0);
-	vec3 root_col = vec3(0.18, 0.30, 0.14);
-	vec3 mid_col = vec3(0.36, 0.52, 0.26);
-	vec3 tip_col = vec3(0.62, 0.72, 0.38);
+	vec3 root_col = srgb_to_linear(vec3(0.18, 0.30, 0.14));
+	vec3 mid_col = srgb_to_linear(vec3(0.36, 0.52, 0.26));
+	vec3 tip_col = srgb_to_linear(vec3(0.62, 0.72, 0.38));
 	vec3 col = h < 0.5
 			? mix(root_col, mid_col, h * 2.0)
 			: mix(mid_col, tip_col, (h - 0.5) * 2.0);
-	col *= 1.0 + (v_hash - 0.5) * 0.12;
+	col *= 1.0 + (v_hash - 0.5) * 0.07;
 	float patch_n = patch_noise_world(v_world_pos.xz);
-	col = mix(col, col * vec3(0.92, 1.04, 0.88), (patch_n - 0.5) * 0.35);
-	float ao = mix(0.55, 1.0, smoothstep(0.0, 0.4, h));
+	col = mix(col, col * vec3(1.01, 1.02, 0.98), (patch_n - 0.5) * 0.12);
+	float ao = mix(0.62, 1.0, smoothstep(0.0, 0.5, h));
 	col *= ao;
 	float g = ivy_gust_at(v_world_pos.xz);
-	vec3 sheen_col = col * vec3(1.04, 1.05, 0.98);
-	col = mix(col, sheen_col, min(g * h * 0.12, 0.06));
-	col = min(col, vec3(0.85));
+	vec3 sheen_col = col * vec3(1.03, 1.04, 0.99);
+	col = mix(col, sheen_col, min(g * h * 0.10, 0.05));
+	col = min(col, vec3(0.78));
 	vec3 cam = (INV_VIEW_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
 	float dist = distance(v_world_pos, cam);
 	col = mix(col, GROUND_MEAN, smoothstep(10.0, 18.0, dist));
 	ALBEDO = col;
-	ROUGHNESS = 0.92;
+	ROUGHNESS = 0.94;
 	vec3 up = normalize((MODEL_MATRIX * vec4(0.0, 1.0, 0.0, 0.0)).xyz);
+	vec3 face_n = normalize(mat3(MODEL_MATRIX) * NORMAL);
 	float bend = (v_uv.x - 0.5) * 0.3 * PI;
-	NORMAL = normalize(mat3(MODEL_MATRIX) * (cos(bend) * NORMAL + sin(bend) * cross(up, NORMAL)));
-	BACKLIGHT = vec3(0.05, 0.05, 0.02);
+	vec3 bent_n = normalize(mat3(MODEL_MATRIX) * (cos(bend) * NORMAL + sin(bend) * cross(up, NORMAL)));
+	NORMAL = normalize(mix(face_n, bent_n, 0.55));
+	BACKLIGHT = vec3(0.07, 0.05, 0.015);
 }

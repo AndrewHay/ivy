@@ -28,6 +28,9 @@ const PLANT_PIECES: Array[String] = [
 const GRASS_LCG_SEED := 42007
 const GRASS_ACCENT_LCG_SEED := 42042
 const GRASS_RING_INNER_M := 4.5
+## Sparse short tufts inward of the hero lawn ring; no dynamic hero footprint in ctx.
+const GRASS_HERO_FRINGE_INNER_M := 4.0
+const GRASS_HERO_FOOTPRINT_R := 4.0
 const GRASS_HERO_DENSITY_OUTER_M := 6.0
 const GRASS_HERO_INNER_NOISE_M := 0.4
 const GRASS_HERO_KEEP_MIN := 0.15
@@ -137,7 +140,7 @@ static func _grass_blade_grid_positions(ctx: VillageGrassExclusionContext) -> Ar
 			var cz := -half + (float(iy) + 0.5) * GRASS_GRID_STEP_M
 			var center := Vector2(cx, cz)
 			var r_center := center.length()
-			if r_center < GRASS_RING_INNER_M or r_center > GRASS_RING_OUTER_M:
+			if r_center < GRASS_HERO_FRINGE_INNER_M or r_center > GRASS_RING_OUTER_M:
 				continue
 			st = lcg_step(st)
 			var jx: float = (lcg_f01(st) - 0.5) * GRASS_GRID_STEP_M
@@ -145,7 +148,9 @@ static func _grass_blade_grid_positions(ctx: VillageGrassExclusionContext) -> Ar
 			var jz: float = (lcg_f01(st) - 0.5) * GRASS_GRID_STEP_M
 			var p := center + Vector2(jx, jz)
 			var r := p.length()
-			if r < GRASS_RING_INNER_M or r > GRASS_RING_OUTER_M:
+			if r < GRASS_HERO_FRINGE_INNER_M or r > GRASS_RING_OUTER_M:
+				continue
+			if r < GRASS_HERO_FOOTPRINT_R:
 				continue
 			if ctx.is_inside_cottage.is_valid() and ctx.is_inside_cottage.call(p):
 				continue
@@ -154,7 +159,8 @@ static func _grass_blade_grid_positions(ctx: VillageGrassExclusionContext) -> Ar
 			if _anchor_blocks(p, anchor_hash, PLANT_CLEARANCE_M, GRASS_ANCHOR_HASH_CELL_M):
 				continue
 			st = lcg_step(st)
-			var hero_keep := _grass_hero_density_keep(r, p)
+			var hero_keep := _grass_hero_fringe_keep(r, p) if r < GRASS_RING_INNER_M \
+					else _grass_hero_density_keep(r, p)
 			if lcg_f01(st) > hero_keep:
 				continue
 			if r > GRASS_FULL_DENSITY_OUTER_M:
@@ -187,7 +193,18 @@ static func trim_grass_instances_to_cap(out: Array[Transform3D], cap: int) -> vo
 	out.resize(cap)
 
 
+static func _grass_hero_fringe_keep(r: float, p: Vector2) -> float:
+	if r >= GRASS_RING_INNER_M:
+		return 1.0
+	var inner_eff := GRASS_HERO_FRINGE_INNER_M \
+			+ (_grass_patch_noise(p) - 0.5) * (2.0 * GRASS_HERO_INNER_NOISE_M)
+	var t := smoothstep(inner_eff, GRASS_RING_INNER_M, r)
+	return lerpf(0.0, GRASS_HERO_KEEP_MIN, t)
+
+
 static func _grass_hero_density_keep(r: float, p: Vector2) -> float:
+	if r < GRASS_RING_INNER_M:
+		return 1.0
 	if r >= GRASS_HERO_DENSITY_OUTER_M:
 		return 1.0
 	var inner_eff := GRASS_RING_INNER_M \
@@ -197,8 +214,11 @@ static func _grass_hero_density_keep(r: float, p: Vector2) -> float:
 
 
 static func _grass_hero_height_scale(r: float) -> float:
+	if r <= GRASS_HERO_FRINGE_INNER_M:
+		return 0.35
 	if r <= GRASS_RING_INNER_M:
-		return 0.6
+		return lerpf(0.35, 0.6, (r - GRASS_HERO_FRINGE_INNER_M) \
+				/ (GRASS_RING_INNER_M - GRASS_HERO_FRINGE_INNER_M))
 	if r >= GRASS_RING_INNER_M + 1.0:
 		return 1.0
 	return lerpf(0.6, 1.0, (r - GRASS_RING_INNER_M) / 1.0)
