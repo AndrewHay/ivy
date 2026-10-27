@@ -1,14 +1,15 @@
-# ivy-ens: hero ivy leaf wind — grow tower ivy, close orbit, NORMAL/PAUSE/FAST frame series.
+# ivy-ens: hero ivy leaf wind — tower scenario SEED 1 / 60d; east-side ivy mass (~x8 y6).
+# Close orbit from probe7: az 85 r 2.0 h 6.0. Frame series for wind motion QA.
 # Run: --scenario=res://assets/structures/scenarios/tower.tres --outdir=res://.tmp/ivy_ens/<label>
 SPEED pause
 SEED 1
-ADVANCE_DAYS 45
+ADVANCE_DAYS 60
 ADVANCE_DAYS 0.25
-ORBIT 30 6 2.2
+ORBIT 85 2.0 6.0
 SCREENSHOT leaf_close_static.png
 ORBIT 10 10 2
 SCREENSHOT leaf_hero_silhouette.png
-ORBIT 30 6 2.2
+ORBIT 85 2.0 6.0
 SPEED watch
 WAIT 4000
 SCREENSHOT leaf_wind_n_0.png
