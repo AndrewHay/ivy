@@ -28,6 +28,9 @@ const PLANT_PIECES: Array[String] = [
 const GRASS_LCG_SEED := 42007
 const GRASS_ACCENT_LCG_SEED := 42042
 const GRASS_RING_INNER_M := 4.5
+const GRASS_HERO_DENSITY_OUTER_M := 6.0
+const GRASS_HERO_INNER_NOISE_M := 0.4
+const GRASS_HERO_KEEP_MIN := 0.15
 const GRASS_FULL_DENSITY_OUTER_M := 12.0
 const GRASS_RING_OUTER_M := 14.5
 const GRASS_GRID_STEP_M := 0.17
@@ -130,8 +133,6 @@ static func _grass_blade_grid_positions(ctx: VillageGrassExclusionContext) -> Ar
 	var st := GRASS_LCG_SEED
 	for iy in range(n_cells):
 		for ix in range(n_cells):
-			if out.size() >= GRASS_MAX_INSTANCES:
-				return out
 			var cx := -half + (float(ix) + 0.5) * GRASS_GRID_STEP_M
 			var cz := -half + (float(iy) + 0.5) * GRASS_GRID_STEP_M
 			var center := Vector2(cx, cz)
@@ -152,6 +153,10 @@ static func _grass_blade_grid_positions(ctx: VillageGrassExclusionContext) -> Ar
 				continue
 			if _anchor_blocks(p, anchor_hash, PLANT_CLEARANCE_M, GRASS_ANCHOR_HASH_CELL_M):
 				continue
+			st = lcg_step(st)
+			var hero_keep := _grass_hero_density_keep(r, p)
+			if lcg_f01(st) > hero_keep:
+				continue
 			if r > GRASS_FULL_DENSITY_OUTER_M:
 				var keep_p := 1.0 - (r - GRASS_FULL_DENSITY_OUTER_M) \
 						/ (GRASS_RING_OUTER_M - GRASS_FULL_DENSITY_OUTER_M)
@@ -168,7 +173,27 @@ static func _grass_blade_grid_positions(ctx: VillageGrassExclusionContext) -> Ar
 			var s: float = s_rand * patch * hero * fade_h
 			var basis := Basis.from_euler(Vector3(0.0, rot, 0.0)).scaled(Vector3(s, s, s))
 			out.append(Transform3D(basis, Vector3(p.x, 0.0, p.y)))
+	trim_grass_instances_to_cap(out, GRASS_MAX_INSTANCES)
 	return out
+
+
+static func trim_grass_instances_to_cap(out: Array[Transform3D], cap: int) -> void:
+	if out.size() <= cap:
+		return
+	out.sort_custom(func(a: Transform3D, b: Transform3D) -> bool:
+		var ra := Vector2(a.origin.x, a.origin.z).length_squared()
+		var rb := Vector2(b.origin.x, b.origin.z).length_squared()
+		return ra < rb)
+	out.resize(cap)
+
+
+static func _grass_hero_density_keep(r: float, p: Vector2) -> float:
+	if r >= GRASS_HERO_DENSITY_OUTER_M:
+		return 1.0
+	var inner_eff := GRASS_RING_INNER_M \
+			+ (_grass_patch_noise(p) - 0.5) * (2.0 * GRASS_HERO_INNER_NOISE_M)
+	var t := smoothstep(inner_eff, GRASS_HERO_DENSITY_OUTER_M, r)
+	return lerpf(GRASS_HERO_KEEP_MIN, 1.0, t)
 
 
 static func _grass_hero_height_scale(r: float) -> float:

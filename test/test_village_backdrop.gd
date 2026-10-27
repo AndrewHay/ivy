@@ -173,7 +173,8 @@ func test_main_tscn_world_ground_is_external_shader() -> void:
 ## Slices 1-3 merged cap: tri < 120000, surface <= 160 (ivy-3cx.2 §5 full-village cap).
 
 func test_triangle_budget_under_120k() -> void:
-	## Counts MeshInstance3D tris + MultiMesh tris (mesh counted once, not ×instance_count).
+	## Counts MeshInstance3D tris + MultiMesh tris (mesh counted once per MultiMesh, not ×instance_count).
+	## Instanced grass (Scatter_Grass_Blades_*) is budgeted separately in test_grass_instanced_triangle_budget.
 	## GPU instancing: MultiMesh costs 1 draw per surface, not N draws.
 	var total_tris := 0
 	for mesh in _find_nodes_of_type(_backdrop, MeshInstance3D):
@@ -199,6 +200,33 @@ func test_triangle_budget_under_120k() -> void:
 				total_tris += (arrays[Mesh.ARRAY_VERTEX] as PackedVector3Array).size() / 3
 	assert_lt(total_tris, 120000,
 		"Total tris (MI3D + MultiMesh once) must be < 120k; got %d" % total_tris)
+
+
+const GRASS_TRIS_PER_TUFT := 35
+const GRASS_INSTANCED_TRI_CAP := VillageScatterPositions.GRASS_MAX_INSTANCES * GRASS_TRIS_PER_TUFT
+
+
+func test_grass_instanced_triangle_budget() -> void:
+	## GPU cost: mesh triangle count × MultiMesh.instance_count for blade lawn chunks.
+	var instanced_tris := 0
+	for mmi_node in _find_nodes_of_type(_backdrop, MultiMeshInstance3D):
+		var mmi := mmi_node as MultiMeshInstance3D
+		if mmi.name.begins_with("Scatter_Grass_Blades_") == false:
+			continue
+		if mmi.multimesh == null or mmi.multimesh.mesh == null:
+			continue
+		var mesh_tris := 0
+		for s in range(mmi.multimesh.mesh.get_surface_count()):
+			var arrays := mmi.multimesh.mesh.surface_get_arrays(s)
+			if arrays != null and arrays[Mesh.ARRAY_INDEX] != null:
+				mesh_tris += (arrays[Mesh.ARRAY_INDEX] as PackedInt32Array).size() / 3
+			elif arrays != null and arrays[Mesh.ARRAY_VERTEX] != null:
+				mesh_tris += (arrays[Mesh.ARRAY_VERTEX] as PackedVector3Array).size() / 3
+		instanced_tris += mesh_tris * mmi.multimesh.instance_count
+	print("Grass instanced triangle count: %d (cap %d)" % [instanced_tris, GRASS_INSTANCED_TRI_CAP])
+	assert_lte(
+		instanced_tris, GRASS_INSTANCED_TRI_CAP,
+		"Grass instanced tris must be <= GRASS_MAX × 35; got %d" % instanced_tris)
 
 
 func test_surface_count_under_160() -> void:

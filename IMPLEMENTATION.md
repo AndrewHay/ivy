@@ -1712,7 +1712,9 @@ blade root/mid sage; **±5% gust sheen** from `ivy_gust_at(world_xz)` × `ivy_wi
 ### SD-WIND-2 (shared gust field) *(ivy-7ka)*
 
 **Owner:** `AmbientWind` v3 pushes **global shader uniforms** (`ivy_wind_dir`, `ivy_wind_strength`,
-`ivy_wind_scroll`, `ivy_wind_flutter_phase`, `ivy_wind_gust_tile_m`, `ivy_wind_gust_noise`).
+`ivy_wind_scroll`, `ivy_wind_flutter_phase`). **`ivy_wind_gust_tile_m`** and **`ivy_wind_gust_noise`**
+use **`project.godot`** defaults (see `wind_gust.gdshaderinc` / `wind_gust_noise.tres`), not
+`push_shader_globals()`.
 **Include:** `src/render/shaders/wind_gust.gdshaderinc` — `ivy_gust_at(vec2 world_xz)` and
 `ivy_wind_tip_displace_model(...)` (world-space wind direction → model space, height² lean + flutter + droop).
 

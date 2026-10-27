@@ -68,6 +68,42 @@ func test_grass_hero_annulus() -> void:
 		assert_lte(r, GRASS_OUTER + GRASS_STEP, "Outer bound with grid slack")
 
 
+func test_grass_hero_density_fade() -> void:
+	var grass := _grass_transforms()
+	var band_45_60 := 0
+	var band_60_70 := 0
+	for t in grass:
+		var r := Vector2(t.origin.x, t.origin.z).length()
+		if r >= 4.5 and r < 6.0:
+			band_45_60 += 1
+		elif r >= 6.0 and r < 7.0:
+			band_60_70 += 1
+	assert_gt(band_45_60, 0, "Transition band 4.5–6.0 m should have tufts")
+	assert_gt(band_60_70, 0, "Reference band 6.0–7.0 m should have tufts")
+	var area_45_60 := PI * (6.0 * 6.0 - 4.5 * 4.5)
+	var area_60_70 := PI * (7.0 * 7.0 - 6.0 * 6.0)
+	var dens_45_60 := float(band_45_60) / area_45_60
+	var dens_60_70 := float(band_60_70) / area_60_70
+	assert_lt(
+		dens_45_60, dens_60_70,
+		"Hero fade: 4.5–6.0 m area density should be lower than 6.0–7.0 m")
+
+
+func test_grass_cap_trim_keeps_innermost() -> void:
+	var transforms: Array[Transform3D] = []
+	for r in [5.0, 6.0, 7.0, 8.0, 9.0]:
+		transforms.append(Transform3D(Basis.IDENTITY, Vector3(r, 0.0, 0.0)))
+	VillageScatterPositions.trim_grass_instances_to_cap(transforms, 3)
+	assert_eq(transforms.size(), 3)
+	var radii: Array[float] = []
+	for t in transforms:
+		radii.append(Vector2(t.origin.x, t.origin.z).length())
+	radii.sort()
+	assert_almost_eq(radii[0], 5.0, 1e-4)
+	assert_almost_eq(radii[1], 6.0, 1e-4)
+	assert_almost_eq(radii[2], 7.0, 1e-4)
+
+
 func test_grass_fade_band_sparser_than_full() -> void:
 	var grass := _grass_transforms()
 	var full := 0
