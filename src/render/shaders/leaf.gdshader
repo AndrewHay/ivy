@@ -31,16 +31,15 @@ uniform vec3 young_tint = vec3(1.10, 1.08, 0.92);
 uniform vec3 petiole_color : source_color = vec3(0.62, 0.74, 0.38);
 uniform vec3 backlight = vec3(0.30, 0.45, 0.18);
 
-#include "res://src/render/shaders/foliage_wind.gdshaderinc"
+#include "res://src/render/shaders/wind_gust.gdshaderinc"
 
 varying vec4 rect_uv;
 
 
 void vertex() {
 	rect_uv = INSTANCE_CUSTOM;
-	float blade_h = clamp(UV.y / 1.25, 0.0, 1.0);
-	float inst_hash = float(INSTANCE_ID) * 0.091;
-	foliage_wind_displace(VERTEX, blade_h, inst_hash);
+	vec3 root_world = (MODEL_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+	VERTEX = ivy_leaf_wind_offset_model(VERTEX, UV.y, MODEL_MATRIX, root_world);
 }
 
 

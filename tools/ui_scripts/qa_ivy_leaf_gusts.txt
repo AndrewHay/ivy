@@ -1,0 +1,31 @@
+# ivy-ens: hero ivy leaf wind — grow tower ivy, close orbit, NORMAL/PAUSE/FAST frame series.
+# Run: --scenario=res://assets/structures/scenarios/tower.tres --outdir=res://.tmp/ivy_ens/<label>
+SPEED pause
+SEED 1
+ADVANCE_DAYS 45
+ADVANCE_DAYS 0.25
+ORBIT 30 6 2.2
+SCREENSHOT leaf_close_static.png
+ORBIT 10 10 2
+SCREENSHOT leaf_hero_silhouette.png
+ORBIT 30 6 2.2
+SPEED watch
+WAIT 4000
+SCREENSHOT leaf_wind_n_0.png
+WAIT 500
+SCREENSHOT leaf_wind_n_1.png
+WAIT 500
+SCREENSHOT leaf_wind_n_2.png
+WAIT 500
+SCREENSHOT leaf_wind_n_3.png
+SPEED pause
+WAIT 1000
+SCREENSHOT leaf_wind_pause_a.png
+WAIT 1000
+SCREENSHOT leaf_wind_pause_b.png
+SPEED fast
+WAIT 2000
+SCREENSHOT leaf_wind_fast_a.png
+WAIT 500
+SCREENSHOT leaf_wind_fast_b.png
+SPEED pause

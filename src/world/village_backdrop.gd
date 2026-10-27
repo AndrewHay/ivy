@@ -567,11 +567,6 @@ static func path_polylines() -> Array:
 ## Sits under `World/Ground` (main.tscn procedural plane at y=0) to avoid z-fight.
 const LAWN_GROUND_Y_OFFSET := -0.03
 
-func push_foliage_wind(_wind: AmbientWind) -> void:
-	## SD-WIND-2: blade grass reads global ivy_wind_* shader uniforms from AmbientWind.
-	pass
-
-
 func _lawn_ground_material() -> ShaderMaterial:
 	var mat := ShaderMaterial.new()
 	mat.shader = load("res://src/render/shaders/village_ground.gdshader") as Shader

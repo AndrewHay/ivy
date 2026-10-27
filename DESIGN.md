@@ -222,10 +222,11 @@ with the same path/cottage/flower/bush/stone exclusions as before; **48** sparse
 accents add texture in the garden band. Ground shaders match the blade sage family so gaps and the hero
 ring read as lawn base, not a pale disc. **Not** the tall grass tiers (10–11) from flora design.
 
-**Wind (ivy-7ka):** **`AmbientWind`** pushes global gust uniforms consumed by blade, ground, and accent
-shaders (`SD-WIND-2`); hero ivy leaves still use the earlier foliage wind until **`ivy-ens`**. Fauna
-uses the same strength gate (no drift at FAST/GROW/PAUSE). Motion stays **subtle**; the climbing ivy
-remains the visual subject. Epic **`ivy-4gn`** (chimney smoke, tree sway) will share the same clock.
+**Wind (ivy-7ka / ivy-ens):** **`AmbientWind`** pushes global gust uniforms consumed by blade, ground,
+accent, and **hero ivy leaf** shaders (`SD-WIND-2` lawn + **`SD-WIND-3`** leaves via
+`wind_gust.gdshaderinc`). Fauna uses the same strength gate (no drift at FAST/GROW/PAUSE). Motion stays
+**subtle**; the climbing ivy remains the visual subject. Epic **`ivy-4gn`** (chimney smoke, tree sway)
+will share the same clock.
 
 **Non-goals (explicit):** Chimney smoke and tree sway can follow in **`ivy-4gn`**; a full weather
 module; coupling wind strength to growth vigour or light bake; changing sim determinism for wind;

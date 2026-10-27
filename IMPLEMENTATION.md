@@ -1721,10 +1721,31 @@ use **`project.godot`** defaults (see `wind_gust.gdshaderinc` / `wind_gust_noise
 **SimClock gate:** `ivy_wind_strength` → `0` at PAUSE/FAST/GROW (frozen scroll/phase at PAUSE); consumers
 need no per-node wind push for grass.
 
-**Consumers (ivy-7ka):** blade tufts, ground sheen, wispy accents. Hero ivy leaves still SD-WIND-1 /
-foliage include until follow-up **`ivy-ens`**.
+**Consumers (ivy-7ka):** blade tufts, ground sheen, wispy accents.
 
 **Mechanical tests:** `test/test_ambient_wind_gust.gd`.
+
+### SD-WIND-3 (hero ivy leaf gusts) *(ivy-ens)*
+
+**Include:** `wind_gust.gdshaderinc` adds `ivy_leaf_wind_offset_model(...)` — root world position from
+`MODEL_MATRIX`, gust sample `ivy_gust_at`, tangential lean + normal flutter (integer `2.0 ×`
+`ivy_wind_flutter_phase` only), model-space offset via `inverse(mat3(MODEL_MATRIX))`. Attachment weight
+0 at stem (`LeafCupMesh` petiole UV 2.5 / blade UV 1.0); leaf normal **+local Z**.
+
+**Consumers:** `leaf.gdshader` only (no per-material wind push; globals from `AmbientWind.push_shader_globals()`).
+
+**Removed:** `foliage_wind.gdshaderinc`, `PlantRender.push_wind`, `VillageBackdrop.push_foliage_wind`.
+
+**Mechanical tests:** `test/test_ivy_leaf_wind.gd`. **QA:** `tools/ui_scripts/qa_ivy_leaf_gusts.txt`.
+
+### AR-WIND-3 *(ivy-ens file touch list)*
+
+| Area | Files |
+|------|--------|
+| Gust helper | `src/render/shaders/wind_gust.gdshaderinc` (`ivy_leaf_wind_offset_model`, weight/hash helpers) |
+| Leaves | `src/render/shaders/leaf.gdshader` |
+| CPU wind push removed | `src/render/plant_render.gd`, `src/main/main.gd`, `src/world/village_backdrop.gd` |
+| Tests | `test/test_ivy_leaf_wind.gd` |
 
 ### AR-WIND-GRASS-2 *(ivy-7ka implementation map)*
 

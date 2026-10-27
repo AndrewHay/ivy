@@ -41,3 +41,57 @@ vec3 ivy_wind_tip_displace_model(
 	float droop = (dot(offset_model, offset_model) / (2.0 * H)) * h;
 	return vertex_model + offset_model - vec3(0.0, droop, 0.0);
 }
+
+
+const float IVY_LEAF_LEAN = 0.02;
+const float IVY_LEAF_GUST_GAIN = 0.08;
+const float IVY_LEAF_FLUTTER = 0.035;
+
+
+float ivy_leaf_wind_weight(float uv_y) {
+	if (uv_y > 1.25) {
+		// Petiole (UV v 2.5 = stem attachment, 1.5 = blade junction); pinned at stem.
+		return max(0.0, (2.5 - uv_y) / 1.0) * 0.12;
+	}
+	// Blade atlas v: 1 at node attachment, 0 at tip.
+	return clamp(1.0 - uv_y, 0.0, 1.0);
+}
+
+
+float ivy_leaf_hash(vec3 root_world) {
+	return fract(sin(dot(root_world.xz + root_world.y * 0.17, vec2(12.9898, 78.233))) * 43758.5453);
+}
+
+
+vec3 ivy_leaf_wind_offset_model(
+		vec3 vertex_model,
+		float uv_y,
+		mat4 model_matrix,
+		vec3 root_world) {
+	float w = ivy_leaf_wind_weight(uv_y);
+	if (ivy_wind_strength < 0.001 || w < 1e-5) {
+		return vertex_model;
+	}
+	float wind_e = ivy_wind_strength;
+	float leaf_len_m = length(model_matrix[1].xyz);
+	float g = ivy_gust_at(root_world.xz);
+	vec2 dir_xz = ivy_wind_dir;
+	if (dot(dir_xz, dir_xz) < 1e-8) {
+		dir_xz = vec2(1.0, 0.0);
+	}
+	dir_xz = normalize(dir_xz);
+	vec3 d = vec3(dir_xz.x, 0.0, dir_xz.y);
+	vec3 n_w = normalize(mat3(model_matrix) * vec3(0.0, 0.0, 1.0));
+	vec3 d_t = d - n_w * dot(d, n_w);
+	float dt_len = length(d_t);
+	d_t = dt_len > 1e-5 ? d_t / dt_len : vec3(0.0);
+	float w2 = w * w;
+	vec3 offset_world = d_t * (wind_e * leaf_len_m * (IVY_LEAF_LEAN + IVY_LEAF_GUST_GAIN * g) * w2);
+	float leaf_hash = ivy_leaf_hash(root_world);
+	offset_world += n_w * (
+			wind_e * leaf_len_m * IVY_LEAF_FLUTTER * (0.3 + g)
+			* sin(ivy_wind_flutter_phase * 2.0 + leaf_hash * TAU + dot(root_world.xz, dir_xz) * 1.3)
+			* w);
+	mat3 inv_model = inverse(mat3(model_matrix));
+	return vertex_model + inv_model * offset_world;
+}

@@ -656,11 +656,6 @@ func _process(delta: float) -> void:
 	if wind != null:
 		wind.advance(clock.speed, delta)
 		wind.push_shader_globals()
-		var backdrop := _world.get_node_or_null("VillageBackdrop")
-		if backdrop != null and backdrop.visible and backdrop.has_method("push_foliage_wind"):
-			backdrop.push_foliage_wind(wind)
-		if _plant_render.has_method("push_wind"):
-			_plant_render.push_wind(wind)
 	_tick_fauna(clock, delta)
 	if _hud != null:
 		_hud.refresh(clock, _world.get_sky_sun(), _debug_camera.get_yaw(), wind)
