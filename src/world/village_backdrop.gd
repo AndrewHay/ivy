@@ -599,26 +599,14 @@ func _add_village_lawn_ground() -> void:
 
 # ── Horizon hill ring ─────────────────────────────────────────────────────────
 
-## Visual-only raised ground ring at r=20-44 m that lifts the horizon above a flat line.
-## Terrain transitions from y=0 (inner) to y=3.0 m (outer), hiding the sky-ground seam.
-## Extended to r=44 m (was 34 m) and higher (3.0 m, was 1.5 m) to eliminate grey horizon band.
+## Visual-only terrain that lifts the far horizon (ivy-cwk / ivy-2or).
+## One long ramp 20→140 m (0→7.5 m) so the y=0 main plane never silhouettes in high orbit.
 ## No CollisionShape3D, no physics body, no collision layer.
 func _add_hill_ring() -> void:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var inner_r := 20.0
-	var outer_r := 44.0
-	var hill_h := 3.0
-	var segs := 48
-	for i in range(segs):
-		var a0 := (float(i) / segs) * TAU
-		var a1 := (float(i + 1) / segs) * TAU
-		var v0 := Vector3(cos(a0) * inner_r, 0.0, sin(a0) * inner_r)
-		var v1 := Vector3(cos(a1) * inner_r, 0.0, sin(a1) * inner_r)
-		var v2 := Vector3(cos(a0) * outer_r, hill_h, sin(a0) * outer_r)
-		var v3 := Vector3(cos(a1) * outer_r, hill_h, sin(a1) * outer_r)
-		st.add_vertex(v0); st.add_vertex(v2); st.add_vertex(v1)
-		st.add_vertex(v1); st.add_vertex(v2); st.add_vertex(v3)
+	var segs := 64
+	_add_hill_annulus(st, segs, 20.0, 140.0, 0.0, 7.5)
 	st.generate_normals()
 	var mesh := st.commit()
 	var mat := _lawn_ground_material()
@@ -628,3 +616,21 @@ func _add_hill_ring() -> void:
 	mi.mesh = mesh
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(mi)
+
+
+func _add_hill_annulus(
+	st: SurfaceTool, segs: int, inner_r: float, outer_r: float, inner_y: float, outer_y: float
+) -> void:
+	for i in range(segs):
+		var a0 := (float(i) / segs) * TAU
+		var a1 := (float(i + 1) / segs) * TAU
+		var v0 := Vector3(cos(a0) * inner_r, inner_y, sin(a0) * inner_r)
+		var v1 := Vector3(cos(a1) * inner_r, inner_y, sin(a1) * inner_r)
+		var v2 := Vector3(cos(a0) * outer_r, outer_y, sin(a0) * outer_r)
+		var v3 := Vector3(cos(a1) * outer_r, outer_y, sin(a1) * outer_r)
+		st.add_vertex(v0)
+		st.add_vertex(v2)
+		st.add_vertex(v1)
+		st.add_vertex(v1)
+		st.add_vertex(v2)
+		st.add_vertex(v3)

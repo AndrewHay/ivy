@@ -73,9 +73,13 @@ vec3 sky_gradient(vec3 eyedir) {
 		clamp(1.0 - pow(1.0 - c, 1.0 / sky_curve), 0.0, 1.0));
 	sky *= sky_energy;
 
-	// Below the horizon: stay dark so sky ambient does not wash out the meadow plane.
+	// Below the horizon (sky pixels only): blend horizon → nadir like ProceduralSky so
+	// y≈0⁻ matches sky_horizon and we avoid a dark/grey seam in high orbit (ivy-cwk).
 	if (eyedir.y < 0.0) {
-		sky = ground_bottom_color.rgb * ground_energy;
+		float c = clamp(1.0 + eyedir.y, 0.0, 1.0);
+		c = 1.0 - pow(1.0 - c, 1.0 / max(ground_curve, 0.001));
+		vec3 ground = mix(ground_bottom_color.rgb, ground_horizon_color.rgb, c);
+		sky = ground * ground_energy;
 	}
 	return sky;
 }

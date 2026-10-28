@@ -17,12 +17,12 @@ Always run from the project root with `required_permissions: ["all"]` and `worki
 
 ```bash
 pwd && test "$(pwd)" = "/Users/andrewhay/github/ivy" || exit 1
-/Applications/Godot.app/Contents/MacOS/Godot \
-  --headless \
-  --script addons/gut/gut_cmdln.gd \
-  -gdir=res://test \
-  -gexit 2>&1
+./tools/run_gut.sh fast
 ```
+
+`run_gut.sh` wraps Godot+GUT and **exits non-zero** if any `res://test/` script was skipped due to a parse/load error (GUT alone can still report “All tests passed” — ivy-t3o). Raw Godot invocation is still fine for one-off `-gtest=res://…` debugging; use the wrapper for suite runs.
+
+Parse-guard regression: `./tools/verify_gut_parse_guard.sh` (temporarily breaks `test_gut_smoke.gd`).
 
 Set `block_until_ms` to at least **`240000`** (4 minutes). Baseline measured 2026-10-28 (ivy-zfg): **72 scripts, 606 tests, ~170 s GUT time** (~175 s wall) on Godot 4.7.2 / main after grass + leaf gusts.
 
@@ -73,9 +73,10 @@ Set `block_until_ms` to at least **`1200000`** (20 minutes). Baseline measured 2
 
 ## Interpreting results
 
-- Exit code `0` + `---- All tests passed! ----` → clean
+- Exit code `0` + `---- All tests passed! ----` → clean (when using `./tools/run_gut.sh`)
 - Any `FAILED` lines → report each failing test name and the assertion message
-- Script parse errors (see below) → GUT installation is broken, fix first
+- Non-zero from `run_gut.sh` with `Ignoring script` / `Parse Error` on `res://test/` → fix the test script before trusting the run
+- Script parse errors in `addons/gut/` (see below) → GUT installation is broken, fix first
 
 ## Known failure: mixed GUT version
 
