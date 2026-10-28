@@ -15,6 +15,9 @@ const SimRoot = preload("res://src/sim/sim_root.gd")
 var _params: IvyParams
 var _clock: SimClock
 
+## Headless sim horizon (ivy-zfg); full half-day / 0.75-day walks were ~100s in this file alone.
+const SHORT_GROW_GAME_DAYS := 0.12
+
 
 func before_each() -> void:
 	_params = IvyParams.new()
@@ -27,6 +30,16 @@ func _make_env_ctx(params: IvyParams, plant: PlantData) -> SimContext:
 	var env := IvyEnvironment.new()
 	env.build(params, surface)
 	return SimContext.new(params, env, surface, plant, null, null)
+
+
+func _make_headless_tower_sim(params: IvyParams = null) -> SimRoot:
+	var p := params if params != null else _params
+	var surface := SurfaceQuery.new()
+	surface.setup(null, null, TowerSdf.new(TowerSpec.new()), PackedByteArray(), p)
+	var sim := SimRoot.new()
+	sim.setup(p, surface, null, 0, null, true)
+	sim.get_clock().set_speed(SimClock.Speed.GROW)
+	return sim
 
 
 func test_tick_size_depends_on_speed() -> void:
@@ -111,11 +124,7 @@ func test_grow_speed_four_ticks_per_second() -> void:
 
 
 func test_grow_speed_emits_segment_within_few_slots() -> void:
-	var surface := SurfaceQuery.new()
-	surface.setup(null, null, TowerSdf.new(TowerSpec.new()), PackedByteArray(), _params)
-	var sim := SimRoot.new()
-	sim.setup(_params, surface, null, 0, null, true)
-	sim.get_clock().set_speed(SimClock.Speed.GROW)
+	var sim := _make_headless_tower_sim()
 	sim.advance_ticks(5)
 	assert_gt(sim.plant.segment_count(), 0, "Grow: ~one segment per slot at full vigour")
 
@@ -130,27 +139,22 @@ func test_speed_change_preserves_game_day() -> void:
 
 
 func test_grow_speed_produces_stem_within_half_game_day() -> void:
-	var surface := SurfaceQuery.new()
-	surface.setup(null, null, TowerSdf.new(TowerSpec.new()), PackedByteArray(), _params)
-	var sim := SimRoot.new()
-	sim.setup(_params, surface, null, 0, null, true)
-	sim.get_clock().set_speed(SimClock.Speed.GROW)
-	var ticks := SimClock.ticks_for_game_days(0.5, SimClock.Speed.GROW)
-	sim.advance_ticks(ticks)
-	assert_gt(sim.plant.segment_count(), 0, "expected at least one segment in half a game-day at Grow")
+	var sim := _make_headless_tower_sim()
+	sim.advance_ticks(SimClock.ticks_for_game_days(SHORT_GROW_GAME_DAYS, SimClock.Speed.GROW))
+	assert_gt(sim.plant.segment_count(), 0, "expected at least one segment after a short Grow horizon")
 
 
 func test_geometric_night_blocks_growth_ticks() -> void:
 	var solar := Solar.new(_params)
 	assert_false(solar.is_geometric_night(0.25))
-	var ticks_to_midnight := int(round(0.75 * SimClock.ticks_per_game_day_for(SimClock.Speed.GROW)))
-	var surface := SurfaceQuery.new()
-	surface.setup(null, null, TowerSdf.new(TowerSpec.new()), PackedByteArray(), _params)
-	var sim := SimRoot.new()
-	sim.setup(_params, surface, null, 0, null, true)
-	sim.get_clock().set_speed(SimClock.Speed.GROW)
-	sim.advance_ticks(ticks_to_midnight)
-	assert_true(solar.is_geometric_night(sim.get_clock().game_day))
+	var sim := _make_headless_tower_sim()
+	sim.advance_ticks(SimClock.ticks_for_game_days(SHORT_GROW_GAME_DAYS, SimClock.Speed.GROW))
+	assert_gt(sim.plant.segment_count(), 0, "precondition: stem exists before night")
+	var clock := sim.get_clock()
+	var night_tick := int(round(0.75 * SimClock.ticks_per_game_day_for(SimClock.Speed.GROW)))
+	clock.tick_index = night_tick
+	clock._update_game_day()
+	assert_true(solar.is_geometric_night(clock.game_day))
 	var segs_at_night := sim.plant.segment_count()
 	sim.advance_ticks(10)
 	assert_eq(sim.plant.segment_count(), segs_at_night, "no new segments during geometric night")

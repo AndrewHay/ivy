@@ -13,6 +13,8 @@ const TowerSpec = preload("res://src/world/tower_spec.gd")
 const TowerSdf = preload("res://src/world/tower_sdf.gd")
 const SimClock = preload("res://src/core/sim_clock.gd")
 
+const GROW_GAME_DAYS := 0.12
+
 const _FOV_DEG := 75.0
 const _CAM_SUN_T := Transform3D(
 		Vector3(1, 0, 0), Vector3(0, 1, 0), Vector3(0, 0, 1), Vector3(0, 2, 8))
@@ -89,7 +91,7 @@ func test_reseed_resets_simulation_and_applies_seed_index() -> void:
 	scenario.camera_pivot = Vector3(-7, 1.56, 0)
 	sim.setup(params, sq, scenario, 0)
 	sim.get_clock().set_speed(SimClock.Speed.GROW)
-	sim.advance_ticks(SimClock.ticks_for_game_days(1.0, SimClock.Speed.GROW))
+	sim.advance_ticks(SimClock.ticks_for_game_days(GROW_GAME_DAYS, SimClock.Speed.GROW))
 	var len_after := sim.plant.total_length
 	assert_gt(len_after, 0.0, "precondition: one game-day of growth")
 	sim.set_seed_index(1)

@@ -8,6 +8,8 @@ const SurfaceQuery = preload("res://src/world/surface_query.gd")
 const IvyParams = preload("res://src/params/ivy_params.gd")
 const SimClock = preload("res://src/core/sim_clock.gd")
 
+const GROW_GAME_DAYS := 0.12
+
 
 func test_compass_to_seed_index() -> void:
 	assert_eq(UiScriptVerbs.compass_to_seed_index("n"), 0)
@@ -40,7 +42,7 @@ func test_collect_metrics_after_short_growth() -> void:
 	sq.setup(null, null, TowerSdf.new(spec), PackedByteArray(), params)
 	sim.setup(params, sq, null, 2)
 	sim.get_clock().set_speed(SimClock.Speed.GROW)
-	sim.advance_ticks(SimClock.ticks_for_game_days(1.0, SimClock.Speed.GROW))
+	sim.advance_ticks(SimClock.ticks_for_game_days(GROW_GAME_DAYS, SimClock.Speed.GROW))
 	var world := Node.new()
 	world.set("tower_spec", spec)
 	var metrics := UiScriptVerbs.collect_metrics(sim, world, 180.0)

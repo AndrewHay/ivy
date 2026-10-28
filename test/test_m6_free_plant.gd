@@ -3,6 +3,9 @@ extends GutTest
 const MainScene = preload("res://src/main/main.tscn")
 const SimClock = preload("res://src/core/sim_clock.gd")
 
+## Enough segment slots for stems + PlantRender sync; 2 game-days was ~126 s (ivy-zfg).
+const GROW_GAME_DAYS := 0.12
+
 
 func test_plant_at_grows_segments_on_cylinder() -> void:
 	var main := MainScene.instantiate()
@@ -35,7 +38,7 @@ func test_plant_at_grows_segments_on_cylinder() -> void:
 	assert_eq(sim.tips.tips.size(), 1)
 	var clock: SimClock = sim.get_clock()
 	clock.set_speed(SimClock.Speed.GROW)
-	sim.call("advance_ticks", SimClock.ticks_for_game_days(2.0, SimClock.Speed.GROW))
+	sim.call("advance_ticks", SimClock.ticks_for_game_days(GROW_GAME_DAYS, SimClock.Speed.GROW))
 	assert_gt(sim.plant.segment_count(), 0, "expected stem segments after 2 game-days")
 	var plant_render: Node = main.get_node("PlantRender")
 	assert_true(plant_render.call("is_configured"), "PlantRender must receive params when Sim.setup runs")

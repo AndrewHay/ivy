@@ -24,13 +24,29 @@ pwd && test "$(pwd)" = "/Users/andrewhay/github/ivy" || exit 1
   -gexit 2>&1
 ```
 
-Set `block_until_ms` to at least **`120000`** (2 minutes). Baseline measured 2026-08-24: **22 scripts, 205 tests, ~56 s GUT time** (~57 s wall).
+Set `block_until_ms` to at least **`240000`** (4 minutes). Baseline measured 2026-10-28 (ivy-zfg): **72 scripts, 606 tests, ~170 s GUT time** (~175 s wall) on Godot 4.7.2 / main after grass + leaf gusts.
 
 `-gdir=res://test` does **not** recurse into `test/slow/` unless `-ginclude_subdirs` is set.
 
+### Running one script (timing / debug)
+
+`-gtest` takes **full `res://` paths** and **adds** scripts; it does **not** filter `-gdir`. Do **not** combine `-gdir=res://test` with `-gtest=name.gd` — that still runs the whole directory.
+
+```bash
+# One file only:
+/Applications/Godot.app/Contents/MacOS/Godot --headless --script addons/gut/gut_cmdln.gd \
+  -gtest=res://test/test_time.gd -gexit 2>&1
+
+# Filename substring filter (still scans -gdir):
+/Applications/Godot.app/Contents/MacOS/Godot --headless --script addons/gut/gut_cmdln.gd \
+  -gdir=res://test -gselect=time -gexit 2>&1
+```
+
+Per-file wall times (isolated `-gtest=res://…` only): see `.tmp/gut_per_file_times.txt` after a sweep; top fast-suite costs before ivy-zfg moves were `test_time` (~103 s), `test_village_grass_scatter` (~21 s), `test_village_backdrop` (~19 s), `test_determinism` (~17 s).
+
 ## Slow suite (mesh SDF + scenario gates)
 
-Run before closing work that touches `assets/structures/*`, `mesh_sdf.gd`, `surface_query.gd`, `structure_body.gd`, or scenario seeding. Also run before M2.6 mesh-gate sign-off.
+Run before closing work that touches `assets/structures/*`, `mesh_sdf.gd`, `surface_query.gd`, `structure_body.gd`, scenario seeding, **`main.tscn` building picker / session teardown**, or **SG-8 / interior light bake** on `surface_wall_sim`. Also run before M2.6 mesh-gate sign-off.
 
 ```bash
 /Applications/Godot.app/Contents/MacOS/Godot \
@@ -40,7 +56,7 @@ Run before closing work that touches `assets/structures/*`, `mesh_sdf.gd`, `surf
   -gexit 2>&1
 ```
 
-Set `block_until_ms` to at least **`1200000`** (20 minutes). Baseline measured 2026-08-24: **2 scripts, 23 tests, ~242 s GUT time** (~245 s wall) in isolation.
+Set `block_until_ms` to at least **`1200000`** (20 minutes). Includes `test_change_building.gd`, `test_sg8_interior_light.gd`, `test_interior_leak.gd` (ivy-zfg), mesh SDF, scenario seeding, wall archetypes, etc. Re-measure after adding slow scripts; the three moved integration scripts alone are ~110 s wall in one process (2026-10-28).
 
 ## Full suite (fast + slow)
 
@@ -75,22 +91,16 @@ cp -R /tmp/bitwes-Gut-*/addons/gut /Users/andrewhay/github/ivy/addons/gut
 
 Then re-run the test command. The version in `addons/gut/utils.gd` should read `'9.4.0'`.
 
-## Runtime baseline (2026-08-24, ivy-c7e.2)
+## Runtime baseline (2026-10-28, ivy-zfg)
 
-Per-script GUT times (isolated `-gselect` runs, Godot 4.7.2):
+| Suite | GUT time | Tests | Wall (approx.) |
+|---|---:|---:|---:|
+| Fast `-gdir=res://test` | 170 s | 606 | 175 s |
+| Slow `-gdir=res://test/slow` (full dir) | re-measure | — | often 15–20+ min |
 
-| Script | GUT time | Tests | Notes |
-|---|---:|---:|---|
-| `slow/test_scenario_seeding.gd` | 140.2 s | 3 | 30-day mesh sim regression (SG-3) |
-| `slow/test_mesh_sdf.gd` | 102.0 s | 20 | Loads 10.5 MB `square_sim.sdf`; SG-2 gate |
-| `test_scenario_camera.gd` | 21.0 s | 6 | Mesh scenario cameras |
-| `test_determinism.gd` | 13.7 s | 1 | 5-day reproducibility |
-| `test_leaf_placement.gd` | 12.8 s | 18 | |
-| `test_time.gd` | 6.5 s | 13 | |
-| `test_light_bake.gd` | 2.3 s | 11 | |
-| All other scripts | <0.6 s each | | |
+Historical fast-suite hotspots (isolated `-gtest=res://…` only, pre–ivy-zfg `test_time` cuts): `slow/test_change_building.gd` (Main + bake), `test_time.gd` (~103 s), `slow/test_sg8_interior_light.gd` / `slow/test_interior_leak.gd` (~32 s each), `test_village_grass_scatter.gd` (~21 s).
 
-**Dominant cost:** `test/slow/` accounts for ~80% of total suite time. The old "~5 s" figure in this skill matched the pre-M2.6 suite before mesh-SDF tests landed.
+**Dominant cost:** anything that boots `main.tscn`, runs multi–game-day GROW sims, or calls `LightBake.bake()` belongs in `test/slow/` or uses a minimal tick horizon (see `test_time.gd` `SHORT_GROW_GAME_DAYS`, `test_m6_free_plant.gd`).
 
 ## Project facts
 

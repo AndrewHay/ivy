@@ -12,6 +12,9 @@ const StemMeshBuilder = preload("res://src/render/stem_mesh.gd")
 const PlantData = preload("res://src/sim/plant_data.gd")
 const IvyParams = preload("res://src/params/ivy_params.gd")
 
+## Minimal growth for rendered stems; 1.0 game-day × many tests dominated fast suite (ivy-zfg).
+const GROW_GAME_DAYS := 0.12
+
 
 func _grow_ticks(game_days: float) -> int:
 	return SimClock.ticks_for_game_days(game_days, SimClock.Speed.GROW)
@@ -112,14 +115,14 @@ func test_stem_setup_twice_discards_the_previous_chunks() -> void:
 func test_clear_ivy_removes_rendered_stems_and_new_growth_is_visible() -> void:
 	var main: Node = await _boot("cylinder")
 	main.get_node("PlantRender").call("setup", main.params)
-	_plant_and_grow(main, _grow_ticks(1.0))
+	_plant_and_grow(main, _grow_ticks(GROW_GAME_DAYS))
 	assert_gt(_stem_surface_count(main), 0, "precondition: grown ivy is rendered")
 
 	main.get_node("Sim").call("clear_plants")
 	await get_tree().process_frame
 	assert_eq(_stem_surface_count(main), 0, "Clear ivy must remove the rendered stems")
 
-	_plant_and_grow(main, _grow_ticks(0.5))
+	_plant_and_grow(main, _grow_ticks(GROW_GAME_DAYS * 0.5))
 	assert_gt(_stem_surface_count(main), 0,
 		"a vine planted after clearing must render even though it is shorter than the old one")
 
@@ -140,7 +143,7 @@ func test_hud_has_a_change_building_button_that_returns_to_the_picker() -> void:
 
 func test_return_to_picker_tears_down_the_session() -> void:
 	var main: Node = await _boot("cylinder")
-	_plant_and_grow(main, _grow_ticks(1.0))
+	_plant_and_grow(main, _grow_ticks(GROW_GAME_DAYS))
 	main.return_to_picker()
 	await get_tree().process_frame
 
@@ -172,7 +175,7 @@ func test_debug_camera_ignores_keys_while_the_picker_is_up() -> void:
 
 func test_second_session_is_clean_after_switching_buildings() -> void:
 	var main: Node = await _boot("cylinder")
-	_plant_and_grow(main, _grow_ticks(1.0))
+	_plant_and_grow(main, _grow_ticks(GROW_GAME_DAYS))
 	main.return_to_picker()
 	await get_tree().process_frame
 
@@ -202,12 +205,12 @@ func test_second_session_is_clean_after_switching_buildings() -> void:
 ## must grow and render exactly like the first.
 func test_replanting_the_same_building_grows_and_renders() -> void:
 	var main: Node = await _boot("cylinder")
-	_plant_and_grow(main, _grow_ticks(1.0))
+	_plant_and_grow(main, _grow_ticks(GROW_GAME_DAYS))
 	main.return_to_picker()
 	await get_tree().process_frame
 
 	await _pick(main, "cylinder")
 	main.get_node("PlantRender").call("sync", main.get_node("Sim").plant)
-	_plant_and_grow(main, _grow_ticks(1.0))
+	_plant_and_grow(main, _grow_ticks(GROW_GAME_DAYS))
 	assert_gt(main.get_node("Sim").plant.segment_count(), 0, "ivy must grow in the second session")
 	assert_gt(_stem_surface_count(main), 0, "and it must be drawn")
