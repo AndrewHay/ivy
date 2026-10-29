@@ -10,7 +10,6 @@ const IvyParams = preload("res://src/params/ivy_params.gd")
 const Conv = preload("res://src/core/conv.gd")
 
 const SimClock = preload("res://src/core/sim_clock.gd")
-const TICKS_PER_DAY := int(SimClock.ticks_per_game_day_for(SimClock.Speed.NORMAL))
 const GAME_DAYS := 30
 
 
@@ -39,7 +38,7 @@ func _make_wall_sim() -> SimRoot:
 func test_wall_growth_from_midpoint_seed() -> void:
 	var spec := load("res://src/world/wall_spec_default.tres") as WallSpec
 	var sim := await _make_wall_sim()
-	sim.advance_ticks(TICKS_PER_DAY * GAME_DAYS)
+	sim.advance_ticks(SimClock.ticks_for_game_days(float(GAME_DAYS), SimClock.Speed.NORMAL))
 	assert_gt(sim.plant.total_length, 0.0, "expected growth on procedural wall")
 	assert_gt(sim.tips.tips.size(), 0)
 	var seeded := sim.tips.tips[0]

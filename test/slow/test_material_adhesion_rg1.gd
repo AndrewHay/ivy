@@ -12,7 +12,6 @@ const MaterialRegistry = preload("res://src/world/material_registry.gd")
 const SURFACE_WALL_GLB := "res://assets/structures/surface_wall_sim.glb"
 const SURFACE_WALL_SDF := "res://assets/structures/surface_wall_sim.sdf"
 const SimClock = preload("res://src/core/sim_clock.gd")
-const TICKS_PER_DAY := int(SimClock.ticks_per_game_day_for(SimClock.Speed.NORMAL))
 const GAME_DAYS := 60
 const MIN_STEM_PER_MATERIAL := 0.05
 
@@ -45,7 +44,7 @@ func test_rg1_stem_length_spread_surface_wall_60_days() -> void:
 		pending("surface_wall assets not built")
 		return
 	var sim := await _make_surface_wall_sim(0)
-	sim.advance_ticks(TICKS_PER_DAY * GAME_DAYS)
+	sim.advance_ticks(SimClock.ticks_for_game_days(float(GAME_DAYS), SimClock.Speed.NORMAL))
 	var lengths := {
 		MaterialRegistry.BRICK_WALL: sim.plant.stem_length_for_material(MaterialRegistry.BRICK_WALL),
 		MaterialRegistry.WOOD: sim.plant.stem_length_for_material(MaterialRegistry.WOOD),

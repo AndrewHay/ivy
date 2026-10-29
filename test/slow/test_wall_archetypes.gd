@@ -23,7 +23,6 @@ const ArchetypePreset = preload("res://src/params/archetype_preset.gd")
 const WallCoverageMetric = preload("res://src/metrics/wall_coverage.gd")
 
 const SimClock = preload("res://src/core/sim_clock.gd")
-const TICKS_PER_DAY := int(SimClock.ticks_per_game_day_for(SimClock.Speed.NORMAL))
 
 
 # ── Shared helper ──────────────────────────────────────────────────────────
@@ -59,7 +58,7 @@ func _run_preset(preset: ArchetypePreset, spec: WallSpec) -> SimRoot:
 		sim.plant_at(pos, Conv.SOUTH)
 
 	var t0 := Time.get_ticks_msec()
-	sim.advance_ticks(TICKS_PER_DAY * preset.day)
+	sim.advance_ticks(SimClock.ticks_for_game_days(float(preset.day), SimClock.Speed.NORMAL))
 	var elapsed := Time.get_ticks_msec() - t0
 	print("[test_wall_archetypes] %s: day=%d elapsed_ms=%d segs=%d leaves=%d"
 		% [preset.label, preset.day, elapsed,
