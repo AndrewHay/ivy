@@ -8,15 +8,17 @@ extends Node
 ##   straight_on.png   — +Z looking -Z (lateral fan-out elevation)
 ##
 ## Non-headless only (--headless produces no image on macOS).
+## Day 100 grow uses SimClock.ticks_for_game_days (NORMAL cadence); expect ~15–35 min
+## wall-clock before captures on Apple M2 Pro (36k ticks + light bake already done at load).
 ##
 ## Usage:
 ##   Godot res://tools/capture_eave_wall.tscn -- --day=100 --label=eave_wall
+##   Godot res://tools/capture_eave_wall.tscn -- --milestones=70,80,90,100 --outdir=eave_timeline
 ##
-## Output: res://.tmp/eave_wall/  (globalised before save)
+## Output: res://.tmp/eave_wall/  (or --outdir= subfolder under .tmp/)
 
 const _MAIN_SCENE := "res://src/main/main.tscn"
 const _OUTDIR := "res://.tmp/eave_wall/"
-const _TICKS_PER_DAY := int(SimClock.ticks_per_game_day_for(SimClock.Speed.GROW))
 const _PRESENT_TIMEOUT_MS := 4000
 
 const _SEED_XS: Array = [-4.0, -2.0, 0.0, 2.0, 4.0]
@@ -29,8 +31,13 @@ func _ready() -> void:
 	var label: String = args.get("label", "eave_wall")
 	var day: int = int(args.get("day", 100))
 	var building: String = args.get("building", "overhang")
-	var outdir := ProjectSettings.globalize_path(_OUTDIR)
+	var sub := str(args.get("outdir", "eave_wall")).strip_edges()
+	if sub.is_empty():
+		sub = "eave_wall"
+	var outdir := ProjectSettings.globalize_path("res://.tmp/%s/" % sub)
 	DirAccess.make_dir_recursive_absolute(outdir)
+
+	var milestones := _parse_milestones(args.get("milestones", ""))
 
 	var main := await _spawn_main()
 
@@ -57,17 +64,48 @@ func _ready() -> void:
 	clock.set_speed(SimClock.Speed.PAUSE)
 	await _settle(5)
 
-	## Advance to day N.25 (local noon)
-	var ticks: int = _TICKS_PER_DAY * day + 6
+	var ticks_done := 0
+	if milestones.is_empty():
+		await _grow_to_day(sim, day, ticks_done)
+		ticks_done = SimClock.ticks_for_game_days(float(day) + 0.25, SimClock.Speed.NORMAL)
+		await _log_plant_stats(sim, params, building, day, 0)
+		await _capture_all_angles(main, outdir, label)
+	else:
+		var prev_day := 0.0
+		for m in milestones:
+			var target_day := float(m) + 0.25
+			var target_ticks := SimClock.ticks_for_game_days(target_day, SimClock.Speed.NORMAL)
+			var delta := target_ticks - ticks_done
+			if delta > 0:
+				print("[eave-wall] milestone day %d: +%d ticks (total %d)…" % [m, delta, target_ticks])
+				var t0 := Time.get_ticks_msec()
+				sim.advance_ticks(delta)
+				print("[eave-wall]   grow elapsed_ms=%d" % (Time.get_ticks_msec() - t0))
+				ticks_done = target_ticks
+			await _log_plant_stats(sim, params, building, m, int(prev_day))
+			var tag := "day%03d" % m
+			await _capture_all_angles(main, outdir, tag)
+			prev_day = float(m)
+
+	main.queue_free()
+	print("[eave-wall] done — outputs in %s" % outdir)
+	get_tree().quit(0)
+
+
+func _grow_to_day(sim: Node, day: int, ticks_done: int) -> void:
+	var ticks: int = SimClock.ticks_for_game_days(float(day) + 0.25, SimClock.Speed.NORMAL) - ticks_done
+	print("[eave-wall] advancing %d ticks to day %d.25 (NORMAL cadence)…" % [ticks, day])
 	var t0 := Time.get_ticks_msec()
 	sim.advance_ticks(ticks)
-	var elapsed_ms := Time.get_ticks_msec() - t0
+	print("[eave-wall] grow elapsed_ms=%d" % (Time.get_ticks_msec() - t0))
 	await _settle(10)
 
+
+func _log_plant_stats(sim: Node, params: IvyParams, building: String, day: int, _from_day: int) -> void:
 	var plant: PlantData = sim.get("plant") as PlantData
 	var tips = sim.get("tips")
-	print("[eave-wall] day=%d elapsed_ms=%d total_length=%.3f segs=%d tips_live=%d" % [
-		day, elapsed_ms, plant.total_length, plant.segment_count(), tips.live_count()])
+	print("[eave-wall] day=%d total_length=%.3f segs=%d tips_live=%d traversal=%s" % [
+		day, plant.total_length, plant.segment_count(), tips.live_count(), params.eave_traversal_enabled])
 	var soffit_segs := 0
 	var above_segs := 0
 	for i in range(plant.segment_count()):
@@ -78,45 +116,47 @@ func _ready() -> void:
 			soffit_segs += 1
 		if mid.y > 5.02:
 			above_segs += 1
-	print("[eave-wall] building=%s traversal=%s soffit_segs=%d above_soffit_segs=%d" % [
-		building, params.eave_traversal_enabled, soffit_segs, above_segs])
+	print("[eave-wall] building=%s interior soffit_segs=%d above_soffit_segs=%d" % [
+		building, soffit_segs, above_segs])
+	await _settle(5)
 
-	## PROFILE shot: +X looking -X, framing wall face / soffit / lip
-	## eye=(11,3.0,0.5), look_at=(0,3.0,0.5), fov=45
+
+func _capture_all_angles(main: Node, outdir: String, label: String) -> void:
+	## PROFILE: +X looking -X (wall / soffit / lip in profile)
 	await _capture(
 		main,
 		outdir.path_join("%s_profile.png" % label),
 		Vector3(11.0, 3.0, 0.5), Vector3(0.0, 3.0, 0.5), 45.0
 	)
-
-	## EAVE close-up: below and in front of the lip, looking up at soffit + lip
+	## STRAIGHT-ON: +Z (full wall elevation)
+	await _capture_straight_on(main, outdir.path_join("%s_straight_on.png" % label))
+	## SUN-ish: CamSun side, oblique on the face
+	await _capture(
+		main,
+		outdir.path_join("%s_oblique_sun.png" % label),
+		Vector3(6.0, 2.8, 9.0), Vector3(0.0, 3.2, 0.0), 55.0
+	)
+	## SHADE side oblique
+	await _capture(
+		main,
+		outdir.path_join("%s_oblique_shade.png" % label),
+		Vector3(-7.0, 2.8, 8.0), Vector3(0.0, 3.0, 0.0), 55.0
+	)
 	await _capture(
 		main,
 		outdir.path_join("%s_eave_closeup.png" % label),
 		Vector3(-1.0, 4.2, 2.4), Vector3(-1.0, 4.9, 0.4), 60.0
 	)
-
-	## EAVE edge-on: along the lip from the west end, low, to see droop past the lip
 	await _capture(
 		main,
 		outdir.path_join("%s_eave_edge.png" % label),
 		Vector3(-9.5, 4.6, 2.2), Vector3(-3.0, 5.0, 0.6), 40.0
 	)
-
-	## SOFFIT underside: looking almost straight up, so stem wander along x is in-frame
 	await _capture(
 		main,
 		outdir.path_join("%s_soffit_under.png" % label),
 		Vector3(0.0, 2.2, 2.6), Vector3(0.0, 4.95, 0.45), 90.0
 	)
-
-	## STRAIGHT-ON shot: +Z looking -Z (lateral fan-out elevation)
-	## Frame the 16x5 m wall face + 0.3 m slab plus a small margin.
-	await _capture_straight_on(main, outdir.path_join("%s_straight_on.png" % label))
-
-	main.queue_free()
-	print("[eave-wall] done — outputs in %s" % outdir)
-	get_tree().quit(0)
 
 
 func _capture(main: Node, path: String, eye: Vector3, target: Vector3, fov: float) -> void:
@@ -272,3 +312,19 @@ func _parse_args() -> Dictionary:
 			var kv := a.substr(2).split("=", true, 1)
 			out[kv[0]] = kv[1]
 	return out
+
+
+func _parse_milestones(raw: String) -> Array[int]:
+	if raw.is_empty():
+		return []
+	var out: Array[int] = []
+	for part in raw.split(",", false):
+		var n := int(part.strip_edges())
+		if n > 0:
+			out.append(n)
+	out.sort()
+	var dedup: Array[int] = []
+	for n in out:
+		if dedup.is_empty() or dedup[-1] != n:
+			dedup.append(n)
+	return dedup

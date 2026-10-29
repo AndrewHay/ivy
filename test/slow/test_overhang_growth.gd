@@ -1,4 +1,6 @@
 ## ivy-9us — Overhang (eave-wall) growth metrics at day 100 (M1–M8).
+## Wall-clock (SD-TIME-2 NORMAL): ~25–60 min on Apple M2 Pro — 72k growth ticks
+## (two day-100 sims via ticks_for_game_days) plus 300k+ segment metric scans.
 ##
 ## Seeds: 5 at y=0.05, z=0.01, x in {-4,-2,0,2,4}.
 ## Scope for M1–M7: interior |x| <= 6, below soffit (mid-y <= wall_height).
@@ -28,7 +30,6 @@ const IvyParams = preload("res://src/params/ivy_params.gd")
 const Conv = preload("res://src/core/conv.gd")
 
 const SimClock = preload("res://src/core/sim_clock.gd")
-const TICKS_PER_DAY := int(SimClock.ticks_per_game_day_for(SimClock.Speed.NORMAL))
 const GAME_DAYS := 100
 
 ## Seeds: x in {-4,-2,0,2,4}, y=0.05, z=0.01
@@ -103,6 +104,7 @@ func _make_plain_wall_sim() -> SimRoot:
 
 
 func test_overhang_growth_metrics_m1_to_m8() -> void:
+	var growth_ticks := SimClock.ticks_for_game_days(float(GAME_DAYS), SimClock.Speed.NORMAL)
 	var spec := OverhangSpec.new()
 	var soffit_y: float = spec.wall_height          # 5.0
 	var projection: float = spec.slab_projection     # 1.0
@@ -122,7 +124,7 @@ func test_overhang_growth_metrics_m1_to_m8() -> void:
 		"Guard [bake-commit]: soffit D_L %.4f must be < open-wall D_L %.4f (pre-commit bake is degenerate)" % [
 			d_l_soffit, d_l_open])
 
-	sim.advance_ticks(TICKS_PER_DAY * GAME_DAYS)
+	sim.advance_ticks(growth_ticks)
 	var plant := sim.plant
 
 	## M-2: hoist OverhangSdf out of the per-segment loop.
@@ -189,8 +191,19 @@ func test_overhang_growth_metrics_m1_to_m8() -> void:
 			spread_x_min = minf(spread_x_min, mid.x)
 			spread_x_max = maxf(spread_x_max, mid.x)
 
+	var soffit_underside_segs := 0
+	var n_segs_scan: int = plant.segment_count()
+	for i in range(n_segs_scan):
+		var mid: Vector3 = (plant.seg_a[i] + plant.seg_b[i]) * 0.5
+		if absf(mid.x) > INTERIOR_X_HALF:
+			continue
+		if mid.y >= soffit_y - 0.08 and mid.y <= soffit_y + 0.02 and mid.z > 0.0 and mid.z <= projection:
+			soffit_underside_segs += 1
+
 	var n := off_face_below_soffit.size()
 	assert_gt(n, 0, "Expected interior below-soffit segments at day %d" % GAME_DAYS)
+	assert_gt(soffit_underside_segs, 0,
+		"Expected some interior segments on the soffit underside (y≈soffit, z in (0, projection])")
 
 	## M1: p95 off-face < adhesion_range
 	off_face_below_soffit.sort()
@@ -270,7 +283,7 @@ func test_overhang_growth_metrics_m1_to_m8() -> void:
 
 	## Run plain-wall control — helper awaits physics_frame internally (bake-after-commit).
 	var plain_sim := await _make_plain_wall_sim()
-	plain_sim.advance_ticks(TICKS_PER_DAY * GAME_DAYS)
+	plain_sim.advance_ticks(growth_ticks)
 	var plain_stem: float = plain_sim.plant.total_length
 	print("[overhang-metrics] plain_stem=%.2f ratio=%.4f" % [plain_stem, overhang_stem / maxf(plain_stem, 0.001)])
 	assert_true(overhang_stem >= M8_STEM_RATIO * plain_stem,

@@ -165,6 +165,9 @@ extends Resource
 ## Early traverse arm (ivy-dsh.9): metres above tip to look for a soffit overhead.
 ## One upward raycast per live tip-step on the overhang path; 0.0 disables. Double-gated.
 @export var eave_approach_reach: float = 0.40
+## Min dot(start_normal, snap_candidate.normal) for WallSdf post-placement snap (ivy-a4n).
+## Lower = allow sharper corners; higher = stay on the same wall face.
+@export var eave_snap_face_cos: float = 0.5
 ## Enable local feeler-thinning density cap (Rule F). Set alongside eave_traversal_enabled.
 @export var feeler_thinning_enabled: bool = false
 ## Bin width along x for feeler-density counting (Rule F).
@@ -288,6 +291,7 @@ func content_hash() -> String:
 		"diel_gate_enabled", "dev_build",
 		"eave_traversal_enabled", "eave_up_bias", "eave_soffit_glide", "eave_traverse_window",
 		"eave_traverse_max_float", "eave_traverse_light_floor", "eave_approach_reach",
+		"eave_snap_face_cos",
 		"feeler_thinning_enabled", "feeler_bin", "feeler_cap",
 		"feeler_min_float",
 	]

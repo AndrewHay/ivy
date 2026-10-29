@@ -23,6 +23,42 @@ _B = (2.0, 0.0, 0.0)
 _C = (0.0, 2.0, 0.0)
 
 
+def _axis_box_shell(minx, miny, minz, maxx, maxy, maxz):
+    verts = [
+        (minx, miny, minz),
+        (maxx, miny, minz),
+        (maxx, maxy, minz),
+        (minx, maxy, minz),
+        (minx, miny, maxz),
+        (maxx, miny, maxz),
+        (maxx, maxy, maxz),
+        (minx, maxy, maxz),
+    ]
+    quads = [
+        (0, 1, 2, 3),
+        (4, 6, 5, 7),
+        (0, 4, 5, 1),
+        (2, 3, 7, 6),
+        (0, 2, 6, 4),
+        (1, 5, 7, 3),
+    ]
+    tris = []
+    for a, b, c, d in quads:
+        tris += [(a, b, c), (a, c, d)]
+    return verts, tris
+
+
+def _merge_shells(shells):
+    verts = []
+    tris = []
+    base = 0
+    for sv, st in shells:
+        verts.extend(sv)
+        tris.extend((a + base, b + base, c + base) for a, b, c in st)
+        base += len(sv)
+    return verts, tris
+
+
 def _brute_dist(p, a, b, c, steps=400):
     """Dense barycentric sampling — slow, independent of the Ericson branches."""
     best = math.inf
@@ -58,6 +94,30 @@ class PointTriDistTest(unittest.TestCase):
             p = tuple(rng.uniform(-1.5, 2.5) for _ in range(3))
             exact = bake_mesh_sdf.point_tri_dist(p, *tri)
             self.assertAlmostEqual(exact, _brute_dist(p, *tri), delta=0.01, msg=p)
+
+
+class RayInsideTest(unittest.TestCase):
+    def test_overlapping_closed_boxes_union_is_inside(self):
+        # Two scene-graph nodes with identical closed meshes (double-counted +X parity).
+        shell_a = _axis_box_shell(0.0, 0.0, 0.0, 2.0, 2.0, 1.0)
+        shell_b = _axis_box_shell(0.0, 0.0, 0.0, 2.0, 2.0, 1.0)
+        probe = (1.0, 1.0, 0.5)
+        self.assertTrue(bake_mesh_sdf.ray_inside(probe, [shell_a, shell_b]))
+        merged_verts, merged_tris = _merge_shells([shell_a, shell_b])
+        self.assertFalse(bake_mesh_sdf.ray_inside_shell(probe, merged_tris, merged_verts))
+
+    def test_baked_overlap_region_is_negative_phi(self):
+        shell_a = _axis_box_shell(0.0, 0.0, 0.0, 2.0, 2.0, 1.0)
+        shell_b = _axis_box_shell(1.0, 0.0, 0.0, 3.0, 2.0, 1.0)
+        verts, tris = _merge_shells([shell_a, shell_b])
+        cell, band = 0.1, 0.35
+        origin, dims, _aabb, values = bake_mesh_sdf.bake(
+            verts, tris, cell, band, shells=[shell_a, shell_b]
+        )
+        p = (1.5, 1.0, 0.5)
+        idx = [int((p[k] - origin[k]) / cell) for k in range(3)]
+        j = idx[0] + idx[1] * dims[0] + idx[2] * dims[0] * dims[1]
+        self.assertLess(values[j], 0.0)
 
 
 class BakeTest(unittest.TestCase):

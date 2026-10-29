@@ -2,6 +2,7 @@ class_name GrowthStep
 extends RefCounted
 
 const COLLISION_SKIN := 1e-3
+const SOFFIT_SNAP_EPS := 0.02
 
 static func apply_direction_memory(prev: Vector3, d_actual: Vector3, memory: float) -> Vector3:
 	var blended := prev * memory + d_actual * (1.0 - memory)
@@ -181,9 +182,25 @@ static func step_tip(tip: Tip, ctx: SimContext) -> void:
 	var backend := ctx.surface.backend_tag()
 	var near_x: SurfaceQuery.Hit = null
 	var near_x_at := x_new
-	if d <= contact_thresh and (backend == "MeshSdf" or backend == "TowerSdf") and not hit.hit:
-		near_x = ctx.surface.nearest(x_new)
-		if near_x.hit and near_x.distance > contact_thresh \
+	if d <= contact_thresh and not hit.hit:
+		if backend == "MeshSdf" or backend == "TowerSdf" or backend == "WallSdf":
+			near_x = ctx.surface.nearest(x_new)
+		if backend == "WallSdf":
+			var wall_snap := ctx.surface.supported_wall_snap(
+				tip.position,
+				near_x,
+				near.normal,
+				contact_thresh,
+				params.adhesion_range,
+				params.eave_snap_face_cos,
+				ctx.surface.eave_soffit_y(),
+				SOFFIT_SNAP_EPS,
+				params.eave_traversal_enabled
+			)
+			if wall_snap.apply:
+				x_new = wall_snap.position
+				d_actual = (x_new - tip.position).normalized()
+		elif near_x != null and near_x.hit and near_x.distance > contact_thresh \
 				and near_x.distance < params.adhesion_range:
 			x_new = near_x.position
 			if backend == "TowerSdf":

@@ -217,7 +217,7 @@ def measure_wall_thickness(verts, tris):
     return min(wall_spans), sorted(wall_spans)[:10]
 
 
-def measure_interior(verts, tris):
+def measure_interior(verts, tris, shells):
     """Enclosed void clear span at the structure centre (outside solid, inside shell)."""
     xs = [v[0] for v in verts]
     ys = [v[1] for v in verts]
@@ -227,7 +227,7 @@ def measure_interior(verts, tris):
     mid_y = (min(ys) + max(ys)) * 0.5
     probe = (cx, mid_y, cz)
     # Hollow buildings: the cavity centre is outside the solid shell.
-    if ray_inside(probe, tris, verts):
+    if ray_inside(probe, shells):
         return {
             "enclosed": False,
             "clear_span_x": 0.0,
@@ -400,12 +400,12 @@ def measure_structure(name: str):
     hero_path = STRUCTURES / f"{name}_hero.glb"
     sim_path = STRUCTURES / f"{name}_sim.glb"
     sdf_path = STRUCTURES / f"{name}_sim.sdf"
-    hero_verts, _ = load_glb_mesh(hero_path)
+    hero_verts, _, _ = load_glb_mesh(hero_path)
     hero_nodes = load_glb_nodes(hero_path)
-    sim_verts, sim_tris = load_glb_mesh(sim_path)
+    sim_verts, sim_tris, sim_shells = load_glb_mesh(sim_path)
     sdf = load_sdf(sdf_path)
     wall_min, wall_samples = measure_wall_thickness(sim_verts, sim_tris)
-    interior = measure_interior(sim_verts, sim_tris)
+    interior = measure_interior(sim_verts, sim_tris, sim_shells)
     deviation = measure_hero_proxy_deviation(hero_verts, sdf, hero_nodes)
     corner_cont = check_corner_storey_continuity(hero_nodes)
     return {

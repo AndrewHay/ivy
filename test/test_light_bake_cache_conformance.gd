@@ -131,6 +131,7 @@ const BAKE_IRRELEVANT: Array[String] = [
 	"eave_traverse_max_float",
 	"eave_traverse_light_floor",  # T5 growth-rate floor — no ray path reads it
 	"eave_approach_reach",        # early-trigger raycast reach — governs step_tip only
+	"eave_snap_face_cos",         # WallSdf face-aware post-placement snap — step_tip only
 	"feeler_thinning_enabled",
 	"feeler_bin",
 	"feeler_cap",

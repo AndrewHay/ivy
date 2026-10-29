@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 MAGIC = b"IVYSDF1"
-BAKER_VERSION = 2
+BAKER_VERSION = 3
 
 
 def load_glb_mesh(path: Path):
@@ -90,12 +90,16 @@ def load_glb_mesh(path: Path):
 
     all_verts = []
     all_tris = []
-    base = 0
+    shells = []
+    global_base = 0
     for node in nodes:
         if "mesh" not in node:
             continue
         mesh = meshes[node["mesh"]]
         xform = node_matrix(node)
+        node_verts = []
+        node_tris = []
+        node_base = 0
         for prim in mesh["primitives"]:
             positions = read_accessor(prim["attributes"]["POSITION"])
             indices = read_accessor(prim["indices"]) if "indices" in prim else None
@@ -103,15 +107,23 @@ def load_glb_mesh(path: Path):
             if indices:
                 flat = [i[0] for i in indices]
                 for i in range(0, len(flat), 3):
-                    all_tris.append((base + flat[i], base + flat[i + 1], base + flat[i + 2]))
+                    tri = (node_base + flat[i], node_base + flat[i + 1], node_base + flat[i + 2])
+                    node_tris.append(tri)
             else:
                 for i in range(0, len(local), 3):
-                    all_tris.append((base + i, base + i + 1, base + i + 2))
-            base += len(local)
-            all_verts.extend(local)
+                    node_tris.append((node_base + i, node_base + i + 1, node_base + i + 2))
+            node_base += len(local)
+            node_verts.extend(local)
+        if not node_verts:
+            continue
+        shells.append((node_verts, node_tris))
+        for t in node_tris:
+            all_tris.append((t[0] + global_base, t[1] + global_base, t[2] + global_base))
+        all_verts.extend(node_verts)
+        global_base += len(node_verts)
     if not all_verts:
         raise SystemExit(f"no mesh geometry in {path}")
-    return all_verts, all_tris
+    return all_verts, all_tris, shells
 
 
 def tri_bounds(v0, v1, v2):
@@ -176,8 +188,8 @@ def point_tri_dist(p, v0, v1, v2):
     return ((p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2 + (p[2] - q[2]) ** 2) ** 0.5
 
 
-def ray_inside(p, tris, verts):
-    # Cast +X ray; odd crossings => inside.
+def ray_inside_shell(p, tris, verts):
+    # Cast +X ray; odd crossings => inside one closed shell.
     px, py, pz = p
     count = 0
     for i0, i1, i2 in tris:
@@ -212,7 +224,17 @@ def ray_inside(p, tris, verts):
     return count % 2 == 1
 
 
-def bake(verts, tris, cell: float, band: float):
+def ray_inside(p, shells):
+    """Inside the union of closed glTF node meshes (ivy-7p0).
+
+    ``shells`` is a list of (verts, tris) pairs — one per scene-graph node with
+    a mesh. Overlapping closed pieces break single-mesh parity; union per shell
+    restores consistent sign in overlap regions.
+    """
+    return any(ray_inside_shell(p, tris, verts) for verts, tris in shells)
+
+
+def bake(verts, tris, cell: float, band: float, shells=None):
     xs = [v[0] for v in verts]
     ys = [v[1] for v in verts]
     zs = [v[2] for v in verts]
@@ -288,7 +310,8 @@ def bake(verts, tris, cell: float, band: float):
                     origin[1] + (iy + 0.5) * cell,
                     origin[2] + (iz + 0.5) * cell,
                 )
-                inside = ray_inside(p, tris, verts)
+                sign_shells = shells if shells is not None else [(verts, tris)]
+                inside = ray_inside(p, sign_shells)
                 out.append(-d if inside else d)
     return origin, dims, mesh_aabb, out
 
@@ -339,9 +362,9 @@ def main(argv):
             i += 2
         else:
             raise SystemExit(f"unknown arg: {argv[i]}")
-    verts, tris = load_glb_mesh(src)
-    print(f"loaded {src.name}: {len(verts)} verts, {len(tris)} tris")
-    origin, dims, mesh_aabb, values = bake(verts, tris, cell, band)
+    verts, tris, shells = load_glb_mesh(src)
+    print(f"loaded {src.name}: {len(verts)} verts, {len(tris)} tris, {len(shells)} shells")
+    origin, dims, mesh_aabb, values = bake(verts, tris, cell, band, shells)
     prov = provenance_hash(src, cell, band)
     dst.parent.mkdir(parents=True, exist_ok=True)
     write_sdf(dst, origin, dims, mesh_aabb, values, cell, band, prov)
