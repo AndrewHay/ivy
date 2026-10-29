@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="StructureScenario" load_steps=2 format=3 uid="uid://c8ivy26play"]
+
+[ext_resource type="Script" path="res://src/world/structure_scenario.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+scenario_id = "ivy"
+display_name = "Village cottage"
+collision_glb = "res://assets/structures/ivy_sim.glb"
+hero_glb = "res://assets/structures/ivy_hero.glb"
+sdf_path = "res://assets/structures/ivy_sim.sdf"
+seed_positions = PackedVector3Array(-7, 1.2, 2.15, -10.1, 1.2, 0)
+seed_normals = PackedVector3Array(0, 1, 0, 1, 0, 0)
+camera_pivot = Vector3(-7, 1.56, 0)

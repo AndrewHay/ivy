@@ -15,9 +15,9 @@ _REPO = Path(__file__).resolve().parent.parent
 _CONFIGS_PATH = _REPO / "tools" / "structure_configs.json"
 
 
-_CONST_LINES = (110, 124)  # NATIVE_T … DOOR_HERO_OUTSET (0-based slice indices)
-_VALIDATE_LINES = (140, 234)
-_LAYOUT_LINES = (387, 498)
+_CONST_LINES = (130, 144)  # NATIVE_T … DOOR_HERO_OUTSET (0-based slice indices)
+_VALIDATE_LINES = (160, 279)
+_LAYOUT_LINES = (430, 544)
 
 
 def _exec_build_constants(ns: dict) -> None:
@@ -45,8 +45,13 @@ class _FakeVector:
 
 def _load_build_helpers():
     """Import schema + layout helpers without pulling in Blender (bpy)."""
+    import sys
+
+    sys.path.insert(0, str(_REPO / "tools"))
+    from cottage_layout import cottage_derived  # noqa: WPS433
+
     source = (_REPO / "tools" / "build_structures.py").read_text().splitlines()
-    ns: dict = {"math": __import__("math"), "Vector": _FakeVector}
+    ns: dict = {"math": __import__("math"), "Vector": _FakeVector, "cottage_derived": cottage_derived}
     _exec_build_constants(ns)
     exec("\n".join(source[_LAYOUT_LINES[0]:_LAYOUT_LINES[1]]), ns)  # noqa: S102
     return ns
@@ -134,6 +139,11 @@ class TestValidateConfigCommittedConfigs(unittest.TestCase):
 
     def test_square_has_merge_straight_runs(self):
         self.assertTrue(self.configs["square"].get("merge_straight_runs"))
+
+    def test_ivy_cottage_config_validates(self):
+        validate_config("ivy", self.configs["ivy"])
+        self.assertEqual(self.configs["ivy"].get("layout"), "cottage")
+        self.assertEqual(self.configs["ivy"]["door"], "front:1")
 
     def test_tower_has_merge_straight_runs(self):
         self.assertTrue(self.configs["tower"].get("merge_straight_runs"))

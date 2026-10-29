@@ -1,0 +1,5 @@
+# Ivy cottage mesh scenario — noon sun framing.
+SPEED pause
+ADVANCE_DAYS 1
+CAMERA sun
+SCREENSHOT ivy_cottage_sun.png

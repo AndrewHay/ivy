@@ -34,6 +34,7 @@ func _ready() -> void:
 
 	var scenarios: Array = [
 		{"id": "procedural_tower", "path": ""},
+		{"id": "ivy", "path": "res://assets/structures/scenarios/ivy.tres"},
 		{"id": "square", "path": "res://assets/structures/scenarios/square.tres"},
 		{"id": "tower", "path": "res://assets/structures/scenarios/tower.tres"},
 		{"id": "surface_wall", "path": "res://assets/structures/scenarios/surface_wall.tres"},

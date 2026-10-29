@@ -65,6 +65,26 @@ import bmesh
 import bpy
 from mathutils import Matrix, Vector
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from cottage_layout import (  # noqa: E402
+    COTTAGE_DEPTH_HALF,
+    DOOR_LEAF_KIT_OFFSET_X,
+    PIECE_CHIMNEY,
+    PIECE_DOOR_LEAF,
+    PIECE_GABLE,
+    PIECE_SHUTTER,
+    PIECE_WALL,
+    PIECE_WALL_BRICK,
+    PIECE_WALL_DOOR,
+    PIECE_WALL_WINDOW,
+    ROOF_BY_BAYS,
+    all_wall_slots,
+    cottage_derived,
+    cottage_kit_piece_names,
+    cottage_slot,
+    piece_for_slot,
+)
+
 argv = sys.argv[sys.argv.index("--") + 1 :]
 KIT = argv[0]
 OUT_DIR = argv[1]
@@ -147,6 +167,7 @@ _REQUIRED_KEYS = {
     "scene_offset": (list,),
 }
 _OPTIONAL_KEYS = {
+    "layout": (str,),
     "roof_half": (int, float),
     "intermediate_floor": (bool,),
     "hero_end_overlap": (bool,),
@@ -154,6 +175,12 @@ _OPTIONAL_KEYS = {
     "open_apertures": (list,),
     "merge_straight_runs": (bool,),
     "hero_corner_pieces": (bool,),
+    "bays": (int,),
+    "depth_half": (int, float),
+    "door": (str,),
+    "windows": (list,),
+    "brick_side": (str,),
+    "chimney_bay": (int,),
 }
 
 
@@ -162,6 +189,9 @@ def validate_config(name, cfg):
     where = f"structure config '{name}'"
     if not isinstance(cfg, dict):
         raise ValueError(f"{where}: must be a JSON object, got {type(cfg).__name__}")
+    layout = cfg.get("layout", "ring")
+    if layout not in ("ring", "cottage"):
+        raise ValueError(f"{where}: 'layout' must be 'ring' or 'cottage', got {layout!r}")
     allowed = set(_REQUIRED_KEYS) | set(_OPTIONAL_KEYS)
     unknown = set(cfg) - allowed
     if unknown:
@@ -169,6 +199,19 @@ def validate_config(name, cfg):
             f"{where}: unknown key(s) {sorted(unknown)} — likely a typo. "
             f"Allowed keys: {sorted(allowed)}"
         )
+    if layout == "cottage":
+        for key in ("name", "scene_offset", "bays", "door", "chimney_bay"):
+            if key not in cfg:
+                raise ValueError(f"{where}: cottage layout missing required key '{key}'")
+        if not isinstance(cfg.get("windows", []), list):
+            raise ValueError(f"{where}: 'windows' must be a list of slot strings")
+        if cfg["name"] != name:
+            raise ValueError(f"{where}: 'name' is '{cfg['name']}', expected '{name}'")
+        if len(cfg["scene_offset"]) != 3 or not all(
+            isinstance(v, (int, float)) and not isinstance(v, bool) for v in cfg["scene_offset"]
+        ):
+            raise ValueError(f"{where}: 'scene_offset' must be [x, y, z] numbers")
+        return
     for key, types in _REQUIRED_KEYS.items():
         if key not in cfg:
             raise ValueError(f"{where}: missing required key '{key}'")
@@ -386,6 +429,8 @@ def frame_interior(parts, z_floor, look_yaw_deg, inset=0.55, lens=24.0):
 
 
 def cfg_derived(cfg):
+    if cfg.get("layout") == "cottage":
+        return cottage_derived(cfg, EXT_OFFSET, TARGET_T, WALL_H)
     half = cfg["half"]
     corner_xy = half - EXT_OFFSET + END_OVERLAP / 2.0
     corner_size = END_OVERLAP + TARGET_T
@@ -894,7 +939,269 @@ def opening_center_local(ap):
     ))
 
 
+def cottage_facing_matrix(normal: Vector, origin: Vector) -> Matrix:
+    ang = math.atan2(normal.x, normal.y)
+    return Matrix.Translation(origin) @ Matrix.Rotation(ang, 4, "Z")
+
+
+def cottage_house_rotation(cfg) -> Matrix:
+    return Matrix.Rotation(math.radians(float(cfg.get("yaw_deg", 0.0))), 4, "Z")
+
+
+def cottage_wall_matrix(cfg, side: str, bay: int) -> Matrix:
+    bays = int(cfg["bays"])
+    depth_half = float(cfg.get("depth_half", COTTAGE_DEPTH_HALF))
+    pos, wall_yaw = cottage_slot(side, bay, bays, depth_half)
+    n, _ = side_vectors(wall_yaw)
+    return cottage_house_rotation(cfg) @ cottage_facing_matrix(Vector((n.x, n.y, 0.0)), Vector(pos))
+
+
+def cottage_outward_yaw(cfg, side: str, bay: int) -> float:
+    xf = cottage_wall_matrix(cfg, side, bay)
+    n = xf.to_3x3() @ Vector((0.0, 1.0, 0.0))
+    return math.degrees(math.atan2(n.x, -n.y))
+
+
+def enumerate_cottage_apertures(cfg, d):
+    apertures = []
+    bays = int(cfg["bays"])
+    door = str(cfg["door"])
+    windows = [str(w) for w in cfg.get("windows", [])]
+    brick_side = str(cfg.get("brick_side", ""))
+    side_letter = {"front": "S", "back": "N", "left": "W", "right": "E"}
+    for side, bay in all_wall_slots(bays):
+        slot = f"{side}:{bay}"
+        piece = piece_for_slot(slot, door, windows, brick_side)
+        if "Door" not in piece and "Window" not in piece:
+            continue
+        kind = "door" if "Door" in piece else "wide_win"
+        xf = cottage_wall_matrix(cfg, side, bay)
+        n = xf.to_3x3() @ Vector((0.0, 1.0, 0.0))
+        wall_loc = xf.translation + n * EXT_OFFSET
+        yaw = cottage_outward_yaw(cfg, side, bay)
+        aid = f"{cfg['name']}_ground_{kind}_{side_letter[side]}_{bay}"
+        ap = {
+            "id": aid,
+            "kind": kind,
+            "tag": "ground",
+            "side": side_letter[side],
+            "yaw": yaw,
+            "wall_loc": wall_loc,
+            "z_base": 0.0,
+            "spec": APERTURE_SPECS[kind],
+            "label": f"ground {'door' if kind == 'door' else 'win'} {side_letter[side]}",
+        }
+        if kind == "door":
+            ap["door_kit"] = PIECE_DOOR_LEAF
+        apertures.append(ap)
+    return apertures
+
+
+def place_cottage_sim_wall_slab(cfg, side: str, bay: int, collection, clay, prefix: str, world_offset: Vector):
+    xf = Matrix.Translation(world_offset) @ cottage_wall_matrix(cfg, side, bay)
+    center = xf @ Vector((0.0, EXT_OFFSET + TARGET_T / 2.0, WALL_H / 2.0))
+    return place_clay_box(
+        f"{prefix}{PIECE_WALL}_{side}_{bay}",
+        center,
+        (MODULE, TARGET_T, WALL_H),
+        collection,
+        clay,
+    )
+
+
+def place_cottage_kit(
+    piece: str,
+    cfg,
+    side: str,
+    bay: int,
+    collection,
+    data_fn,
+    prefix: str,
+    world_offset: Vector,
+) -> bpy.types.Object:
+    xf = cottage_wall_matrix(cfg, side, bay)
+    obj = bpy.data.objects.new(f"{prefix}{piece}_{side}_{bay}", data_fn(piece).copy())
+    collection.objects.link(obj)
+    obj.matrix_world = Matrix.Translation(world_offset) @ xf
+    return obj
+
+
+def assemble_cottage_hero(cfg, hero_col, hero_roof_mat, glass_mat, world_offset):
+    d = cfg_derived(cfg)
+    name = cfg["name"]
+    prefix = f"{name}_hero_"
+    parts = []
+    bays = int(cfg["bays"])
+    door = str(cfg["door"])
+    windows = [str(w) for w in cfg.get("windows", [])]
+    brick_side = str(cfg.get("brick_side", ""))
+    for side, bay in all_wall_slots(bays):
+        slot = f"{side}:{bay}"
+        piece = piece_for_slot(slot, door, windows, brick_side)
+        parts.append(
+            place_cottage_kit(piece, cfg, side, bay, hero_col, hero_data, prefix, world_offset)
+        )
+        if slot in windows:
+            parts.append(
+                place_cottage_kit(
+                    PIECE_SHUTTER, cfg, side, bay, hero_col, hero_data, prefix, world_offset
+                )
+            )
+    house_rot = cottage_house_rotation(cfg)
+    half_len = float(bays)
+    for sx in (-1, 1):
+        end = Vector((sx * half_len, 0.0, WALL_H))
+        xf = house_rot @ cottage_facing_matrix(Vector((float(sx), 0.0)), end)
+        obj = bpy.data.objects.new(f"{prefix}{PIECE_GABLE}_{sx}", hero_data(PIECE_GABLE).copy())
+        hero_col.objects.link(obj)
+        obj.matrix_world = Matrix.Translation(world_offset) @ xf
+        parts.append(obj)
+    roof_piece = ROOF_BY_BAYS[bays]
+    roof_xf = house_rot @ Matrix.Rotation(math.pi * 0.5, 4, "Z") @ Matrix.Translation((0.0, 0.0, WALL_H))
+    obj = bpy.data.objects.new(f"{prefix}{roof_piece}", hero_data(roof_piece).copy())
+    hero_col.objects.link(obj)
+    obj.matrix_world = Matrix.Translation(world_offset) @ roof_xf
+    parts.append(obj)
+    chimney_x = -bays + 1.0 + 2.0 * int(cfg["chimney_bay"])
+    chimney_xf = house_rot @ Matrix.Translation((chimney_x, -1.1, WALL_H + 0.3))
+    obj = bpy.data.objects.new(f"{prefix}{PIECE_CHIMNEY}", hero_data(PIECE_CHIMNEY).copy())
+    hero_col.objects.link(obj)
+    obj.matrix_world = Matrix.Translation(world_offset) @ chimney_xf
+    parts.append(obj)
+    open_ids = set(cfg.get("open_apertures", []))
+    apertures = enumerate_cottage_apertures(cfg, d)
+    for ap in apertures:
+        parts += place_hero_seals(ap, hero_col, prefix, world_offset, glass_mat, _wood, open_ids, d)
+    return parts, d, apertures
+
+
+def cottage_sim_shell_from_hero(hero_obj, sim_col, clay, sim_name: str):
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    eval_obj = hero_obj.evaluated_get(depsgraph)
+    corners = [eval_obj.matrix_world @ Vector(c) for c in eval_obj.bound_box]
+    mins = Vector((min(c[i] for c in corners) for i in range(3)))
+    maxs = Vector((max(c[i] for c in corners) for i in range(3)))
+    center = (mins + maxs) / 2.0
+    size = maxs - mins + Vector((0.06, 0.06, 0.04))
+    return place_clay_box(sim_name, center, (size.x, size.y, size.z), sim_col, clay)
+
+
+def assemble_cottage_sim(cfg, sim_col, clay, world_offset, omit_seal=None, hero_col=None):
+    name = cfg["name"]
+    print(f"\n[{name}] assembling cottage simulation mesh", flush=True)
+    d = cfg_derived(cfg)
+    prefix = f"{name}_sim_"
+    parts = []
+    bays = int(cfg["bays"])
+    if hero_col is None:
+        raise ValueError(f"cottage '{name}' sim assembly requires hero_col")
+    def _cottage_kit_from_hero_name(tail: str) -> str | None:
+        for side in ("front", "back", "left", "right"):
+            token = f"_{side}_"
+            if token in tail:
+                return tail.split(token)[0]
+        return None
+
+    for hero_obj in hero_col.all_objects:
+        if hero_obj.type != "MESH" or not hero_obj.name.startswith(f"{name}_hero_"):
+            continue
+        tail = hero_obj.name[len(f"{name}_hero_") :]
+        sim_name = f"{prefix}{tail}"
+        if tail.startswith(("Wall_Plaster", "Wall_UnevenBrick")):
+            kit = _cottage_kit_from_hero_name(tail)
+            if kit in (PIECE_WALL, PIECE_WALL_BRICK):
+                parts.append(cottage_sim_shell_from_hero(hero_obj, sim_col, clay, sim_name))
+            elif kit is not None:
+                obj = bpy.data.objects.new(sim_name, solid_data(kit).copy())
+                sim_col.objects.link(obj)
+                obj.matrix_world = hero_obj.matrix_world.copy()
+                assign_material(obj, clay)
+                parts.append(obj)
+        elif tail.startswith("Roof_RoundTiles"):
+            obj = bpy.data.objects.new(sim_name, solid_data(tail).copy())
+            sim_col.objects.link(obj)
+            obj.matrix_world = hero_obj.matrix_world.copy()
+            assign_material(obj, clay)
+            parts.append(obj)
+        elif tail.startswith("Roof_Front_Brick4"):
+            obj = bpy.data.objects.new(sim_name, solid_data(PIECE_GABLE).copy())
+            sim_col.objects.link(obj)
+            obj.matrix_world = hero_obj.matrix_world.copy()
+            assign_material(obj, clay)
+            parts.append(obj)
+        elif tail.startswith("Prop_Chimney"):
+            obj = bpy.data.objects.new(sim_name, solid_data(PIECE_CHIMNEY).copy())
+            sim_col.objects.link(obj)
+            obj.matrix_world = hero_obj.matrix_world.copy()
+            assign_material(obj, clay)
+            parts.append(obj)
+        elif tail.startswith("WindowShutters"):
+            parts.append(cottage_sim_shell_from_hero(hero_obj, sim_col, clay, sim_name))
+    slab_half_x = d["wall_x"]
+    slab_half_y = d["wall_y"]
+    parts.append(
+        solid_box_rect(f"{prefix}FloorSlab", -CAP, 0.05, slab_half_x, slab_half_y, sim_col, clay, world_offset)
+    )
+    parts.append(
+        solid_box_rect(
+            f"{prefix}RoofCap",
+            WALL_H - 0.05,
+            WALL_H + CAP,
+            slab_half_x,
+            slab_half_y,
+            sim_col,
+            clay,
+            world_offset,
+        )
+    )
+    open_ids = set(cfg.get("open_apertures", []))
+    apertures = enumerate_cottage_apertures(cfg, d)
+    for ap in apertures:
+        omit = ap["id"] == omit_seal or ap["id"] in open_ids
+        panel = place_sim_panel(ap, sim_col, prefix, world_offset, clay, omit=omit)
+        if panel is not None:
+            parts.append(panel)
+    return parts, d, apertures
+
+
+def solid_box_rect(name, z0, z1, half_x, half_y, collection, material=None, world_offset=Vector((0, 0, 0))):
+    root = collection.name.split("_")[0]
+    parent_name = "Hero" if root == "Hero" else "Simulation"
+    layer = bpy.context.view_layer.active_layer_collection
+    bpy.context.view_layer.active_layer_collection = (
+        bpy.context.view_layer.layer_collection.children[parent_name].children[collection.name]
+    )
+    bpy.ops.mesh.primitive_cube_add(size=1.0, location=(world_offset.x, world_offset.y, (z0 + z1) / 2.0 + world_offset.z))
+    bpy.context.view_layer.active_layer_collection = layer
+    o = bpy.context.active_object
+    o.name = name
+    o.scale = (2 * half_x, 2 * half_y, z1 - z0)
+    apply_transform(o)
+    if material is not None:
+        assign_material(o, material)
+    return o
+
+
+def place_clay_box(name, center, size_xyz, collection, material):
+    root = collection.name.split("_")[0]
+    parent_name = "Hero" if root == "Hero" else "Simulation"
+    layer = bpy.context.view_layer.active_layer_collection
+    bpy.context.view_layer.active_layer_collection = (
+        bpy.context.view_layer.layer_collection.children[parent_name].children[collection.name]
+    )
+    bpy.ops.mesh.primitive_cube_add(size=1.0, location=center)
+    bpy.context.view_layer.active_layer_collection = layer
+    o = bpy.context.active_object
+    o.name = name
+    o.scale = size_xyz
+    apply_transform(o)
+    assign_material(o, material)
+    return o
+
+
 def enumerate_apertures(cfg, d):
+    if cfg.get("layout") == "cottage":
+        return enumerate_cottage_apertures(cfg, d)
     apertures = []
     offsets = cfg["module_offsets"]
     wall_r = d["wall_exterior"]
@@ -1019,11 +1326,12 @@ def place_hero_seals(ap, hero_col, prefix, world_offset, glass_mat, wood_mat=Non
             spec = ap["spec"]
             open_w = spec["x1"] - spec["x0"]
             open_h = spec["z1"] - spec["z0"]
-            dx0, dx1 = piece_axis_extent("Door_2_Round", 0)
-            dz0, dz1 = piece_axis_extent("Door_2_Round", 2)
+            door_kit = ap.get("door_kit", "Door_2_Round")
+            dx0, dx1 = piece_axis_extent(door_kit, 0)
+            dz0, dz1 = piece_axis_extent(door_kit, 2)
             door_w = dx1 - dx0
             door_h = dz1 - dz0
-            dc = piece_centre("Door_2_Round")
+            dc = piece_centre(door_kit)
             inset = 0.02
             sx = 1.0
             sz = 1.0
@@ -1034,11 +1342,13 @@ def place_hero_seals(ap, hero_col, prefix, world_offset, glass_mat, wood_mat=Non
             # around the object origin, so translation must use scaled extents.
             door_off = Vector((
                 (spec["x0"] + spec["x1"]) / 2.0 - dc.x * sx,
-                -piece_y_min("Door_2_Round") - DOOR_HERO_OUTSET,
+                -piece_y_min(door_kit) - DOOR_HERO_OUTSET,
                 spec["z0"] - dz0 * sz + inset,
             ))
+            if door_kit == PIECE_DOOR_LEAF:
+                door_off.x += DOOR_LEAF_KIT_OFFSET_X
             door = place_kit_seal(ap, hero_col, prefix, world_offset,
-                                    "Door_2_Round", "door", door_off, wood_mat)
+                                    door_kit, "door", door_off, wood_mat)
             door.scale = (sx, 1.0, sz)
             parts.append(door)
     else:
@@ -1124,6 +1434,8 @@ def place_interior_face(ap, sim_col, prefix, world_offset, clay):
 
 
 def assemble_hero(cfg, hero_col, hero_roof_mat, glass_mat, world_offset):
+    if cfg.get("layout") == "cottage":
+        return assemble_cottage_hero(cfg, hero_col, hero_roof_mat, glass_mat, world_offset)
     d = cfg_derived(cfg)
     name = cfg["name"]
     prefix = f"{name}_hero_"
@@ -1154,7 +1466,11 @@ def assemble_hero(cfg, hero_col, hero_roof_mat, glass_mat, world_offset):
     return parts, d, apertures
 
 
-def assemble_sim(cfg, sim_col, clay, world_offset, omit_seal=None):
+def assemble_sim(cfg, sim_col, clay, world_offset, omit_seal=None, hero_col=None):
+    if cfg.get("layout") == "cottage":
+        return assemble_cottage_sim(
+            cfg, sim_col, clay, world_offset, omit_seal=omit_seal, hero_col=hero_col,
+        )
     name = cfg["name"]
     print(f"\n[{name}] assembling simulation mesh", flush=True)
     parts, d = assemble_sim_walls(cfg, sim_col, clay, world_offset)
@@ -1171,7 +1487,11 @@ def shell_objects(parts):
     """
     return [
         o for o in parts
-        if "Wall_UnevenBrick" in o.name or "_Seal_" in o.name or "_Panel_" in o.name or "_Interior_" in o.name
+        if "Wall_UnevenBrick" in o.name
+        or "Wall_Plaster" in o.name
+        or "_Seal_" in o.name
+        or "_Panel_" in o.name
+        or "_Interior_" in o.name
     ]
 
 
@@ -1322,6 +1642,8 @@ def verify_corner_fill(name, sim_parts, d, wo):
 
 def layout_aperture_probes(cfg, wo, d):
     """Derive aperture / solid probe rays from storey layout and bay centres."""
+    if cfg.get("layout") == "cottage":
+        return []
     probes = []
     offsets = cfg["module_offsets"]
     wall_r = d["wall_exterior"]
@@ -1423,6 +1745,20 @@ def measure_aperture_separations(apertures, hero_parts, sim_parts, wo):
 
 def verify_structure(name, sim_parts, hero_parts, d, wo, cfg, apertures):
     print(f"\n=== {name.upper()} SIMULATION (per piece) ===")
+    if cfg.get("layout") == "cottage":
+        for obj in sim_parts:
+            bm = bmesh.new()
+            bm.from_mesh(obj.data)
+            bnd = sum(1 for e in bm.edges if len(e.link_faces) == 1)
+            nmf = sum(1 for e in bm.edges if len(e.link_faces) > 2)
+            print(f"  {obj.name:44s} boundary {bnd:3d}  nonmanifold {nmf:3d}  "
+                  f"{'CLOSED' if bnd == 0 and nmf == 0 else 'OPEN'}")
+            bm.free()
+        print(f"\n--- [{name}] apertures (expect SEALED) ---")
+        verify_apertures(name, sim_parts, cfg, wo, d, apertures)
+        measure_aperture_separations(apertures, hero_parts, sim_parts, wo)
+        envelope_deviation(hero_parts, sim_parts, d, wo)
+        return
     for obj in sim_parts:
         bm = bmesh.new()
         bm.from_mesh(obj.data)
@@ -1743,6 +2079,8 @@ def save_structure_blend(name):
 
 
 def kit_piece_names(cfg):
+    if cfg.get("layout") == "cottage":
+        return cottage_kit_piece_names(cfg)
     names = set(HERO_CORNER_PIECES) | set(HERO_SEAL_PIECES)
     for sides in cfg["storey_sides"]:
         for _yaw, run in sides:
@@ -1893,7 +2231,14 @@ if EXPORT_BLEND is None and REBUILD_BLEND is None:
     for sname in structures:
         if sname not in built:
             continue
-        sp, d, aps = assemble_sim(built[sname]["cfg"], built[sname]["sim_col"], _clay, built[sname]["wo"], omit_seal=OMIT_SEAL)
+        cfg_sim = built[sname]["cfg"]
+        if cfg_sim.get("layout") == "cottage":
+            sp, d, aps = assemble_cottage_sim(
+                cfg_sim, built[sname]["sim_col"], _clay, built[sname]["wo"],
+                omit_seal=OMIT_SEAL, hero_col=built[sname]["hero_col"],
+            )
+        else:
+            sp, d, aps = assemble_sim(cfg_sim, built[sname]["sim_col"], _clay, built[sname]["wo"], omit_seal=OMIT_SEAL)
         built[sname]["sim"] = sp
         built[sname]["d"] = d
         built[sname]["apertures"] = aps

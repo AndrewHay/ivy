@@ -44,6 +44,17 @@
     "intermediate_floor": true,
     "corner_chamfer": 0.15
   },
+  "ivy": {
+    "name": "ivy",
+    "layout": "cottage",
+    "bays": 3,
+    "depth_half": 2.0,
+    "door": "front:1",
+    "windows": ["front:0", "left:0"],
+    "brick_side": "",
+    "chimney_bay": 2,
+    "scene_offset": [-7.0, 0.0, 0.0]
+  },
   "surface_wall": {
     "name": "surface_wall",
     "half": 3.0,

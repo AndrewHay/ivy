@@ -33,7 +33,7 @@ static func all() -> Array[Entry]:
 		Entry.new("overhang", "Eave wall", "", true),
 		Entry.new("overhang_spread", "Eave wall (stop-spread)"),
 		Entry.new("tower", "Tower", "res://assets/structures/scenarios/tower.tres"),
-		Entry.new("square", "Squat house", "res://assets/structures/scenarios/square.tres"),
+		Entry.new("ivy", "Village cottage", "res://assets/structures/scenarios/ivy.tres"),
 		Entry.new(
 			"test_fauna",
 			"Test fauna",

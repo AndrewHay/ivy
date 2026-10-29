@@ -33,11 +33,12 @@ Resolve the user's name (tower, square, surface wall, etc.) to:
 
 | id | Config key | Blend (target) | Hero GLB | Sim GLB | SDF | Scenario |
 |---|---|---|---|---|---|---|
+| `ivy` | `ivy` | `assets/structures/ivy.blend` | `assets/structures/ivy_hero.glb` | `assets/structures/ivy_sim.glb` | `assets/structures/ivy_sim.sdf` | `assets/structures/scenarios/ivy.tres` |
 | `square` | `square` | `assets/structures/square.blend` | `assets/structures/square_hero.glb` | `assets/structures/square_sim.glb` | `assets/structures/square_sim.sdf` | `assets/structures/scenarios/square.tres` |
 | `tower` | `tower` | `assets/structures/tower.blend` | `assets/structures/tower_hero.glb` | `assets/structures/tower_sim.glb` | `assets/structures/tower_sim.sdf` | `assets/structures/scenarios/tower.tres` |
 | `surface_wall` | `surface_wall` | `assets/structures/surface_wall.blend` | `assets/structures/surface_wall_hero.glb` | `assets/structures/surface_wall_sim.glb` | `assets/structures/surface_wall_sim.sdf` | `assets/structures/scenarios/surface_wall.tres` |
 
-Building picker (`BuildingCatalog`) exposes `square` and `tower` only; `surface_wall` is dev/tooling.
+Building picker (`BuildingCatalog`) exposes `ivy` and `tower`; `square` is test-only; `surface_wall` is dev/tooling.
 
 Kit glTF dir (untracked): `assets/_local/medieval_village_megakit/glTF` — see `assets/ASSET_LIBRARIES.md`.
 
