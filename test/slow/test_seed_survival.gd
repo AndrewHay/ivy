@@ -15,7 +15,6 @@ const IvyParams = preload("res://src/params/ivy_params.gd")
 const SimClock = preload("res://src/core/sim_clock.gd")
 
 const SOUTH := 2
-const DAY_30_TICKS := SimClock.ticks_for_game_days(30.0, SimClock.Speed.NORMAL)
 const FORMERLY_FATAL_SEEDS := [777, 2024, 101]
 const MIN_SEGMENTS_DAY_30 := 500
 
@@ -50,7 +49,7 @@ func _grow(stream_seed: int) -> SimRoot:
 	sim.setup(params, _sq, null, SOUTH, _anchors, false)
 	var anchor = _anchors.get_anchors()[SOUTH]
 	sim.tips.add_seed(anchor.position, anchor.normal, stream_seed, params)
-	sim.advance_ticks(DAY_30_TICKS)
+	sim.advance_ticks(SimClock.ticks_for_game_days(30.0, SimClock.Speed.NORMAL))
 	return sim
 
 

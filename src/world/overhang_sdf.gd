@@ -24,6 +24,16 @@ func backend_hint() -> String:
 	return "WallSdf"
 
 
+## Soffit underside height (y of the slab bottom / top of wall opening).
+func soffit_y() -> float:
+	return spec.wall_height
+
+
+## Front (+Z) eave lip plane for snap guards (traverse-off M6/M7).
+func eave_lip_z() -> float:
+	return spec.slab_projection
+
+
 # ── Geometry helpers ───────────────────────────────────────────────────────────
 
 ## Centre of the wall box.

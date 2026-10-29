@@ -33,7 +33,6 @@ const IvyParams = preload("res://src/params/ivy_params.gd")
 const Conv = preload("res://src/core/conv.gd")
 
 const SimClock = preload("res://src/core/sim_clock.gd")
-const TICKS_PER_DAY := int(SimClock.ticks_per_game_day_for(SimClock.Speed.NORMAL))
 const GAME_DAYS := 100
 
 ## Seeds: x in {-4,-2,0,2,4}, y=0.05, z=0.01
@@ -117,6 +116,7 @@ func _make_plain_wall_sim() -> SimRoot:
 
 
 func test_overhang_traverse_metrics_g1_to_g5() -> void:
+	var growth_ticks := SimClock.ticks_for_game_days(float(GAME_DAYS), SimClock.Speed.NORMAL)
 	var spec := OverhangSpec.new()
 	var sdf := OverhangSdf.new(spec)
 
@@ -134,7 +134,7 @@ func test_overhang_traverse_metrics_g1_to_g5() -> void:
 		"Guard [bake-commit]: soffit D_L %.4f must be < open-wall D_L %.4f (pre-commit bake is degenerate)" % [
 			d_l_soffit, d_l_open])
 
-	sim.advance_ticks(TICKS_PER_DAY * GAME_DAYS)
+	sim.advance_ticks(growth_ticks)
 	var plant := sim.plant
 	var tips := sim.tips
 
@@ -263,7 +263,7 @@ func test_overhang_traverse_metrics_g1_to_g5() -> void:
 
 	## Helper awaits physics_frame internally after wall.build_from_spec (bake-after-commit).
 	var plain_sim := await _make_plain_wall_sim()
-	plain_sim.advance_ticks(TICKS_PER_DAY * GAME_DAYS)
+	plain_sim.advance_ticks(growth_ticks)
 	var plain_stem: float = plain_sim.plant.total_length
 	print("[traverse-metrics] plain_stem=%.2f ratio=%.4f" % [plain_stem, traverse_stem / maxf(plain_stem, 0.001)])
 	assert_true(traverse_stem >= G5_STEM_RATIO * plain_stem,

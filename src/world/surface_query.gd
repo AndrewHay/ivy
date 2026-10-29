@@ -17,6 +17,11 @@ class Hit:
 	var refined: bool = true
 
 
+class WallSnap:
+	var apply: bool = false
+	var position: Vector3 = Vector3.ZERO
+
+
 var _space: PhysicsDirectSpaceState3D
 var _body: CollisionObject3D
 var _backend  # TowerSdf or MeshSdf — SD-MESH-1
@@ -66,6 +71,72 @@ func setup(
 
 func backend_tag() -> String:
 	return _backend_tag
+
+
+const COLLISION_SKIN := 1e-3
+
+
+func eave_soffit_y() -> float:
+	if _backend != null and _backend.has_method("soffit_y"):
+		return _backend.soffit_y()
+	return INF
+
+
+func _eave_lip_projection_z() -> float:
+	if _backend != null and _backend.has_method("eave_lip_z"):
+		return _backend.eave_lip_z()
+	return INF
+
+
+## Face-aware post-placement snap for WallSdf / OverhangSdf (ivy-a4n).
+## Rejects roof targets and unrelated faces. Soffit underside + eave-lip snaps require
+## allow_soffit_reattach (growth_step passes eave_traversal_enabled) so flag-off ivy-9us stays on the wall.
+func supported_wall_snap(
+	tip_start: Vector3,
+	candidate: Hit,
+	start_normal: Vector3,
+	contact_thresh: float,
+	adhesion_range: float,
+	face_continuity_cos: float,
+	soffit_y: float,
+	soffit_eps: float,
+	allow_soffit_reattach: bool = false
+) -> WallSnap:
+	var out := WallSnap.new()
+	if candidate == null or not candidate.hit:
+		return out
+	if candidate.distance <= contact_thresh or candidate.distance >= adhesion_range:
+		return out
+	if candidate.normal.y > 0.5 or candidate.position.y > soffit_y + soffit_eps:
+		return out
+	# Traverse-off overhang (ivy-9us / M6–M7): never snap onto soffit underside or eave lip.
+	if not allow_soffit_reattach:
+		if candidate.normal.y < -0.5:
+			return out
+		var lip_z := _eave_lip_projection_z()
+		if lip_z < INF:
+			const LIP_Z_MARGIN := 0.15
+			if candidate.position.z > lip_z - LIP_Z_MARGIN \
+					and candidate.position.y > soffit_y - 0.15:
+				return out
+	var same_face := candidate.normal.dot(start_normal) >= face_continuity_cos
+	var concave := allow_soffit_reattach \
+		and absf(start_normal.y) < 0.5 \
+		and candidate.normal.y < -0.5 \
+		and _ray_to_surface_clear(tip_start, candidate.position)
+	if not same_face and not concave:
+		return out
+	var n_out := _orient_outward_normal(candidate.position, candidate.normal)
+	out.apply = true
+	out.position = candidate.position + n_out * COLLISION_SKIN
+	return out
+
+
+func _ray_to_surface_clear(from: Vector3, to: Vector3) -> bool:
+	var los := raycast(from, to)
+	if not los.hit:
+		return true
+	return from.distance_to(los.position) >= from.distance_to(to) - 0.02
 
 
 ## Content identity of the geometry this query answers against, for cache keys (ivy-9xp).
