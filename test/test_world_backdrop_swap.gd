@@ -4,7 +4,7 @@
 ##     - node named "VillageBackdrop" exists exactly once as a child of World
 ##     - it is a GeneratedVillageBackdrop
 ##     - it is still named "VillageBackdrop"
-##     - SkySun fog_depth_begin == 14.0 (layout.fog_begin for generated)
+##     - SkySun fog_depth_begin == layout GENERATED_FOG_BEGIN (16.8 after ring +20% tuning)
 ## (b) After rebuild_backdrop() with CLASSIC mode:
 ##     - node is a VillageBackdrop (base class, not GeneratedVillageBackdrop)
 ##     - SkySun fog_depth_begin == 9.5 (layout.fog_begin for classic; restore proof)
@@ -88,8 +88,8 @@ func test_generated_fog_depth_begin() -> void:
 	await get_tree().process_frame
 
 	var fog := _fog_depth_begin(world)
-	assert_almost_eq(fog, 14.0, 0.01,
-		"fog_depth_begin must be 14.0 after generated swap (layout.fog_begin)")
+	assert_almost_eq(fog, VillageLayout.GENERATED_FOG_BEGIN, 0.01,
+		"fog_depth_begin must match GENERATED_FOG_BEGIN after generated swap")
 
 
 func test_generated_backdrop_exists_exactly_once() -> void:
@@ -167,10 +167,10 @@ func test_round_trip_fog_restore() -> void:
 	await get_tree().process_frame
 	var fog_classic := _fog_depth_begin(world)
 
-	assert_almost_eq(fog_gen, 14.0, 0.01,
-		"Generated fog_depth_begin must be 14.0")
+	assert_almost_eq(fog_gen, VillageLayout.GENERATED_FOG_BEGIN, 0.01,
+		"Generated fog_depth_begin must match GENERATED_FOG_BEGIN")
 	assert_almost_eq(fog_classic, 9.5, 0.01,
-		"Classic fog_depth_begin must restore to 9.5 (no stale 14.0)")
+		"Classic fog_depth_begin must restore to 9.5 (no stale generated fog)")
 
 
 # ── (d) Exactly one backdrop after each swap ──────────────────────────────────
