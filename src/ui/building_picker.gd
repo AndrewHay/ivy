@@ -79,6 +79,7 @@ func _ready() -> void:
 	_toggle.name = "VillageModeToggle"
 	_toggle.text = "Generated village"
 	_toggle.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_OverlayStyle.style_button(_toggle)
 	mode_row.add_child(_toggle)
 
 	var seed_lbl := Label.new()

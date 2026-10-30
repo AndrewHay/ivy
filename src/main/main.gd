@@ -6,6 +6,7 @@ const _DevOverlay = preload("res://src/ui/dev_overlay.gd")
 const _FieldViz = preload("res://src/ui/field_viz.gd")
 const _BuildingPicker = preload("res://src/ui/building_picker.gd")
 const GameModes = preload("res://src/world/game_modes.gd")
+const RngStream = preload("res://src/core/rng_stream.gd")
 const _PlantingTool = preload("res://src/ui/planting_tool.gd")
 
 const _LoadingOverlay = preload("res://src/ui/loading_overlay.gd")
@@ -89,9 +90,8 @@ func _show_building_picker() -> void:
 func _on_village_mode_changed(mode_id: String) -> void:
 	_village_mode = mode_id
 	if mode_id == GameModes.GENERATED:
-		var rng := RandomNumberGenerator.new()
-		rng.randomize()
-		_village_seed = rng.randi() & 0x7FFFFFFF
+		var stream := RngStream.from_seed(int(Time.get_ticks_usec()))
+		_village_seed = stream.randi() & 0x7FFFFFFF
 	else:
 		_village_seed = 0
 	if _picker_ref != null and is_instance_valid(_picker_ref) and _picker_ref.has_method("set_village_seed"):
