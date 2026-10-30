@@ -5,6 +5,7 @@ const _Hud = preload("res://src/ui/hud.gd")
 const _DevOverlay = preload("res://src/ui/dev_overlay.gd")
 const _FieldViz = preload("res://src/ui/field_viz.gd")
 const _BuildingPicker = preload("res://src/ui/building_picker.gd")
+const GameModes = preload("res://src/world/game_modes.gd")
 const _PlantingTool = preload("res://src/ui/planting_tool.gd")
 
 const _LoadingOverlay = preload("res://src/ui/loading_overlay.gd")
@@ -39,6 +40,12 @@ var _snapshot_save_busy: bool = false
 var _bootstrap_generation: int = 0
 var _snapshot_annotation_overlay: Control = null
 
+## Village mode/seed (AR-VG-WIRE S4). Persists across return_to_picker.
+var _village_mode: String = GameModes.CLASSIC
+var _village_seed: int = 0
+## Held while the picker is open so set_village_seed() can update the display (S5).
+var _picker_ref: Control = null
+
 
 func _enter_tree() -> void:
 	if mesh_scenario == null:
@@ -61,11 +68,36 @@ func _ready() -> void:
 func _show_building_picker() -> void:
 	var picker := _BuildingPicker.new() as Control
 	picker.name = "BuildingPicker"
+	# Restore persisted mode so the toggle survives return_to_picker (AR-VG-WIRE).
+	if picker.has_method("init_village_mode"):
+		picker.call("init_village_mode", _village_mode)
 	picker.building_selected.connect(_on_building_selected)
+	if picker.has_signal("village_mode_changed"):
+		picker.connect("village_mode_changed", _on_village_mode_changed)
+	_picker_ref = picker
 	_ui.add_child(picker)
+	# Sync persisted seed display after _ready has built the label nodes.
+	if _village_mode == GameModes.GENERATED and picker.has_method("set_village_seed"):
+		picker.call("set_village_seed", _village_seed)
+
+
+## Receives the picker toggle signal (AR-VG-WIRE S5).
+## Rolls a fresh seed for GENERATED; zeroes seed for CLASSIC.
+## Then calls back into the picker to update its display.
+func _on_village_mode_changed(mode_id: String) -> void:
+	_village_mode = mode_id
+	if mode_id == GameModes.GENERATED:
+		var rng := RandomNumberGenerator.new()
+		rng.randomize()
+		_village_seed = rng.randi() & 0x7FFFFFFF
+	else:
+		_village_seed = 0
+	if _picker_ref != null and is_instance_valid(_picker_ref) and _picker_ref.has_method("set_village_seed"):
+		_picker_ref.call("set_village_seed", _village_seed)
 
 
 func _on_building_selected(building_id: String) -> void:
+	_picker_ref = null  # picker will queue_free itself
 	var standalone := BuildingCatalog.standalone_scene_for(building_id)
 	if not standalone.is_empty():
 		get_tree().change_scene_to_file(standalone)
@@ -121,15 +153,34 @@ func _set_loading_progress(message: String, ratio: float) -> void:
 func _load_building(building_id: String) -> void:
 	if mesh_scenario != null and _world.mesh_scenario == null:
 		_world.mesh_scenario = mesh_scenario
+	# Push village mode/seed to World before load_building triggers rebuild_backdrop (AR-VG-WIRE).
+	if _world.has_method("set_village_mode"):
+		_world.call("set_village_mode", _village_mode, _village_seed)
 	_world.load_building(building_id)
 	await get_tree().physics_frame
 	await get_tree().process_frame
+
+
+## QA/dev hook: set village mode + seed and immediately rebuild the backdrop without
+## reloading the building. Used by run_ui_script.gd VILLAGE_MODE verb and tools (AR-VG-WIRE).
+func apply_village_mode_live(mode_id: String, seed: int) -> void:
+	_village_mode = mode_id
+	_village_seed = seed
+	if _world.has_method("set_village_mode"):
+		_world.call("set_village_mode", _village_mode, _village_seed)
+	if _world.has_method("rebuild_backdrop"):
+		_world.call("rebuild_backdrop")
 
 
 func _bootstrap_simulation(auto_seed: bool) -> bool:
 	var t0 := Time.get_ticks_msec()
 	if mesh_scenario != null and _world.mesh_scenario == null:
 		_world.mesh_scenario = mesh_scenario
+	# Push village mode before building loads so rebuild_backdrop uses the right mode.
+	# In script_driven runs the mode is set via --village-mode flag; in interactive runs
+	# it is already pushed by _load_building before _bootstrap_simulation is called.
+	if _world.has_method("set_village_mode"):
+		_world.call("set_village_mode", _village_mode, _village_seed)
 	_world.ensure_mesh_scenario_loaded()
 	# Collision shapes — ConcavePolygonShape3D trimeshes from StructureBody.build() on the
 	# mesh path, the Tower/Wall trimeshes on the procedural path, and the WorldBoundaryShape3D
@@ -320,6 +371,8 @@ func _setup_dev_tools() -> void:
 		if _session_log != null:
 			_session_log.record_param(tick, name, value)
 	)
+	if _dev_overlay.has_method("set_village_info"):
+		_dev_overlay.call("set_village_info", _village_mode, _village_seed)
 	_field_viz = _FieldViz.new() as Node3D
 	_field_viz.name = "FieldViz"
 	_world.add_child(_field_viz)
@@ -428,6 +481,10 @@ func _co_snapshot_save(quick: bool) -> void:
 
 ## Script-driven replay entry (SNAPSHOT_LOAD / replay_snapshot tool).
 func load_snapshot_recipe(recipe) -> Dictionary:
+	# Apply village mode/seed before _load_building so World.set_village_mode is set first
+	# (AR-VG-WIRE: _load_building calls set_village_mode → rebuild_backdrop on the mode).
+	_village_mode = str(recipe.scene.get("village_mode", GameModes.CLASSIC))
+	_village_seed = int(recipe.scene.get("village_seed", 0))
 	await _load_building(str(recipe.scene.get("building_id", "cylinder")))
 	_free_plant_mode = bool(recipe.scene.get("free_plant_mode", true))
 	_world.set_seed_index(int(recipe.scene.get("seed_index", 0)))

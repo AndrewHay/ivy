@@ -65,6 +65,16 @@ func setup(s: Solar) -> void:
 			_sky_shader = mat as ShaderMaterial
 
 
+## Sets fog depth range on the shared Environment (AR-VG-DECIDE §2).
+## Called by World.rebuild_backdrop() after each build so the fog seam is updated.
+## Classic layout carries 9.5/95, so rebuilding into classic restores the default.
+func set_fog_depth(begin: float, end: float) -> void:
+	if _env == null or _env.environment == null:
+		return
+	_env.environment.fog_depth_begin = begin
+	_env.environment.fog_depth_end = end
+
+
 ## `seconds_per_game_day` comes from `SimClock.seconds_per_game_day()`.
 func update(game_day: float, seconds_per_game_day: float) -> void:
 	if solar == null or _sun == null:

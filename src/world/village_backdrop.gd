@@ -19,6 +19,11 @@ extends Node3D
 ## XZ distance threshold for shadow culling.
 const _SHADOW_NEAR_M := 8.0
 
+## Resolved village geometry. Populated by _make_layout() in _ready() before
+## any building step. Subclasses override _make_layout() to return a generated
+## layout; base class returns VillageLayout.authored() (= classic). AR-VG-STATIC.
+var _layout: VillageLayout
+
 # ── Cottages ──────────────────────────────────────────────────────────────────
 #
 # Cottages are generated from COTTAGES rather than authored node-by-node: every
@@ -69,11 +74,24 @@ const _P_CHIMNEY := "Prop_Chimney2"
 const _P_ROOF := {3: "Roof_RoundTiles_4x6", 4: "Roof_RoundTiles_4x8"}
 
 
+## Virtual hook — override in subclasses to supply a generated layout.
+## Base returns the authored classic layout (INV-15: byte-identical to COTTAGES).
+func _make_layout() -> VillageLayout:
+	return VillageLayout.authored()
+
+
+## Returns the resolved layout after _ready(). World reads fog_begin/fog_end after build (AR-VG-OWN).
+func get_layout() -> VillageLayout:
+	return _layout
+
+
 func _ready() -> void:
+	_layout = _make_layout()
 	_apply_subtree(self)
 	_build_cottages()
 	var path_stones := VillageScatterPositions.path_stone_transforms(
-		path_polylines(), Callable(self, "_reject_path_stone_xz"))
+		_layout.path_polylines(), Callable(self, "_reject_path_stone_xz"),
+		_layout.stone_seed, _layout.min_stone_spacing)
 	_create_paths_from_transforms(path_stones)
 	_add_village_lawn_ground()
 	_setup_multimesh_scatter(path_stones)
@@ -130,7 +148,7 @@ static func _facing(normal: Vector3, origin: Vector3) -> Transform3D:
 
 func _build_cottages() -> void:
 	var placements := {}
-	for spec in COTTAGES:
+	for spec in _layout.cottages:
 		var house := cottage_transform(spec)
 		var bays := int(spec["bays"])
 		var slots: Array[String] = []
@@ -229,8 +247,13 @@ func _apply_subtree(node: Node) -> void:
 ## Procedural scatter: grass, flower clusters (FLORA_DESIGN), path-side petals,
 ## plants, far treeline, and bushes. Clover deferred (pond ring).
 func _setup_multimesh_scatter(path_stones: Array[Transform3D]) -> void:
-	var bush_transforms := VillageScatterPositions.bush_common_positions()
-	var grass_ctx := VillageGrassExclusionContext.for_village(path_stones, bush_transforms)
+	var bush_transforms := VillageScatterPositions.bush_common_positions(
+		_layout.cottages, _layout.bush_filler_inner, _layout.bush_filler_outer)
+	var grass_ctx := VillageGrassExclusionContext.for_layout(
+		_layout.paths,
+		func(p: Vector2) -> bool:
+			return _layout.inside_any_cottage(p, VillageScatterPositions.COTTAGE_MARGIN),
+		path_stones, bush_transforms)
 	_setup_hybrid_grass(grass_ctx)
 	_scatter_piece_layers(
 		VillageScatterPositions.flower_cluster_layers(),
@@ -472,7 +495,8 @@ func _lcg_f01(state: int) -> float:
 
 func export_fauna_anchors() -> FaunaEnvironment:
 	var path_stones := VillageScatterPositions.path_stone_transforms(
-		path_polylines(), Callable(self, "_reject_path_stone_xz"))
+		_layout.path_polylines(), Callable(self, "_reject_path_stone_xz"),
+		_layout.stone_seed, _layout.min_stone_spacing)
 	var env := FaunaEnvironment.new()
 	for t in VillageScatterPositions.fauna_flower_anchor_transforms_with_paths(path_stones):
 		var a := FaunaAnchor.new()
@@ -484,28 +508,29 @@ func export_fauna_anchors() -> FaunaEnvironment:
 
 
 func _reject_path_stone_xz(cx: float, cz: float) -> bool:
-	return Vector2(cx, cz).length() < 4.5 or inside_any_cottage(Vector2(cx, cz), 0.2)
+	return Vector2(cx, cz).length() < 4.5 or _layout.inside_any_cottage(Vector2(cx, cz), 0.2)
 
 
 ## True if p lies inside any cottage's wall exterior grown by `margin` metres.
+## Delegates to VillageLayout.inside_cottages so generated layouts share the same logic.
+## AR-VG-STATIC: signature and byte-output unchanged for the classic (COTTAGES) case.
 static func inside_any_cottage(p: Vector2, margin: float) -> bool:
-	for spec in COTTAGES:
-		if cottage_exterior_rect(spec).grow(margin).has_point(p):
-			return true
-	return false
+	return VillageLayout.inside_cottages(COTTAGES, p, margin)
 
 
-## 22 pines evenly spaced around the horizon ring (r=19-28 m), with per-tree jitter.
+## `pine_count` pines evenly spaced around the horizon ring (r=pine_inner..pine_outer m).
+## Classic: n=22, r=19..28 m.  Generated: n=33, r=28.5..42 m (SD-VILLAGE-GEN-6).
+## LCG sequence starts at state=7 and draws 4 values per tree — identical draw order
+## for both modes so classic is bit-for-bit unchanged (same n, same lerpf bounds).
 ## Pine_2: 7.14 m at scale=1.0 → scale 1.0-1.5 → ~7.1-10.7 m height.
-## Crown starts at y=1.12 m (scale=1.0), so foliage covers most of the visible trunk.
 func _pine_positions() -> Array[Transform3D]:
 	var out: Array[Transform3D] = []
-	var n := 22
+	var n := _layout.pine_count  # classic 22; generated 33
 	var st := 7
 	for i in range(n):
 		st = _lcg_step(st); var angle_jitter: float = (_lcg_f01(st) - 0.5) * 0.5
 		var angle: float = (float(i) / n) * TAU + angle_jitter
-		st = _lcg_step(st); var r: float = lerpf(19.0, 28.0, _lcg_f01(st))
+		st = _lcg_step(st); var r: float = lerpf(_layout.pine_inner, _layout.pine_outer, _lcg_f01(st))
 		st = _lcg_step(st); var s: float = lerpf(1.0, 1.5, _lcg_f01(st))
 		st = _lcg_step(st); var rot: float = _lcg_f01(st) * TAU
 		var basis := Basis.from_euler(Vector3(0.0, rot, 0.0)).scaled(Vector3(s, s, s))
@@ -577,7 +602,7 @@ func _lawn_ground_material() -> ShaderMaterial:
 func _add_village_lawn_ground() -> void:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var r := 20.0
+	var r := _layout.lawn_radius  # classic default 20.0; generated 30.0 (SD-VILLAGE-GEN-6)
 	var segs := 72
 	var y := LAWN_GROUND_Y_OFFSET
 	for i in range(segs):
@@ -606,7 +631,7 @@ func _add_hill_ring() -> void:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var segs := 64
-	_add_hill_annulus(st, segs, 20.0, 140.0, 0.0, 7.5)
+	_add_hill_annulus(st, segs, _layout.hill_inner, 140.0, 0.0, 7.5)  # classic 20.0; generated 30.0
 	st.generate_normals()
 	var mesh := st.commit()
 	var mat := _lawn_ground_material()

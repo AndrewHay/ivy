@@ -25,6 +25,9 @@ static func build_recipe(
 		"building_id": world.get_active_building_id() if world.has_method("get_active_building_id") else "",
 		"seed_index": world.get_seed_index() if world.has_method("get_seed_index") else 0,
 		"free_plant_mode": free_plant_mode,
+		# Village mode/seed (AR-VG-WIRE S5); absent ⇒ classic on replay.
+		"village_mode": world.get_village_mode() if world.has_method("get_village_mode") else "classic_village",
+		"village_seed": world.get_village_seed() if world.has_method("get_village_seed") else 0,
 	}
 	if session_log != null:
 		recipe.plant_log = session_log.plant_log.duplicate(true)
