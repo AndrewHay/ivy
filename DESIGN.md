@@ -237,6 +237,25 @@ motion and fauna respects the breeze. The same view at **Fast** (or **Grow**) sh
 foliage. Bare strips remain visible along paths, around cottages, and where flowers, plants, bushes,
 or stones sit — no grass clutter on gameplay-readable corridors.
 
+
+
+## Village game modes (Classic / Generated)
+
+Two selectable **village game modes** share one backdrop: **Classic** (the hand-authored seven-cottage
+village, byte-for-byte unchanged) and **Generated**, where cottage positions/yaws, the footpath network
+and the world scale are produced from a seed. The seven cottages are placed across **two concentric
+rings** (3 inner + 4 outer, the longer 4-bay houses outside); yaw is snapped to 90° with the door facing
+the village centre. The curved stepping-stone **network** is organic (MST over all door nodes + a hero
+node, plus loop edges, with house-to-house lanes across both rings); **only inner-ring houses connect to
+the hero.** Generated mode also renders a **larger world** (lawn/pine/hill/fog scaled ~1.5×) so the outer
+ring sits on grass with a treeline behind; classic keeps today's radii exactly. Cottage types, the 5.9 m
+no-house keep-out, and the 6.5 m path-end ring stay fixed. Same seed ⇒ same village; mode+seed are
+recorded in the F9 snapshot recipe. The mode is a backdrop/game-mode seam only — no mode-specific rules
+yet.
+
+Contract: `IMPLEMENTATION.md` § SD-VILLAGE-GEN (numeric parameters, invariants, picker/snapshot seam).
+Tracking: epic `ivy-80z`.
+
 Tracking: epic **`ivy-7ka`** (phase 2 lawn); prior **`ivy-qg7`** contracts in `IMPLEMENTATION.md`
 (SD-GRASS-1 / SD-WIND-1 superseded where noted).
 

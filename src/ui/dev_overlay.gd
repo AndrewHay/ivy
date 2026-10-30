@@ -10,6 +10,7 @@ var _sim: Node = null
 var _params: IvyParams = null
 var _param_log_cb: Callable = Callable()
 var _as3_label: Label = null
+var _village_label: Label = null
 var _scroll: ScrollContainer = null
 
 
@@ -34,6 +35,16 @@ func setup(sim: Node, params: IvyParams, param_log_cb: Callable = Callable()) ->
 
 func toggle_visible() -> void:
 	visible = not visible
+
+
+## Called by Main._setup_dev_tools() after the session picks a building (S5, dev-only).
+func set_village_info(mode_id: String, seed: int) -> void:
+	if _village_label == null:
+		return
+	if mode_id == "generated_village":
+		_village_label.text = "village: generated  seed=%d" % seed
+	else:
+		_village_label.text = "village: classic"
 
 
 func refresh(clock: SimClock) -> void:
@@ -65,6 +76,11 @@ func _build_ui() -> void:
 	_as3_label = Label.new()
 	_as3_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	root.add_child(_as3_label)
+
+	_village_label = Label.new()
+	_village_label.text = "village: classic"
+	_village_label.modulate = Color(0.75, 0.9, 0.8)
+	root.add_child(_village_label)
 
 	var hint := Label.new()
 	hint.text = "F: field viz (D_L → C → off)   ` : show / hide panel"

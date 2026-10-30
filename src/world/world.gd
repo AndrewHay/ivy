@@ -1,5 +1,6 @@
 extends Node3D
 
+const GameModes = preload("res://src/world/game_modes.gd")
 const TowerSdfScript = preload("res://src/world/tower_sdf.gd")
 const WallSdfScript = preload("res://src/world/wall_sdf.gd")
 const MeshSdfScript = preload("res://src/world/mesh_sdf.gd")
@@ -36,6 +37,10 @@ var _seed_anchors  # SeedAnchors
 var _overhang_wall: StaticBody3D = null  # dynamically created for "overhang"
 var _overhang_spec = null  # OverhangSpec instance
 var _overhang_built: bool = false
+
+## Village mode/seed store (AR-VG-WIRE). Set before rebuild_backdrop() or load_building().
+var _village_mode: String = GameModes.CLASSIC
+var _village_seed: int = 0
 
 ## CamSun local origin y when the rig sits at the tower — horizontal cameras aim here.
 const _CANONICAL_CAM_AIM_Y := 2.0
@@ -198,6 +203,80 @@ func get_sky_sun() -> SkySun:
 	return sky_sun
 
 
+# ── Village mode (AR-VG-WIRE) ─────────────────────────────────────────────────
+
+## Store the mode/seed for the next backdrop build. No live teardown here —
+## call rebuild_backdrop() (inside _activate_mesh_scenario via load_building) to apply.
+func set_village_mode(mode_id: String, seed: int) -> void:
+	_village_mode = mode_id
+	_village_seed = seed
+
+
+func get_village_mode() -> String:
+	return _village_mode
+
+
+func get_village_seed() -> int:
+	return _village_seed
+
+
+## Free the current VillageBackdrop, instance the mode's scene, name it "VillageBackdrop",
+## set village_seed before add_child (so _ready→_make_layout sees it), re-position to the
+## current pivot, show it, re-bind fauna, and apply the fog override via SkySun (AR-VG-DECIDE §2).
+## Classic rebuilds re-apply fog_begin=9.5/fog_end=95 because authored() carries those defaults.
+func rebuild_backdrop() -> void:
+	# Remove and free the current backdrop node (original @onready or a prior rebuild).
+	# remove_child() before queue_free() so the name "VillageBackdrop" is vacated immediately —
+	# otherwise Godot renames the new node to avoid a collision with the not-yet-freed old one.
+	var old := get_node_or_null("VillageBackdrop") as Node
+	if old != null:
+		remove_child(old)
+		old.queue_free()
+	_village_backdrop = null
+
+	var mode := GameModes.by_id(_village_mode)
+	var scene := load(mode.backdrop_scene_path) as PackedScene
+	if scene == null:
+		push_error("World.rebuild_backdrop: cannot load scene '%s'" % mode.backdrop_scene_path)
+		return
+
+	var bk := scene.instantiate() as Node3D
+	if bk == null:
+		push_error("World.rebuild_backdrop: instantiated node is not Node3D")
+		return
+
+	# Set seed before add_child so _make_layout() in _ready() sees it.
+	if mode.is_generated and bk.has_method("set_village_seed"):
+		bk.call("set_village_seed", _village_seed)
+
+	# Keep the node named "VillageBackdrop" so main.gd L641 and fauna resolve it.
+	bk.name = "VillageBackdrop"
+	add_child(bk)
+	_village_backdrop = bk
+
+	# Position at the current pivot (mirrors _apply_scenario_camera_framing logic).
+	if mesh_scenario != null:
+		var pivot: Vector3 = mesh_scenario.resolve_camera_pivot()
+		_village_backdrop.position = Vector3(pivot.x, 0.0, pivot.z)
+	_village_backdrop.visible = true
+
+	# Re-bind fauna to the new backdrop instance.
+	if _fauna_controller != null and _village_backdrop is VillageBackdrop:
+		if FaunaIntegration.world_runtime_enabled():
+			_fauna_controller.bind_backdrop(_village_backdrop as VillageBackdrop)
+		else:
+			_fauna_controller.clear_environment("gut_non_fauna_test")
+	elif _fauna_controller != null:
+		push_warning("[fauna] rebuilt VillageBackdrop is not a VillageBackdrop — fauna not bound")
+
+	# Apply fog override from the layout (AR-VG-DECIDE §2).
+	# _ready() has already run inside add_child, so get_layout() returns the resolved layout.
+	if _village_backdrop is VillageBackdrop and sky_sun != null:
+		var layout: VillageLayout = (_village_backdrop as VillageBackdrop).get_layout()
+		if layout != null:
+			sky_sun.set_fog_depth(layout.fog_begin, layout.fog_end)
+
+
 func get_fauna_controller() -> FaunaController:
 	return _fauna_controller
 
@@ -355,6 +434,9 @@ func _activate_mesh_scenario(scenario) -> void:
 	_structure.name = "Structure"
 	add_child(_structure)
 	_structure.build(scenario.collision_glb, scenario.hero_glb)
+	# Rebuild backdrop for the stored village mode (AR-VG-WIRE).
+	# Swaps out the @onready VillageBackdrop for the mode's scene on every mesh-building load.
+	rebuild_backdrop()
 	_apply_scenario_camera_framing(scenario)
 
 

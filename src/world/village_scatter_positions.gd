@@ -56,10 +56,20 @@ static func lcg_f01(state: int) -> float:
 
 
 ## ~45 plain-green bushes (Bush_Common). Same LCG layout as former VillageBackdrop private.
-static func bush_common_positions() -> Array[Transform3D]:
+## [param cottages] defaults to VillageBackdrop.COTTAGES for byte-identical classic output.
+## Generated layouts pass _layout.cottages to obtain per-layout collision rejection.
+## [param bush_filler_inner] / [param bush_filler_outer] control the 10-bush filler ring radius
+## (classic defaults 8.0 / 15.0; generated uses 8.0 / 22.0 — SD-VILLAGE-GEN-6).
+static func bush_common_positions(
+		cottages: Array = [],
+		bush_filler_inner: float = 8.0,
+		bush_filler_outer: float = 15.0) -> Array[Transform3D]:
+	# Resolve default: empty sentinel → use the authored classic COTTAGES.
+	if cottages.is_empty():
+		cottages = VillageBackdrop.COTTAGES
 	var out: Array[Transform3D] = []
 	var st := 1234
-	for spec in VillageBackdrop.COTTAGES:
+	for spec in cottages:
 		var rect := VillageBackdrop.cottage_exterior_rect(spec).grow(0.8)
 		var door: Vector2 = VillageBackdrop.cottage_door(spec)[0]
 		var corners: Array[Vector2] = [
@@ -73,7 +83,7 @@ static func bush_common_positions() -> Array[Transform3D]:
 			var p: Vector2 = corners[edge].lerp(corners[(edge + 1) % 4], t)
 			if p.distance_to(door) < 1.6 or p.length() < 5.0:
 				continue
-			if VillageBackdrop.inside_any_cottage(p, 0.3):
+			if VillageLayout.inside_cottages(cottages, p, 0.3):
 				continue
 			var cx: float = p.x
 			var cz: float = p.y
@@ -85,10 +95,10 @@ static func bush_common_positions() -> Array[Transform3D]:
 	var placed_extra := 0
 	while placed_extra < 10:
 		st2 = lcg_step(st2); var angle: float = lcg_f01(st2) * TAU
-		st2 = lcg_step(st2); var r: float = lerpf(8.0, 15.0, lcg_f01(st2))
+		st2 = lcg_step(st2); var r: float = lerpf(bush_filler_inner, bush_filler_outer, lcg_f01(st2))
 		var cx2: float = cos(angle) * r
 		var cz2: float = sin(angle) * r
-		if Vector2(cx2, cz2).length() < 5.0 or VillageBackdrop.inside_any_cottage(Vector2(cx2, cz2), 1.0):
+		if Vector2(cx2, cz2).length() < 5.0 or VillageLayout.inside_cottages(cottages, Vector2(cx2, cz2), 1.0):
 			continue
 		st2 = lcg_step(st2); var s2: float = lerpf(0.55, 0.80, lcg_f01(st2))
 		st2 = lcg_step(st2); var rot2: float = lcg_f01(st2) * TAU
@@ -339,11 +349,22 @@ static func _dist_point_to_segment(p: Vector2, a: Vector2, b: Vector2) -> float:
 
 
 ## Path stepping stones (~0.9 m). [param reject_xz] returns true to skip a candidate stone.
+## [param stone_seed] defaults to 9999 (INV-15: byte-identical classic output).
+## [param min_stone_spacing] defaults to 0.0 (dedupe off). When > 0, a spatial-hash dedupe
+## removes any candidate closer than min_stone_spacing to an already-placed stone. With 0.0
+## the output is bit-identical to the pre-S3 classic path (rot_y LCG consumed only on accept).
 static func path_stone_transforms(
 		path_segments: Array,
-		reject_xz: Callable) -> Array[Transform3D]:
+		reject_xz: Callable,
+		stone_seed: int = 9999,
+		min_stone_spacing: float = 0.0) -> Array[Transform3D]:
 	var out: Array[Transform3D] = []
-	var st := 9999
+	var st := stone_seed
+	# Spatial-hash for dedup (only allocated when min_stone_spacing > 0).
+	# Cell size = min_stone_spacing; a 3×3 neighbour check covers all conflicts.
+	var dedup_hash: Dictionary = {}
+	var dedup_cell: float = min_stone_spacing  # 0.0 → dedup skipped entirely
+
 	for seg_raw in path_segments:
 		var seg := seg_raw as Array
 		for i in range(seg.size() - 1):
@@ -360,6 +381,32 @@ static func path_stone_transforms(
 				var cz: float = pos.y + jz
 				if reject_xz.call(cx, cz):
 					continue
+				# Spatial-hash dedupe (only when min_stone_spacing > 0).
+				# Classic min_stone_spacing=0.0 takes the else branch → no check,
+				# rot_y consumed identically to the pre-S3 code → bit-identical output.
+				if min_stone_spacing > 0.0:
+					var p2 := Vector2(cx, cz)
+					var dk := Vector2i(int(floor(cx / dedup_cell)), int(floor(cz / dedup_cell)))
+					var blocked := false
+					for di: int in range(-1, 2):
+						if blocked:
+							break
+						for dj: int in range(-1, 2):
+							var nk := Vector2i(dk.x + di, dk.y + dj)
+							if not dedup_hash.has(nk):
+								continue
+							for pp: Vector2 in (dedup_hash[nk] as Array[Vector2]):
+								if p2.distance_to(pp) < min_stone_spacing:
+									blocked = true
+									break
+							if blocked:
+								break
+					if blocked:
+						continue
+					# Accept stone — register in hash before appending.
+					if not dedup_hash.has(dk):
+						dedup_hash[dk] = [] as Array[Vector2]
+					(dedup_hash[dk] as Array[Vector2]).append(p2)
 				st = lcg_step(st); var rot_y: float = lcg_f01(st) * TAU
 				var basis := Basis.from_euler(Vector3(0.0, rot_y, 0.0))
 				out.append(Transform3D(basis, Vector3(cx, 0.0, cz)))

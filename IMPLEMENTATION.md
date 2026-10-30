@@ -1868,6 +1868,418 @@ impostors · GPU-side simulation · multithreading · moisture · a second build
 the brick A/B · save/load · any player tool other than anchor selection and time control.
 
 ---
+
+## SD-VILLAGE-GEN — Generated village game mode (ivy-80z)
+
+**Stage:** Systems Designer · **Date:** 2026-10-29 · **Next stage:** Gameplay Architect (ivy-80z.2;
+**amended 2026-10-29 for ivy-80z.6 → GA re-plan ivy-80z.7: two rings, organic network, larger world**)
+**Inputs used:** epic `ivy-80z` Director decisions + non-goals (binding); `src/world/village_backdrop.gd`
+(`COTTAGES`, `cottage_exterior_rect`, `cottage_door`, `inside_any_cottage`, `path_polylines`,
+`_reject_path_stone_xz`); `src/world/village_scatter_positions.gd` (`lcg_step`/`lcg_f01`,
+`path_stone_transforms`, `min_xz_dist_to_path_segments`, petal/grass layers); `src/world/village_grass_exclusion_context.gd`
+(`for_village`); `test/test_village_backdrop.gd` + `test/test_village_grass_scatter.gd` (encoded invariants);
+`src/ui/building_picker.gd`, `src/world/building_catalog.gd`, `src/debug/snapshot_capture.gd` +
+`src/main/main.gd` `load_snapshot_recipe` (recipe seam).
+
+This contract adds numeric parameters. All distances are metres in the backdrop's **local XZ frame**,
+whose origin maps to the hero/building pivot (`World` translates the whole backdrop node; generation is
+pivot-agnostic — see SD-VILLAGE-GEN-8). All `SD-*` names here are append-only and do not alter any
+existing contract.
+
+### SD-VILLAGE-GEN-1 — System overview & player-facing behaviour
+
+A new **game mode** "Generated Village" sits beside the unchanged "Classic Village". The mode is a
+property of the *backdrop dressing only* (no rules yet). When the player picks **Generated**, the seven
+cottages are placed at seeded positions and yaws across **two concentric rings** (inner + outer) and the
+footpaths are a seeded **organic network** (MST over all doors + a hero node, plus loop edges — not
+radial spokes), with house-to-house lanes expected. Generated mode also renders a **larger world** (lawn
+disk, pine ring, hill ring and fog scaled up) so the outer ring sits comfortably on grass with a treeline
+behind it. Everything else is identical to classic: the seven authored cottage **types** (bays, door
+slot, windows, brick, chimney), the hero-proximate grass/flower/bush/petal dressing families, the `5.9 m`
+no-house keep-out, the `6.5 m` path-end ring, the `4.5 m` hero stone keep-out, and the collision-free /
+draw-call structure.
+
+> **Superseded 2026-10-29 by ivy-80z.6 (Director change):** the original single-ring placement (`R_IN`
+> `12.0` / `R_OUT` `18.5`, `18°` spread) and single-radius world (`lawn r=20`, `pines 19–28`, `hill
+> 20–140`, `fog 9.5/95`, `TARGET_LOOPS=2`) are replaced by the two-ring placement, scaled world, and
+> organic network below. S2 code (`src/world/village_layout.gd`, `test_generated_village_sweep.gd`,
+> `tools/plot_village_layout.gd`) implements the old single ring and is reworked after the GA amendment
+> (ivy-80z.7).
+
+- **What varies:** per-cottage `centre` (Vector2), `yaw_deg` (multiple of 90, chosen so the door faces
+  the village centre), and **ring membership** (which three 3-bay houses sit inner); the path **graph**
+  (which door connects to which, across both rings) and route geometry; path-stone jitter. The **world
+  scale** is a fixed generated preset (not per-seed).
+- **What never varies:** cottage type fields; the hero keep-out radii; scatter *families* and their
+  budgets; shadow/ground policy; the picker's `building_selected` contract; **classic's world radii and
+  `main.tscn` fog values** (byte-for-byte, INV-15).
+- **Seed display:** in `dev_build`, the dev overlay shows `village: generated  seed: <int>` (classic
+  shows `village: classic`). Non-dev builds show nothing new.
+- **Classic is byte-for-byte:** `VillageLayout.authored()` must return exactly today's `COTTAGES` and
+  `path_polylines()`; `test_village_backdrop`/`test_village_grass_scatter` continue to pass unchanged
+  (INV-15).
+
+### SD-VILLAGE-GEN-2 — Seed semantics & determinism
+
+- **Seed type:** a 31-bit non-negative `int`. Any input seed is normalised `seed &= 0x7FFFFFFF`, so **0,
+  negative, and out-of-range seeds are all valid** and deterministic (edge cases in SD-VILLAGE-GEN-8).
+- **RNG choice — the project Knuth LCG, not `RandomNumberGenerator`.** Reuse
+  `VillageScatterPositions.lcg_step` / `lcg_f01` (state `(s*1664525 + 1013904223) & 0x7FFFFFFF`,
+  `f01 = state / 0x7FFFFFFF`). Reasons: (a) it is already the determinism substrate for every backdrop
+  scatter layer and the fauna export, so the generated layout stays in the same numeric regime as
+  `path_stone_transforms`/`petal_layers`; (b) integer LCG + explicit float division is **bit-identical
+  across runs and platforms** independent of any engine RNG library version; (c) introducing a second RNG
+  family (PCG32) would add seeding/state semantics that are harder to audit for the fine geometric
+  placement. `RandomNumberGenerator` is also deterministic but is rejected for consistency, not
+  correctness.
+- **Independent sub-streams** (so changing one stage does not reshuffle another). From the master seed
+  derive three stream states with fixed salts:
+  `derive(seed, salt) = lcg_step(lcg_step((seed ^ salt) & 0x7FFFFFFF))`.
+  | Stream | Salt (hex) | Consumes |
+  |---|---|---|
+  | placement | `0x5011A9` | **ring-assignment draw (first)**, then per-ring dart angles/radii, yaw tie-breaks, reseed re-derivations |
+  | pathgraph | `0x9A7B3` | loop-edge count/selection, reroute offset steps |
+  | stones | `0x5739C1` | per-stone jitter + rotation (replaces the fixed `9999` seed used by classic) |
+  Houses are drawn **first and only** from the placement stream, so changing loop-edge logic or stone
+  jitter cannot move a cottage. **The ring-assignment shuffle (which three 3-bay houses go inner) is the
+  first consumer of the placement stream**, before any dart throw, so changing dart logic cannot
+  reshuffle ring membership (ivy-80z.6).
+- **Default seeds:** canonical single-layout test seed `DEFAULT_TEST_SEED = 12345`. The invariant sweep
+  (SD-VILLAGE-GEN-5) uses seeds `1..200` inclusive.
+- **Player-session seed:** when the player selects Generated, `Main` rolls one 31-bit seed from a
+  `RandomNumberGenerator.randomize()`'d `randi() & 0x7FFFFFFF` (entropy source only — the layout RNG is
+  still the LCG). The seed persists for that picker selection and is shown in the dev overlay.
+- **Snapshot recording:** the recipe `scene` block gains `village_mode: String` (default
+  `"classic_village"`) and `village_seed: int` (default `0`). Replay reads them; absent fields ⇒ classic
+  (back-compat with schema v1 — no schema bump needed since `scene` is a free dictionary).
+
+### SD-VILLAGE-GEN-3 — House placement
+
+> **Amended 2026-10-29 by ivy-80z.6:** single annulus → **two rings**. Was `R_IN 12.0 / R_OUT 18.5`,
+> single `18°` spread. Now inner ring `[11.5, 13.0] m` and outer ring `[19.5, 21.5] m` with per-ring
+> angular spread and fixed ring membership by bay count.
+
+- **Types/count:** reuse the **seven authored specs CA–CG, one of each, no repeats** (INV-13). This
+  preserves every per-type footprint so all authored roof/eave/aspect invariants transfer unchanged; only
+  `centre` and `yaw_deg` are overwritten. The authored `door` slot string is **kept**; yaw is what turns
+  the door toward the village centre.
+- **Footprint reference (grown `0.8`):** `cottage_exterior_rect` half-extents `(bays+0.09, 2.09)` (swapped
+  for yaw ±90). 3-bay → `6.18×4.18 m` raw → grown half `(3.89, 2.89)`, bounding-circle Ø `2·4.85 = 9.70 m`.
+  4-bay → `8.18×4.18 m` raw → grown half `(4.89, 2.89)`, Ø `2·5.68 = 11.36 m`. Bay counts: **CA, CD are
+  4-bay; CB, CC, CE, CF, CG are 3-bay.**
+- **Ring membership (two rings, 3 inner + 4 outer):**
+  - **Inner ring = three 3-bay houses.** **Outer ring = both 4-bay (CA, CD) + two 3-bay houses.**
+  - **Rule:** the two 4-bay houses are **always outer** (longer footprints get the larger-circumference
+    ring, and their bulk stays clear of the hero keep-out). **Which three of the five 3-bay houses
+    {CB, CC, CE, CF, CG} are inner is seeded** — a Fisher–Yates shuffle of the five 3-bay indices on the
+    **placement stream (drawn first)** picks 3 inner / 2 outer. Because every 3-bay footprint is
+    identical, the per-ring footprint multiset is seed-invariant (inner = 3×3-bay; outer = 2×4-bay +
+    2×3-bay), so the fit arithmetic below holds for every seed; only *which* 3-bay house appears where
+    varies (adds visual variety without disturbing packing). Assignment is **seeded, not fixed.**
+- **Centre radii (per ring, area-uniform):** `d = sqrt(R_MIN² + u·(R_MAX² − R_MIN²))`, `u = lcg_f01`.
+  - **Inner:** `R_IN_MIN = 11.5 m`, `R_IN_MAX = 13.0 m`.
+  - **Outer:** `R_OUT_MIN = 19.5 m`, `R_OUT_MAX = 21.5 m`.
+- **Hero keep-out by construction (INV-1):** inner houses are 3-bay, largest grown radial half-extent
+  `3.89 m` (long axis at pivot, e.g. an end-door house). Nearest face `≥ R_IN_MIN − 3.89 = 11.5 − 3.89 =
+  7.61 m ≥ 5.9 m` for any yaw (`1.71 m` margin); typical front-door house presents its depth face at
+  `11.5 − 2.89 = 8.61 m`. This also leaves room for a **front garden + path lane**: worst-case inner
+  stoop (`face + 0.5`) is `≥ 8.11 m`, so `≥ 1.6 m` of lane to the `6.5 m` path-end ring.
+- **Outer bound (INV-3):** farthest grown corner `= R_OUT_MAX + 5.68 = 21.5 + 5.68 = 27.18 m` (`≤ 27.5 m`
+  guard). Outer *faces* a player reads sit at `R_OUT_MIN..R_OUT_MAX + depth/long half`: front face
+  `≈ 22.4–24.4 m`, long-axis face `≈ 24.4–26.4 m` — "out to about r 22–24 m" per the Director. The lawn
+  disk (`r 30`, scaled §-6) contains the `27.18 m` corner with a `2.8 m` grass fringe; pines start at
+  `28.5 m` (just beyond every outer corner — no pine ever lands inside a house).
+- **Door orientation (both rings face the village centre):** for each candidate centre evaluate all four
+  yaws `{0,90,180,270}`; compute the world door position + outward normal (`cottage_door` on the trial
+  spec); pick the yaw maximising `dot(normal, (−door_pos).normalized())`. The nearest axis to the centre
+  bearing is within `45°` ⇒ `dot ≥ cos45° = 0.707`. **Require best dot > 0.6** (margin above INV-4 `0.5`);
+  else re-dart. **Outer doors face the village centre, not a specific inner house** — justification: (a)
+  reuses the identical yaw-selection code for both rings; (b) the inner ring lies *between* an outer house
+  and the hero, so a centre-facing stoop points into the inner ring, where the MST/loop edges attach it to
+  a nearby inner-house stoop or an outer neighbour — the door reliably faces *toward* its path's first
+  segment (doors must face a path); (c) facing a specific nearest inner house would need per-pair yaw that
+  can break the 4-yaw snap and the `dot ≥ 0.707` guarantee, risking `dot < 0.5`. Centre-facing is simplest
+  and robust for both rings.
+- **Angular-spread rule (per ring):** reject a dart whose centre is within **`65°` (inner)** / **`50°`
+  (outer)** of any already-placed centre *in the same ring*. Cross-ring angular proximity is **not**
+  rejected here (the rect-overlap test is the hard guard across both rings). Rationale: inner has only 3
+  houses (mean pitch `120°`), so `65°` forces a genuine spread without risking feasibility; outer has 4
+  (mean pitch `90°`), so `50°` likewise.
+- **Packing feasibility (arithmetic — fallback rate 0 over seeds 1..200):**
+  - **Inner** (3×3-bay, mean `r = 12.25`): circumference `2π·12.25 ≈ 76.97 m`; occupied arc (bounding
+    circles) `3·9.70 = 29.1 m` ⇒ **`47.9 m` slack (62%)**. Angular subtend per house `2·asin(4.85/12.25)
+    ≈ 47.4°`, three houses `≈ 142°`; `65°` min-sep needs `3·65 = 195°` of `360°` — ample. Collapsed to
+    `R_IN_MIN = 11.5` (circ `72.3 m`): still `43.2 m` slack.
+  - **Outer** (2×4-bay + 2×3-bay, mean `r = 20.5`): circumference `2π·20.5 ≈ 128.8 m`; occupied
+    `2·11.36 + 2·9.70 = 42.1 m` ⇒ **`86.7 m` slack (67%)**. Subtend `2·32.2° (4-bay) + 2·27.4° (3-bay)
+    ≈ 119°`; `50°` min-sep needs `4·50 = 200°` of `360°` — ample. Collapsed to `R_OUT_MIN = 19.5`
+    (circ `122.5 m`): still `80.4 m` slack.
+  - **Cross-ring non-overlap:** minimum centre gap `= R_OUT_MIN − R_IN_MAX = 19.5 − 13.0 = 6.5 m`. A
+    same-angle inner+outer pair with both long axes radial needs `3.89 + 4.89 = 8.78 m > 6.5 m`, so the
+    overlap test forbids near-radial-aligned pairs; the `≥ ~90°` of free arc in each ring lets the
+    dart-thrower offset them. A valid static config always exists (inner `{0,120,240}`, outer
+    `{45,135,225,315}`), so **expected fallback over seeds 1..200 is 0.**
+- **Algorithm — seeded dart-throwing with bounded retries:** (1) shuffle the five 3-bay indices →
+  3 inner / 2 outer (placement stream, first). (2) Process cottages in fixed CA…CG order, each into its
+  assigned ring. Per cottage up to **`300` darts**: sample `(θ, d)` in the ring's annulus and yaw as
+  above, build the grown-`0.8` rect, accept iff `nearest-face ≥ 5.9` **and** no overlap with any placed
+  grown rect across **both rings** (`Rect2.intersects`) **and** same-ring angular sep `≥` the ring's
+  threshold. First accepted dart wins.
+- **Retry / fallback (must never ship invalid):** if any cottage exhausts its 300 darts, the whole attempt
+  fails; **re-derive the placement stream** up to **`N_REDRAW = 8`** times
+  (`placement_state = lcg_step(placement_state ⊕ attempt_index)` then restart, re-running the ring
+  shuffle). If all 8 attempts fail (practically impossible given the 60–67% slack), `VillageLayout.generate`
+  returns `authored()`, sets `layout.fallback = true`, and `push_warning`s — a valid classic layout always
+  ships (detectable by test via the `fallback` flag).
+
+### SD-VILLAGE-GEN-4 — Path network
+
+> **Amended 2026-10-29 by ivy-80z.6:** organic house-to-house network over two rings. Was a single hero
+> node with `TARGET_LOOPS=2 / MIN_LOOPS=1` and any door allowed to touch the hero. Now **only inner-ring
+> doors may connect to the hero**, loops raised to `TARGET_LOOPS=4 / MIN_LOOPS=3`, cross-ring links
+> expected, and a minimum house-to-house edge count is asserted (INV-19).
+
+- **Nodes:** seven **door-stoop nodes** (`stoop = door_exterior + 0.5·normal`, as classic; parallel to
+  the cottage order, nodes `0..6`) plus **one hero node** at the local origin `(0,0)`, index `7`. One hero
+  node keeps connectivity simple; hero-incident edges are **trimmed to the `6.5 m` ring** (end condition)
+  so the hero reads as **one to three short entry stubs from the inner ring**, never a hub of converging
+  spokes. (Hero degree ≤ 3 because only the 3 inner doors are candidates — see below.)
+- **Candidate edge set (enforces "only inner may touch hero"):** the candidate graph is the **complete
+  door–door graph** (all `C(7,2)=21` door–door edges: inner–inner, inner–outer, outer–outer) **plus only
+  the hero↔inner-door edges** (`≤ 3`). **Hero↔outer-door edges are excluded from the candidate set
+  entirely**, so no MST or loop edge can ever attach an outer house to the hero. **Connectivity is still
+  guaranteed:** the door–door subgraph is complete (hence connected), and the hero attaches to it via its
+  cheapest inner-door edge (≥ 1 inner door always exists), so the restricted graph is connected and its
+  MST spans all 8 nodes (INV-5, INV-18).
+- **Edge graph:** build a **Euclidean MST** (Prim) over the candidate set → 7 tree edges, every door
+  reaching the hero (INV-5). Outer doors reach the hero **only through inner doors** (cross-ring tree
+  edges — expected and desired). Then add **loop edges**: `TARGET_LOOPS = 4`, `MIN_LOOPS = 3` (raised for
+  the bigger, two-ring layout so the network reads as lanes, not a tree). Candidate loop edges are the
+  shortest non-tree **door–door** edges (never hero) whose induced cycle spans **≥ 3 graph nodes**;
+  **tie-break equal-length candidates by lower `(min_node_index, max_node_index)`**; add in ascending
+  length until `TARGET_LOOPS` survive cottage-avoidance, else as many as exist. Cross-ring loop edges
+  (inner↔outer, outer↔outer) are allowed and expected. At least `MIN_LOOPS = 3` must survive (INV-6) or
+  the layout falls back.
+- **House-to-house guarantee (INV-19):** MST tree edges not incident to the hero `= 7 − hero_degree ≥
+  7 − 3 = 4`; surviving loop edges `≥ MIN_LOOPS = 3` are all door–door. So **≥ 7 house-to-house edges
+  typically, ≥ 6 guaranteed** (threshold set at `6` for cushion). This is what makes the network read as
+  connecting houses rather than hero spokes.
+- **Route geometry:** each edge is a **quadratic Bézier** from node A to node B, control point at the
+  chord midpoint offset perpendicular by `b` metres; base `|b|` alternates sign per edge, starts at
+  `0.7 m`, **clamped to `|b| ≤ 1.5 m`** (raised from `1.0 m` so the longer cross-ring lanes can bow
+  organically). Sample at fixed arc spacing `≈ 0.3 m` for the clearance pass and for the final polyline.
+- **Cottage avoidance / reroute:** no sampled centreline point may come within `PATH_COTTAGE_CLEARANCE =
+  0.35 m` of any cottage grown-`0.2` rect **except the ≤ 2 cottages the edge's endpoints belong to** (a
+  door stoop legitimately starts `0.5 m` off its own wall). If a sample violates, grow `|b|` in `±0.25 m`
+  steps (alternating) up to **`6` steps**; if an **MST** edge still violates, insert one waypoint at the
+  chord midpoint pushed **perpendicular to the chord** by `1.5 m` (the side with more clearance) and
+  re-route as two sub-edges; if it still violates, the layout **falls back** (MST edges are load-bearing).
+  A **loop** edge that cannot clear is dropped (subject to `MIN_LOOPS = 3`).
+- **Route–route crossings:** two routes **may cross each other** (an organic village network has crossing
+  lanes; forbidding all crossings would over-constrain a two-ring MST+loop graph and raise the fallback
+  rate). Only route–*cottage* intrusion is forbidden. Where routes cross or converge, the **stone dedupe**
+  (below) keeps the shared cells from clumping, so crossings read clean.
+- **Hero-ring end condition:** any edge incident to the hero node is clipped so its polyline **ends at the
+  `6.5 m` ring** (drop samples with `|p| < 6.5`, add the exact ring-crossing point). With the stone reject
+  rule this keeps the hero footprint clear.
+- **Stones:** reuse `path_stone_transforms` geometry — spacing **`0.9 m`**, jitter **`±0.175 m`**
+  (`(f01−0.5)·0.35`), random yaw — seeded from the **stones** sub-stream (not the fixed `9999`).
+  **Shared-segment / crossing dedupe:** maintain a `0.5 m`-cell spatial hash of placed stones; **skip any
+  candidate within `MIN_STONE_SPACING = 0.5 m`** of an already-placed stone, so converging/crossing routes
+  do not pile up stones. **Reject rules:** drop a stone if `|p| < 4.5 m` **or** `inside_any_cottage(p,
+  0.2)` (the existing `_reject_path_stone_xz`), now evaluated against the generated cottages.
+- **Stone-count budget (re-derived for the bigger area):** the two-ring, `≥ 10`-edge network over a `~21 m`
+  outer radius spans far more centreline than the single-ring S2 network. Rough total: `~11` edges × `~12 m`
+  average (inner↔hero trimmed `~5 m`; inner↔inner/outer `~8–15 m`; outer↔outer chords `~15–20 m`) `≈ 132 m`;
+  worst case `~300 m`. At `0.9 m` spacing minus dedupe/rejects this is `~130–330` stones. **INV-10 range is
+  raised to `[70, 360]`** for generated mode (was `[40, 220]`). Classic keeps its authored stones unchanged
+  (INV-15).
+
+### SD-VILLAGE-GEN-5 — Invariants (the ≥200-seed sweep; seeds `1..200`)
+
+Each is individually testable; unless noted, "cottage rect" = `cottage_exterior_rect(spec).grow(0.8)`.
+
+| ID | Statement | Threshold | How a test measures it |
+|---|---|---|---|
+| INV-1 | No cottage face inside the hero keep-out | nearest grown-rect XZ face `≥ 5.9 m` from origin | reuse `_nearest_xz_dist_from_origin` over all 7 rects |
+| INV-2 | No cottage overlap | no pair of grown-`0.8` rects `intersects` (across **both rings**) | double loop `Rect2.intersects`, as `test_cottages_do_not_overlap` |
+| INV-3 | Inside outer bound *(amended)* | every **inner** centre radius `∈ [11.5, 13.0] m`; every **outer** `∈ [19.5, 21.5] m`; farthest grown corner `≤ 27.5 m` | `centre.length()` per ring + corner scan |
+| INV-4 | Doors face village centre | `dot(door_normal, (−door_pos).normalized()) > 0.5` for all 7 (both rings) | reuse `cottage_door` + dot, as `test_each_door_faces_hero_and_has_path` |
+| INV-5 | Connectivity | hero node reaches all 7 door nodes over the edge graph | BFS/union-find on the layout edge list |
+| INV-6 | Loops present *(amended)* | `edges − nodes + 1 ≥ MIN_LOOPS = 3` | count graph edges vs nodes |
+| INV-7 | No stone inside a cottage | zero stones with `inside_any_cottage(p, 0.0)` | scan `Scatter_Path_*` buffers, as `test_no_path_or_bush_inside_a_cottage` |
+| INV-8 | Path clears non-owning cottages | every edge centreline sample `≥ 0.35 m` from every non-endpoint cottage rect (grown `0.2`) | resample polylines; min distance to rects |
+| INV-9 | Hero stone keep-out & path end | no stone with `|p| < 4.5 m`; every hero-incident polyline ends within `[6.4, 6.6] m` | buffer scan + polyline endpoint radius, as `test_no_path_or_bush_on_hero_footprint` |
+| INV-10 | Stone density *(amended)* | total path stones `∈ [70, 360]` (generated) | sum `Scatter_Path_*` instance counts |
+| INV-11 | Determinism | `generate(seed)` twice ⇒ identical centres (`≤1e-4`), yaws, ring membership, stone count & positions | call twice, compare |
+| INV-12 | Variability | over seeds `1..200`, `≥ 190` unique `(centre,yaw)` layouts (≥95%) | hash each layout's sorted `(centre.round(mm),yaw)`; count uniques |
+| INV-13 | Count & types preserved | exactly 7 cottages; multiset of `(bays,door,windows,brick,chimney_bay)` equals authored `COTTAGES` | set-compare against `COTTAGES` |
+| INV-14 | Yaw snap | every `yaw_deg ∈ {0,90,180,270}` | modulo check |
+| INV-15 | Classic unchanged *(amended)* | `authored()` equals today's `COTTAGES` and `path_polylines()` exactly **and** carries the classic world-scale defaults (`lawn 20`, `hill_inner 20`, `pine 19/28`, `pine_count 22`, `fog 9.5/95`, `bush_filler 8/15`); `main.tscn` fog `9.5/95` unedited | deep-equal vs statics + field asserts + `main.tscn` regex |
+| INV-16 | Ring membership | exactly **3 inner** (centre `∈ [11.5,13.0]`) + **4 outer** (`∈ [19.5,21.5]`); inner all 3-bay; **both 4-bay (CA, CD) outer** | partition by radius; assert bay counts per ring |
+| INV-17 | Per-ring angular spread | inner centres pairwise `≥ 65°`; outer centres pairwise `≥ 50°` (same ring) | pairwise angular diff within each ring |
+| INV-18 | Hero edges inner-only | every edge incident to node `7` has its door endpoint in the **inner** set; `hero_degree ≤ 3` | scan edge list for node-7 edges; check endpoint ring |
+| INV-19 | House-to-house edges | `≥ 6` edges not incident to node `7` | count edges with both endpoints `< 7` |
+| INV-20 | World-scale params (generated) | layout carries `lawn 30`, `hill_inner 30`, `pine_inner 28.5`, `pine_outer 42`, `pine_count 33`, `fog 14.0/95`, `bush_filler 8/22`; `pine_inner (28.5) ≥ max outer grown corner` | field asserts + corner scan |
+
+The sweep test loops seeds `1..200`, instantiating the layout (not the full scene) per seed and asserting
+INV-1..INV-10, INV-13, INV-14, INV-16..INV-20; INV-11/INV-12 are whole-sweep assertions; INV-15 is
+seed-independent. `layout.fallback` must be `false` for all 200 seeds (acceptance "no placement failure").
+
+### SD-VILLAGE-GEN-6 — Interactions
+
+- **Grass exclusion:** add `VillageGrassExclusionContext.for_layout(path_segments, is_inside_cottage,
+  path_stones, bush_transforms)` mirroring `for_village` but taking the generated polylines and a
+  `Callable` bound to the layout's `inside_any_cottage` (margin `0.35`). Clearances unchanged
+  (`PATH_CLEARANCE_M = 0.55`, `PLANT_CLEARANCE_M = 0.45`).
+- **Petals:** already parameterised by `path_stones` (`petal_layers(path_stones)`) — rides the generated
+  stones with no change.
+- **Fauna anchors:** `export_fauna_anchors` must build from the layout's `path_polylines()` and generated
+  stones (same call shape, layout-sourced) so bee/butterfly flower anchors track the real paths.
+- **Bushes:** `bush_common_positions` must iterate the **layout's cottages** (door-skirt bushes follow
+  generated houses). The **10 filler bushes** ring is scaled from `8–15 m` → **`8–22 m`** in generated mode
+  (keep the near bound; extend the outer so filler dresses the gap between rings). Counts/budgets unchanged
+  (`≥ 40`). The filler-ring radii come from the layout's `bush_filler_inner/outer` (classic `8/15`).
+
+- **World scale (generated only; classic byte-for-byte — INV-15/INV-20).** A **fixed generated preset**,
+  not per-seed. Anchored to the lawn radius with `S_WORLD = lawn_gen / lawn_classic = 30/20 = 1.5`. Carried
+  as fields on `VillageLayout` (classic defaults via `authored()`, scaled values via `generate()`), read by
+  `VillageBackdrop` instance code instead of literals. Only **radial** dressing scales; **vertical** and
+  **far-horizon** constants, and the **hero-proximate garden band**, stay put:
+
+  | Const / system (source) | Classic | Generated | Decision + why |
+  |---|---|---|---|
+  | lawn disk radius (`_add_village_lawn_ground`) | `20.0` | **`30.0`** | **scale** — contain outer corner `27.18 m` + `2.8 m` grass fringe |
+  | lawn segs | `72` | `72` | keep — cosmetic tessellation |
+  | hill ring inner (`_add_hill_ring`) | `20.0` | **`30.0`** | **scale** — hold hill_inner = lawn edge (classic relationship) |
+  | hill ring outer | `140.0` | `140.0` | keep — far horizon, already beyond any framing |
+  | hill height | `7.5` | `7.5` | keep — vertical, not radial |
+  | pine inner (`_pine_positions`) | `19.0` | **`28.5`** | **scale** — treeline just beyond every outer corner (`≥ 27.18`) ⇒ **no pine inside a house** (INV-20) |
+  | pine outer | `28.0` | **`42.0`** | **scale** — ×1.5 keeps band depth ratio (`28/20`→`42/30`) |
+  | pine count | `22` | **`33`** | **scale** — ×1.5 keeps angular density on the ×1.5 circumference |
+  | pine jitter / scale range | — | keep | per-tree look unchanged |
+  | `_SHADOW_NEAR_M` | `8.0` | `8.0` | keep — inner faces `≥ 7.61 m`; policy reads the same |
+  | `GRASS_BLADE_CHUNK_M` | `6.0` | `6.0` | keep — chunking grid, not a world radius |
+  | grass ring `4.5 / 14.5`, full-density `12`, accents `6–11.5` | keep | **keep** | hero-proximate band; the dense-blade budget (`GRASS_MAX_INSTANCES 18000`, ~14.3k today) cannot cheaply cover a `30 m` disk (`(30/14.5)²≈4.3×` area). The outer ring reads on the **ground-shader lawn + lawn disk (30 m)**, exactly as classic's far field beyond `14.5 m` does. **QA checkpoint.** |
+  | flower/petal/plant layers | keep | keep | petals already ride generated path stones; flowers/plants are hero-garden dressing |
+  | fauna garden ring `5.5–12` (`FaunaConstants`) | keep | keep | hero band; out of scope for the bigger world |
+  | World/`Ground` plane `512×512` (`main.tscn`) | keep | keep | already huge |
+  | fog `fog_depth_begin / end` (`main.tscn` WorldEnvironment) | `9.5 / 95.0` | **`14.0 / 95.0`** | **scale begin** (runtime override, below); keep `end` (`95 > 42` pine outer) |
+
+- **Fog is a runtime override, not a `main.tscn` edit.** The WorldEnvironment is a shared global; editing
+  its `.tscn` value would break classic byte-for-byte and the `fog_depth_begin ≥ 9.5` test. Instead carry
+  `fog_depth_begin / fog_depth_end` on the layout and have **`World` apply them to the live
+  `World/SkySun/WorldEnvironment` on every backdrop build** — classic layout carries `9.5/95` (restoring
+  the default even after a prior generated session), generated carries `14.0/95`. `main.tscn` stays `9.5`
+  (test passes). **Seam ownership (World vs the generated backdrop) is an open question for the Architect.**
+- **Cameras & fauna LOD — flagged follow-up (not scaled this epic).** `CamSun/CamShade/CamTop/CamSilhouette`
+  framing and `FaunaConstants.LOD_DESPAWN_M (18) / LOD_SPAWN_FORBID_M (22)` are tuned for the classic
+  village. For the bigger generated world they likely want a **~1.3–1.5× dolly-back** and a despawn/forbid
+  bump, but these are shared-rig / gameplay-tuning concerns best decided against a real render. **Default:
+  keep classic values; QA checkpoint to decide the pull-back factor** once the two-ring village is on
+  screen. In scope to flag; out of scope to retune here.
+- **Shadows:** unchanged distance policy (`< 8 m` ⇒ OFF). Inner houses sit at the same `~7.6–8.6 m` face
+  band as classic, so the policy reads identically.
+- **Performance budget:** layout generation (ring shuffle + placement + MST + routing + stones) **≤ 8 ms
+  typical, ≤ 20 ms hard ceiling** (tiny: 7 darts, 8-node MST, ~11 edges). **Draw calls unchanged** — node
+  structure identical (one MultiMesh per cottage piece type, three `Scatter_Path_*` MultiMeshes, same
+  scatter layers; `33` pines are still one `FarTreeline` MultiMesh; `70–360` stones still three MultiMeshes).
+  `test_triangle_budget` (`< 120k`) and `test_surface_count` (`≤ 160`) must still pass.
+
+### SD-VILLAGE-GEN-7 — GameModes / picker contract
+
+- **Mode ids:** `classic_village`, `generated_village`. New catalog `GameModes` (e.g.
+  `src/world/game_modes.gd`) with entries `{ id, label, backdrop_scene_path, is_generated: bool }`:
+  - `classic_village` → `"Classic Village"` → `res://src/world/village_backdrop.tscn` → `false`
+  - `generated_village` → `"Generated Village"` → `res://src/world/generated_village_backdrop.tscn` → `true`
+  Designed so a mode can later carry `rules_path`/`goals` fields (no rules now).
+- **Picker control:** a two-state mode toggle (segmented button) **above** the existing scenario button
+  list. It defaults to `Main._village_mode` (persisted). `BuildingPicker.building_selected(building_id)`
+  and `_on_entry_pressed(id)` are **unchanged** (capture tools and `test_change_building` depend on them).
+  The toggle emits a **new** `signal village_mode_changed(mode_id: String)`; `Main` stores the id.
+- **Persistence across `return_to_picker`:** `Main` holds `_village_mode` (default `"classic_village"`)
+  and `_village_seed`; each new picker instance is initialised to the stored mode so the choice survives
+  re-opening the picker.
+- **Seat of the seed:** on selecting `generated_village`, `Main` rolls `_village_seed`
+  (SD-VILLAGE-GEN-2). `World`, when (re)building the backdrop, instances the mode's `backdrop_scene_path`;
+  for generated it calls `set_village_seed(_village_seed)` before `_ready` so
+  `GeneratedVillageBackdrop._make_layout()` returns `VillageLayout.generate(seed)`.
+- **Scripts / UI-scripts / capture tools:** **default to `classic_village`** so every existing tool stays
+  byte-for-byte. A script requests generated via a new `village_mode generated_village <seed>` verb (or,
+  for capture tools, by setting `Main._village_mode`/`_village_seed` before building).
+- **Snapshot recipe fields:** `scene.village_mode` (default `"classic_village"`), `scene.village_seed`
+  (default `0`); `build_recipe` reads them from `World`, `load_snapshot_recipe` applies them before
+  bootstrap so replay reproduces the exact village.
+
+### SD-VILLAGE-GEN-8 — Failure modes & edge cases
+
+| Case | Expected behaviour |
+|---|---|
+| Placement exhausts darts (either ring) | re-derive placement stream ≤8× (re-running the ring shuffle); then fall back to `authored()` with `fallback=true` + warning (never invalid) |
+| Ring assignment | deterministic shuffle of the 5 three-bay indices always yields 3 inner + 4 outer (2 four-bay always outer) — cannot fail |
+| Inner↔outer rect overlap (same angle) | forbidden by the across-both-rings overlap test; re-dart into free arc (60–67% slack ⇒ always resolvable) |
+| MST edge cannot clear a cottage | grow bend ≤6 steps, then one perpendicular waypoint; else fall back whole layout (cross-ring tree edges are load-bearing) |
+| Loop edge cannot clear | drop it; keep ≥ `MIN_LOOPS=3` or the layout falls back |
+| Outer house tries to touch hero | impossible — hero↔outer edges excluded from the candidate set (INV-18) |
+| Hero has no inner candidate | impossible — 3 inner houses always exist |
+| Seed `0` | valid: `0 & 0x7FFFFFFF = 0`; deterministic layout |
+| Negative seed | normalised by `& 0x7FFFFFFF`; deterministic (two's-complement masked) |
+| Huge/out-of-range seed | masked to 31 bits; deterministic |
+| Extreme angular clustering | prevented by the `18°` min-separation + rect-overlap test |
+| Building-pivot offset | generation is in the local frame around `(0,0)`; `World` translates the whole node, so keep-out/ring radii stay correct regardless of pivot |
+| Mode switched while backdrop visible | mode change **takes effect on the next session build** (via the picker), not mid-session; no live teardown. The dev overlay reflects the active session's mode/seed |
+| Degenerate seed yields a near-classic layout | allowed; INV-12 only requires ≥95% of the 200 seeds be unique, not that every seed differs from authored |
+
+### SD-VILLAGE-GEN-9 — Example scenarios
+
+1. **Fresh player picks Generated.** Picker toggle → Generated; `Main` rolls `seed = 1_732_004_991`.
+   `World` instances `GeneratedVillageBackdrop`; `_make_layout()` returns `generate(1732004991)`: **three
+   inner (3-bay) + four outer (incl. both 4-bay) cottages** at seeded centres/yaws, doors facing the
+   centre, an **MST + ~4-loop organic stone network** with cross-ring lanes reading as streets between
+   houses (only the inner ring sends short stubs to the hero). `World` scales the lawn to `30 m`, pines to
+   `28.5–42 m` (×33), and sets fog begin to `14 m`. Dev overlay shows `village: generated  seed:
+   1732004991`.
+2. **Developer sweeps seeds in a test.** `test_generated_village_sweep.gd` loops seeds `1..200`, builds
+   each `VillageLayout`, asserts INV-1..INV-10 + INV-13/14 + INV-16..INV-20 per seed, and INV-11/INV-12
+   across the sweep; all `fallback` flags `false`. Runs headless in well under a second (generation ≤8 ms
+   each).
+3. **QA replays an F9 snapshot.** A snapshot saved in Generated mode carries `village_mode:
+   "generated_village"`, `village_seed: 1732004991`. `replay_snapshot` applies them before bootstrap;
+   `restore_camera` frames the same orbit; `replay.png` reproduces the identical village (determinism
+   INV-11).
+
+### SD-VILLAGE-GEN-10 — Non-goals (carried from the epic) & open questions
+
+**Non-goals:** varying house shapes/bays/windows/door-slot (types stay authored) · ribbon/mesh path
+(stepping stones only) · runtime re-generation within a session · terrain height variation · moving the
+hero area or keep-out radii · mode-specific **rules/goals** (the catalog seam is designed for them, but
+none ship now) · changing the classic village look or tests · a second RNG family.
+
+**Open questions for the Gameplay Architect (ivy-80z.7 — this amendment's handoff):**
+1. **World-scale factor `S_WORLD = 1.5` is a chosen default.** It is anchored to lawn radius (`30 m`) and
+   proven to contain the outer corners with a treeline behind. Whether `1.5` *looks* right (airy vs empty
+   middle; fog reading at `14 m`) is a **QA visual checkpoint** — GA to expose the world-scale fields so
+   the number can be retuned without a placement change.
+2. **Fog runtime-override seam.** The generated fog (`begin 14`) is applied to the shared
+   `WorldEnvironment` at build time; classic restores `9.5/95`. **Does `World` own this apply/restore, or
+   the `GeneratedVillageBackdrop`?** (SD recommends `World`, since it already (re)builds the backdrop and
+   can restore classic after a generated session. `main.tscn` must stay `9.5` for the static test.)
+3. **Camera framing & fauna LOD for the bigger world.** Not scaled this epic (shared rig / gameplay
+   tuning). GA to decide whether a generated-mode camera dolly-back (`~1.3–1.5×`) and a `LOD_DESPAWN_M /
+   LOD_SPAWN_FORBID_M` bump are in scope here or a follow-up bead. **QA checkpoint** against a real render.
+4. **Grass ring not scaled (outer ring on the ground-shader lawn).** SD keeps the dense-blade ring at
+   `14.5 m` (budget). GA/QA to confirm the outer ring reads acceptably on the lawn disk + ground shader,
+   or file a follow-up to raise `GRASS_MAX_INSTANCES` and the ring if it looks bare.
+5. **Hero entry count.** Hero degree is `1–3` (only the 3 inner doors are candidates), trimmed to the
+   `6.5 m` ring. If QA wants exactly `1–2` entry stubs, cap hero degree post-MST by re-routing the extra
+   inner-door through a neighbour. Default (`≤ 3`) stands unless QA rejects.
+6. **`VillageLayout` ownership of statics.** Statics (`cottage_exterior_rect`, `cottage_door`,
+   `inside_any_cottage`, `path_polylines`) stay on `VillageBackdrop`; the instance reads `_layout`. Confirm
+   the free-function-parameterised-by-`cottages` seam (SD recommends; already present in S1/S2).
+7. **Ring-assignment shuffle location.** SD fixes it as the **first** consumer of the placement stream
+   (before darts). GA to confirm Fisher–Yates over the five 3-bay indices and that re-derivation re-runs it.
+
+---
 ---
 
 # Phase 1 Implementation Architecture
@@ -3569,4 +3981,708 @@ exists.
 constrains behaviour rather than style traces to an `SD-*` contract or a `DESIGN.md` invariant; a
 quiet deviation will surface as a failed acceptance signal weeks later, at the point where the cause
 is most expensive to find. That is R-1 in miniature.
+
+---
+---
+
+## AR-VILLAGE-GEN — Generated village architecture (ivy-80z)
+
+**Stage:** Gameplay Architect · **Date:** 2026-10-29 · **Next stage:** Gameplay Programmer (ivy-80z.3)
+
+> **Amended 2026-10-29 by ivy-80z.7 (GA re-plan for the ivy-80z.6 SD amendment):** two rings
+> (3 inner + 4 outer), seeded ring assignment, organic house-to-house network (inner-only hero),
+> and a `~1.5×` larger generated world (lawn/pine/hill/fog scaled, carried as fields on
+> `VillageLayout`, read by `VillageBackdrop` builders). Superseded text below is marked inline
+> ("superseded 2026-10-29 by ivy-80z.7"). S1 landed as written; **S2 is reworked to S2′, a new S2b
+> (world scale) is inserted, and S3/S4/S5 are amended.** The seven SD open questions are resolved in
+> **AR-VG-DECIDE** (now seven, not five).
+
+**Inputs used:** SD contract `SD-VILLAGE-GEN-1..10` + `INV-1..INV-20` **(amended — two rings, organic
+network, world scale; INV-16..INV-20 new)** (this file, immediately above — binding), and the SD
+amendment bead `ivy-80z.6` notes; epic `ivy-80z` Director decisions/non-goals; `src/world/village_backdrop.gd`
+(`COTTAGES`, `cottage_transform`, `cottage_exterior_rect`, `cottage_door`, `inside_any_cottage`,
+`path_polylines`, `_build_cottages`, `_reject_path_stone_xz`, `_setup_multimesh_scatter`,
+`export_fauna_anchors`, `_make_layout`/`_layout`, `_ready`, and the instance builders
+`_add_village_lawn_ground` (L594, `r=20`), `_add_hill_ring` (L622, `20→140`), `_add_hill_annulus` (L637),
+`_pine_positions` (L518, `n=22`, `r∈[19,28]`)); `src/world/village_layout.gd` (landed S1/S2:
+`authored`/`generate`/`_place_cottages`/`_derive`/`_test_max_darts`, constants `_R_IN`/`_R_OUT`/
+`_MIN_ANG_DEG`); `src/world/village_scatter_positions.gd` (`lcg_step`/`lcg_f01`, `path_stone_transforms`
+(L349, `stone_seed`/`min_stone_spacing` default args), `bush_common_positions` (L61, filler ring
+`lerpf(8,15)` L93), `petal_layers`, `min_xz_dist_to_path_segments`); `src/world/village_grass_exclusion_context.gd`
+(`for_layout`/`for_village`); `src/main/main.tscn` (`World/SkySun/WorldEnvironment` `Environment_sky`
+SubResource: `fog_depth_begin = 9.5` L62, `fog_depth_end = 95.0` L63; `World/Ground` plane `512×512`);
+`src/world/sky_sun.gd` (`_env: WorldEnvironment` L51, `setup()` resolves it L59, per-frame mutates
+`_env.environment.fog_light_color` L93); `src/presentation/fauna/fauna_constants.gd`
+(`GARDEN_RING_INNER/OUTER_M 5.5/12`, `LOD_DESPAWN_M 18`, `LOD_SPAWN_FORBID_M 22`);
+`src/presentation/fauna/fauna_controller.gd` (spawn band `randf_range(18,28)` L367); `src/world/debug_camera.gd`
+(`_home_radius 8.01`, CamSun-seeded orbit); `tools/plot_village_layout.gd` (S2 contact sheet; single-ring
+circles `12/18.5/20`); `test/test_generated_village_sweep.gd` (landed S2 sweep), `test/test_village_layout.gd`;
+`src/world/world.gd` (`_village_backdrop` @onready L19, `sky_sun` @onready L17, `get_sky_sun` L197,
+`_activate_mesh_scenario` L321, `_apply_scenario_camera_framing` L361-377 fauna `bind_backdrop`); `src/main/main.gd`
+(`_show_building_picker` L61, `_on_building_selected` L68, `_load_building` L121, `_bootstrap_simulation`
+L129, `return_to_picker` L273, `load_snapshot_recipe` L430, `_setup_dev_tools` L311, `_tick_fauna`
+`get_node_or_null("VillageBackdrop")` L641); `src/ui/building_picker.gd` (`building_selected`,
+`_on_entry_pressed`); `src/world/building_catalog.gd` (`Entry`/`all()` style model); `src/debug/snapshot_capture.gd`
+(`build_recipe` `scene` dict L25-28); `src/debug/snapshot_recipe.gd` (free `scene` dictionary, schema v1);
+`src/ui/dev_overlay.gd` (`_build_ui`); `tools/run_ui_script.gd` (verb loop, `_parse_args`); `src/main/main.tscn`
+(`World/VillageBackdrop` instance L125); `test/test_village_backdrop.gd`, `test/test_village_grass_scatter.gd`
+(encoded classic invariants); `tools/capture_cottage_closeups.gd`, `test/slow/test_change_building.gd`
+(frozen signatures). This section is authoritative for *how* the SD contract is built; where the contract
+is ambiguous it is resolved in **AR-VG-AMBIG** below with a cited `AR-VG-*` id, never silently.
+
+### AR-VG-GOAL — Goal in implementation terms
+
+Add a selectable **Generated Village** backdrop beside the unchanged Classic Village, with **zero
+byte-level change** to the classic render or its test surface. The seam is a `VillageLayout` value
+object (`authored()` / `generate(seed)`) plus a `GeneratedVillageBackdrop extends VillageBackdrop`
+subclass that overrides a new `_make_layout()` hook. `VillageBackdrop` instance code is refactored to
+read a resolved `_layout` instead of the `COTTAGES`/`path_polylines()`/`inside_any_cottage` statics; the
+statics stay (delegating to `authored()`) so every existing test and tool is untouched. Mode + seed flow
+Picker → `Main` → `World` → backdrop scene, and are recorded in the F9 snapshot recipe.
+
+**Amended (ivy-80z.7):** the generated layout now places the seven cottages across **two concentric
+rings** — three 3-bay inner + four outer (both 4-bay CA/CD + two 3-bay), with the inner/outer split of
+the five 3-bay houses chosen by a seeded Fisher–Yates draw that is the **first** consumer of the
+placement stream — and routes an **organic door-to-door network** (MST + loop edges, only inner doors
+touching the hero). Generated mode also renders a **`~1.5×` larger world** (lawn/pine/hill radii and fog
+begin scaled up); the scale is carried as **plain fields on `VillageLayout`** (classic defaults via
+`authored()`, scaled values via `generate()`) that the `VillageBackdrop` instance builders read instead of
+their current literals, so classic stays byte-for-byte (INV-15) and the scale is tunable without touching
+placement. Fog begin is applied as a **runtime override** to the shared `WorldEnvironment` (classic
+restores `9.5`); `main.tscn` is never edited. Cameras and fauna LOD are **not** retuned this epic
+(follow-up — AR-VG-DECIDE §3).
+
+### AR-VG-OWN — Boundaries / ownership (file → responsibility)
+
+| File | New? | Responsibility |
+|---|---|---|
+| `src/world/village_layout.gd` | **new** | `VillageLayout` value object. `authored()` (= today's `COTTAGES` + `path_polylines()`, `stone_seed=9999`, dedupe off), `generate(seed)` (placement + MST+loop path network + stone params), instance `inside_any_cottage`/`path_polylines`, free `inside_cottages(cottages,…)`. Owns all generation math. |
+| `src/world/generated_village_backdrop.gd` | **new** | `GeneratedVillageBackdrop extends VillageBackdrop`; `set_village_seed(seed)` + `_make_layout()` → `VillageLayout.generate(seed)`. No other overrides. |
+| `src/world/generated_village_backdrop.tscn` | **new** | Copy of `village_backdrop.tscn` (same authored `Garden_Bush1/2`, `Garden_Rock_A` props) with `script = generated_village_backdrop.gd`. Root node name stays authoring-neutral; `World` renames the instance to `VillageBackdrop`. |
+| `src/world/game_modes.gd` | **new** | `GameModes` catalog: `Mode{id,label,backdrop_scene_path,is_generated}`, `all()`, `by_id()`. Designed to later carry `rules_path`/`goals` (none now). |
+| `src/world/village_backdrop.gd` | edit | Add `_layout` + virtual `_make_layout()`; `_ready`/`_build_cottages`/`_reject_path_stone_xz`/`export_fauna_anchors`/`_setup_multimesh_scatter` read `_layout`; `inside_any_cottage` static delegates to `VillageLayout.inside_cottages(COTTAGES,…)`. **(ivy-80z.7)** the instance builders `_add_village_lawn_ground`/`_add_hill_ring`/`_pine_positions` read the layout's world-scale fields (`lawn_radius`, `hill_inner`, `pine_inner/outer/count`) instead of their literals, and `_setup_multimesh_scatter` passes `_layout.bush_filler_inner/outer` into `bush_common_positions`; add `get_layout()` so `World` can read fog/world-scale after build. **Classic defaults reproduce every literal bit-for-bit** (INV-15). **No behavioural change for the base class** (classic). |
+| `src/world/village_scatter_positions.gd` | edit | `path_stone_transforms(…, stone_seed:=9999, min_stone_spacing:=0.0)`; `bush_common_positions(cottages:=[], filler_inner:=8.0, filler_outer:=15.0)` **(ivy-80z.7: filler-ring args)**. Default args = byte-identical classic. |
+| `src/world/village_grass_exclusion_context.gd` | edit | Add `for_layout(path_segments, is_inside_cottage, path_stones, bush_transforms)`; `for_village` unchanged (delegates to `for_layout` with the statics). |
+| `src/world/sky_sun.gd` | **edit (ivy-80z.7)** | Add `set_fog_depth(begin, end)` → writes `_env.environment.fog_depth_begin/end` on the live shared Environment. **Sole owner of Environment mutation** (already owns `_env` + per-frame fog colour). Classic restores `9.5/95` because the classic layout carries those defaults. `main.tscn` stays `9.5` (static test). |
+| `src/world/world.gd` | edit | `_village_mode`/`_village_seed` + `set_village_mode()`, `get_village_mode()`/`get_village_seed()`, `rebuild_backdrop()` (instance mode scene, keep node name `VillageBackdrop`, reposition+show+fauna bind). Swap before `_apply_scenario_camera_framing` shows the backdrop. **(ivy-80z.7)** after instancing the backdrop, read its `get_layout()` and call `sky_sun.set_fog_depth(layout.fog_begin, layout.fog_end)` — the **fog-override seam owner** (AR-VG-DECIDE §2); classic rebuild re-applies `9.5/95`. Camera framing/fauna LOD unchanged this epic. |
+| `src/main/main.gd` | edit | `_village_mode`/`_village_seed` store; connect `village_mode_changed`; roll seed on generated; push mode/seed to `World` in `_load_building`; apply recipe fields in `load_snapshot_recipe`; `set_village_info` on dev overlay; `apply_village_mode_live()` QA hook. |
+| `src/ui/building_picker.gd` | edit | New `signal village_mode_changed(mode_id)`; a mode `CheckButton` above the scenario list; `init_village_mode(mode_id)` for persistence. `building_selected`/`_on_entry_pressed` **unchanged**. |
+| `src/ui/dev_overlay.gd` | edit | `set_village_info(mode_id, seed)` → a Label line `village: generated  seed: N` / `village: classic`. |
+| `tools/run_ui_script.gd` | edit | `--village-mode=`/`--village-seed=` args set on `scene_root` before `add_child` (pre-bootstrap default); optional in-run `VILLAGE_MODE <id> [seed]` verb → `main.apply_village_mode_live()`. |
+
+Ownership boundary: **all randomness and geometry live in `VillageLayout`**; backdrop/World/Main/Picker
+are pure plumbing and carry no generation math.
+
+### AR-VG-API — Exact signatures
+
+```gdscript
+# src/world/village_layout.gd
+class_name VillageLayout
+extends RefCounted
+
+const PLACEMENT_SALT := 0x5011A9
+const PATHGRAPH_SALT := 0x9A7B3
+const STONES_SALT    := 0x5739C1
+const HERO_NODE := 7                      # door nodes 0..6, hero node = 7
+const RING_INNER := 0                     # ivy-80z.7
+const RING_OUTER := 1
+
+var cottages: Array = []                  # 7 spec Dictionaries; generated overwrites centre/yaw_deg only
+var cottage_rings: Array[int] = []        # ivy-80z.7: parallel to cottages, 0=inner/1=outer; [] for authored()
+var paths: Array = []                     # Array of Array[Vector2] polylines (door→network, hero edges clipped to 6.5 m)
+var edges: Array[Vector2i] = []           # graph edges as node-index pairs 0..6 door / 7 hero (INV-5/6/18/19)
+var stone_seed: int = 9999                # classic 9999 (INV-15); generated = stones sub-stream state
+var min_stone_spacing: float = 0.0        # classic 0.0 (dedupe off); generated 0.5
+var fallback: bool = false                # true iff generate() fell back to authored()
+
+# ivy-80z.7 — world-scale fields; DEFAULTS ARE THE CLASSIC LITERALS (bit-for-bit, INV-15).
+# authored() leaves them at these defaults; generate() overwrites with the scaled preset (INV-20).
+var lawn_radius: float       = 20.0       # generated 30.0  (_add_village_lawn_ground r)
+var hill_inner: float        = 20.0       # generated 30.0  (_add_hill_ring inner; outer 140 kept)
+var pine_inner: float        = 19.0       # generated 28.5  (_pine_positions r lerp min)
+var pine_outer: float        = 28.0       # generated 42.0  (_pine_positions r lerp max)
+var pine_count: int          = 22         # generated 33    (_pine_positions n)
+var fog_begin: float         = 9.5        # generated 14.0  (runtime override via SkySun.set_fog_depth)
+var fog_end: float           = 95.0       # generated 95.0  (kept; 95 > 42 pine outer)
+var bush_filler_inner: float = 8.0        # generated 8.0   (bush_common_positions filler ring min)
+var bush_filler_outer: float = 15.0       # generated 22.0  (bush_common_positions filler ring max)
+
+static func authored() -> VillageLayout
+static func generate(seed: int) -> VillageLayout
+func inside_any_cottage(p: Vector2, margin: float) -> bool         # iterates self.cottages
+func path_polylines() -> Array                                     # returns self.paths (uniform read)
+static func inside_cottages(cottages: Array, p: Vector2, margin: float) -> bool   # free fn; statics delegate
+
+# internal (names fixed so the Programmer need not invent them)
+static func _derive(seed: int, salt: int) -> int                   # lcg_step(lcg_step((seed^salt)&0x7FFFFFFF))
+# ivy-80z.7: ring assignment — FIRST consumer of the placement stream (before any dart).
+#   Fisher–Yates over the five 3-bay indices → first 3 inner, last 2 outer; 4-bay (CA,CD) always outer.
+static func _assign_rings(placement_state: int) -> Dictionary      # {rings:Array[int], state:int}
+static func _place_cottages(placement_state: int) -> Dictionary    # {cottages:Array, cottage_rings:Array[int], ok:bool, state:int}
+static func _build_network(cottages: Array, cottage_rings: Array[int], pathgraph_state: int) -> Dictionary  # {paths, edges, ok}
+static func _mst_edges(nodes: PackedVector2Array, candidate_mask: Callable) -> Array  # Array[Vector2i], Prim over 8 nodes, hero↔outer excluded
+static func _bezier_polyline(a: Vector2, b: Vector2, bend: float) -> Array        # ~0.3 m arc spacing
+
+# src/world/generated_village_backdrop.gd
+class_name GeneratedVillageBackdrop
+extends VillageBackdrop
+var _village_seed: int = 0
+func set_village_seed(seed: int) -> void          # seed &= 0x7FFFFFFF
+func _make_layout() -> VillageLayout              # return VillageLayout.generate(_village_seed)
+
+# src/world/village_backdrop.gd  (additions)
+var _layout: VillageLayout
+func _make_layout() -> VillageLayout              # virtual hook; base returns VillageLayout.authored()
+func get_layout() -> VillageLayout                # ivy-80z.7: World reads fog_begin/end + world-scale after build
+# ivy-80z.7 — builders read layout fields (classic defaults reproduce the literals bit-for-bit):
+#   _add_village_lawn_ground: r = _layout.lawn_radius
+#   _add_hill_ring:           _add_hill_annulus(st, segs, _layout.hill_inner, 140.0, 0.0, 7.5)
+#   _pine_positions:          n = _layout.pine_count; r = lerpf(_layout.pine_inner, _layout.pine_outer, f01)
+#   _setup_multimesh_scatter: bush_common_positions(_layout.cottages, _layout.bush_filler_inner, _layout.bush_filler_outer)
+
+# src/world/sky_sun.gd  (addition — ivy-80z.7 fog-override seam)
+func set_fog_depth(begin: float, end: float) -> void   # if _env/_env.environment: set fog_depth_begin/end
+
+# src/world/village_scatter_positions.gd  (signature extensions — default args preserve classic bytes)
+static func path_stone_transforms(path_segments: Array, reject_xz: Callable,
+        stone_seed: int = 9999, min_stone_spacing: float = 0.0) -> Array[Transform3D]
+static func bush_common_positions(cottages: Array = [],
+        filler_inner: float = 8.0, filler_outer: float = 15.0) -> Array[Transform3D]  # ivy-80z.7 filler args
+
+# src/world/village_grass_exclusion_context.gd  (addition)
+static func for_layout(path_segments: Array, is_inside_cottage: Callable,
+        path_stones: Array[Transform3D], bush_transforms: Array[Transform3D]) -> VillageGrassExclusionContext
+
+# src/world/game_modes.gd
+class_name GameModes
+extends RefCounted
+const CLASSIC := "classic_village"
+const GENERATED := "generated_village"
+class Mode:
+    var id: String
+    var label: String
+    var backdrop_scene_path: String
+    var is_generated: bool
+static func all() -> Array[Mode]
+static func by_id(id: String) -> Mode            # defaults to CLASSIC on unknown id
+
+# src/world/world.gd  (additions)
+func set_village_mode(mode_id: String, seed: int) -> void     # store; no live teardown here
+func get_village_mode() -> String
+func get_village_seed() -> int
+func rebuild_backdrop() -> void                               # instance mode scene, name "VillageBackdrop", reposition+show+fauna bind;
+                                                              #   ivy-80z.7: after build, sky_sun.set_fog_depth(bk.get_layout().fog_begin, .fog_end)
+
+# src/main/main.gd  (additions)
+func apply_village_mode_live(mode_id: String, seed: int) -> void   # QA/dev hook: set_village_mode + rebuild_backdrop
+
+# src/ui/building_picker.gd  (addition)
+signal village_mode_changed(mode_id: String)
+func init_village_mode(mode_id: String) -> void               # set toggle state without emitting
+
+# src/ui/dev_overlay.gd  (addition)
+func set_village_info(mode_id: String, seed: int) -> void
+```
+
+`path_stone_transforms`'s classic callers (`village_backdrop.gd` `_ready`/`export_fauna_anchors`,
+`test_village_grass_scatter.gd`, `test_village_backdrop.gd`, `tools/capture_cottage_closeups.gd`) keep
+calling the 2-arg form → `stone_seed=9999, min_stone_spacing=0.0` → byte-identical output. The generated
+backdrop passes `_layout.stone_seed`/`_layout.min_stone_spacing` from `_ready`.
+
+### AR-VG-DATA — Data shapes
+
+- **Cottage spec** (unchanged dictionary shape): `{name,centre:Vector2,bays,yaw_deg,door:String,windows:Array,brick:String,chimney_bay}`.
+  `generate()` reuses the seven authored CA–CG dicts (`.duplicate()`) and overwrites **only** `centre`
+  and `yaw_deg` (INV-13 preserves the multiset of type fields). **No `ring` key is added to the spec**
+  so `authored().cottages` stays deep-equal to `COTTAGES` (INV-15).
+- **`cottage_rings` (ivy-80z.7):** `Array[int]` **parallel to `cottages`** (not a spec key); `0`=inner,
+  `1`=outer. `generate()` fills it (3× `0` + 4× `1`); `authored()` leaves it `[]` (classic has no rings;
+  INV-15 does not inspect it). Ring is also derivable from `centre.length()` (inner `∈[11.5,13.0]`, outer
+  `∈[19.5,21.5]`), but the explicit array is the source of truth for INV-16/17/18 and avoids float edge
+  cases. Carried through `_place_cottages` → `generate()` → `_build_network` (candidate-set restriction).
+- **Path polyline:** `Array[Vector2]` sampled at ~0.3 m; consumed by `path_stone_transforms` and the
+  grass/fauna exclusion exactly as classic `path_polylines()` is.
+- **`edges`:** `Array[Vector2i]`; node ids 0..6 = door stoops (parallel to `cottages`), 7 = hero.
+  **(ivy-80z.7)** used by INV-5 (BFS/union-find connectivity), INV-6 (`edges.size() − 8 + 1 ≥ MIN_LOOPS=3`),
+  **INV-18** (every edge with an endpoint `== 7` has its door endpoint in the inner set; `hero_degree ≤ 3`),
+  and **INV-19** (`≥ 6` edges with both endpoints `< 7`).
+- **World-scale fields (ivy-80z.7):** nine plain scalars (`lawn_radius`, `hill_inner`, `pine_inner`,
+  `pine_outer`, `pine_count`, `fog_begin`, `fog_end`, `bush_filler_inner`, `bush_filler_outer`). **Defaults
+  on the member declarations are the classic literals**; `authored()` leaves them untouched (so "classic
+  defaults == old literals" is a pure-value test), `generate()` assigns the fixed scaled preset (lawn 30,
+  hill_inner 30, pine 28.5/42, count 33, fog 14.0/95, bush_filler 8/22 — INV-20). They are **not
+  per-seed** — the same preset for every generated seed. The scale factor `S_WORLD = 1.5` is implicit
+  (`lawn 30 / lawn 20`); it is **not** stored as a factor so QA can retune any single field (e.g. drop
+  `fog_begin` to `12`) without disturbing the others or the placement math.
+- **`fallback` flag:** `bool` on the layout. `false` for all 200 sweep seeds (acceptance "no placement
+  failure"); `true` only if the 8-redraw/ reroute budget is exhausted, in which case `generate()`
+  returns an `authored()`-equivalent layout with `fallback=true` and a `push_warning` — a valid classic
+  village always ships.
+- **Snapshot recipe `scene`:** gains `village_mode:String` (default `"classic_village"`) and
+  `village_seed:int` (default `0`). Absent ⇒ classic (schema v1, free dictionary — no schema bump).
+
+### AR-VG-DECIDE — SD open questions, resolved
+
+> **Superseded 2026-10-29 by ivy-80z.7.** The original AR-VG-DECIDE "five SD open questions" (resolved for
+> the single-ring design: hero-node-count, static seam, stone seed, loop-edge cycle `TARGET=2/MIN=1`,
+> generation timing) are replaced by the **seven** amended questions below. Where a prior resolution still
+> holds it is restated; where the amendment changes it, the new ruling wins.
+
+1. **World-scale tunability (SD Q1).** Expose world scale as **nine plain fields on `VillageLayout`**
+   (not a single `S_WORLD` factor): `lawn_radius`, `hill_inner`, `pine_inner`, `pine_outer`, `pine_count`,
+   `fog_begin`, `fog_end`, `bush_filler_inner`, `bush_filler_outer`. Member defaults = classic literals;
+   `generate()` writes the fixed scaled preset (INV-20). Builders read them (AR-VG-OWN). A QA retune
+   touches one `generate()` line; no placement or test-structure change. `authored()` never sets them, so
+   the classic path is literally the defaults.
+2. **Fog runtime-override seam owner (SD Q2) — `World` owns it, via `SkySun`.** `main.tscn`'s
+   `World/SkySun/WorldEnvironment` holds a single shared `Environment_sky`; `SkySun` already owns `_env`
+   and mutates `_env.environment.fog_light_color` every frame. So: add `SkySun.set_fog_depth(begin,end)`
+   (writes `fog_depth_begin/end`), and have `World.rebuild_backdrop()` — which already (re)instances the
+   backdrop — call `sky_sun.set_fog_depth(backdrop.get_layout().fog_begin, …fog_end)` **immediately after
+   the build**. `World` is the orchestrator (SD-recommended) and `SkySun` is the sole Environment mutator
+   (no two owners). **Restore is automatic:** the classic layout carries `9.5/95`, so any rebuild into
+   classic (mode swap or `return_to_picker`) re-applies the default — no separate restore branch, and no
+   risk of a stale `14.0` surviving a generated→classic switch. `main.tscn` stays `9.5` (the static-regex
+   test under INV-15 passes); the runtime assertion `fog_depth_begin ≥ 9.5` passes for both (`9.5`, `14.0`).
+   The classic backdrop is embedded in `main.tscn`, so its initial `_ready` leaves the authored `9.5` in
+   place until the first explicit rebuild — correct by construction.
+3. **Camera dolly-back + fauna LOD (SD Q3) — FOLLOW-UP BEAD, not this epic.** Default stands: keep
+   classic `CameraRig` cameras, `debug_camera` `_home_radius 8.01`/zoom bounds, and `FaunaConstants`
+   `LOD_DESPAWN_M 18`/`LOD_SPAWN_FORBID_M 22` + the `randf_range(18,28)` spawn band. **What to file** (the
+   orchestrator should `bd create` a child of `ivy-80z`, `type=task`, `acceptance:fuzzy`,
+   `stage:qa-playtester`→`stage:gameplay-programmer`, titled *"Generated Village — camera dolly-back +
+   fauna LOD for the bigger world"*): decided **against a real two-ring render**, scale (a) the four
+   `CameraRig` cameras (`CamSun/CamShade/CamTop/CamSilhouette`) + `debug_camera._home_radius`/zoom bounds
+   by a QA-chosen `~1.3–1.5×` **only when `World.get_village_mode()` is generated** (classic rig
+   untouched), and (b) `LOD_DESPAWN_M`/`LOD_SPAWN_FORBID_M` + the spawn band so fauna can populate the
+   wider lawn. **What QA must tolerate this epic:** outer houses (centres `19.5–21.5`, corners to
+   `27.18 m`) render **small** and **lightly fogged** (fog begins `14 m`, ends `95 m` — far beyond
+   `27 m`, so faint but clearly visible); the eye-level cameras may frame the outer ring near the edges
+   (top-down shows all seven); fauna stays in the `5.5–12 m` garden ring, so **no bees/butterflies around
+   the outer houses** (acceptable — garden-band dressing only). If QA (ivy-80z.5) rejects the framing/feel,
+   it files/takes the follow-up; this epic does not block on it.
+4. **Grass ring not scaled (SD Q4) — keep dense ring at `14.5 m`.** The hero-proximate dense-blade ring
+   (`GRASS_RING_OUTER_M 14.5`, budget `GRASS_MAX_INSTANCES 18000`, ~14.3k today) cannot cheaply cover a
+   `30 m` disk (`(30/14.5)² ≈ 4.3×` area). The outer ring reads on the **ground-shader lawn disk
+   (`lawn_radius 30`) + the `512 m` ground plane**, exactly as classic's far field beyond `14.5 m` does.
+   **QA checks:** a test asserts `GRASS_RING_OUTER_M == 14.5` (unchanged); the S4 generated overview sheet
+   must show the band between `14.5 m` and the outer ring (`19.5–21.5 m`) reading as lawn, not bare dirt.
+   If it looks bare, file a follow-up to raise `GRASS_MAX_INSTANCES` + the ring (out of scope here).
+5. **Hero entry count (SD Q5) — default `hero_degree ≤ 3` stands.** Only the 3 inner doors are hero
+   candidates (INV-18); hero-incident edges are trimmed to the `6.5 m` ring, so the hero reads as 1–3
+   short inner stubs, never a spoke hub. If QA wants exactly 1–2 stubs, cap `hero_degree` post-MST by
+   rerouting the surplus inner door through a neighbouring inner door (a routing change, not a graph-set
+   change). Default stands unless QA (ivy-80z.5) rejects.
+6. **Static seam (SD Q6) — `inside_cottages(cottages, p, margin)` is sufficient, confirmed.**
+   `cottage_transform`/`cottage_exterior_rect`/`cottage_door` stay **spec-only pure statics** (each reads
+   one `spec` dict — `centre`/`yaw_deg`/`bays`/`door`; ring-agnostic, so ring-aware callers just pass the
+   per-cottage spec and consult `cottage_rings[i]` separately). The only array-dependent static,
+   `inside_any_cottage`, delegates to `VillageLayout.inside_cottages(COTTAGES, p, margin)` (already landed
+   S1). No new ring-aware static is needed; no `VillageGeometry` helper (no payoff). **Stone seed** (prior
+   the superseded AR-VG-DECIDE §3) unchanged: classic keeps `9999`/dedupe-off via default args; generated carries
+   `_derive(seed, STONES_SALT)` + `min_stone_spacing = 0.5`.
+7. **Ring-assignment shuffle location (SD Q7) — FIRST consumer of the placement stream, in
+   `_assign_rings`.** `generate()` derives the placement sub-stream, then `_place_cottages(state)` calls
+   `_assign_rings(state)` **before any dart throw** (so changing dart logic cannot reshuffle rings). It
+   collects the five 3-bay indices from `COTTAGES` order (`bays == 3` → CB,CC,CE,CF,CG), **Fisher–Yates
+   shuffles them on the LCG** (`j = int(lcg_f01(step) * (i+1))`), takes the first 3 as inner and last 2 as
+   outer, and marks both 4-bay (`bays == 4` → CA,CD) outer. Result: `cottage_rings[0..6]` with three `0`
+   and four `1`. **Bounded-retry semantics (amended):** *one attempt* = one full `_place_cottages` run
+   (ring shuffle **plus** all 7 cottages' dart loops). `generate()` runs up to `N_REDRAW + 1 = 9`
+   attempts; on each re-derivation (`placement_state = lcg_step(state ⊕ attempt_index)`) `_place_cottages`
+   re-runs the shuffle **first**, so ring membership may differ between attempts (still 3 inner/4 outer —
+   INV-16 holds every attempt). Loop/Bézier routing (S3) consumes the **pathgraph** stream and never
+   touches ring membership.
+
+**Generation timing & loop edges (carried from the superseded AR-VG-DECIDE §4–§5, amended):** generation is still
+on-the-fly in `_make_layout()` at `_ready` (main thread, one-time per session build). Loop-edge span is
+counted in **graph nodes**; candidate non-tree **door–door** edges (never hero) are ordered by ascending
+Euclidean length, ties by ascending `(min_node_index, max_node_index)`, added while the induced cycle
+spans ≥ 3 nodes and the route clears cottages, **until `TARGET_LOOPS = 4` survive (else as many as exist;
+`MIN_LOOPS = 3` or fall back)** — raised from `2/1`. The double-build risk (embedded classic `_ready`
+then `rebuild_backdrop` discard) and the `≤ 20 ms` perf ceiling are unchanged; `test_generate_under_20ms`
+still guards it (the two-ring work — one Fisher–Yates, ≤ 7 darts, 8-node Prim, ~11 Bézier edges — is
+still tiny).
+
+### AR-VG-WIRE — Mode flow (no mid-session player teardown)
+
+- **Picker toggle:** a `CheckButton` ("Generated village (seeded)") above the scenario list — chosen
+  over `OptionButton` because the choice is binary now; when `GameModes.all().size() > 2` the Programmer
+  swaps to an `OptionButton` driven by `GameModes.all()` (noted, not built). Unchecked ⇒ `classic_village`,
+  checked ⇒ `generated_village`; it emits `village_mode_changed(mode_id)` only. `building_selected` /
+  `_on_entry_pressed` are untouched.
+- **Main stores mode/seed:** `_village_mode` (default `"classic_village"`), `_village_seed`. On
+  `village_mode_changed(generated_village)`, `Main` rolls `_village_seed = RandomNumberGenerator`
+  `randi() & 0x7FFFFFFF` (entropy only; layout RNG is the LCG). Persistence across `return_to_picker`:
+  each new picker is `init_village_mode(_village_mode)`'d so the toggle survives re-opening.
+- **Seed reaches the backdrop before `_ready`:** `Main._load_building()` calls
+  `_world.set_village_mode(_village_mode, _village_seed)` **before** `_world.load_building(id)`. On the
+  mesh path, `_activate_mesh_scenario` → (new) `rebuild_backdrop()` frees `$VillageBackdrop`, instances
+  the mode's `backdrop_scene_path`, names it **`VillageBackdrop`**, calls `set_village_seed(seed)` on the
+  generated instance **before `add_child`** (so `_ready`→`_make_layout` sees it), repositions to the
+  pivot, shows it, and re-runs the fauna `bind_backdrop` branch (shared with `_apply_scenario_camera_framing`).
+  Classic mode instances `village_backdrop.tscn` (same as today) — the swap is a no-op in effect.
+- **Fog override (ivy-80z.7):** at the **end** of `rebuild_backdrop()` (after `add_child`, so `_ready`
+  has built `_layout`), `World` reads `backdrop.get_layout()` and calls
+  `sky_sun.set_fog_depth(layout.fog_begin, layout.fog_end)`. Generated applies `14.0/95`; classic
+  re-applies `9.5/95`, so switching generated→classic (or `return_to_picker`) restores the default with no
+  extra branch. `main.tscn`'s embedded `WorldEnvironment` keeps `9.5` on disk (INV-15 static test); the
+  per-frame `SkySun.update` only touches `fog_light_color`, never `fog_depth_*`, so the override is stable
+  across the day/night cycle. **Cameras & fauna LOD are not touched here** (AR-VG-DECIDE §3 follow-up).
+- **UI-scripts / tools:** default to `classic_village` (every existing tool byte-identical). Pre-bootstrap
+  default via new `--village-mode`/`--village-seed` on `run_ui_script.gd` (set on `scene_root` before
+  `add_child`, mirroring `script_driven`/`mesh_scenario`); `Main._ready` reads them before bootstrap. An
+  optional in-run `VILLAGE_MODE <id> [seed]` verb calls `main.apply_village_mode_live()` (= `set_village_mode`
+  + `rebuild_backdrop`) so a single scripted run can switch modes/seeds and screenshot (QA/dev live
+  rebuild, not the player path). Capture tools set `Main._village_mode`/`_village_seed` before building.
+- **Dev overlay:** `_setup_dev_tools` (dev_build only) calls `_dev_overlay.set_village_info(_village_mode, _village_seed)`
+  → one Label line; non-dev builds show nothing new.
+- **Snapshot:** `build_recipe` reads `world.get_village_mode()`/`get_village_seed()` into `scene`;
+  `load_snapshot_recipe` applies `recipe.scene.village_mode`/`village_seed` to `Main`+`World` **before**
+  `_load_building` so replay reproduces the exact village.
+
+### AR-VG-PLAN — Incremental slices (each leaves classic unchanged and is independently testable)
+
+> **Amended 2026-10-29 by ivy-80z.7; reordered 2026-10-29 (user: early playable).** Build order is now
+> **S1 → S2′ → S2b → S4 → S5 → S3** — the picker/wiring/UI (S4, S5) land **before** the path network (S3)
+> so the mode is playable and screenshotable in the real picker with a **path-less but valid** generated
+> layout (`paths = []`, `edges = []`, no stones), and S3 adds the stone network last. **S1 is landed as
+> written** (VillageLayout.authored + `_layout` refactor; all four classic suites green; see ivy-80z.3
+> notes). **S2 (single-ring placement) is landed but is reworked by S2′** below. **S2b (world scale) is
+> new.** Each slice still leaves classic byte-for-byte and is independently testable. The slice **blocks
+> below are presented in build order** (S4 and S5 precede S3).
+
+**After adding any new `.gd`, run `Godot --headless --import` once** so the tracked `.gd.uid` is emitted
+(project-memory note). Targeted test runs use `-gtest=…` (the full GUT suite is ~15 min / 1 GB log — do
+not run it per slice).
+
+**S1 — `VillageLayout.authored()` + `_layout` refactor (classic equivalence). [LANDED]**
+- Files: `village_layout.gd` (new, `authored()` + `inside_cottages` + instance helpers only; `generate`
+  stubbed to return `authored()` for now); `village_backdrop.gd` (add `_layout`/`_make_layout`; route
+  `_ready`, `_build_cottages`, `_reject_path_stone_xz`, `export_fauna_anchors` through `_layout`; static
+  `inside_any_cottage` delegates); `village_scatter_positions.gd` (`bush_common_positions(cottages:=…)`,
+  `path_stone_transforms(…, stone_seed:=9999, min_stone_spacing:=0.0)`); `village_grass_exclusion_context.gd`
+  (`for_layout`; `for_village` delegates). Run `--import`.
+- Tests (GUT): **`test/test_village_layout.gd`** — `test_authored_cottages_equal_const`,
+  `test_authored_paths_equal_static`, `test_authored_stone_seed_is_9999`,
+  `test_inside_cottages_matches_inside_any_cottage` → **INV-15**. Existing **`test_village_backdrop.gd`**
+  + **`test_village_grass_scatter.gd`** pass unmodified. Status: 9/9 + 28/28 + 13/13 green (ivy-80z.3).
+- Done when: landed. (Re-run the four suites after S2b, since S2b edits the shared builders.)
+
+**S2′ — Rework single-ring placement → two-ring placement (`generate()`/`_place_cottages`).**
+- Rework `village_layout.gd` placement so it matches the amended SD-VILLAGE-GEN-3 (two rings). **Keep:**
+  `generate()`'s outer shape (seed normalise → `_derive` → up-to-9-attempt loop → `fallback` on
+  exhaustion), `_derive`, the per-dart yaw-selection loop (4 yaws, `best_dot > _MIN_DOT=0.6`), the
+  grown-`0.8` keep-out (`_KEEP_OUT=5.9`) + `Rect2.intersects` overlap guards, `_rect2_dist_from_origin`,
+  the `_test_max_darts` hook, `_MAX_DARTS=300`, `_N_REDRAW=8`, `_YAWS`. **Delete / replace:** the single
+  annulus constants `_R_IN=12.0`/`_R_OUT=18.5` → `_R_IN_MIN=11.5`/`_R_IN_MAX=13.0`/`_R_OUT_MIN=19.5`/
+  `_R_OUT_MAX=21.5`; `_MIN_ANG_DEG=18.0` → `_MIN_ANG_INNER_DEG=65.0`/`_MIN_ANG_OUTER_DEG=50.0`. **Add:**
+  `_assign_rings(state)` (Fisher–Yates over the five 3-bay indices → `cottage_rings`; 4-bay always outer;
+  **called first** in `_place_cottages`, AR-VG-DECIDE §7); per-cottage annulus chosen by its ring
+  (`R_IN_*` vs `R_OUT_*`); **same-ring** angular-separation tracked in two angle lists (inner vs outer),
+  rejecting within the ring's threshold only (cross-ring proximity handled by the overlap guard across
+  both rings); `_place_cottages` returns `{cottages, cottage_rings, ok, state}`; `generate()` copies
+  `cottage_rings` onto the layout. `_build_network`/`_mst_edges`/`_bezier_polyline` stay stubbed (S3).
+  Run `--import` (no new file, but keep the step in the checklist).
+- Tests (GUT): rework **`test/test_generated_village_sweep.gd`** — **keep** `test_determinism`,
+  `test_variability`, `test_edge_seed_*`, `test_forced_fallback`, `test_generate_under_20ms`, the
+  `_rect2_*`/`_layout_key` helpers, and INV-1/2/4/13/14 + `fallback==false` in `test_per_seed_invariants`.
+  **Replace** the INV-3 block (single radius `[12,18.5]`, corner `24.5`) with the **two-ring INV-3**
+  (inner centre `∈[11.5,13.0]`, outer `∈[19.5,21.5]` keyed off `layout.cottage_rings`, farthest grown
+  corner `≤ 27.5`). **Add** `test_ring_membership` (**INV-16:** exactly 3 inner all 3-bay, 4 outer incl
+  both 4-bay CA/CD) and `test_per_ring_angular_spread` (**INV-17:** inner pairwise `≥65°`, outer pairwise
+  `≥50°`). Keep the sweep at seeds `1..200`, object-level (sub-second), `fallback_count == 0`.
+- `tools/plot_village_layout.gd` update: draw **two annuli** — inner `11.5/13.0`, outer `19.5/21.5` — in
+  place of the single `12.0/18.5` pair; lawn ring `20.0 → 30.0`; raise `_WORLD_HALF_M` `26.0 → 32.0` so the
+  `27.18 m` corners + `30 m` lawn fit; update the header comment (ring radii + lawn). Colour inner vs outer
+  distinctly is optional (nice-to-have).
+- Screenshots: refreshed contact sheet `.tmp/village_gen/s2_layouts.png` (authored + seeds 1..6) showing
+  three inner + four outer cottages orbiting the pivot across both rings, doors facing centre.
+- Done when: reworked sweep green for all 200 seeds (INV-1/2/3/4/13/14/16/17 + fallback=0); determinism/
+  variability/perf still green; contact sheet shows the two-ring layout.
+
+**S2b — World-scale fields on `VillageLayout` + builders read them (new).**
+- Files: `village_layout.gd` (add the nine world-scale fields with **classic-literal defaults**; `generate()`
+  assigns the scaled preset — lawn 30, hill_inner 30, pine 28.5/42, count 33, fog 14.0/95, bush_filler
+  8/22; `authored()` leaves the defaults); `village_backdrop.gd` (`_add_village_lawn_ground`,
+  `_add_hill_ring`, `_pine_positions` read `_layout.*`; `_setup_multimesh_scatter` passes
+  `_layout.bush_filler_inner/outer`; add `get_layout()`); `village_scatter_positions.gd`
+  (`bush_common_positions` gains `filler_inner:=8.0, filler_outer:=15.0` and uses them in the filler
+  `lerpf`). **No fog/camera wiring yet** (S4). Run `--import` if needed; no new `.gd`.
+- Classic equivalence: because every builder default equals its old literal, the classic render is
+  bit-for-bit. **INV-15 update:** extend `test/test_village_layout.gd` with `test_authored_world_scale_defaults`
+  asserting `authored()` carries `lawn 20`, `hill_inner 20`, `pine 19/28`, `pine_count 22`, `fog 9.5/95`,
+  `bush_filler 8/15`, **plus** a `test_classic_defaults_equal_old_literals` that pins those exact numbers
+  (regression guard that nobody edits the defaults), and a `main.tscn` fog regex assert (`fog_depth_begin = 9.5`,
+  `fog_depth_end = 95.0`). Re-run `test_village_backdrop.gd`/`test_village_grass_scatter.gd` **unmodified**
+  — the scene-fingerprint proof that the literal→field swap changed no bytes.
+- New scaled-builder unit test: **`test/test_generated_village_backdrop.gd`** (new; also used by S3/S4) —
+  instance `GeneratedVillageBackdrop` at `DEFAULT_TEST_SEED=12345` and assert the scaled outputs: the
+  `FarTreeline` MultiMesh has **33** instances, every pine XZ radius `∈ [28.5, 42.0]`, `LawnGround` radius
+  `== 30.0`, `HillRing` inner `== 30.0`; and the layout-level **INV-20** field asserts incl.
+  `pine_inner (28.5) ≥ max outer grown corner` over the sweep.
+- Screenshots: generated vs classic top-down from the same camera — `.tmp/village_gen/s2b_{classic,generated}_top.png`
+  — showing the `30 m` lawn + `28.5–42 m` treeline (generated) vs `20 m`/`19–28 m` (classic).
+- Perf: the builders are one-time; `33` pines (vs `22`) is `+11` instances in one existing `FarTreeline`
+  MultiMesh (no new draw call); the `30 m` lawn disk is the same `72`-seg mesh at a larger radius (same
+  tri count). `test_triangle_budget (<120k)` / `test_surface_count (≤160)` must still pass (flag in the
+  report if the extra pines move the triangle count materially — expected negligible).
+- Done when: all four classic suites green **unmodified**; the new default/equivalence + scaled-builder
+  tests green; budgets pass; before/after top-downs show the intended scale with classic unchanged.
+
+> **Path-less-but-valid invariant (reordered 2026-10-29, user: early playable).** Through S4 and S5 the
+> generated layout carries `paths = []` and `edges = []` (no path stones). This is a **valid** layout: all
+> geometry invariants (placement, rings, world scale) hold; only the *network* invariants are not yet
+> meaningful. **S4/S5 tests assert INV-1..4, 11..14, 16, 17, 20 only — they must NOT assert INV-5..10,
+> INV-18, INV-19, or the stone budget**, which are added in S3 when `edges`/`paths`/stones exist. The
+> reworked S2′ sweep already omits the network invariants; **S3 extends (not un-gates) the sweep** with
+> INV-5/6/8/18/19 and the backdrop test with INV-7/9/10 + budget. **Empty-path consumer audit (verified):**
+> `path_stone_transforms([])` → `[]`; `_create_paths_from_transforms([])` → `is_empty()` guards create no
+> `Scatter_Path_*` nodes; `petal_layers([])` → empty layers → `_scatter_piece_layers` skips empty, no
+> `Scatter_Petal_*` nodes; `VillageGrassExclusionContext.for_layout([], …)` just stores `[]`;
+> `export_fauna_anchors` → `path_stone_transforms([])=[]` → `fauna_flower_anchor_transforms_with_paths([])`
+> yields the flower-cluster anchors only (no path petals); the grass/plant **path-corridor rule** calls
+> `min_xz_dist_to_path_segments(p, [])` which returns **`INF`**, so `INF < PATH_CLEARANCE_M` is false and no
+> grass is path-excluded (correct — there is no path to clear). **No consumer errors on empty paths**; the
+> only non-obvious case is the `INF` return, which the `<` comparison handles safely. S3 flips the layout's
+> path fields on and all of the above begin producing stones/petals/corridor exclusions.
+
+**S4 — `GeneratedVillageBackdrop` + `GameModes` + World/Main wiring (incl. fog seam). [amended; reordered 2026-10-29 (user: early playable) — now runs before S3]**
+- Files: `game_modes.gd` (new; paths `village_backdrop.tscn` / `generated_village_backdrop.tscn`);
+  `generated_village_backdrop.gd` + `.tscn` (if not already added in S2′ — a scene to instance);
+  `sky_sun.gd` (**new `set_fog_depth(begin,end)`**); `world.gd` (`set_village_mode`/getters/`rebuild_backdrop`;
+  swap in `_activate_mesh_scenario`; **after build, `sky_sun.set_fog_depth(backdrop.get_layout().fog_begin,
+  …fog_end)`** — AR-VG-DECIDE §2); `main.gd` (`_village_mode`/`_village_seed`, push to World in
+  `_load_building`, `apply_village_mode_live`). Keep node name `VillageBackdrop` (so `main.gd` L641 + fauna
+  still resolve). **Cameras / fauna LOD untouched** (AR-VG-DECIDE §3 follow-up). The generated backdrop
+  builds with **`paths = []` / `edges = []`** (no stones) — per the empty-path audit above.
+- Tests (GUT): **`test/test_game_modes.gd`** (new) — two entries, ids/paths/`is_generated` correct,
+  `by_id` default. **`test/test_world_backdrop_swap.gd`** (new) — after `set_village_mode(GENERATED, 12345)`
+  + `rebuild_backdrop()` the `World/VillageBackdrop` node is a `GeneratedVillageBackdrop`, still named
+  `VillageBackdrop`, positioned at pivot, fauna re-bound, **and `SkySun`'s live `fog_depth_begin == 14.0`**;
+  `set_village_mode(CLASSIC,…)` + rebuild restores a plain `VillageBackdrop` **and `fog_depth_begin == 9.5`**
+  (the fog-restore proof). **`test/test_generated_village_backdrop.gd`** (from S2b) gains an
+  **empty-path build test**: instancing `GeneratedVillageBackdrop` at `DEFAULT_TEST_SEED=12345`
+  `_ready()`s without error with `paths==[] && edges==[]`, creates **zero** `Scatter_Path_*` and
+  **zero** `Scatter_Petal_*` nodes, and still creates `FarTreeline`/`LawnGround`/`HillRing` and the cottage
+  pieces (generated node-count assertion). Add a static `main.tscn` fog regex assert if not already covered
+  by S2b. **These tests assert INV-16/17/20 + the fog seam only — NOT INV-5..10/18/19/stone budget** (S3).
+  INV mapping: node-name coupling (AR-VG-RISK-3) + **fog override/restore (INV-15/INV-20 runtime seam)**.
+- run-ui-script: existing **`tools/ui_scripts/smoke.txt`** must pass **unchanged** (classic default) — the
+  regression proof that wiring did not disturb the default path (incl. fog staying `9.5`).
+- Screenshots: classic vs generated from the smoke camera — `.tmp/village_gen/s4_{classic,generated}.png`
+  (generated shows the wider lawn + treeline + `14 m` fog; **no paths/stones yet — expected until S3**;
+  classic identical to baseline).
+- Done when: new GUT tests green (incl. empty-path build + fog begin 14→9.5 on swap); smoke script green
+  and visually classic.
+
+**S5 — Picker toggle + dev-overlay seed + snapshot recipe + UI-script hook + generated seed sheet. [reordered 2026-10-29 (user: early playable) — now runs before S3; no longer depends on S3]**
+- Files: `building_picker.gd` (`village_mode_changed` signal, `CheckButton`, `init_village_mode`);
+  `main.gd` (connect signal, roll seed, persistence across `return_to_picker`, `set_village_info`,
+  recipe apply in `load_snapshot_recipe`); `snapshot_capture.gd` (`scene.village_mode`/`village_seed`);
+  `dev_overlay.gd` (`set_village_info`); `run_ui_script.gd` (`--village-mode`/`--village-seed` args +
+  optional `VILLAGE_MODE` verb).
+- Tests (GUT): **`test/test_building_picker_village_mode.gd`** (new) — toggling the CheckButton emits
+  `village_mode_changed` with the right id; `building_selected` still fires with the same signature;
+  `init_village_mode(GENERATED)` sets the box without emitting. **`test/test_main_village_mode.gd`** (new) —
+  `_village_mode` persists across `return_to_picker` (re-opened picker initialised to it); recipe
+  round-trip (`build_recipe` writes mode/seed, `load_snapshot_recipe` applies them; absent fields ⇒
+  classic). **`test/test_snapshot_recipe.gd`** (if present) stays green with the extra free `scene` keys.
+  **These assert the picker/recipe/persistence flow — NOT any network invariant** (paths still `[]`).
+- run-ui-script (feature, **this is the toggle-flow scenario** — the first in-game generated capture):
+  **`tools/ui_scripts/generated_village.txt`** (new) run with
+  `--scenario=res://assets/structures/scenarios/square.tres`: `VILLAGE_MODE generated_village 12345`,
+  `ORBIT`/top + eye captures, then `VILLAGE_MODE classic_village` + capture to prove the switch both ways
+  (and that fog restores to `9.5`). Produces the QA contact-sheet inputs. Also exercise the pre-bootstrap
+  flags in a second invocation (`--village-mode=generated_village --village-seed=777`).
+- Screenshot checkpoints (ivy-80z.7) — **first in-game generated screenshots** (houses/world only; paths
+  arrive in S3):
+  - **Classic before/after** — a fixed camera script **`.tmp/village_gen/baseline_classic.txt`** run with
+    `--scenario=res://assets/structures/scenarios/square.tres` captured **before** any ivy-80z.7 change
+    (baseline) and **after** S5, both to `.tmp/village_gen/baseline_classic_{before,after}.png` — must be
+    pixel-stable (the end-to-end "classic unchanged" proof over the full stack incl. fog).
+  - **Generated seed contact sheet** — `.tmp/village_gen/generated_overview.png`, several seeds
+    (e.g. `12345, 2, 7, 99, 777, 31337`) from overview/high and eye-level cameras (reuse the
+    `baseline_classic.txt` camera-script pattern), feeding QA acceptance (6); watch for far houses
+    fogged/too small and outer-house↔pine crowding (AR-VG-RISK). **QA must tolerate NO PATHS/stones in
+    these shots — the stone network lands in S3.**
+  - `.tmp/village_gen/s5_toggle_{classic,generated}.png`.
+- Perf (no stones yet): generation still `≤ 20 ms`; one `FarTreeline` MultiMesh (33 vs 22 pines, +11
+  instances, no new draw call), one larger lawn disk (same tri count). `test_triangle_budget`/
+  `test_surface_count` must pass; **flag in the handoff if the +11 pines or larger lawn move the triangle
+  count toward the `120k` ceiling** (expected negligible — pines are the only instance-count change).
+- Done when: GUT tests green; feature script switches modes and renders a **path-less** generated village
+  with the scaled world + `14 m` fog; classic baseline before/after pixel-stable; smoke.txt still classic.
+
+**S3 — `generate()`: two-ring path network + stone dedupe (LAST). [amended; reordered 2026-10-29 (user: early playable) — now runs after S4/S5]**
+- **Depends on the S4 backdrop** for its in-game screenshot checkpoint (the generated scene must already
+  wire up via the picker). This slice **switches the layout's path fields on**: `generate()` now calls
+  `_build_network`, populates `paths`/`edges`, and sets `stone_seed`/`min_stone_spacing = 0.5` (was `[]`/
+  `0.0` placeholder in S2′–S5). Once set, every empty-path consumer audited above begins producing
+  stones/petals/corridor exclusions — no further consumer changes needed.
+- Files: `village_layout.gd` (`_build_network(cottages, cottage_rings, pathgraph_state)`: build the
+  **candidate graph** = complete door–door graph (all 21 pairs) **plus only hero↔inner-door edges**
+  (hero↔outer excluded — pass a `candidate_mask` Callable into `_mst_edges` so node 7 only connects to
+  inner doors); **8-node Prim MST** over the masked graph (7 tree edges, INV-5/INV-18); **loop edges**
+  `TARGET_LOOPS=4`/`MIN_LOOPS=3` over shortest non-tree door–door edges whose induced cycle spans ≥ 3
+  nodes, tie-break ascending `(min,max)` node idx (AR-VG-DECIDE loop para); **quadratic Bézier** per edge,
+  base `|b|=0.7` alternating, **clamp `|b| ≤ 1.5`**; cottage-avoidance (`PATH_COTTAGE_CLEARANCE=0.35` vs
+  non-endpoint grown-`0.2` rects, grow `|b|` ±0.25 ×6, then one perpendicular `1.5 m` waypoint for MST
+  edges, drop loop edges, else fall back); **hero-ring 6.5 m clip** on node-7 edges; set
+  `stone_seed=_derive(seed,STONES_SALT)` / `min_stone_spacing=0.5`). `village_scatter_positions.gd`
+  `path_stone_transforms` dedupe via a `0.5 m`-cell spatial hash when `min_stone_spacing > 0`
+  (classic `0.0` path untouched).
+- Tests (GUT): **extend** **`test/test_generated_village_sweep.gd`** (the S2′ sweep gains, not un-gates,
+  these — they only make sense once `edges` is non-empty) with **INV-5** (BFS/union-find on `edges`),
+  **INV-6** (`edges − 8 + 1 ≥ MIN_LOOPS=3`), **INV-8** (every edge centreline sample ≥ `0.35 m` from
+  non-endpoint grown-`0.2` rects), **INV-18** (every node-7 edge's door endpoint is inner via
+  `cottage_rings`; `hero_degree ≤ 3`), **INV-19** (`≥ 6` edges with both endpoints `< 7`). **Update**
+  **`test/test_generated_village_backdrop.gd`** (now that the generated scene has stones): replace the
+  S4 empty-path assertions with **INV-7** (no `Scatter_Path_*` point `inside_any_cottage(p,0.0)`),
+  **INV-9** (no stone `|p|<4.5`; hero-incident polyline ends in `[6.4,6.6]`), **INV-10** (**`70 ≤ total
+  stones ≤ 360`** — amended range), **non-zero `Scatter_Path_*` counts**, plus budget mirrors of
+  `test_triangle_budget`/`test_surface_count`. Classic dedupe-off path re-verified by the untouched
+  classic suites.
+- Screenshots: **final generated contact sheet** `.tmp/village_gen/s3_overview.png` — overview/high/eye
+  cameras over several seeds (reuse the S5 camera-script pattern), **now showing the stone network**;
+  confirm it reads as **cross-ring lanes between houses**, with only 1–3 short hero stubs (not spokes).
+  `plot_village_layout.gd` now also draws `paths`/`edges`.
+- Perf: `test_generate_under_20ms` still green (≥10-edge network is still tiny). Draw-call structure
+  unchanged (same three `Scatter_Path_*` MultiMeshes; `70–360` stones); flag if the stone range pushes any
+  budget toward the `120k`/`160`-surface ceilings.
+- Done when: full sweep (INV-1..INV-10,13,14,16,17,18,19 per seed; 11,12 sweep-wide) green; generated
+  scene budgets pass; the network visibly connects houses across both rings.
+
+### AR-VG-COMPAT — Backward-compatibility expectations
+
+- `test/test_village_backdrop.gd` (12 `COTTAGES`/static refs) and `test/test_village_grass_scatter.gd`
+  (`path_stone_transforms`/`bush_common_positions`/`for_village` refs) **pass unmodified**.
+- `tools/capture_cottage_closeups.gd` (2 static refs) and `test/slow/test_change_building.gd` run
+  unchanged; `BuildingPicker.building_selected(String)` and `_on_entry_pressed(id)` signatures frozen.
+- `VillageBackdrop` statics `cottage_transform`/`cottage_exterior_rect`/`cottage_door`/`path_polylines`/
+  `inside_any_cottage` keep their signatures and byte-output.
+- `path_stone_transforms` and `bush_common_positions` default args reproduce classic exactly; `for_village`
+  unchanged. **(ivy-80z.7)** `bush_common_positions`'s new `filler_inner:=8.0`/`filler_outer:=15.0`
+  defaults reproduce the classic `lerpf(8,15)` filler ring byte-for-byte.
+- **(ivy-80z.7) World-scale field defaults = classic literals.** `VillageBackdrop`'s builders
+  (`_add_village_lawn_ground`/`_add_hill_ring`/`_pine_positions`) now read `_layout.*`, but `authored()`
+  leaves every field at its classic-literal default (`lawn 20`, `hill_inner 20`, `pine 19/28`, `count 22`,
+  `fog 9.5/95`, `bush_filler 8/15`), so the classic scene is bit-for-bit — proven by the untouched
+  `test_village_backdrop.gd` fingerprint plus `test_classic_defaults_equal_old_literals`.
+- **(ivy-80z.7) Fog is a runtime override only.** `main.tscn`'s `WorldEnvironment` stays `fog_depth_begin = 9.5`
+  / `fog_depth_end = 95.0` on disk (static regex test); classic rebuild re-applies `9.5/95` at runtime, so a
+  generated→classic switch never leaves a stale `14.0`.
+- Snapshot schema stays v1; old recipes (no `village_*`) replay as classic.
+- The scene node is always named `VillageBackdrop` (main.gd fauna lookup + fauna `bind_backdrop`).
+- `CameraRig` cameras, `debug_camera`, and `FaunaConstants` LOD values are **unchanged** this epic (§3
+  follow-up) — classic and generated share the classic rig.
+- Draw-call structure unchanged (same MultiMesh node set; `33` pines in one `FarTreeline`, `70–360` stones
+  in three `Scatter_Path_*`) → `test_triangle_budget`/`test_surface_count` still pass.
+
+### AR-VG-RISK — Technical risks & mitigations
+
+1. **Classic regression.** Mitigation: `authored()` is literally `COTTAGES` + `path_polylines()`; S1
+   equivalence tests + the untouched existing suites + before/after pixel-stable screenshots gate every
+   later slice.
+2. **Fauna/grass coupling.** `for_layout` mirrors `for_village`; `bush_common_positions(cottages)` and
+   `export_fauna_anchors`/`petal_layers` ride `_layout.paths`/generated stones. Mitigation: the generated
+   backdrop scene test asserts grass/petal clearance against the generated layout; classic path proven by
+   the untouched grass suite.
+3. **Node-name coupling.** `rebuild_backdrop()` must re-name the instance `VillageBackdrop` and re-run the
+   fauna bind; `test_world_backdrop_swap` guards both.
+4. **`.gd.uid` files.** New `.gd` scripts need `Godot --headless --import` to emit tracked `.gd.uid`
+   (project-memory note) — in the slice checklist.
+5. **Test runtime.** The 200-seed sweep builds `VillageLayout` **objects**, not scenes (sub-second);
+   scene-instance invariants run on a handful of seeds. Use `-gtest=` targeting; never the full suite per
+   slice.
+6. **Determinism / 64-bit int & LCG overflow.** `lcg_step(s) = (s*1664525 + 1013904223) & 0x7FFFFFFF`
+   with `s < 2³¹`: `s*1664525 < 2³¹·2²¹ = 2⁵²`, `+2³⁰` stays `< 2⁵³` — far inside GDScript's 64-bit
+   signed `int` (no overflow, no float path, bit-identical across platforms). `_derive` masks `seed^salt`
+   to 31 bits before stepping. Negative/huge seeds are normalised by `& 0x7FFFFFFF` (two's-complement low
+   31 bits). INV-11 (generate-twice-identical) is the standing regression guard; a `test_seed_normalisation`
+   pins the edge seeds.
+7. **Main-thread generation + double build.** ≤ 20 ms, one-time at session build; `test_generate_under_20ms`
+   plus the extra one-time classic build (AR-VG-DECIDE generation-timing para) — accepted; lazy-instancing
+   the embedded node is a non-goal.
+8. **(ivy-80z.7) Visual: far houses fogged / small; outer houses vs pines.** Outer corners reach `27.18 m`;
+   pines start at `28.5 m` (`pine_inner ≥ max outer corner`, INV-20) so no pine lands inside a house, but
+   outer houses and the treeline sit close — mitigation: the S3/S5 generated contact sheets are the check;
+   fog begins `14 m`/ends `95 m`, so outer houses are faint-but-visible. If the crowding or fog reads badly
+   it is a QA retune of `pine_inner`/`fog_begin` (one `generate()` line each — AR-VG-DECIDE §1), not a
+   placement change.
+9. **(ivy-80z.7) Camera framing for the bigger world.** The classic rig is kept (AR-VG-DECIDE §3); the
+   outer ring may crowd the eye-level frame edges. Mitigation: top-down captures show all seven; QA decides
+   the dolly-back follow-up against a real render. **Not a blocker for this epic.**
+10. **(ivy-80z.7) Fog-override staleness.** A generated session leaves `fog_depth_begin = 14.0` on the
+    shared Environment; forgetting to re-apply on the classic rebuild would ship classic with the wrong fog.
+    Mitigation: the classic layout **carries `9.5/95`** and every `rebuild_backdrop()` applies the active
+    layout's fog unconditionally — `test_world_backdrop_swap` asserts both the `14.0` (generated) and the
+    restored `9.5` (classic) values.
+11. **(ivy-80z.7) Ring-shuffle determinism.** The Fisher–Yates draw is the first placement-stream consumer
+    and re-runs on every re-derivation, so ring membership is a pure function of the seed+attempt; INV-11
+    (generate-twice-identical) covers `cottage_rings` too. Changing dart/loop/stone logic cannot reshuffle
+    rings (sub-stream isolation).
+12. **(ivy-80z.7) Test runtime.** The sweep stays object-level over `1..200` (sub-second) despite the extra
+    INV-5/6/8/16/17/18/19 per-seed checks; scene-instance invariants (INV-7/9/10/20 + scaled builders) run
+    on a handful of seeds only. Use `-gtest=` targeting; never the full suite per slice.
+
+### AR-VG-NONGOAL — Non-goals of this stage
+
+Varying house shapes/bays/windows/door-slot (types stay authored) · ribbon/mesh paths (stepping stones
+only) · runtime regeneration within a live player session (QA `VILLAGE_MODE` rebuild is dev-only) · lazy
+backdrop instancing to avoid the one classic build · terrain height · moving the hero area/keep-out radii
+· mode-specific rules/goals (the `GameModes` seam is designed for them, none ship) · a second RNG family ·
+changing the classic look or its tests · an `OptionButton` picker (binary `CheckButton` now).
+
+**Added (ivy-80z.7):** camera dolly-back / framing retune for the bigger world (follow-up bead,
+AR-VG-DECIDE §3) · fauna `LOD_DESPAWN_M`/`LOD_SPAWN_FORBID_M` + spawn-band changes (same follow-up) ·
+scaling the dense grass ring or raising `GRASS_MAX_INSTANCES` (AR-VG-DECIDE §4; outer ring reads on the
+ground-shader lawn) · scaling the far hill **outer** radius (`140 m` kept) / hill height (`7.5 m`) / the
+`512 m` ground plane / the fauna garden ring (`5.5–12 m`) — vertical/far-horizon/hero-band constants stay
+put · per-seed world scale (the preset is fixed) · facing outer doors at a specific inner house (all doors
+face the village centre).
+
+### AR-VG-AMBIG — Contract points resolved here (cite the id in code comments)
+
+- **AR-VG-AMBIG-1:** SD leaves the picker control open ("OptionButton vs CheckButton"). Resolved:
+  `CheckButton` while modes are binary; `OptionButton` driven by `GameModes.all()` when > 2 modes exist.
+- **AR-VG-AMBIG-2:** SD's "UI-scripts request generated via a new verb **or** flag" is resolved to
+  **both**: `--village-mode`/`--village-seed` for the pre-bootstrap default (faithful to SD-VILLAGE-GEN-8
+  "no mid-session teardown"), and an optional dev-only `VILLAGE_MODE` verb for in-run multi-seed sheets.
+- **AR-VG-AMBIG-3 (ivy-80z.7):** SD leaves the **fog-override seam owner** open ("World vs the generated
+  backdrop"). Resolved: **`World` orchestrates, `SkySun` mutates** — `World.rebuild_backdrop()` reads the
+  built backdrop's `get_layout()` and calls `SkySun.set_fog_depth(fog_begin, fog_end)`. The backdrop never
+  touches the shared `WorldEnvironment`; `SkySun` stays the single Environment owner.
+- **AR-VG-AMBIG-4 (ivy-80z.7):** SD says ring membership is "seeded" but not **where**. Resolved: a
+  dedicated `_assign_rings` (Fisher–Yates over the five 3-bay indices) called **first** inside
+  `_place_cottages`, consuming the placement stream before any dart (AR-VG-DECIDE §7), re-run on every
+  re-derivation. `cottage_rings` is a layout field parallel to `cottages` (not a spec key), so
+  `authored().cottages` stays deep-equal to `COTTAGES`.
+
+### AR-VG-HANDOFF — Handoff to the Gameplay Programmer (ivy-80z.3)
+
+**Amended for ivy-80z.7; reordered 2026-10-29 (user: early playable).** S1 is landed; S2 is
+landed-but-superseded. **Resume at S2′** (rework placement to two rings), then **S2b** (world-scale fields
++ builders), then — **early-playable order** — **S4** (wiring **+ fog seam** via `SkySun.set_fog_depth`,
+cameras untouched; generated backdrop builds with `paths=[]`/`edges=[]`), **S5** (picker/overlay/recipe/
+UI-script + classic baseline before/after + **first in-game generated** seed sheet, path-less), and
+**S3 LAST** (two-ring network, switch path fields on, stone dedupe, INV-5/6/8/18/19, stone budget
+`70–360`, final contact sheet with paths). **S5 no longer depends on S3; S3 depends on the S4 backdrop**
+for its screenshot checkpoint. S4/S5 tests assert INV-1..4/11..14/16/17/20 only; the network invariants
+(INV-5..10/18/19 + stone budget) are **added** in S3. Primary files to create: `village_layout.gd`
+(landed), `generated_village_backdrop.gd`
+(+ `.tscn`), `game_modes.gd`; edit `village_backdrop.gd` (builders read `_layout.*` + `get_layout()`),
+`village_scatter_positions.gd` (filler args), `village_grass_exclusion_context.gd`, **`sky_sun.gd`
+(`set_fog_depth`)**, `world.gd` (+ fog apply in `rebuild_backdrop`), `main.gd`, `building_picker.gd`,
+`dev_overlay.gd`, `run_ui_script.gd`; update `tools/plot_village_layout.gd` (two-ring circles + 30 m lawn).
+Keep every default-arg form so classic stays byte-identical, and the node name `VillageBackdrop`. Tests to
+add/rework: `test_village_layout.gd` (+ world-scale defaults), **reworked** `test_generated_village_sweep.gd`
+(two-ring INV-3 + INV-16/17/18/19), `test_generated_village_backdrop.gd` (INV-7/9/10 `70–360` + scaled
+builders + INV-20), `test_game_modes.gd`, `test_world_backdrop_swap.gd` (**+ fog begin 14→9.5 on swap**),
+`test_building_picker_village_mode.gd`, `test_main_village_mode.gd`; feature run-ui-script
+`tools/ui_scripts/generated_village.txt` (via `square.tres`). Run `--import` after new scripts; use
+targeted `-gtest=`. Test-first per slice. **File the camera/fauna-LOD follow-up bead** (AR-VG-DECIDE §3) —
+not implemented here. Do **not** redesign the generation math (owned by SD) or expand scope
+(AR-VG-NONGOAL). Hand the implement bead's `--notes` (tests + classic
+equivalence evidence + the 200-seed sweep result + screenshot paths) to the Code Reviewer (ivy-80z.4).
 

@@ -86,6 +86,14 @@ func _ready() -> void:
 	var scene_root := ps.instantiate()
 	# Set before entering the tree so `_ready` sees it and never starts the clock.
 	scene_root.set("script_driven", true)
+	# Village mode/seed pre-bootstrap flags (AR-VG-WIRE S5).
+	# Default classic — every existing script is unchanged when flags are absent.
+	var village_mode_arg: String = args.get("village_mode", "")
+	if not village_mode_arg.is_empty():
+		scene_root.set("_village_mode", village_mode_arg)
+	var village_seed_arg: String = args.get("village_seed", "")
+	if not village_seed_arg.is_empty():
+		scene_root.set("_village_seed", int(village_seed_arg))
 	var scenario_path: String = args.get("scenario", "")
 	if not scenario_path.is_empty():
 		var scenario: Resource = load(scenario_path) as Resource
@@ -527,6 +535,18 @@ func _ready() -> void:
 				print("[ui-script]   DUMP tip0 pos=", t0.position, " dir=", t0.direction,
 					" vigour=", t0.vigour, " budget=", t0.growth_budget,
 					" segs=", t0.segment_count, " float_len=", t0.floating_length)
+		elif line.begins_with("VILLAGE_MODE "):
+			# VILLAGE_MODE <mode_id> [seed]
+			# Applies village mode + seed live (calls Main.apply_village_mode_live).
+			# Use for mid-script mode switches or for QA without pre-bootstrap flags.
+			var vm_parts := line.split(" ", false)
+			var vm_id: String = vm_parts[1] if vm_parts.size() >= 2 else "classic_village"
+			var vm_seed: int = int(vm_parts[2]) if vm_parts.size() >= 3 else 0
+			if main.has_method("apply_village_mode_live"):
+				main.apply_village_mode_live(vm_id, vm_seed)
+			for _vf in range(3):
+				await get_tree().process_frame
+			print("[ui-script]   VILLAGE_MODE ", vm_id, " seed=", vm_seed)
 		elif line.begins_with("SNAPSHOT_LOAD "):
 			var snap_spec := line.substr(14).strip_edges()
 			if not main.has_method("load_snapshot_from_dir"):
@@ -703,4 +723,8 @@ func _parse_args() -> Dictionary:
 			args["outdir"] = a.substr(9)
 		elif a.begins_with("--scenario="):
 			args["scenario"] = a.substr(11)
+		elif a.begins_with("--village-mode="):
+			args["village_mode"] = a.substr(15)
+		elif a.begins_with("--village-seed="):
+			args["village_seed"] = a.substr(15)
 	return args

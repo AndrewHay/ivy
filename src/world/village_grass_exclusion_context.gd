@@ -9,14 +9,31 @@ var bush_transforms: Array[Transform3D] = []
 var is_inside_cottage: Callable
 
 
-static func for_village(
+## Build a context from explicit layout data. Used by VillageBackdrop instance code
+## so both classic and generated backdrops share the same construction path.
+## Classic callers use for_village() which delegates here with the statics.
+static func for_layout(
+		path_segments: Array,
+		is_inside_cottage: Callable,
 		path_stones: Array[Transform3D],
 		bush_transforms: Array[Transform3D]) -> VillageGrassExclusionContext:
 	var ctx := VillageGrassExclusionContext.new()
-	ctx.path_segments = VillageBackdrop.path_polylines()
+	ctx.path_segments = path_segments
 	ctx.path_stones = path_stones
 	ctx.bush_transforms = bush_transforms
-	const MARGIN := 0.35  # SD-GRASS-1 COTTAGE_MARGIN
-	ctx.is_inside_cottage = func(p: Vector2) -> bool:
-		return VillageBackdrop.inside_any_cottage(p, MARGIN)
+	ctx.is_inside_cottage = is_inside_cottage
 	return ctx
+
+
+## Unchanged convenience wrapper for classic callers (test_village_grass_scatter.gd, etc.).
+## Delegates to for_layout with the COTTAGES + path_polylines() statics so the
+## output is byte-identical to the pre-refactor implementation.
+static func for_village(
+		path_stones: Array[Transform3D],
+		bush_transforms: Array[Transform3D]) -> VillageGrassExclusionContext:
+	const MARGIN := 0.35  # SD-GRASS-1 COTTAGE_MARGIN
+	return for_layout(
+		VillageBackdrop.path_polylines(),
+		func(p: Vector2) -> bool: return VillageBackdrop.inside_any_cottage(p, MARGIN),
+		path_stones,
+		bush_transforms)

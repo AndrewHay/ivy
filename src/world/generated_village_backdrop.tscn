@@ -1,0 +1,26 @@
+;; Generated village backdrop — procedural variant of village_backdrop.tscn (ivy-80z S4).
+;; Same authored near-garden dressing as the classic backdrop (Garden_Bush1/2, Garden_Rock_A).
+;; Root node is renamed to "VillageBackdrop" by World.rebuild_backdrop() at runtime.
+;;
+;; Script is GeneratedVillageBackdrop (extends VillageBackdrop), so all cottage/scatter/
+;; lawn/hill builders run from the base class; only _make_layout() is overridden to supply
+;; VillageLayout.generate(village_seed) instead of authored().
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://src/world/generated_village_backdrop.gd" id="1_script"]
+[ext_resource type="PackedScene" path="res://assets/backdrop/pieces/Bush_Common_Flowers.gltf" id="24_bush_flowers"]
+[ext_resource type="PackedScene" path="res://assets/backdrop/pieces/Rock_Medium_1.gltf" id="29_rock"]
+
+[node name="GeneratedVillageBackdrop" type="Node3D"]
+script = ExtResource("1_script")
+
+;; Near garden (r=5-8 m): flowering bushes, scaled to waist height.
+;; Same positions as village_backdrop.tscn so the near-field dressing is identical.
+[node name="Garden_Bush1" parent="." instance=ExtResource("24_bush_flowers")]
+transform = Transform3D(0.63, 0, 0, 0, 0.63, 0, 0, 0, 0.63, 6.0, 0, 2.5)
+
+[node name="Garden_Bush2" parent="." instance=ExtResource("24_bush_flowers")]
+transform = Transform3D(0.63, 0, 0, 0, 0.63, 0, 0, 0, 0.63, -5.5, 0, 3.0)
+
+[node name="Garden_Rock_A" parent="." instance=ExtResource("29_rock")]
+transform = Transform3D(0.5, 0, 0, 0, 0.5, 0, 0, 0, 0.5, 5.5, 0, -5.5)

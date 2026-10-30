@@ -1,0 +1,41 @@
+# Generated village contact sheet (ivy-80z S5)
+# Captures overview / high / eye shots of a generated village (set by pre-bootstrap flags),
+# then switches to classic to prove two-way mode switching works.
+#
+# Run with seed 1:
+#   /Applications/Godot.app/Contents/MacOS/Godot res://tools/run_ui_script.tscn -- \
+#     --script=/Users/andrewhay/github/ivy/tools/ui_scripts/generated_village.txt \
+#     --scenario=res://assets/structures/scenarios/square.tres \
+#     --village-mode=generated_village --village-seed=1 \
+#     --outdir=res://.tmp/village_gen/s5/seed1
+#
+# Change --village-seed=N for different seeds; classic comparison always appended.
+
+WAIT 500
+
+# Generated mode (and its seed) is applied by the --village-mode/--village-seed pre-bootstrap
+# flags. Do NOT call `VILLAGE_MODE generated_village <seed>` here: it would override the flag's
+# seed and make every --village-seed run render the same village.
+WAIT 200
+
+# Overview: az=0 (north), r=50, h=45 — wide village view.
+ORBIT 0 50 45
+SCREENSHOT overview.png
+
+# High: closer, still shows village ring.
+ORBIT 0 26 14
+SCREENSHOT high.png
+
+# Eye-level: street view.
+ORBIT 0 12 2
+SCREENSHOT eye.png
+
+# Switch back to classic to prove two-way mode switching (fog restores to 9.5 m).
+VILLAGE_MODE classic_village
+WAIT 200
+ORBIT 0 50 45
+SCREENSHOT classic_overview.png
+ORBIT 0 26 14
+SCREENSHOT classic_high.png
+ORBIT 0 12 2
+SCREENSHOT classic_eye.png
