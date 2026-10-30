@@ -6,6 +6,8 @@ signal building_selected(building_id: String)
 ## mode_id is one of GameModes.CLASSIC / GameModes.GENERATED.
 ## Main is responsible for rolling a new seed on GENERATED and calling set_village_seed().
 signal village_mode_changed(mode_id: String)
+## Emitted when the player commits a seed in the text field (generated mode only).
+signal village_seed_committed(seed: int)
 
 const BuildingCatalog = preload("res://src/world/building_catalog.gd")
 const GameModes = preload("res://src/world/game_modes.gd")
@@ -18,6 +20,7 @@ var _displayed_seed: int = 0
 
 ## Stable-named node references populated in _ready.
 var _toggle: CheckButton = null
+var _seed_field: LineEdit = null
 var _seed_hint: Label = null
 var _reroll_btn: Button = null
 
@@ -31,6 +34,8 @@ func init_village_mode(mode_id: String) -> void:
 ## Called by Main after rolling a new seed so the hint label stays accurate.
 func set_village_seed(seed: int) -> void:
 	_displayed_seed = seed
+	if _seed_field != null:
+		_seed_field.text = str(seed)
 	_update_seed_ui()
 
 
@@ -76,6 +81,18 @@ func _ready() -> void:
 	_toggle.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	mode_row.add_child(_toggle)
 
+	var seed_lbl := Label.new()
+	seed_lbl.text = "Seed:"
+	mode_row.add_child(seed_lbl)
+
+	_seed_field = LineEdit.new()
+	_seed_field.name = "VillageSeedField"
+	_seed_field.custom_minimum_size = Vector2(100, 0)
+	_seed_field.placeholder_text = "0"
+	_seed_field.text_submitted.connect(func(_t: String) -> void: _commit_seed_from_field())
+	_seed_field.focus_exited.connect(_commit_seed_from_field)
+	mode_row.add_child(_seed_field)
+
 	_reroll_btn = Button.new()
 	_reroll_btn.name = "VillageSeedReroll"
 	_reroll_btn.text = "Re-roll"
@@ -120,12 +137,29 @@ func _on_reroll_pressed() -> void:
 	village_mode_changed.emit(GameModes.GENERATED)
 
 
+func _commit_seed_from_field() -> void:
+	if _toggle == null or _seed_field == null or not _toggle.button_pressed:
+		return
+	var raw := _seed_field.text.strip_edges()
+	if not raw.is_valid_int():
+		_seed_field.text = str(_displayed_seed)
+		return
+	var parsed: int = int(raw) & 0x7FFFFFFF
+	if parsed == _displayed_seed:
+		return
+	_displayed_seed = parsed
+	_update_seed_ui()
+	village_seed_committed.emit(parsed)
+
+
 func _update_seed_ui() -> void:
 	if _toggle == null or _seed_hint == null:
 		return
 	var generated := _toggle.button_pressed
 	if _reroll_btn != null:
 		_reroll_btn.visible = generated
+	if _seed_field != null:
+		_seed_field.visible = generated
 	if generated:
 		_seed_hint.visible = true
 		_seed_hint.text = "Procedurally generated houses & paths — seed: %d" % _displayed_seed

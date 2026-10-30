@@ -74,6 +74,8 @@ func _show_building_picker() -> void:
 	picker.building_selected.connect(_on_building_selected)
 	if picker.has_signal("village_mode_changed"):
 		picker.connect("village_mode_changed", _on_village_mode_changed)
+	if picker.has_signal("village_seed_committed"):
+		picker.connect("village_seed_committed", _on_village_seed_committed)
 	_picker_ref = picker
 	_ui.add_child(picker)
 	# Sync persisted seed display after _ready has built the label nodes.
@@ -94,6 +96,10 @@ func _on_village_mode_changed(mode_id: String) -> void:
 		_village_seed = 0
 	if _picker_ref != null and is_instance_valid(_picker_ref) and _picker_ref.has_method("set_village_seed"):
 		_picker_ref.call("set_village_seed", _village_seed)
+
+
+func _on_village_seed_committed(seed: int) -> void:
+	_village_seed = seed & 0x7FFFFFFF
 
 
 func _on_building_selected(building_id: String) -> void:

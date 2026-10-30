@@ -5,7 +5,7 @@
 ##     FarTreeline count=22 radii∈[19,28].
 ## (c) Generated fields == INV-20 preset for seeds 1..5 (pure data).
 ## (d) Generated builder outputs for seed=1: LawnGround r≈30, HillRing inner≈30,
-##     FarTreeline count=33 radii∈[28.5,42].
+##     FarTreeline count=33 radii∈[34.2,50.4].
 ## (e) Bush filler range: last 10 of bush_common_positions in [bush_filler_inner, bush_filler_outer].
 ## (f) INV-20: pine_inner >= max outer-cottage corner distance; no pine inside grown rect (seeds 1..5).
 extends GutTest
@@ -189,23 +189,23 @@ func test_generated_world_fields_seeds_1_to_5() -> void:
 		if layout.fallback:
 			pending("generate(%d) fell back to authored — skipping world-scale check" % seed)
 			continue
-		assert_almost_eq(layout.lawn_radius, 30.0, 1e-6,
+		assert_almost_eq(layout.lawn_radius, 36.0, 1e-6,
 			"lawn_radius generated %s" % tag)
-		assert_almost_eq(layout.hill_inner, 30.0, 1e-6,
+		assert_almost_eq(layout.hill_inner, 36.0, 1e-6,
 			"hill_inner generated %s" % tag)
-		assert_almost_eq(layout.pine_inner, 28.5, 1e-6,
+		assert_almost_eq(layout.pine_inner, 34.2, 1e-6,
 			"pine_inner generated %s" % tag)
-		assert_almost_eq(layout.pine_outer, 42.0, 1e-6,
+		assert_almost_eq(layout.pine_outer, 50.4, 1e-6,
 			"pine_outer generated %s" % tag)
 		assert_eq(layout.pine_count, 33,
 			"pine_count generated %s" % tag)
-		assert_almost_eq(layout.fog_begin, 14.0, 1e-6,
+		assert_almost_eq(layout.fog_begin, 16.8, 1e-6,
 			"fog_begin generated %s" % tag)
 		assert_almost_eq(layout.fog_end, 95.0, 1e-6,
 			"fog_end generated %s" % tag)
 		assert_almost_eq(layout.bush_filler_inner, 8.0, 1e-6,
 			"bush_filler_inner generated %s" % tag)
-		assert_almost_eq(layout.bush_filler_outer, 22.0, 1e-6,
+		assert_almost_eq(layout.bush_filler_outer, 26.4, 1e-6,
 			"bush_filler_outer generated %s" % tag)
 
 
@@ -222,8 +222,8 @@ func test_generated_lawn_radius_in_mesh() -> void:
 	var verts := _mesh_verts(node.mesh)
 	assert_gt(verts.size(), 0, "LawnGround must have vertices")
 	var max_r := _max_xz_radius(verts)
-	assert_almost_eq(max_r, 30.0, 0.01,
-		"Generated LawnGround vertex radius must be 30.0 m (builder reads layout.lawn_radius)")
+	assert_almost_eq(max_r, 36.0, 0.01,
+		"Generated LawnGround vertex radius must be 36.0 m (builder reads layout.lawn_radius)")
 
 
 func test_generated_hill_inner_in_mesh() -> void:
@@ -236,8 +236,8 @@ func test_generated_hill_inner_in_mesh() -> void:
 		return
 	var verts := _mesh_verts(node.mesh)
 	var inner_r := _min_xz_at_y(verts, 0.0, 0.1)
-	assert_almost_eq(inner_r, 30.0, 0.1,
-		"Generated HillRing inner radius must be ≈ 30.0 m (builder reads layout.hill_inner)")
+	assert_almost_eq(inner_r, 36.0, 0.1,
+		"Generated HillRing inner radius must be ≈ 36.0 m (builder reads layout.hill_inner)")
 
 
 func test_generated_pine_count_and_radii() -> void:
@@ -262,10 +262,10 @@ func test_generated_pine_count_and_radii() -> void:
 		var ox: float = buf[i * 12 + 3]
 		var oz: float = buf[i * 12 + 11]
 		var r := sqrt(ox * ox + oz * oz)
-		assert_gte(r, 28.5,
-			"Generated pine[%d] radius %.3f must be >= 28.5 (pine_inner)" % [i, r])
-		assert_lte(r, 42.0,
-			"Generated pine[%d] radius %.3f must be <= 42.0 (pine_outer)" % [i, r])
+		assert_gte(r, 34.2,
+			"Generated pine[%d] radius %.3f must be >= 34.2 (pine_inner)" % [i, r])
+		assert_lte(r, 50.4,
+			"Generated pine[%d] radius %.3f must be <= 50.4 (pine_outer)" % [i, r])
 
 
 # ── (e) Bush filler range for seeds 1..5 ─────────────────────────────────────
@@ -298,7 +298,7 @@ func test_generated_bush_filler_range() -> void:
 # ── (f) INV-20: pine_inner >= max cottage corner, no pine inside cottage ──────
 
 func test_inv20_pine_inner_exceeds_max_corner_distance() -> void:
-	## pine_inner (28.5 for generated) must be >= the farthest grown corner from origin
+	## pine_inner (34.2 for generated) must be >= the farthest grown corner from origin
 	## across all cottages in the generated layout. This ensures no pine can be placed
 	## inside a cottage's XZ footprint (INV-20).
 	for seed in [1, 2, 3, 4, 5]:

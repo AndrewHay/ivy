@@ -22,12 +22,15 @@ const STONES_SALT    := 0x5739C1
 const HERO_NODE := 7
 
 # ── Placement constants (SD-VILLAGE-GEN-3, amended S2′) ───────────────────────
-## Inner ring min/max radii (metres).
-const _R_IN_MIN  := 11.5
-const _R_IN_MAX  := 13.0
+## Inner ring min/max radii (metres). +20% vs original SD annulus (2026-10-30 tuning).
+const _R_IN_MIN  := 13.8
+const _R_IN_MAX  := 15.6
 ## Outer ring min/max radii (metres).
-const _R_OUT_MIN := 19.5
-const _R_OUT_MAX := 21.5
+const _R_OUT_MIN := 23.4
+const _R_OUT_MAX := 25.8
+## Minimum centre-to-centre spacing between any two cottages (metres). Fixed constant
+## ≈1.5× the longest authored cottage run (~8 m); not computed from live footprints.
+const _MIN_CENTRE_SEP_M := 12.0
 ## Hero keep-out distance: nearest grown-rect face must be ≥ this from origin (INV-1).
 const _KEEP_OUT := 5.9
 ## Overlap / keep-out test grow margin (metres).
@@ -64,15 +67,25 @@ const _PATH_CLEARANCE    := 0.35
 ## Target arc sample spacing for Bézier polylines (m).
 const _BEZIER_SPACING    := 0.3
 ## Base |bend| magnitude for quadratic Bézier (m).
-const _BEZIER_BASE_BEND  := 0.7
+const _BEZIER_BASE_BEND  := 1.15
 ## Maximum |bend| after clamping (m).
-const _BEZIER_BEND_MAX   := 1.5
+const _BEZIER_BEND_MAX   := 3.5
 ## Bend adjustment step for cottage avoidance (m).
-const _BEZIER_BEND_STEP  := 0.25
+const _BEZIER_BEND_STEP  := 0.35
 ## Number of extra bend-adjust tries before waypoint reroute.
-const _BEZIER_BEND_TRIES := 6
+const _BEZIER_BEND_TRIES := 8
 ## Perpendicular waypoint push for MST edge reroute (m).
-const _WAYPOINT_PUSH     := 1.5
+const _WAYPOINT_PUSH     := 2.2
+## Generated world-scale preset (+20% vs ivy-80z S2b; scales with ring expansion).
+const GENERATED_LAWN_RADIUS := 36.0
+const GENERATED_HILL_INNER := 36.0
+const GENERATED_PINE_INNER := 34.2
+const GENERATED_PINE_OUTER := 50.4
+const GENERATED_PINE_COUNT := 33
+const GENERATED_FOG_BEGIN := 16.8
+const GENERATED_BUSH_FILLER_OUTER := 26.4
+## Farthest outer-ring grown corner bound for INV-3 (metres).
+const _OUTER_CORNER_MAX_M := 33.0
 ## Target extra loop edges beyond the spanning tree.
 const _TARGET_LOOPS      := 4
 ## Minimum extra loop edges required; fewer → layout falls back.
@@ -171,15 +184,15 @@ static func generate(seed: int) -> VillageLayout:
 			layout.stone_seed = _derive(norm, STONES_SALT)
 			layout.min_stone_spacing = 0.5  # S3 spatial-hash dedupe in path_stone_transforms
 			# World-scale preset (SD-VILLAGE-GEN-6 / INV-20): fixed values, not per-seed.
-			layout.lawn_radius = 30.0
-			layout.hill_inner = 30.0
-			layout.pine_inner = 28.5
-			layout.pine_outer = 42.0
-			layout.pine_count = 33
-			layout.fog_begin = 14.0
+			layout.lawn_radius = GENERATED_LAWN_RADIUS
+			layout.hill_inner = GENERATED_HILL_INNER
+			layout.pine_inner = GENERATED_PINE_INNER
+			layout.pine_outer = GENERATED_PINE_OUTER
+			layout.pine_count = GENERATED_PINE_COUNT
+			layout.fog_begin = GENERATED_FOG_BEGIN
 			layout.fog_end = 95.0
 			layout.bush_filler_inner = 8.0
-			layout.bush_filler_outer = 22.0
+			layout.bush_filler_outer = GENERATED_BUSH_FILLER_OUTER
 			layout.fallback = false
 			return layout
 
@@ -367,6 +380,15 @@ static func _place_cottages(placement_state: int) -> Dictionary:
 			if overlap:
 				continue
 
+			# Minimum spacing: fixed centre-to-centre floor (_MIN_CENTRE_SEP_M).
+			for prev_spec: Dictionary in placed_specs:
+				var other: Vector2 = prev_spec["centre"]
+				if centre.distance_to(other) < _MIN_CENTRE_SEP_M:
+					overlap = true
+					break
+			if overlap:
+				continue
+
 			# ── Accept dart ───────────────────────────────────────────────
 			var accepted_spec := base_spec.duplicate()
 			accepted_spec["centre"] = centre
@@ -409,17 +431,20 @@ static func _build_network(
 
 	var n := cottages.size()  # 7
 
-	# ── 1. Build node positions ─────────────────────────────────────────────
-	# Nodes 0..6: door stoops (door_exterior + 0.5 * door_normal).
+	# ── 1. Build node positions at door exteriors (paths connect house-to-house at doors).
 	# Node 7 (HERO_NODE): world origin (0, 0).
 	var nodes: PackedVector2Array = PackedVector2Array()
+	var door_normals: Array[Vector2] = []
 	for i: int in range(n):
 		var spec: Dictionary = cottages[i]
 		var door_info := VillageBackdrop.cottage_door(spec)
 		var door_pos: Vector2 = door_info[0]
 		var door_normal: Vector2 = door_info[1]
-		nodes.append(door_pos + door_normal * 0.5)
+		nodes.append(door_pos)
+		door_normals.append(door_normal)
 	nodes.append(Vector2.ZERO)
+
+	var pg_st := _pathgraph_state
 
 	# ── 2. Inner-door index set (for hero candidate mask) ───────────────────
 	var inner_set: Array[int] = []
@@ -470,14 +495,21 @@ static func _build_network(
 		if bi < n:
 			endpoint_indices.append(bi)
 
+		pg_st = VillageScatterPositions.lcg_step(pg_st)
+		var meander_scale := lerpf(0.85, 1.45, VillageScatterPositions.lcg_f01(pg_st))
+		pg_st = VillageScatterPositions.lcg_step(pg_st)
+		var extra_wiggle := (VillageScatterPositions.lcg_f01(pg_st) - 0.5) * 0.9
+		var edge_bend := (bend_sign + extra_wiggle) * _BEZIER_BASE_BEND * meander_scale
+
 		var poly := _route_edge(
-			pa, pb, bend_sign * _BEZIER_BASE_BEND,
+			pa, pb, edge_bend,
 			cottage_rects, endpoint_indices, is_hero_edge, true)
 		bend_sign = -bend_sign
 
 		if poly.is_empty():
 			return {"paths": [], "edges": [], "ok": false}  # MST edge failed
 
+		poly = _ensure_door_approach(poly, ai, bi, n, nodes, door_normals, is_hero_edge)
 		paths.append(poly)
 		final_edges.append(me)
 
@@ -537,14 +569,21 @@ static func _build_network(
 		var b: Vector2 = nodes[bi]
 		var endpoint_indices: Array[int] = [ai, bi]
 
+		pg_st = VillageScatterPositions.lcg_step(pg_st)
+		var meander_scale := lerpf(0.85, 1.45, VillageScatterPositions.lcg_f01(pg_st))
+		pg_st = VillageScatterPositions.lcg_step(pg_st)
+		var extra_wiggle := (VillageScatterPositions.lcg_f01(pg_st) - 0.5) * 0.9
+		var edge_bend := (bend_sign + extra_wiggle) * _BEZIER_BASE_BEND * meander_scale
+
 		var poly := _route_edge(
-			a, b, bend_sign * _BEZIER_BASE_BEND,
+			a, b, edge_bend,
 			cottage_rects, endpoint_indices, false, false)
 		bend_sign = -bend_sign
 
 		if poly.is_empty():
 			continue  # drop this loop edge; try the next candidate
 
+		poly = _ensure_door_approach(poly, ai, bi, n, nodes, door_normals, false)
 		paths.append(poly)
 		final_edges.append(e)
 		current_key_set[ek] = true
@@ -642,6 +681,34 @@ static func _bezier_polyline(a: Vector2, b: Vector2, bend: float) -> Array:
 
 
 # ── S3 helpers ────────────────────────────────────────────────────────────────
+
+## Prepend a short outward run from each door so stones meet the threshold (0.5 m stoop).
+static func _ensure_door_approach(
+		poly: Array,
+		ai: int,
+		bi: int,
+		n: int,
+		nodes: PackedVector2Array,
+		door_normals: Array[Vector2],
+		is_hero: bool) -> Array:
+	if poly.is_empty():
+		return poly
+	var out: Array = poly.duplicate()
+	if ai < n:
+		var stoop_a: Vector2 = nodes[ai] + door_normals[ai] * 0.5
+		if (out[0] as Vector2).distance_to(stoop_a) > 0.05:
+			out.insert(0, stoop_a)
+		if (out[0] as Vector2).distance_to(nodes[ai]) > 0.05:
+			out.insert(0, nodes[ai])
+	if bi < n and not is_hero:
+		var last_i := out.size() - 1
+		var stoop_b: Vector2 = nodes[bi] + door_normals[bi] * 0.5
+		if (out[last_i] as Vector2).distance_to(stoop_b) > 0.05:
+			out.append(stoop_b)
+		if (out[out.size() - 1] as Vector2).distance_to(nodes[bi]) > 0.05:
+			out.append(nodes[bi])
+	return out
+
 
 ## Evaluate quadratic Bézier point at parameter t ∈ [0,1].
 static func _bezier_pt(a: Vector2, ctrl: Vector2, b: Vector2, t: float) -> Vector2:

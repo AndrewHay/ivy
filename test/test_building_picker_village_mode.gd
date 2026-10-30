@@ -146,3 +146,34 @@ func test_reroll_emits_generated_village() -> void:
 	btn.emit_signal("pressed")
 	assert_eq(emitted.size(), 1, "Re-roll must emit village_mode_changed once")
 	assert_eq(emitted[0], GameModes.GENERATED, "Re-roll must emit 'generated_village'")
+
+
+# ── (i) Seed text field ───────────────────────────────────────────────────────
+
+func test_picker_has_seed_text_field() -> void:
+	var picker := _make_picker(GameModes.GENERATED)
+	await get_tree().process_frame
+	var field := picker.find_child("VillageSeedField", true, false) as LineEdit
+	assert_not_null(field, "Picker must have a LineEdit named 'VillageSeedField'")
+
+
+func test_seed_field_commits_emits_village_seed_committed() -> void:
+	var picker := _make_picker(GameModes.GENERATED)
+	await get_tree().process_frame
+	var seeds: Array[int] = []
+	picker.village_seed_committed.connect(func(s: int) -> void: seeds.append(s))
+	var field := picker.find_child("VillageSeedField", true, false) as LineEdit
+	assert_not_null(field)
+	field.text = "424242"
+	field.emit_signal("text_submitted", "424242")
+	assert_eq(seeds.size(), 1, "Committing seed must emit village_seed_committed once")
+	assert_eq(seeds[0], 424242, "Committed seed must match parsed int")
+
+
+func test_set_village_seed_updates_text_field() -> void:
+	var picker := _make_picker(GameModes.GENERATED)
+	await get_tree().process_frame
+	picker.set_village_seed(777)
+	var field := picker.find_child("VillageSeedField", true, false) as LineEdit
+	assert_not_null(field)
+	assert_eq(field.text, "777", "set_village_seed must mirror value into VillageSeedField")

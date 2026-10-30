@@ -59,8 +59,8 @@ func after_each() -> void:
 func test_per_seed_invariants() -> void:
 	## INV-1: nearest grown-0.8 face ≥ 5.9 m from origin
 	## INV-2: no pair of grown-0.8 rects intersects (across both rings)
-	## INV-3 (two-ring): inner centre ∈ [11.5,13.0] m; outer centre ∈ [19.5,21.5] m;
-	##        farthest grown corner ≤ 27.5 m
+	## INV-3 (two-ring): inner centre ∈ [13.8,15.6] m; outer centre ∈ [23.4,25.8] m;
+	##        farthest grown corner ≤ 33.0 m; centre-to-centre ≥ 12.0 m
 	## INV-4: door dot(normal, (−door_pos).normalized()) > 0.5
 	## INV-13: exactly 7 cottages; type multiset equals COTTAGES
 	## INV-14: yaw ∈ {0, 90, 180, 270}
@@ -120,23 +120,23 @@ func test_per_seed_invariants() -> void:
 			var ring_id: int = layout.cottage_rings[i]
 			if ring_id == 0:
 				# inner ring
-				assert_gte(centre.length(), 11.5,
-					"%s: inner centre %.3f m < R_IN_MIN=11.5 m (INV-3)" % [tag, centre.length()])
-				assert_lte(centre.length(), 13.0,
-					"%s: inner centre %.3f m > R_IN_MAX=13.0 m (INV-3)" % [tag, centre.length()])
+				assert_gte(centre.length(), 13.8,
+					"%s: inner centre %.3f m < R_IN_MIN=13.8 m (INV-3)" % [tag, centre.length()])
+				assert_lte(centre.length(), 15.6,
+					"%s: inner centre %.3f m > R_IN_MAX=15.6 m (INV-3)" % [tag, centre.length()])
 			else:
 				# outer ring
-				assert_gte(centre.length(), 19.5,
-					"%s: outer centre %.3f m < R_OUT_MIN=19.5 m (INV-3)" % [tag, centre.length()])
-				assert_lte(centre.length(), 21.5,
-					"%s: outer centre %.3f m > R_OUT_MAX=21.5 m (INV-3)" % [tag, centre.length()])
+				assert_gte(centre.length(), 23.4,
+					"%s: outer centre %.3f m < R_OUT_MIN=23.4 m (INV-3)" % [tag, centre.length()])
+				assert_lte(centre.length(), 25.8,
+					"%s: outer centre %.3f m > R_OUT_MAX=25.8 m (INV-3)" % [tag, centre.length()])
 
 			var grown_rect := VillageBackdrop.cottage_exterior_rect(spec).grow(0.8)
 
-			# INV-3b: farthest grown corner ≤ 27.5 m (two-ring outer bound)
+			# INV-3b: farthest grown corner ≤ 33.0 m (two-ring outer bound, +20% rings)
 			for corner: Vector2 in _rect2_corners(grown_rect):
-				assert_lte(corner.length(), 27.5,
-					"%s: corner distance %.3f m > 27.5 m (INV-3)" % [tag, corner.length()])
+				assert_lte(corner.length(), 33.0,
+					"%s: corner distance %.3f m > 33.0 m (INV-3)" % [tag, corner.length()])
 
 			# INV-1: nearest grown-rect face ≥ 5.9 m from origin
 			var dist_origin := _rect2_dist_from_origin(grown_rect)
@@ -159,6 +159,15 @@ func test_per_seed_invariants() -> void:
 				var overlaps := placed_rects[i].intersects(placed_rects[j], false)
 				assert_false(overlaps,
 					"%s: cottages [%d] and [%d] grown rects overlap (INV-2)" % [seed_tag, i, j])
+
+		# Minimum centre spacing (fixed 12 m floor, not footprint-derived)
+		for i: int in layout.cottages.size():
+			var c_i: Vector2 = layout.cottages[i]["centre"]
+			for j: int in range(i + 1, layout.cottages.size()):
+				var c_j: Vector2 = layout.cottages[j]["centre"]
+				assert_gte(c_i.distance_to(c_j), 12.0,
+					"%s: cottages [%d]/[%d] centres %.3f m apart < 12.0 m" \
+					% [seed_tag, i, j, c_i.distance_to(c_j)])
 
 	assert_eq(fallback_count, 0,
 		"fallback=true for %d / 200 seeds — must be 0 (acceptance criterion)" % fallback_count)

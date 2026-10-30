@@ -2,7 +2,7 @@
 ##
 ## Draws a contact sheet of up to 8 seed layouts plus the authored layout.
 ## Each cell shows: pivot marker, keep-out circle (r=5.9), inner ring bounds
-## (r=11.5/13.0), outer ring bounds (r=19.5/21.5), lawn ring (r=30),
+## (r=13.8/15.6), outer ring bounds (r=23.4/25.8), lawn ring (r=36),
 ## cottage exterior rects (colour by type; inner cottages dimmed), door position +
 ## outward normal tick, cottage name label, path polylines (colour by edge type:
 ## hero-edge=cyan, cross-ring=yellow, same-ring=green), and node dots.
@@ -21,8 +21,8 @@ const _DEFAULT_OUT   := "res://.tmp/village_gen/s3_networks.png"
 ## Pixel size of each individual cell in the contact sheet.
 const _CELL_PX := 256
 ## World metres visible on each side of the origin (square view). 32 m fits the
-## 27.18 m outer corners + 30 m lawn ring.
-const _WORLD_HALF_M := 32.0
+## ~33 m outer corners + 36 m lawn ring.
+const _WORLD_HALF_M := 38.0
 ## Layout of cells in the contact sheet (cols × rows). 0=authored + up to 6 seeds.
 const _COLS := 3
 ## Colours (RGBA 32-bit, packed as 0xRRGGBBAA little-endian byte order for Image.set_pixel).
@@ -32,7 +32,7 @@ const _C_GRID         := Color(0.25, 0.23, 0.20, 1.0)  # faint grid
 const _C_KEEPOUT      := Color(0.9,  0.2,  0.2,  0.6)  # red keep-out ring
 const _C_INNER_RING   := Color(0.4,  0.8,  1.0,  0.6)  # light-blue inner ring bounds
 const _C_OUTER_RING   := Color(0.2,  0.5,  0.9,  0.5)  # mid-blue outer ring bounds
-const _C_LAWN         := Color(0.3,  0.8,  0.3,  0.3)  # green lawn hint (r=30)
+const _C_LAWN         := Color(0.3,  0.8,  0.3,  0.3)  # green lawn hint (r=36)
 const _C_PIVOT        := Color(1.0,  1.0,  0.0,  1.0)  # yellow pivot
 const _C_DOOR         := Color(1.0,  0.6,  0.0,  1.0)  # orange door marker
 const _C_DOOR_NORM    := Color(1.0,  0.9,  0.1,  1.0)  # yellow door-normal tick
@@ -116,11 +116,11 @@ func _draw_cell(layout: VillageLayout, label: String, ox: int, oy: int) -> void:
 
 	# Draw circles (keep-out, inner ring, outer ring, lawn) as ring outlines
 	_draw_circle_outline(ox, oy,  5.9, _C_KEEPOUT,    1)
-	_draw_circle_outline(ox, oy, 11.5, _C_INNER_RING, 1)
-	_draw_circle_outline(ox, oy, 13.0, _C_INNER_RING, 1)
-	_draw_circle_outline(ox, oy, 19.5, _C_OUTER_RING, 1)
-	_draw_circle_outline(ox, oy, 21.5, _C_OUTER_RING, 1)
-	_draw_circle_outline(ox, oy, 30.0, _C_LAWN,       1)
+	_draw_circle_outline(ox, oy, 13.8, _C_INNER_RING, 1)
+	_draw_circle_outline(ox, oy, 15.6, _C_INNER_RING, 1)
+	_draw_circle_outline(ox, oy, 23.4, _C_OUTER_RING, 1)
+	_draw_circle_outline(ox, oy, 25.8, _C_OUTER_RING, 1)
+	_draw_circle_outline(ox, oy, 36.0, _C_LAWN,       1)
 
 	# Draw cottages (dim inner cottages slightly to distinguish from outer)
 	for i: int in layout.cottages.size():

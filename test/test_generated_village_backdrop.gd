@@ -93,8 +93,8 @@ func test_lawn_ground_radius() -> void:
 	var max_r := 0.0
 	for v: Vector3 in verts:
 		max_r = maxf(max_r, Vector2(v.x, v.z).length())
-	assert_almost_eq(max_r, 30.0, 0.01,
-		"Generated LawnGround vertex radius must be ≈ 30.0 m (lawn_radius)")
+	assert_almost_eq(max_r, 36.0, 0.01,
+		"Generated LawnGround vertex radius must be ≈ 36.0 m (lawn_radius)")
 
 
 # ── (e) HillRing inner radius ≈ 30 m ─────────────────────────────────────────
@@ -113,8 +113,8 @@ func test_hill_ring_inner_radius() -> void:
 			inner_r = minf(inner_r, Vector2(v.x, v.z).length())
 	if inner_r == INF:
 		inner_r = 0.0
-	assert_almost_eq(inner_r, 30.0, 0.5,
-		"Generated HillRing inner radius must be ≈ 30.0 m (hill_inner)")
+	assert_almost_eq(inner_r, 36.0, 0.5,
+		"Generated HillRing inner radius must be ≈ 36.0 m (hill_inner)")
 
 
 # ── (f) Cottage multimeshes (7 cottage types produce Cottage_* nodes) ─────────
@@ -262,12 +262,12 @@ func test_inv20_world_scale_fields() -> void:
 	assert_not_null(layout, "get_layout() must return a VillageLayout")
 	if layout == null:
 		return
-	assert_almost_eq(layout.lawn_radius, 30.0, 1e-6, "lawn_radius must be 30.0 (INV-20)")
-	assert_almost_eq(layout.hill_inner, 30.0, 1e-6, "hill_inner must be 30.0 (INV-20)")
-	assert_almost_eq(layout.pine_inner, 28.5, 1e-6, "pine_inner must be 28.5 (INV-20)")
-	assert_almost_eq(layout.pine_outer, 42.0, 1e-6, "pine_outer must be 42.0 (INV-20)")
+	assert_almost_eq(layout.lawn_radius, 36.0, 1e-6, "lawn_radius must be 36.0 (INV-20)")
+	assert_almost_eq(layout.hill_inner, 36.0, 1e-6, "hill_inner must be 36.0 (INV-20)")
+	assert_almost_eq(layout.pine_inner, 34.2, 1e-6, "pine_inner must be 34.2 (INV-20)")
+	assert_almost_eq(layout.pine_outer, 50.4, 1e-6, "pine_outer must be 50.4 (INV-20)")
 	assert_eq(layout.pine_count, 33, "pine_count must be 33 (INV-20)")
-	assert_almost_eq(layout.fog_begin, 14.0, 1e-6, "fog_begin must be 14.0 (INV-20)")
+	assert_almost_eq(layout.fog_begin, 16.8, 1e-6, "fog_begin must be 16.8 (INV-20)")
 	assert_almost_eq(layout.fog_end, 95.0, 1e-6, "fog_end must be 95.0 (INV-20)")
 
 
