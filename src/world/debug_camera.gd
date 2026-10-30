@@ -27,6 +27,9 @@ var _pitch: float = 0.031415927  # ~1.8°, matches CamSun authored default
 var _radius: float = 8.01        # ~distance of CamSun authored (0,2,8) from pivot (0,1.75,0)
 var _zoom_min_r: float = 3.0
 var _zoom_max_r: float = 12.0
+var _base_zoom_min_r: float = 3.0
+var _base_zoom_max_r: float = 12.0
+var _village_camera_mult: float = 1.0
 ## True while Tab has captured the pointer: motion orbits, and there is no cursor to aim a click.
 var _mouse_look: bool = false
 ## Absolute orbit origin once the player has a rooted point. Until then [_pivot] uses the building.
@@ -96,8 +99,9 @@ func setup(tower_spec: TowerSpec, zoom_bounds: Vector2 = Vector2(-1.0, -1.0)) ->
 	var bounds := zoom_bounds
 	if bounds.x < 0.0:
 		bounds = tower_zoom_bounds(tower_spec)
-	_zoom_min_r = bounds.x
-	_zoom_max_r = bounds.y
+	_base_zoom_min_r = bounds.x
+	_base_zoom_max_r = bounds.y
+	_apply_village_camera_mult_to_zoom_bounds()
 	# Large buildings (test wall) need a pull-back default; CamSun seeding is cylinder-scale.
 	if _zoom_max_r > 20.0:
 		_radius = clamp_radius_with_bounds(
@@ -124,6 +128,26 @@ func setup(tower_spec: TowerSpec, zoom_bounds: Vector2 = Vector2(-1.0, -1.0)) ->
 	_home_radius = _radius
 	_home_origin = _origin
 	_has_home_origin = true
+
+
+## Scale orbit radius and zoom limits for generated village framing (ivy-0ka). Classic = 1.0.
+func apply_village_camera_scale(mult: float) -> void:
+	if absf(mult - _village_camera_mult) < 1e-6:
+		return
+	var prev := _village_camera_mult
+	_village_camera_mult = mult
+	_apply_village_camera_mult_to_zoom_bounds()
+	if prev > 1e-6:
+		_radius = clamp_radius_with_bounds(_radius / prev * mult, _zoom_min_r, _zoom_max_r)
+		_home_radius = clamp_radius_with_bounds(_home_radius / prev * mult, _zoom_min_r, _zoom_max_r)
+	else:
+		_radius = clamp_radius_with_bounds(_radius * mult, _zoom_min_r, _zoom_max_r)
+		_home_radius = clamp_radius_with_bounds(_home_radius * mult, _zoom_min_r, _zoom_max_r)
+
+
+func _apply_village_camera_mult_to_zoom_bounds() -> void:
+	_zoom_min_r = _base_zoom_min_r * _village_camera_mult
+	_zoom_max_r = _base_zoom_max_r * _village_camera_mult
 
 
 ## Interactive-only entry for M6 ground planting. Automated runners never call this.

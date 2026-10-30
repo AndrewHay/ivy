@@ -1,6 +1,7 @@
 class_name FaunaController
 extends Node3D
 
+const VillagePresentationScale = preload("res://src/world/village_presentation_scale.gd")
 const FaunaAgentStateScript = preload("res://src/presentation/fauna/fauna_agent_state.gd")
 const FaunaMotionScript = preload("res://src/presentation/fauna/fauna_motion.gd")
 const FaunaProxyMeshesScript = preload("res://src/presentation/fauna/fauna_proxy_meshes.gd")
@@ -55,6 +56,12 @@ func _ready() -> void:
 
 func bind_backdrop(backdrop: VillageBackdrop) -> void:
 	bind_environment(backdrop.export_fauna_anchors(), backdrop, "VillageBackdrop")
+
+
+## Called when village mode changes (ivy-0ka). Updates TEMP pivot filter distance only.
+func apply_village_presentation_scale() -> void:
+	debug_spawn_max_dist_from_pivot_m = VillagePresentationScale.spawn_near_pivot_max_m()
+	_logged_spawn_near_pivot = false
 
 
 func bind_environment(
@@ -364,7 +371,9 @@ func _spawn_agent(species: FaunaConstants.Species, anchor_index: int, ctx: Fauna
 		FaunaMotionScript.begin_butterfly_at_flower(
 			agent, anchor_index, _environment, ctx.backdrop_global_transform, _rng)
 	agent.lifetime = _rng.randf_range(14.0, 22.0) if species == FaunaConstants.Species.BEE \
-		else _rng.randf_range(18.0, 28.0)
+		else _rng.randf_range(
+			VillagePresentationScale.scaled_butterfly_lifetime_min(),
+			VillagePresentationScale.scaled_butterfly_lifetime_max())
 	agent.age = 0.0
 	_agents.append(agent)
 	_advance_agent(agent, ctx, 0.0)

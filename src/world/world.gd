@@ -1,6 +1,7 @@
 extends Node3D
 
 const GameModes = preload("res://src/world/game_modes.gd")
+const VillagePresentationScale = preload("res://src/world/village_presentation_scale.gd")
 const TowerSdfScript = preload("res://src/world/tower_sdf.gd")
 const WallSdfScript = preload("res://src/world/wall_sdf.gd")
 const MeshSdfScript = preload("res://src/world/mesh_sdf.gd")
@@ -19,6 +20,7 @@ const BuildingCatalog = preload("res://src/world/building_catalog.gd")
 @onready var _camera_rig: Node3D = $CameraRig
 @onready var _village_backdrop: Node3D = $VillageBackdrop
 @onready var _fauna_controller: FaunaController = $FaunaController
+@onready var _debug_camera: Camera3D = $DebugCamera
 @onready var _ambient_wind: AmbientWind = $AmbientWind
 
 var surface: SurfaceQuery
@@ -210,6 +212,7 @@ func get_sky_sun() -> SkySun:
 func set_village_mode(mode_id: String, seed: int) -> void:
 	_village_mode = mode_id
 	_village_seed = seed
+	_apply_village_presentation()
 
 
 func get_village_mode() -> String:
@@ -275,6 +278,20 @@ func rebuild_backdrop() -> void:
 		var layout: VillageLayout = (_village_backdrop as VillageBackdrop).get_layout()
 		if layout != null:
 			sky_sun.set_fog_depth(layout.fog_begin, layout.fog_end)
+
+	_apply_village_presentation()
+
+
+## Camera rig scale, debug-camera zoom, and fauna ring/LOD scale — generated only (ivy-0ka).
+func _apply_village_presentation() -> void:
+	VillagePresentationScale.set_fauna_world_scale_for_mode(_village_mode)
+	var cam_scale := VillagePresentationScale.camera_rig_scale_for_mode(_village_mode)
+	if _camera_rig != null:
+		_camera_rig.scale = Vector3(cam_scale, cam_scale, cam_scale)
+	if _fauna_controller != null:
+		_fauna_controller.apply_village_presentation_scale()
+	if _debug_camera is DebugCamera:
+		(_debug_camera as DebugCamera).apply_village_camera_scale(cam_scale)
 
 
 func get_fauna_controller() -> FaunaController:

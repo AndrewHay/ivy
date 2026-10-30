@@ -1,6 +1,8 @@
 class_name FaunaGating
 extends RefCounted
 
+const VillagePresentationScale = preload("res://src/world/village_presentation_scale.gd")
+
 ## Human-readable hint when `_pick_species` fails (hour gates, etc.).
 static func spawn_hour_hint(local_solar_hour: float) -> String:
 	var bee := species_hour_gate(FaunaConstants.Species.BEE, local_solar_hour)
@@ -112,13 +114,13 @@ static func _base_cap(species: FaunaConstants.Species) -> int:
 
 
 static func should_despawn_agent(camera_global: Vector3, agent_global: Vector3) -> bool:
-	return _xz_distance(camera_global, agent_global) > FaunaConstants.LOD_DESPAWN_M
+	return _xz_distance(camera_global, agent_global) > VillagePresentationScale.scaled_lod_despawn_m()
 
 
 static func spawn_distance_allowed(camera_global: Vector3, spawn_global: Vector3) -> bool:
-	# Must match LOD_DESPAWN_M — spawning in the 18–22 m band (old SPAWN_FORBID) caused
-	# one-frame spawn→despawn (ivy-177 QA: spawn_ok>0 but FAUNA_COUNT 0).
-	return _xz_distance(camera_global, spawn_global) <= FaunaConstants.LOD_DESPAWN_M
+	# Must match scaled LOD despawn — spawning in the forbid band caused one-frame
+	# spawn→despawn (ivy-177 QA: spawn_ok>0 but FAUNA_COUNT 0).
+	return _xz_distance(camera_global, spawn_global) <= VillagePresentationScale.scaled_lod_despawn_m()
 
 
 static func anchor_in_species_ring(species: FaunaConstants.Species, anchor: FaunaAnchor) -> bool:
@@ -127,11 +129,13 @@ static func anchor_in_species_ring(species: FaunaConstants.Species, anchor: Faun
 		FaunaConstants.Species.LADYBIRD:
 			if anchor.kind != FaunaConstants.AnchorKind.CLOVER:
 				return false
-			return r >= FaunaConstants.GARDEN_RING_INNER_M and r <= FaunaConstants.CLOVER_RING_OUTER_M
+			return r >= FaunaConstants.GARDEN_RING_INNER_M \
+				and r <= VillagePresentationScale.scaled_clover_outer_m()
 		_:
 			if anchor.kind != FaunaConstants.AnchorKind.FLOWER:
 				return false
-			return r >= FaunaConstants.GARDEN_RING_INNER_M and r <= FaunaConstants.GARDEN_RING_OUTER_M
+			return r >= FaunaConstants.GARDEN_RING_INNER_M \
+				and r <= VillagePresentationScale.scaled_garden_outer_m()
 
 
 static func _xz_distance(a: Vector3, b: Vector3) -> float:
