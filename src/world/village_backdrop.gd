@@ -211,7 +211,8 @@ func _create_piece_multimesh(
 		for xf in transforms:
 			placed.append(xf * local)
 		var part_name := node_name if parts.size() == 1 else "%s_%d" % [node_name, k]
-		_add_multimesh(parts[k][0], part_name, placed, shadow)
+		var mat: Material = _warm_plaster_material(parts[k][0]) if "Plaster" in piece else null
+		_add_multimesh(parts[k][0], part_name, placed, shadow, mat)
 
 
 func _collect_mesh_parts(node: Node, parent_xf: Transform3D, out: Array) -> void:
@@ -343,6 +344,24 @@ func _create_scatter(
 	if mesh == null:
 		return
 	_add_multimesh(mesh, node_name, transforms, shadow, material_override)
+
+
+## Opaque warm plaster read for cottage walls in fog/shade (ivy-1ui).
+func _warm_plaster_material(mesh: Mesh) -> StandardMaterial3D:
+	if mesh.get_surface_count() == 0:
+		return null
+	var src := mesh.surface_get_material(0)
+	if src == null:
+		return null
+	var mat := src.duplicate() as StandardMaterial3D
+	if mat == null:
+		return null
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
+	mat.cull_mode = BaseMaterial3D.CULL_BACK
+	mat.metallic = 0.0
+	mat.roughness = maxf(mat.roughness, 0.88)
+	mat.albedo_color = mat.albedo_color.lerp(Color(0.96, 0.93, 0.86), 0.22)
+	return mat
 
 
 func _grass_wispy_accent_material(mesh: Mesh) -> ShaderMaterial:

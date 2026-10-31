@@ -5,7 +5,10 @@ extends Node
 
 const _MAIN_SCENE := "res://src/main/main.tscn"
 const _GROW_TARGET_DAY := 150.0
-const _TICKS_PER_DAY := SimClock.ticks_per_game_day_for(SimClock.Speed.GROW)
+const SimClock = preload("res://src/core/sim_clock.gd")
+
+func _ticks_per_day_grow() -> int:
+	return SimClock.ticks_for_game_days(1.0, SimClock.Speed.GROW)
 const _SAMPLE_FRAMES := 180
 const _WARMUP_FRAMES := 90
 
@@ -61,7 +64,7 @@ func _probe_grow_tick_delivery() -> void:
 
 	var grow_ms := Time.get_ticks_msec() - t0_ms
 	var ticks_final := clock.tick_index
-	var target_ticks := int(_GROW_TARGET_DAY * _TICKS_PER_DAY)
+	var target_ticks := SimClock.ticks_for_game_days(_GROW_TARGET_DAY, SimClock.Speed.GROW)
 	var eff_final := float(ticks_final) / (grow_ms / 1000.0)
 	var theory_s: float = _GROW_TARGET_DAY * sim.params.speed_grow
 	print(
@@ -114,7 +117,7 @@ func _advance_to_canonical() -> void:
 	var world: Node = _main.get_node("World")
 	if world.has_method("set_seed_index"):
 		world.set_seed_index(2)
-	var ticks := int(round((_GROW_TARGET_DAY + 0.25) * _TICKS_PER_DAY))
+	var ticks := SimClock.ticks_for_game_days(_GROW_TARGET_DAY + 0.25, SimClock.Speed.GROW)
 	if sim.has_method("advance_ticks"):
 		sim.advance_ticks(ticks)
 	for _i in range(5):

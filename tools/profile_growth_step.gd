@@ -15,7 +15,10 @@ extends Node
 const _MAIN_SCENE := "res://src/main/main.tscn"
 const _DEFAULT_BUILDINGS := ["square", "overhang", "cylinder"]
 const _DEFAULT_DAYS := 20
-const _TICKS_PER_DAY := int(SimClock.ticks_per_game_day_for(SimClock.Speed.NORMAL))
+const SimClock = preload("res://src/core/sim_clock.gd")
+
+func _ticks_for_days(days: int) -> int:
+	return SimClock.ticks_for_game_days(float(days), SimClock.Speed.NORMAL)
 const _SEED_RAY_Y := 0.3
 const _SEED_RAY_REACH := 15.0
 const _COUNTERS := ["raycast_count", "nearest_count", "project_count", "project_miss_count"]
@@ -84,7 +87,7 @@ func _profile_building(id: String, days: int) -> void:
 	var step_us := 0
 	var tick_us := 0
 	var max_live := 0
-	var ticks := days * _TICKS_PER_DAY
+	var ticks := _ticks_for_days(days)
 	var params: IvyParams = sim.params
 	for _t in range(ticks):
 		var t0 := Time.get_ticks_usec()

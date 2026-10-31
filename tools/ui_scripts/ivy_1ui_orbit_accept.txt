@@ -1,0 +1,7 @@
+# ivy-1ui acceptance — square village high orbit (local noon).
+SPEED pause
+ADVANCE_DAYS 0.25
+ORBIT 0 16 9
+SCREENSHOT orbit_high_000.png
+ORBIT 45 16 9
+SCREENSHOT orbit_high_045.png

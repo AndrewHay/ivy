@@ -15,7 +15,10 @@ extends Node
 const _MAIN_SCENE := "res://src/main/main.tscn"
 const _GROW_TARGET_DAY := 150.0
 const _CANONICAL_DAY := 150.25
-const _TICKS_PER_DAY := SimClock.ticks_per_game_day_for(SimClock.Speed.GROW)
+const SimClock = preload("res://src/core/sim_clock.gd")
+
+func _ticks_per_day_grow() -> int:
+	return SimClock.ticks_for_game_days(1.0, SimClock.Speed.GROW)
 const _GROW_TOLERANCE := 1.02
 const _FPS_FLOOR := 60.0
 const _WARMUP_FRAMES := 90
@@ -118,7 +121,7 @@ func _measure_render_fps() -> Dictionary:
 	var world: Node = _main.get_node("World")
 	if world.has_method("set_seed_index"):
 		world.set_seed_index(2)
-	var ticks := int(round(_CANONICAL_DAY * _TICKS_PER_DAY))
+	var ticks := int(round(_CANONICAL_DAY * _ticks_per_day_grow()))
 	if sim.has_method("advance_ticks"):
 		sim.advance_ticks(ticks)
 	for _i in range(5):

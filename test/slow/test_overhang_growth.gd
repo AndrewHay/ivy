@@ -1,6 +1,7 @@
 ## ivy-9us — Overhang (eave-wall) growth metrics at day 100 (M1–M8).
-## Wall-clock (SD-TIME-2 NORMAL): ~25–60 min on Apple M2 Pro — 72k growth ticks
-## (two day-100 sims via ticks_for_game_days) plus 300k+ segment metric scans.
+## Wall-clock (SD-TIME-2 NORMAL, ivy-7dz): ~25–60 min on Apple M2 Pro — tick horizon is
+## `SimClock.ticks_for_game_days(100, NORMAL)` per sim (no compile-time ticks/day consts);
+## two day-100 sims plus 300k+ segment metric scans.
 ##
 ## Seeds: 5 at y=0.05, z=0.01, x in {-4,-2,0,2,4}.
 ## Scope for M1–M7: interior |x| <= 6, below soffit (mid-y <= wall_height).

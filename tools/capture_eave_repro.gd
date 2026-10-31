@@ -10,7 +10,7 @@ extends Node
 
 const _MAIN_SCENE := "res://src/main/main.tscn"
 const _OUTDIR := "res://.tmp/eave_repro/"
-const _TICKS_PER_DAY := int(SimClock.ticks_per_game_day_for(SimClock.Speed.GROW))
+const SimClock = preload("res://src/core/sim_clock.gd")
 ## South wall exterior face of square_sim.glb (wall node z=2.91, face at local z=0).
 const _WALL_FACE_Z := 2.91
 const _CLICK_XS := [-9.2, -8.4, -5.6, -4.9]
@@ -57,7 +57,8 @@ func _ready() -> void:
 		main.call("_on_plant_success")
 	await _settle(5)
 
-	sim.advance_ticks(_TICKS_PER_DAY * day + 6)
+	var ticks := SimClock.ticks_for_game_days(float(day), SimClock.Speed.GROW) + 6
+	sim.advance_ticks(ticks)
 	await _settle(10)
 	_report(sim.get("plant") as PlantData)
 

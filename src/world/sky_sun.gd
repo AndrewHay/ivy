@@ -39,7 +39,8 @@ const _SKY_HORIZON_DAY := Color(0.784, 0.851, 0.91)
 const _SKY_TOP_TWILIGHT := Color(0.22, 0.28, 0.52)
 const _SKY_HORIZON_TWILIGHT := Color(1.0, 0.52, 0.32)
 
-const _FOG_DAY := Color(0.78, 0.84, 0.91)
+## Warm cream fog (ivy-1ui): cool blue-grey fog made shaded plaster read as glassy glazing.
+const _FOG_DAY := Color(0.88, 0.86, 0.80)
 const _FOG_TWILIGHT := Color(0.96, 0.58, 0.40)
 
 ## Matches ProceduralSkyMaterial.sky_energy_multiplier in main.tscn.
@@ -178,7 +179,10 @@ static func fog_color_for(s_y: float, lit: float) -> Color:
 static func ambient_light_color_for(s_y: float, lit: float) -> Color:
 	var top := sky_top_color_for(s_y, lit)
 	var hor := sky_horizon_color_for(s_y, lit)
-	return top.lerp(hor, 0.5)
+	var sky_mix := top.lerp(hor, 0.5)
+	# Warm fill so north/shaded cottage plaster stays opaque cream, not sky-blue (ivy-1ui).
+	const _WARM_SHADE := Color(0.93, 0.89, 0.82)
+	return sky_mix.lerp(_WARM_SHADE, 0.38)
 
 
 ## Silver lining at noon; warm gold rim at twilight (shader mixes by twilight_glow).

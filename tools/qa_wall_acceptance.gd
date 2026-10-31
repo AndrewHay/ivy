@@ -8,7 +8,7 @@ const _BuildingCatalog = preload("res://src/world/building_catalog.gd")
 const _Conv = preload("res://src/core/conv.gd")
 const _OUTDIR := "res://.tmp/ui_scripts/qa_3hg_wall/"
 const _PRESENT_TIMEOUT_MS := 4000
-const _TICKS_PER_DAY := int(SimClock.ticks_per_game_day_for(SimClock.Speed.NORMAL))
+const SimClock = preload("res://src/core/sim_clock.gd")
 const _GROWTH_DAYS := 30
 
 
@@ -69,8 +69,8 @@ func _run_wall_flow(outdir: String) -> PackedStringArray:
 		print("[qa-wall] planted at wall midpoint")
 
 		if sim.has_method("advance_ticks"):
-			sim.advance_ticks(_TICKS_PER_DAY * _GROWTH_DAYS)
-			sim.advance_ticks(int(round(0.25 * _TICKS_PER_DAY)))
+			sim.advance_ticks(SimClock.ticks_for_game_days(float(_GROWTH_DAYS), SimClock.Speed.NORMAL))
+			sim.advance_ticks(SimClock.ticks_for_game_days(0.25, SimClock.Speed.NORMAL))
 			await _settle(5)
 			await _capture(outdir.path_join("wall_growth_d30.png"))
 			var plant: PlantData = sim.get("plant") as PlantData
