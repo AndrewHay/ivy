@@ -22,6 +22,10 @@ const _SnapshotAnnotationOverlay = preload("res://src/ui/snapshot_annotation_ove
 ## Set by `tools/run_ui_script.gd` before the scene enters the tree. A scripted run
 ## drives ticks explicitly, so the clock must not also free-run on the frame delta.
 var script_driven: bool = false
+## When true with script_driven, skip the default tower bootstrap in _ready().
+## `tools/replay_snapshot.gd` sets this so snapshot replay does not seed/bake a throwaway
+## procedural session before load_snapshot_recipe rebuilds the saved building.
+var skip_script_bootstrap: bool = false
 
 @onready var _world: Node3D = $World
 @onready var _sim: Node = $Sim
@@ -61,7 +65,8 @@ func _ready() -> void:
 	if params == null:
 		params = load("res://src/params/ivy_params_default.tres") as IvyParams
 	if script_driven:
-		await _bootstrap_simulation(true)
+		if not skip_script_bootstrap:
+			await _bootstrap_simulation(true)
 		return
 	_show_building_picker()
 

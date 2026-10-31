@@ -2,6 +2,7 @@ class_name SnapshotReplay
 extends RefCounted
 
 const _RunHash = preload("res://src/metrics/run_hash.gd")
+const _SimClock = preload("res://src/core/sim_clock.gd")
 const _SNAPSHOT_ROOT := "res://.tmp/snapshots/"
 
 
@@ -29,13 +30,19 @@ static func resolve_dir(spec: String) -> String:
 
 
 static func replay_to_tick(sim: Node, params: IvyParams, recipe) -> void:
+	var clock: SimClock = sim.get_clock()
+	var saved_speed: int = clock.speed
+	# Snapshots are taken at PAUSE, but tick_index/game_day reflect the speed used while
+	# growing (usually GROW in free-plant). Replaying ticks at PAUSE/NORMAL skews game_day
+	# per tick and breaks run_hash even on the same Godot build.
+	clock.set_speed(_growth_speed_for_replay(recipe))
 	var target: int = int(recipe.time.get("tick_index", 0))
 	var plant_log: Array = recipe.plant_log
 	var param_log: Array = recipe.param_log
 	var pi := 0
 	var pai := 0
-	while sim.get_clock().tick_index < target:
-		var t: int = sim.get_clock().tick_index
+	while clock.tick_index < target:
+		var t: int = clock.tick_index
 		while pi < plant_log.size() and int(plant_log[pi].get("tick", -1)) == t:
 			var e: Dictionary = plant_log[pi]
 			var pos := _vec3_from_array(e.get("position", [0.0, 0.0, 0.0]))
@@ -47,6 +54,24 @@ static func replay_to_tick(sim: Node, params: IvyParams, recipe) -> void:
 			_apply_param(params, str(pe.get("name", "")), pe.get("value"))
 			pai += 1
 		sim.advance_ticks(1)
+	clock.set_speed(saved_speed)
+
+
+static func _growth_speed_for_replay(recipe) -> int:
+	var ticks: int = int(recipe.time.get("tick_index", 0))
+	var day: float = float(recipe.time.get("game_day", 0.0))
+	if ticks <= 0 or day <= 0.0:
+		# Headless tests replay without game_day; PAUSE dt_sim uses the Normal cadence.
+		return _SimClock.Speed.NORMAL
+	var measured: float = day / float(ticks)
+	var best: int = _SimClock.Speed.GROW
+	var best_err: float = INF
+	for s in [_SimClock.Speed.NORMAL, _SimClock.Speed.FAST, _SimClock.Speed.GROW]:
+		var err: float = absf(measured - _SimClock.sim_tick_size_for(s))
+		if err < best_err:
+			best_err = err
+			best = s
+	return best
 
 
 static func verify_fingerprint(sim: Node, recipe) -> Dictionary:

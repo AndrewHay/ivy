@@ -22,6 +22,7 @@ func _ready() -> void:
 		return
 	var main := ps.instantiate()
 	main.set("script_driven", true)
+	main.set("skip_script_bootstrap", true)
 	add_child(main)
 	for _i in range(30):
 		await get_tree().process_frame
