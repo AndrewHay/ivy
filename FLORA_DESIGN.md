@@ -35,8 +35,8 @@ when captured with `--out=`.
 |---|--------|--------|
 | 1 | `Bush_Common` | Already in village scatter (plain green bushes) |
 | 2 | `Bush_Common_Flowers` | Already placed as garden bushes in `village_backdrop.tscn` |
-| 3 | `Clover_1` | **Keep — pond ring (deferred)** |
-| 4 | `Clover_2` | **Keep — pond ring (deferred)** |
+| 3 | `Clover_1` | **Pond bank scatter (ivy-86l)** |
+| 4 | `Clover_2` | **Pond bank scatter (ivy-86l)** |
 | 5 | `Fern_1` | Not selected in audition |
 | 6 | `Flower_3_Group` | **Use — scatter in groups of 3–4** |
 | 7 | `Flower_3_Single` | **Use — scatter in groups of 3–4** |
@@ -93,9 +93,18 @@ when captured with `--out=`.
   10 clusters × 3–4 members (`VillageScatterPositions.flower_cluster_layers()`).
 - **Path petals:** `Petal_1`–`Petal_5` beside path stones (`petal_layers()`).
 - **Plants:** `Plant_7`, `Plant_7_Big` scattered in the near ring (`plant_layers()`).
-- **Clover:** removed from live scatter (pond deferred); no fauna clover anchors.
-- **Fauna:** flower anchors only on cluster blooms + petals (`export_fauna_anchors()`).
-- **Not placed:** tall grass 10–11, mushrooms 14–15, pond clover 3–4.
+- **Pond (ivy-86l):** classic centre XZ **(0.5, 12.0)** (gap between cottages CD/CC); generated layouts
+  resolve via `VillagePondPlacement.resolve_center()`. Mean water radius **2.625 m** (×1.5) with
+  **noisy polygon** edges ([Red Blob Games noisy edges](https://www.redblobgames.com/maps/noisy-edges/):
+  irregular seed corners, two-point edge quads, Chaikin-smoothed render mesh); muddy bank follows
+  the same wobble; clover
+  scatters in the bank band (point-in-polygon, not a circular annulus).
+- **Clover:** `Clover_1` / `Clover_2` in **three jittered rings** on the bank (inner → outer,
+  decreasing density); **blade grass** fills the outer bank band (`GRASS_BANK_MIN_ALONG` ≈ 0.58+).
+  Not the former garden-ring band.
+- **Fauna:** flower anchors on cluster blooms + petals; **clover anchors** on pond clover
+  (ladybird visits still deferred in live spawns per `FAUNA_DESIGN.md`).
+- **Not placed:** tall grass 10–11, mushrooms 14–15.
 
 ---
 

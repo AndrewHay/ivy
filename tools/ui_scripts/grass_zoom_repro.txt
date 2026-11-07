@@ -1,0 +1,4 @@
+# Reproduce grass vanish at close zoom (snapshot 20261102-155232_ivy_d1)
+SNAPSHOT_LOAD 20261102-155232_ivy_d1
+WAIT 2
+SCREENSHOT grass_zoom_before_fix_repro.png

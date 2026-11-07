@@ -1,6 +1,6 @@
 # Ivy — Game Design Document
 
-Last updated: 2026-08-12
+Last updated: 2026-10-31
 
 ---
 
@@ -20,6 +20,16 @@ Underneath is a real simulator, specified in `ivy_simulator_v0.1.md`, built on t
 Environmental state is mutable at runtime. Existing stems never regenerate; only future growth
 responds. That single property is what separates this from a procedural mesh generator, and it is
 the thing every later mechanic will be built on.
+
+**Ivy grows ON the structure, not around it** (owner ruling 2026-10-31, SD-OPEN-28). The surface the
+plant grows on is the *visible* surface of the building — every ledge, reveal, timber frame, recess,
+gable step and quoin the player can see — not a bounding envelope, an offset shell, or a proxy that
+was simplified until it stopped resembling the render. Where the structure is concave, stems ease
+into the concavity, lie against its floor, and ease back out along natural curves; where it
+protrudes they drape over it. A stem standing off a wall, bridging a visible recess, or tracking a
+flat plane while the render shows relief — "ivy on a box around the building" — is a **defect**, not
+a tuning matter. The hero/proxy split (SD-OPEN-22) stands: the proxy exists only to make this
+surface cheap to query, and it is judged against the hero, never the reverse.
 
 ---
 
@@ -272,6 +282,40 @@ Tracking: epic **`ivy-7ka`** (phase 2 lawn); prior **`ivy-qg7`** contracts in `I
 | G4  | The day/night cycle is present, readable, and genuinely drives growth.                                                                                                         |
 | G5  | Runs are deterministic and repeatable, so visual iteration has a stable baseline to compare against.                                                                           |
 | G6  | Every tuning parameter — spec §30 plus every parameter added by a later stage (`SD-PARAM`) — is live-tunable in a dev build. Iteration is measured in minutes, not recompiles. |
+| G7  | Every algorithm whose *feel* matters (ivy growth, grass blowing, …) has a dedicated **playground scene** with live knobs and switchable algorithm variants, so the human designer can feel the differences first-hand (see *Algorithm playgrounds* below). |
+
+### Algorithm playgrounds (design principle, ratified 2026-11-06)
+
+**Principle.** When we construct an algorithm whose result is judged by *feel* — ivy growth,
+grass blowing, and later gusts, fauna motion, camera glides — we do not tune it by editing
+constants and running the whole game. We build a **playground**: a small, dedicated scene that
+runs *only* that algorithm, with controls so the designer (a human, not an agent) can experiment
+and feel what each difference does. Agents may screenshot a playground, but the acceptance
+judgement of "which one feels right" belongs to the human.
+
+**A playground must have:**
+
+1. **Isolation** — opens standalone (`scenes/playground/<name>_playground.tscn`) without the village
+   build, sim clock, HUD, or save state; starts in seconds.
+2. **Live knobs** — every constant that shapes the feel (amplitudes, frequencies, gust shape,
+   direction, speed, density…) is a slider/spinner whose change is visible on the next frame.
+   Defaults equal the production values.
+3. **Algorithm variants** — a selector between *structurally different* algorithms (not just
+   parameter sets), always including **Current (production)**, so "A vs B" is one click.
+4. **Presets + reset** — named presets, a *Reset to production* button, and a way to copy the current
+   settings out (printed / saved) so a chosen setting can be promoted into production.
+5. **A readable stage** — fixed camera presets (eye-level, top-down) plus free orbit; a ground
+   reference and a scale reference; a pause/slow-motion control where the algorithm is temporal.
+6. **No production leakage** — playground state must never alter production behaviour: knobs
+   default to production values, any global state is restored on exit, and production code paths
+   keep a test pinning that parity.
+
+**Order of work.** The playground is built *with* the algorithm (or retrofitted before the next
+tuning pass), not after the look is already frozen. Production code reads the same parameters
+the playground edits, so there is one implementation, not a demo fork.
+
+**Non-goals.** Player-facing settings UI; a general-purpose parameter framework; replacing the
+automated acceptance metrics (G5) — playgrounds supplement them where the criterion is feel.
 
 
 ---
@@ -493,6 +537,7 @@ the project's largest risk.
 | **M2 — Environment live**          | Solar position, day/night, sparse hash light field, accumulated light, sky-view factor, crowding, branching, tip lifecycle.                                                                                          | AS-2 and AS-3 pass. **DONE.**                                                                                                                                                    |
 | **M2.5 — Visible causation**       | Environment presentation (sky, tower surfacing, four canonical cameras) plus the minimum leaf rules that make sun/shade asymmetry readable on the plant.                                                             | LG-1, LG-2′, LG-3, and LG-4 pass (below). AS-1 and AS-2 re-verified as automatable causation backstops. **DONE.**                                                                |
 | **M2.6 — Real geometry pass**      | A second `SurfaceQuery` backend that produces Φ and ∇Φ for imported mesh geometry (baked discrete signed-distance volume), plus two CC0 medieval test structures and authored growth scenarios — no player controls. | SG-1 through SG-7 pass (below), including the SG-7 human art-direction read. **SG-8 is deferred, not waived** (owner ruling 2026-08-19): the M2.6 structures are sealed — closed doors and glazed windows — so there is no exposed interior surface for SG-8 to measure, and it moves to whichever milestone reintroduces interior growth. Procedural tower canonical run unchanged. **Next.** |
+| **M2.6b — Growth-surface fidelity** | Owner ruling 2026-10-31 (SD-OPEN-28): ivy grows **on** the visible structure. The growth surface (proxy collision + baked SDF) of every playable mesh structure is rebuilt or verified so it follows the hero's ivy-reachable relief — concavities included — and the SDF baker/reader agree with the collision mesh. Starts with the `ivy` village cottage (worst offender: straight walls are hero bounding boxes), then tower, square, surface_wall. No new player controls, no growth-parameter retune. | SG-9 passes on every playable mesh structure, SG-7(b) is re-read by a human on the cottage and tower captures, and SG-2 passes at its tightened tolerance. Procedural tower SG-1 unchanged (bit-identical). **Precedes authoring any new playable structure.** |
 | **M2.7 — Surface differentiation** | Per-material adhesion values, imported-asset submesh → `MaterialRegistry` mapping, and a single test wall carrying window / closed door / open door so adhesion differences are readable in one frame.               | RG-1 through RG-4 pass (outline below).                                                                                                                                          |
 | **M3 — Agency and tuning**         | Seed anchors, time controls, dev overlay with all §30 parameters live and field visualization.                                                                                                                       | A parameter change can be seen on screen without a restart. **Blocked until M2.7.**                                                                                              |
 | **M4 — Looks good**                | Remaining leaf and stem polish, full SD-LEAF/SD-STEM, iteration against the rubric.                                                                                                                                  | Artifact blacklist clean, rubric ≥5/6 (requires W-024), AS-1/4/5/6 pass.                                                                                                         |
@@ -594,6 +639,7 @@ ruling below).
 | SG-5 | **Authored growth scenarios, ui_script verified.** For each structure, at least **two** distinct authored seed positions (different faces or corners — not merely N/E/S/W of a cylinder). Each scenario has a committed `tools/ui_scripts/` script that loads the structure, plants at the authored point, runs to a fixed game-day, and captures screenshots. Pass requires: ivy adheres to the wall (no systematic float-off or tunnel-through); growth reaches at least one vertical metre on each seed point; captures reviewed for artifact-blacklist items 1, 2, 6, and 7 (through-wall, float, ground/air growth, visible repeat). Exit code alone is insufficient — QA reads the captures.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | SG-6 | **Determinism on mesh scenarios.** Two consecutive serial runs of each structure's scenario script produce identical segment count, leaf count, total stem length, and metric dump to six decimal places. Image stability tolerances from LG-3 apply to scenario captures if a canonical camera set is authored for each structure.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | SG-8 | **DEFERRED by owner ruling 2026-08-19 — carried, unchanged, to the milestone that reintroduces interior growth.** M2.6's structures are sealed (closed doors, glazed windows), so no interior surface is exposed and this gate has no subject. It is explicitly **not** marked passed: the clause below warns that a structure set with no interior lets SG-8 pass by absence, and that is exactly the situation sealing creates, so recording a pass here would be the unfalsifiable shape this milestone already rejected once. The gate text is preserved verbatim because the instrument is still wanted the moment an interior is exposed again. Original text: **Interior and exterior are distinguishable in the light bake** (added 2026-08-12, SD-OPEN-23 ruling; guards the SD-OPEN-17 interior-growth ruling). On the structure that encloses an interior (SG-4), build the environment and compare the baked light products at a **matched pair on the same wall**: an interior-face cell at least 1 m from any aperture, and the exterior-face cell directly opposite it at the same height. Pass requires **interior** `SVF` **≤ 0.10** and **exterior** `SVF` **− interior** `SVF` **≥ 0.25**; where the exterior face is sun-facing, additionally **≥ 4 direct-sun hours set on the exterior** and **≤ 1 on the interior**. Report the measured pair and the wall thickness, not pass/fail alone. Thresholds are **provisional pending one phase A probe** (same discipline as LG-2′ and RG-1); calibrate once against the measurement and escalate to the Director before hardening if the measured margin leaves less than 2× headroom over any floor. **Why this is a named gate and not a test buried in W-094:** with `LightBake` keying sky-view factor and the 24-bit sun mask by coarse cell alone, two faces of a wall thinner than `2·vis_cell = 0.24 m` share one light value, so the room is lit, the ivy thrives inside, nothing errors, and every other M2.6 gate passes. M2.5's repeated lesson is that unnamed guarantees do not get measured.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| SG-9 | **Growth-surface fidelity** (added 2026-10-31, SD-OPEN-28; owner ruling: *ivy grows on the structure, not around it*). For every playable mesh structure, sample the hero's ivy-reachable exterior **area-uniformly** (seeded; ≥ 2,000 samples per structure; sealed door/window leaves and below-ground geometry excluded as before) and measure the signed gap `g` along the proxy's outward normal: `g > 0` means the hero is recessed behind the proxy (ivy would **float**), `g < 0` means the hero stands proud of it (ivy would **clip**). Pass requires, per structure: **(a)** p95 `|g|` ≤ 0.03 m and max `|g|` ≤ 0.05 m, with **no wall-kit-relief exemption**; **(b)** every hero concavity of depth ≥ 0.05 m and width ≥ 0.15 m — recess, reveal, ledge underside, gable step, frame-to-infill step — appears in the proxy with depth within 0.03 m of the hero's, and every convex step of the same size likewise; **(c)** the baked SDF agrees with the collision mesh it was baked from: `|Φ|` ≤ 0.01 m on sampled collision faces and `Φ` negative at ≥ 0.10 m inside every solid (this is SG-2(a) restated with numbers, because SG-2's unquantified tolerance let a 0.025 m half-voxel bias and a mostly-unsigned interior ship on every structure); **(d)** on the **relief test article** (a wall with timber-frame ribs ≥ 0.10 m proud at ≈ 0.45 m spacing and a ≥ 0.15 m-deep niche, built per SD-OPEN-28) a default-parameter growth run puts the stems that cross a recess within the contact band `d_contact` of the recess *floor* — they ease in and out, they do not span the opening — with zero tips ending inside solid. Report the measured distributions, not pass/fail alone. **All thresholds are provisional pending the SD-OPEN-28 audit baseline**: the Systems Designer ratifies them (same discipline as LG-2′ and RG-1) before the implement beads harden them, and escalates to the Director if any floor has under 2× headroom or if meeting (a)/(b) breaks the AR-BUDGET load/iteration figures. SG-9 is the mechanical companion to SG-7(b); it never replaces the human read. |
 
 
 **Human signal (must be able to fail):**
@@ -601,7 +647,7 @@ ruling below).
 
 | ID   | Signal                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| SG-7 | **Art-direction coherence.** A reviewer inspects each structure's scenario captures (fixed game-day, local noon) with no simulation numbers. Pass only if (a) the building reads as photoreal/naturalistic alongside the existing ivy and brick tower — not as a flat-shaded kit piece — **and** (b) the ivy mat conforms to the imported geometry (follows corners, ledges, and rooflines rather than treating the mesh as a smooth cylinder). Fail if the structure clashes with the leaf presentation or if ivy behaviour is visibly wrong for the shape (systematic corner-cutting, lip ignoring, interior leakage). QA records pass/fail and reviewer quotes. Same spirit as LG-1 human sign-off. |
+| SG-7 | **Art-direction coherence.** A reviewer inspects each structure's scenario captures (fixed game-day, local noon) with no simulation numbers. Pass only if (a) the building reads as photoreal/naturalistic alongside the existing ivy and brick tower — not as a flat-shaded kit piece — **and** (b) the ivy mat conforms to the imported geometry (follows corners, ledges, and rooflines rather than treating the mesh as a smooth cylinder). **Amended 2026-10-31 (SD-OPEN-28):** ivy that bridges a visible recess or step ≥ 0.05 m deep, stands visibly off a wall, or tracks a flat plane while the render shows relief fails (b) regardless of SG-9 numbers — the ivy must ease into concavities and out again along natural curves. Fail if the structure clashes with the leaf presentation or if ivy behaviour is visibly wrong for the shape (systematic corner-cutting, lip ignoring, interior leakage). QA records pass/fail and reviewer quotes. Same spirit as LG-1 human sign-off. |
 
 
 **Load and iteration budget on mesh scenarios (ruled 2026-08-12, SD-OPEN-24).** A hollow building has
@@ -705,8 +751,11 @@ features a reviewer expects ivy to follow (ledges, corners, rooflines, door and 
 present in the proxy. Deviation is measured by sampling hero-mesh vertices and reading `|Φ|` from
 the proxy's own volume — free, since the volume already exists — and the measured maximum is
 recorded with the asset. **The vertex set is ivy-reachable only** (ruled 2026-08-23, SD-OPEN-27):
-hero-only corner/seal ornament, below-ground vertices, points outside the adhesion band, and hero
-wall-kit relief stripped from the proxy are excluded; see the ratification log. Thickening a thin scanned wall **inward** on the proxy to clear the 0.30 m
+hero-only corner/seal ornament, below-ground vertices and points outside the adhesion band are
+excluded; see the ratification log. **Amended 2026-10-31 (SD-OPEN-28):** the wall-kit-relief
+exclusion is **revoked** — relief ivy can reach is part of the growth surface, and "stripped from the
+proxy" is no longer a reason to leave it out of the budget — and deviation is measured on
+area-weighted surface samples, two-sided (float *and* clip), not on vertices alone: see SG-9. Thickening a thin scanned wall **inward** on the proxy to clear the 0.30 m
 floor is sanctioned and must be recorded; moving the exterior surface outward is not, because that
 is where the deviation budget binds.
 
@@ -992,7 +1041,8 @@ this table is the index.
 | SD-OPEN-22 | Collision/SDF proxy separate from the render hero mesh (phase B).                                                                                               | **Resolved 2026-08-12 by Director ruling — accepted.** Phase B ships a render-only hero mesh plus a watertight low-poly proxy carrying physics and the SDF; hole-filling is required on the proxy only. Co-registration is binding, with a measured ≤ 0.05 m proxy-vs-hero deviation budget and named features required in the proxy. Inward wall thickening on the proxy is sanctioned. See the M2.6 asset constraints.                                                                                                                                                                                                                                                          |
 | SD-OPEN-23 | The binding thin-wall floor is `2·vis_cell = 0.24 m`, set by the light bake rather than the SDF.                                                                | **Resolved 2026-08-12 by Director ruling — accepted with two modifications.** Engine hard floor 0.24 m as recommended; committed M2.6 assets held to **0.30 m, measured before commit** (SG-4 clause), and the 0.20–0.24 m band **fails closed** — the baker refuses unless an asset explicitly declares it has no interior surfaces. New named gate **SG-8** measures the separation. Face-aware keying deferred to **M2.7**, forced by W-092's open-door reveal.                                                                                                                                                                                                                |
 | SD-OPEN-24 | Mesh-scenario load and per-tick budget; whether the light-bake disk cache becomes M2.6 scope.                                                                   | **Resolved 2026-08-12 by Director ruling — measure first, with a pre-committed trigger.** No scope is committed on extrapolated figures. W-094 reports the phase A bake and per-tick timings; above AR-BUDGET's 3 s line the disk cache lands in M2.6 (W-097) at minimum viable shape, at or below it stays a named escape hatch. Per-tick throughput is explicitly out of scope — measure, do not optimise. Shrinking the asset footprint is the preferred first remedy.                                                                                                                                                                                                         |
-| SD-OPEN-27 | SD-OPEN-22 gate-3 vertex scope: which hero vertices count as "anywhere ivy grows" for the ≤ 0.05 m |Φ| budget.                                                                                         | **Resolved 2026-08-23 by Director ruling — ivy-reachable scope ratified; amended same day (ivy-rn1).** See ratification log. Gate-3 max is measured over ivy-reachable hero vertices only (excludes hero-only corner/seal ornament, `z < 0`, `|Φ| > adhesion_range`, and hero wall-kit relief/beam shell absent from the proxy). **Amendment:** tower sim `CornerColumn` uniform cubes are directed to be replaced by a faceted corner proxy (octagonal prism or equivalent chamfer — not per-stone quoin moulding); square sim corners unchanged for M2.6. Pre-amendment gate-3 maxima: square 0.050 m, tower 0.049 m (both PASS). Post-amendment maxima pending re-measure after implement bead closes. Unfiltered all-vertex max remains diagnostic only.                                                                                                                                       |
+| SD-OPEN-27 | SD-OPEN-22 gate-3 vertex scope: which hero vertices count as "anywhere ivy grows" for the ≤ 0.05 m |Φ| budget.                                                                                         | **Resolved 2026-08-23 by Director ruling — ivy-reachable scope ratified; amended same day (ivy-rn1).** See ratification log. Gate-3 max is measured over ivy-reachable hero vertices only (excludes hero-only corner/seal ornament, `z < 0`, `|Φ| > adhesion_range`, and hero wall-kit relief/beam shell absent from the proxy). **Amendment:** tower sim `CornerColumn` uniform cubes are directed to be replaced by a faceted corner proxy (octagonal prism or equivalent chamfer — not per-stone quoin moulding); square sim corners unchanged for M2.6. Pre-amendment gate-3 maxima: square 0.050 m, tower 0.049 m (both PASS). Post-amendment maxima pending re-measure after implement bead closes. Unfiltered all-vertex max remains diagnostic only. **Clause (d) and the relief exclusion are SUPERSEDED 2026-10-31 by SD-OPEN-28** (ivy grows on the visible structure; SG-9 has no relief exemption). The corner/seal/below-ground exclusions stand. |
+| SD-OPEN-28 | Growth-surface fidelity: what surface does ivy grow on, and how is a proxy judged against the hero? | **Principle resolved 2026-10-31 by owner ruling — ivy grows ON the visible structure, not around it; thresholds and method delegated.** The growth surface (proxy collision + baked SDF) must follow the hero's ivy-reachable relief, concavities included. SD-OPEN-27(d)'s wall-kit-relief exemption is revoked; fidelity is measured two-sided on area-weighted samples (SG-9). Delegated, with provisional numbers in SG-9: **Systems Designer** (`ivy-b1e.4`) — minimum represented concavity (provisional ≥ 0.05 m deep × ≥ 0.15 m wide), ignored micro-relief (provisional < 0.03 m), closing/fillet radius so ivy eases out of inside corners on natural curves and never threads slots narrower than a stem, which features count (timber frames, quoins, reveals, gable steps), the relief test article; **Gameplay Architect** (`ivy-b1e.5`) — how hero relief reaches *both* the collision mesh and the SDF (`SurfaceQuery.nearest()` ray-refines against collision, so SDF-only detail is not enough), finer-pitch/sparse SDF cost, field shell vs 5–15 cm relief. Epic `ivy-b1e`. |
 
 
 ---
@@ -2034,6 +2084,71 @@ deciding whether to fix growth or revisit the floor.
 **Non-goals:** Rewriting the 2026-08-11 ratification log entries above; changing the LG-2′ floors;
 adopting the current HEAD numbers (41,791 / 17,346 / 1228.361570) as SG-1 — that number was explicitly
 rejected as conflating the still-open residual into the baseline.
+
+**2026-10-31 — SD-OPEN-28, growth-surface fidelity: ivy grows ON the structure (owner ruling; epic `ivy-b1e`).**
+The owner reported a recurring defect across structures — the surface ivy grows on is a light, flat
+box while the buildings carry real concavities — and supplied snapshot
+`.tmp/snapshots/20261031-061030_ivy_d1` (the `ivy` village cottage, left wall). Ruling: ivy must grow
+**on** the visible structure, easing into concavities and out again along natural curves; the
+Concept section now says so, and the defect class ("ivy on a box around the building") is named.
+Investigation, with the measurements that bind the ruling:
+
+- **Proximate cause — cottage proxies are bounding boxes.** `assemble_cottage_sim` builds every
+  `Wall_Plaster_Straight` / `Wall_UnevenBrick_Straight` and every `WindowShutters_*` sim piece with
+  `cottage_sim_shell_from_hero`: the hero object's axis-aligned bounding box plus a 0.06 / 0.04 m pad.
+  On the snapshot wall the collision face is one plane, `x = −10.1224`, at every sampled
+  `y ∈ [0.5, 2.5]`, `z ∈ [−1.5, −0.5]`; the hero's outer plane is `x = −10.092` with its recessed
+  infill about 0.08–0.15 m behind that (hero vertices cluster at −10.09 / −10.02…−9.97 / −9.81 /
+  −9.71). Stems sat a median 0.022 m off the SDF surface, i.e. on the box, standing 3.5 cm proud of the
+  hero's outer plane and 0.1–0.2 m off its recesses. Door and window *bays* and gables use solidified
+  kit pieces, so the cottage mixes faithful and boxed surfaces in one wall — the visible step at the
+  bay seam.
+- **Why nothing flagged it — the SD-OPEN-27(d) exemption.** Gate 3 excluded wall-kit relief with
+  `|Φ| > 0.05 m` as "absent from the proxy", and the 2026-08-23 text above says ivy "grows on the
+  co-registered exterior sheet below" the timber beams. That was a deliberate trade for square/tower
+  and is **superseded**: relief ivy can reach is growth surface. (`diagnose_hero_deviation.py ivy`
+  reports `wall_other` max 0.18 m, gables 0.25 m — both over the 0.15 m adhesion range, so ivy could not
+  have reached the hero even in theory.) Earlier entries are left as point-in-time records.
+- **Systemic SDF defects found while verifying (all four structures, 400-ray audit each).** (1) The
+  baked volumes read Φ ≈ **+0.025 m on the collision face** — the baker samples cell centres
+  (`origin + (i + 0.5)·h`), `MeshSdf` reads index `i` at `origin + i·h`: a half-voxel shift, the same
+  order as `d_contact` and half the relief SG-9 requires (`ivy-b1e.3`). (2) The interior is mostly
+  *unsigned*: negative cells are 0.2–4.5 % of each volume and Φ at 0.10 m inside a 0.45 m wall reads
+  ≈ +0.075 (`ivy-7p0`, now with this evidence — the problem is not limited to overlapping pieces).
+  SG-2(a)'s unquantified "near-zero on the surface" tolerance let both ship; SG-9(c) restates it with
+  numbers. `nearest()` hides much of this by ray-refining against the collision mesh, which is exactly
+  why the *collision* mesh must carry the relief too.
+- **A correction to the first-pass reading.** The snapshot's annotation anchors (all normal
+  `(0, 0, −1)` at `z = 0`) are **not** evidence of a flat plane: the debug camera sat at `x = −10.099`,
+  2 cm inside the `left_1` proxy box, so its rays passed backfaces and hit the neighbouring bay's end
+  face (`ivy-b1e.11`).
+
+**What this ruling changes:** adds SG-9 and the M2.6b milestone row; tightens SG-7(b) with an explicit
+fail for ivy bridging a visible recess or standing off a wall; revokes SD-OPEN-27(d) and the
+"relief is excluded because the proxy strips it" rationale in the M2.6 asset constraints; and makes
+the SDF/collision agreement a numeric gate. **What it does not change:** the hero/proxy split
+(SD-OPEN-22) and the 0.05 m budget; the `SurfaceQuery` seam; sealed structures (SD-OPEN-26 — door and
+window leaves stay render-only, ivy meets the `Panel_*` apertures); the 0.30 m wall floor and inward
+thickening rule; procedural-tower SG-1 (bit-identical); the adhesion/growth parameters (`d_A`,
+`d_contact`, `max_float`) — fidelity is fixed in the surface, not tuned around; no ivy–ivy collision.
+
+**Inputs used:** owner report and snapshot `20261031-061030_ivy_d1` (`snapshot.json`, annotated and
+replay PNGs); `ivy_sim.glb` / `ivy_hero.glb` node bounds; `tools/build_structures.py`;
+`tools/diagnose_hero_deviation.py ivy`; throwaway probes `.tmp/diag/seg_depth.gd` (stem depth vs SDF),
+`.tmp/diag/sdf_audit.gd` (SDF vs physics collision, four structures), `.tmp/diag/sdf_sign.gd`
+(negative-cell counts); SD-OPEN-22/26/27 and the 2026-08-23 ratification entries.
+**Artifacts produced:** this entry; Concept principle; M2.6b milestone row; SG-9; SG-7(b) amendment;
+SD-OPEN-28 row; asset-constraints amendment; beads `ivy-b1e` (epic) with `.1` Director confirm, `.2`
+audit tool + baseline, `.3` SDF half-voxel bug, `.4` Systems Designer thresholds, `.5` Architect
+pipeline, `.6` relief test article, `.7` implement cottage, `.8` implement tower/square/surface_wall,
+`.9` review, `.10` QA accept, `.11` snapshot-anchor bug; evidence appended to `ivy-7p0`.
+**Next handoff: Game Director** confirms the DESIGN diff (`ivy-b1e.1`) → audit baseline
+(`ivy-b1e.2`) and SDF fix (`ivy-b1e.3`, one rebake with `ivy-7p0`) in parallel → **Systems Designer**
+ratifies SG-9 numbers (`ivy-b1e.4`) → **Gameplay Architect** (`ivy-b1e.5`).
+**Non-goals:** hero collision for ivy; render-time stem shrink-wrap as the fix (cosmetic; leaves light
+and coverage wrong); retuning growth parameters; per-stone brick or quoin mouldings below the SD
+thresholds; unsealing doors/windows; analytic procedural structures (cylinder tower, `WallSdf` walls),
+which have no hero relief.
 
 ---
 

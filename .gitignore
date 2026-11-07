@@ -14,7 +14,8 @@
 /assets/_local/
 
 # Dev tool output (screenshots, UI-script captures)
-/.tmp/
+/.tmp/*
+!/.tmp/.gdignore
 
 # Beads / Dolt files (added by bd init)
 .dolt/

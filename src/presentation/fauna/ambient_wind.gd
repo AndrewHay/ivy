@@ -3,6 +3,8 @@ extends Node
 
 ## Shared presentation breeze (SD-WIND-1 envelope + SD-WIND-2 gust field). Phase integrates only at NORMAL speed.
 
+const GrassWindClock = preload("res://src/presentation/fauna/grass_wind_clock.gd")
+
 const WIND_BASE_STRENGTH := 1.0
 const WIND_STRENGTH_CAP := 1.0
 const WIND_GUST_PERIOD_SEC := 28.0
@@ -23,10 +25,47 @@ var _scroll_xz: Vector2 = Vector2.ZERO
 var _gate: float = 0.0
 var _direction_xz: Vector2 = Vector2(cos(DIRECTION_BASE_ANGLE), sin(DIRECTION_BASE_ANGLE))
 var _speed: SimClock.Speed = SimClock.Speed.GROW
+var _clock_cfg: Dictionary = {}
 
 
 func _ready() -> void:
 	set_process(false)
+	_clock_cfg = _build_clock_cfg()
+
+
+func _build_clock_cfg() -> Dictionary:
+	var cfg := GrassWindClock.config_from_ambient_wind()
+	cfg["gust_period_sec"] = WIND_GUST_PERIOD_SEC
+	cfg["direction_drift_period_sec"] = DIRECTION_DRIFT_PERIOD_SEC
+	cfg["flutter_period_sec"] = FLUTTER_PERIOD_SEC
+	cfg["direction_base_angle_rad"] = DIRECTION_BASE_ANGLE
+	cfg["direction_meander_rad"] = DIRECTION_MEANDER_RAD
+	cfg["gust_scroll_speed_m_s"] = GUST_SPEED_M_S
+	cfg["gust_tile_m"] = GUST_TILE_M
+	cfg["wind_strength"] = WIND_BASE_STRENGTH
+	cfg["strength_cap"] = WIND_STRENGTH_CAP
+	return cfg
+
+
+func _clock_state_from_members() -> Dictionary:
+	return {
+		"phase": _phase,
+		"gust_phase": _gust_phase,
+		"drift_phase": _drift_phase,
+		"flutter_phase": _flutter_phase,
+		"scroll_xz": _scroll_xz,
+		"direction_xz": _direction_xz,
+		"sim_time": 0.0,
+	}
+
+
+func _apply_clock_state(state: Dictionary) -> void:
+	_phase = state["phase"]
+	_gust_phase = state["gust_phase"]
+	_drift_phase = state["drift_phase"]
+	_flutter_phase = state["flutter_phase"]
+	_scroll_xz = state["scroll_xz"]
+	_direction_xz = state["direction_xz"]
 
 
 func advance(speed: SimClock.Speed, delta: float) -> void:
@@ -37,23 +76,9 @@ func advance(speed: SimClock.Speed, delta: float) -> void:
 	_gate = move_toward(_gate, gate_target, GATE_EASE_PER_SEC * delta)
 	if speed != SimClock.Speed.NORMAL:
 		return
-	_phase += delta * (TAU / FaunaConstants.WIND_CYCLE_SEC)
-	if _phase >= TAU:
-		_phase = fmod(_phase, TAU)
-	_gust_phase += delta * (TAU / WIND_GUST_PERIOD_SEC)
-	if _gust_phase >= TAU:
-		_gust_phase = fmod(_gust_phase, TAU)
-	_drift_phase += delta * (TAU / DIRECTION_DRIFT_PERIOD_SEC)
-	if _drift_phase >= TAU:
-		_drift_phase = fmod(_drift_phase, TAU)
-	_flutter_phase += delta * (TAU / FLUTTER_PERIOD_SEC)
-	if _flutter_phase >= TAU:
-		_flutter_phase = fmod(_flutter_phase, TAU)
-	var theta := DIRECTION_BASE_ANGLE + DIRECTION_MEANDER_RAD * sin(_drift_phase)
-	_direction_xz = Vector2(cos(theta), sin(theta))
-	_scroll_xz += _direction_xz * (GUST_SPEED_M_S * delta)
-	_scroll_xz.x = fposmod(_scroll_xz.x, GUST_TILE_M)
-	_scroll_xz.y = fposmod(_scroll_xz.y, GUST_TILE_M)
+	var state := _clock_state_from_members()
+	state = GrassWindClock.advance(state, _clock_cfg, delta, 1.0)
+	_apply_clock_state(state)
 
 
 func get_phase() -> float:
@@ -73,11 +98,16 @@ func get_flutter_phase() -> float:
 
 
 func get_gust_envelope() -> float:
-	return 0.5 + 0.5 * sin(_gust_phase)
+	return GrassWindClock.gust_envelope(_gust_phase)
 
 
 func get_effective_strength() -> float:
-	return minf(WIND_STRENGTH_CAP, WIND_BASE_STRENGTH * get_gust_envelope()) * _gate
+	return GrassWindClock.effective_strength(
+		WIND_BASE_STRENGTH,
+		WIND_STRENGTH_CAP,
+		get_gust_envelope(),
+		_gate,
+		true)
 
 
 func push_shader_globals() -> void:

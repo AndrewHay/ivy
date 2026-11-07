@@ -595,6 +595,31 @@ func _ready() -> void:
 			for _f in range(3):
 				await get_tree().process_frame
 			print("[ui-script]   SKYCAM pitch=", pitch, " yaw=", yaw, " eye_h=", eye_h)
+		elif line.begins_with("ORBIT_AIM_BACKDROP "):
+			# ORBIT_AIM_BACKDROP <local_x> <local_z> [standoff] [eye_h]: same as ORBIT_AIM but
+			# XZ are in VillageBackdrop space (World/VillageBackdrop.position is added).
+			var bd_parts := line.split(" ", false)
+			if bd_parts.size() < 3:
+				printerr("[ui-script] FAILED step ", step,
+					": ORBIT_AIM_BACKDROP requires <local_x> <local_z>")
+				get_tree().quit(1)
+				return
+			var world := main.get_node("World")
+			var backdrop := world.get_node_or_null("VillageBackdrop") as Node3D
+			if backdrop == null:
+				printerr("[ui-script] FAILED step ", step, ": World/VillageBackdrop missing")
+				get_tree().quit(1)
+				return
+			var local_x := float(bd_parts[1])
+			var local_z := float(bd_parts[2])
+			var aim_x := backdrop.position.x + local_x
+			var aim_z := backdrop.position.z + local_z
+			var standoff_bd := float(bd_parts[3]) if bd_parts.size() >= 4 else 2.5
+			var eye_h_bd := float(bd_parts[4]) if bd_parts.size() >= 5 else 1.3
+			var look_y_bd := float(bd_parts[5]) if bd_parts.size() >= 6 else 0.6
+			var bearing_deg := float(bd_parts[6]) if bd_parts.size() >= 7 else 0.0
+			await _ui_orbit_aim_at_world_xz(
+				world, aim_x, aim_z, standoff_bd, eye_h_bd, look_y_bd, bearing_deg)
 		elif line.begins_with("ORBIT_AIM "):
 			# ORBIT_AIM <world_x> <world_z> [standoff_m=2.5] [eye_height_m=1.3]: place the
 			# ui-script orbit camera `standoff_m` toward the hero pivot from (x,z), looking at
@@ -609,27 +634,7 @@ func _ready() -> void:
 			var standoff := float(aim_parts[3]) if aim_parts.size() >= 4 else 2.5
 			var eye_h := float(aim_parts[4]) if aim_parts.size() >= 5 else 1.3
 			var world_aim := main.get_node("World")
-			if not world_aim.has_method("get_orbit_pivot"):
-				printerr("[ui-script] FAILED step ", step, ": World has no get_orbit_pivot()")
-				get_tree().quit(1)
-				return
-			var pivot_aim: Vector3 = world_aim.get_orbit_pivot()
-			var orbit_cam_aim := world_aim.get_node_or_null("UiScriptOrbitCam") as Camera3D
-			if orbit_cam_aim == null:
-				orbit_cam_aim = Camera3D.new()
-				orbit_cam_aim.name = "UiScriptOrbitCam"
-				world_aim.add_child(orbit_cam_aim)
-			var aim_pt := Vector3(aim_x, 0.45, aim_z)
-			var to_pivot := Vector2(pivot_aim.x - aim_x, pivot_aim.z - aim_z)
-			if to_pivot.length_squared() < 1e-6:
-				to_pivot = Vector2(0.0, -1.0)
-			to_pivot = to_pivot.normalized()
-			var eye_aim := Vector3(aim_x + to_pivot.x * standoff, eye_h, aim_z + to_pivot.y * standoff)
-			orbit_cam_aim.look_at_from_position(eye_aim, aim_pt + Vector3(0.0, 0.15, 0.0))
-			orbit_cam_aim.make_current()
-			for _f in range(3):
-				await get_tree().process_frame
-			print("[ui-script]   ORBIT_AIM aim=", aim_pt, " standoff=", standoff, " eye=", eye_aim)
+			await _ui_orbit_aim_at_world_xz(world_aim, aim_x, aim_z, standoff, eye_h, 0.6, 0.0)
 		elif line.begins_with("FAUNA_COUNT"):
 			var fc := main.get_node_or_null("World/FaunaController")
 			var n := 0
@@ -712,6 +717,45 @@ func _ready() -> void:
 			return
 
 	get_tree().quit(0)
+
+
+func _ui_orbit_aim_at_world_xz(
+		world: Node,
+		aim_x: float,
+		aim_z: float,
+		standoff: float,
+		eye_h: float,
+		look_y: float = 0.6,
+		bearing_offset_deg: float = 0.0) -> void:
+	if not world.has_method("get_orbit_pivot"):
+		printerr("[ui-script] World has no get_orbit_pivot()")
+		get_tree().quit(1)
+		return
+	var pivot_aim: Vector3 = world.get_orbit_pivot()
+	var orbit_cam_aim := world.get_node_or_null("UiScriptOrbitCam") as Camera3D
+	if orbit_cam_aim == null:
+		orbit_cam_aim = Camera3D.new()
+		orbit_cam_aim.name = "UiScriptOrbitCam"
+		world.add_child(orbit_cam_aim)
+	var aim_pt := Vector3(aim_x, look_y, aim_z)
+	var to_pivot := Vector2(pivot_aim.x - aim_x, pivot_aim.z - aim_z)
+	if to_pivot.length_squared() < 1e-6:
+		to_pivot = Vector2(0.0, -1.0)
+	if absf(bearing_offset_deg) > 1e-4:
+		var br := deg_to_rad(bearing_offset_deg)
+		var c := cos(br)
+		var s := sin(br)
+		to_pivot = Vector2(to_pivot.x * c - to_pivot.y * s, to_pivot.x * s + to_pivot.y * c)
+	to_pivot = to_pivot.normalized()
+	var dist := absf(standoff)
+	var side := -1.0 if standoff < 0.0 else 1.0
+	var eye_aim := Vector3(
+		aim_x + to_pivot.x * dist * side, eye_h, aim_z + to_pivot.y * dist * side)
+	orbit_cam_aim.look_at_from_position(eye_aim, aim_pt)
+	orbit_cam_aim.make_current()
+	for _f in range(3):
+		await get_tree().process_frame
+	print("[ui-script]   ORBIT_AIM aim=", aim_pt, " standoff=", standoff, " eye=", eye_aim)
 
 
 func _parse_args() -> Dictionary:

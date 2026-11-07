@@ -18,6 +18,7 @@ const BuildingCatalog = preload("res://src/world/building_catalog.gd")
 @onready var _wall: Wall = $Wall
 @onready var sky_sun: SkySun = $SkySun
 @onready var _camera_rig: Node3D = $CameraRig
+## Empty placeholder in main.tscn until rebuild_backdrop() on mesh-building load.
 @onready var _village_backdrop: Node3D = $VillageBackdrop
 @onready var _fauna_controller: FaunaController = $FaunaController
 @onready var _debug_camera: Camera3D = $DebugCamera

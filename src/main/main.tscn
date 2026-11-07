@@ -1,4 +1,4 @@
-[gd_scene load_steps=23 format=3 uid="uid://8lhbed2h12ph"]
+[gd_scene load_steps=22 format=3 uid="uid://8lhbed2h12ph"]
 
 [ext_resource type="Script" uid="uid://bjvp2g014gqul" path="res://src/main/main.gd" id="1"]
 [ext_resource type="Script" uid="uid://dhq7o4g8cnv6l" path="res://src/world/world.gd" id="2"]
@@ -11,7 +11,6 @@
 [ext_resource type="Script" uid="uid://bke588qp0n7dd" path="res://src/world/debug_camera.gd" id="9"]
 [ext_resource type="Script" uid="uid://dp4wktxr3yh1b" path="res://src/world/camera_rig.gd" id="10"]
 [ext_resource type="Script" path="res://src/world/wall.gd" id="11"]
-[ext_resource type="PackedScene" path="res://src/world/village_backdrop.tscn" id="12_backdrop"]
 [ext_resource type="Shader" uid="uid://cckuextcauor4" path="res://src/render/sky/atmospheric_sky.gdshader" id="13_sky_shader"]
 [ext_resource type="Script" uid="uid://bkd1h2todhvlt" path="res://src/presentation/fauna/ambient_wind.gd" id="14_wind"]
 [ext_resource type="Script" uid="uid://tagmeobedofg" path="res://src/presentation/fauna/fauna_controller.gd" id="15_fauna"]
@@ -54,7 +53,7 @@ sky = SubResource("Sky_main")
 ambient_light_source = 2
 ambient_light_color = Color(0.55, 0.65, 0.72, 1)
 ambient_light_energy = 0.8
-fog_enabled = true
+fog_enabled = false
 fog_mode = 1
 fog_light_color = Color(0.78, 0.84, 0.91, 1)
 fog_density = 0.8
@@ -122,7 +121,7 @@ script = ExtResource("14_wind")
 [node name="FaunaController" type="Node3D" parent="World"]
 script = ExtResource("15_fauna")
 
-[node name="VillageBackdrop" parent="World" instance=ExtResource("12_backdrop")]
+[node name="VillageBackdrop" type="Node3D" parent="World"]
 visible = false
 
 [node name="DebugCamera" type="Camera3D" parent="World"]

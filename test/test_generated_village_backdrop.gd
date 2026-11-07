@@ -76,8 +76,8 @@ func test_far_treeline_instance_count() -> void:
 	assert_not_null(treeline.multimesh, "FarTreeline must have a multimesh")
 	if treeline.multimesh == null:
 		return
-	assert_eq(treeline.multimesh.instance_count, 33,
-		"Generated FarTreeline must have 33 instances (pine_count)")
+	assert_eq(treeline.multimesh.instance_count, VillageLayout.GENERATED_PINE_COUNT,
+		"Generated FarTreeline must match GENERATED_PINE_COUNT")
 
 
 # ── (d) LawnGround radius ≈ 30 m ─────────────────────────────────────────────
@@ -90,11 +90,12 @@ func test_lawn_ground_radius() -> void:
 		return
 	var arrays := lawn.mesh.surface_get_arrays(0)
 	var verts := arrays[Mesh.ARRAY_VERTEX] as PackedVector3Array
+	var g := VillageLayout.VILLAGE_GREEN_G
 	var max_r := 0.0
 	for v: Vector3 in verts:
-		max_r = maxf(max_r, Vector2(v.x, v.z).length())
-	assert_almost_eq(max_r, 36.0, 0.01,
-		"Generated LawnGround vertex radius must be ≈ 36.0 m (lawn_radius)")
+		max_r = maxf(max_r, Vector2(v.x, v.z).distance_to(g))
+	assert_almost_eq(max_r, VillageLayout.GENERATED_LAWN_RADIUS, 0.01,
+		"Generated LawnGround vertex radius must match GENERATED_LAWN_RADIUS about G")
 
 
 # ── (e) HillRing inner radius ≈ 30 m ─────────────────────────────────────────
@@ -107,14 +108,15 @@ func test_hill_ring_inner_radius() -> void:
 		return
 	var arrays := hill.mesh.surface_get_arrays(0)
 	var verts := arrays[Mesh.ARRAY_VERTEX] as PackedVector3Array
+	var g := VillageLayout.VILLAGE_GREEN_G
 	var inner_r := INF
 	for v: Vector3 in verts:
 		if absf(v.y) < 0.1:
-			inner_r = minf(inner_r, Vector2(v.x, v.z).length())
+			inner_r = minf(inner_r, Vector2(v.x, v.z).distance_to(g))
 	if inner_r == INF:
 		inner_r = 0.0
-	assert_almost_eq(inner_r, 36.0, 0.5,
-		"Generated HillRing inner radius must be ≈ 36.0 m (hill_inner)")
+	assert_almost_eq(inner_r, VillageLayout.GENERATED_HILL_INNER, 0.5,
+		"Generated HillRing inner radius must match GENERATED_HILL_INNER")
 
 
 # ── (f) Cottage multimeshes (7 cottage types produce Cottage_* nodes) ─────────
@@ -178,80 +180,20 @@ func test_different_seeds_different_cottage_buffers() -> void:
 		"Different seeds must produce different cottage MultiMesh buffers (variability)")
 
 
-# ── (j) INV-16: 3 inner / 4 outer ────────────────────────────────────────────
+# ── (j) Generated layout fields (3l6-A) ───────────────────────────────────────
 
-func test_inv16_ring_membership() -> void:
+func test_generated_hamlet_fields() -> void:
 	var bd := _make_generated(DEFAULT_TEST_SEED)
 	var layout := bd.get_layout()
 	assert_not_null(layout, "get_layout() must return a non-null VillageLayout")
 	if layout == null:
 		return
-	assert_eq(layout.cottages.size(), 7,
-		"Layout must have exactly 7 cottages")
-	assert_eq(layout.cottage_rings.size(), 7,
-		"cottage_rings must be parallel to cottages (size 7)")
-	var inner_count := 0
-	var outer_count := 0
-	for i in range(layout.cottage_rings.size()):
-		if layout.cottage_rings[i] == 0:
-			inner_count += 1
-		else:
-			outer_count += 1
-	assert_eq(inner_count, 3,
-		"INV-16: exactly 3 inner cottages (cottage_rings==0)")
-	assert_eq(outer_count, 4,
-		"INV-16: exactly 4 outer cottages (cottage_rings==1)")
-	# 4-bay cottages (CA=bays4, CD=bays4) must be outer.
-	for i in range(layout.cottages.size()):
-		var spec := layout.cottages[i] as Dictionary
-		if int(spec.get("bays", 0)) == 4:
-			assert_eq(layout.cottage_rings[i], 1,
-				"INV-16: 4-bay cottage '%s' must be outer (ring 1)" \
-				% String(spec.get("name", "?")))
-	# Inner cottages must all be 3-bay.
-	for i in range(layout.cottages.size()):
-		if layout.cottage_rings[i] == 0:
-			var spec := layout.cottages[i] as Dictionary
-			assert_eq(int(spec.get("bays", 0)), 3,
-				"INV-16: inner cottage '%s' must be 3-bay" \
-				% String(spec.get("name", "?")))
-
-
-# ── (k) INV-17: angular spread within each ring ───────────────────────────────
-
-func test_inv17_angular_spread() -> void:
-	var bd := _make_generated(DEFAULT_TEST_SEED)
-	var layout := bd.get_layout()
-	if layout == null:
-		return
-	# Collect centres per ring.
-	var inner_centres: Array[Vector2] = []
-	var outer_centres: Array[Vector2] = []
-	for i in range(layout.cottages.size()):
-		var spec := layout.cottages[i] as Dictionary
-		var c := spec.get("centre", Vector2.ZERO) as Vector2
-		if layout.cottage_rings[i] == 0:
-			inner_centres.append(c)
-		else:
-			outer_centres.append(c)
-	# Check inner pairwise angular separation >= 65°.
-	for i in range(inner_centres.size()):
-		for j in range(i + 1, inner_centres.size()):
-			var a1 := inner_centres[i].angle()
-			var a2 := inner_centres[j].angle()
-			var diff := absf(angle_difference(a1, a2))
-			assert_gte(rad_to_deg(diff), 65.0,
-				"INV-17: inner cottages[%d/%d] angular gap %.1f° must be >= 65°" \
-				% [i, j, rad_to_deg(diff)])
-	# Check outer pairwise angular separation >= 50°.
-	for i in range(outer_centres.size()):
-		for j in range(i + 1, outer_centres.size()):
-			var a1 := outer_centres[i].angle()
-			var a2 := outer_centres[j].angle()
-			var diff := absf(angle_difference(a1, a2))
-			assert_gte(rad_to_deg(diff), 50.0,
-				"INV-17: outer cottages[%d/%d] angular gap %.1f° must be >= 50°" \
-				% [i, j, rad_to_deg(diff)])
+	assert_true(layout.is_generated, "generated backdrop layout must set is_generated")
+	assert_eq(layout.cottage_rings.size(), 0, "generated v2 cottage_rings must be []")
+	assert_almost_eq(
+		layout.hamlet_centre_xz.x, VillageLayout.VILLAGE_GREEN_G.x, 1e-4, "hamlet centre x")
+	assert_almost_eq(
+		layout.hamlet_centre_xz.y, VillageLayout.VILLAGE_GREEN_G.y, 1e-4, "hamlet centre y")
 
 
 # ── (l) INV-20: world-scale fields match generated preset ────────────────────
@@ -262,12 +204,12 @@ func test_inv20_world_scale_fields() -> void:
 	assert_not_null(layout, "get_layout() must return a VillageLayout")
 	if layout == null:
 		return
-	assert_almost_eq(layout.lawn_radius, 36.0, 1e-6, "lawn_radius must be 36.0 (INV-20)")
-	assert_almost_eq(layout.hill_inner, 36.0, 1e-6, "hill_inner must be 36.0 (INV-20)")
-	assert_almost_eq(layout.pine_inner, 34.2, 1e-6, "pine_inner must be 34.2 (INV-20)")
-	assert_almost_eq(layout.pine_outer, 50.4, 1e-6, "pine_outer must be 50.4 (INV-20)")
-	assert_eq(layout.pine_count, 33, "pine_count must be 33 (INV-20)")
-	assert_almost_eq(layout.fog_begin, 16.8, 1e-6, "fog_begin must be 16.8 (INV-20)")
+	assert_almost_eq(layout.lawn_radius, VillageLayout.GENERATED_LAWN_RADIUS, 1e-6, "lawn_radius INV-20")
+	assert_almost_eq(layout.hill_inner, VillageLayout.GENERATED_HILL_INNER, 1e-6, "hill_inner INV-20")
+	assert_almost_eq(layout.pine_inner, VillageLayout.GENERATED_PINE_INNER, 1e-6, "pine_inner INV-20")
+	assert_almost_eq(layout.pine_outer, VillageLayout.GENERATED_PINE_OUTER, 1e-6, "pine_outer INV-20")
+	assert_eq(layout.pine_count, VillageLayout.GENERATED_PINE_COUNT, "pine_count INV-20")
+	assert_almost_eq(layout.fog_begin, VillageLayout.GENERATED_FOG_BEGIN, 1e-6, "fog_begin INV-20")
 	assert_almost_eq(layout.fog_end, 95.0, 1e-6, "fog_end must be 95.0 (INV-20)")
 
 
@@ -312,26 +254,46 @@ func test_inv9_no_stone_inside_hero_keepout() -> void:
 
 
 func test_inv9_hero_edges_end_near_ring() -> void:
-	## Hero-incident polylines must end at |p| ∈ [6.4, 6.6] (clipped to 6.5 m ring).
+	## Classic authored: hero edges clip to the 6.5 m ring (unchanged).
+	var classic := VillageLayout.authored()
+	if classic.edges.is_empty() or classic.paths.is_empty():
+		pending("Classic paths empty")
+		return
+	var checked := 0
+	for i: int in range(classic.edges.size()):
+		var e: Vector2i = classic.edges[i]
+		if e.x != VillageLayout.CLASSIC_HERO_NODE and e.y != VillageLayout.CLASSIC_HERO_NODE:
+			continue
+		checked += 1
+		var poly := classic.paths[i] as Array
+		var last := poly[-1] as Vector2
+		var r := last.length()
+		assert_gte(r, 6.4, "INV-9 classic: hero edge |p|=%.3f m must be ≥ 6.4 m" % r)
+		assert_lte(r, 6.6, "INV-9 classic: hero edge |p|=%.3f m must be ≤ 6.6 m" % r)
+	assert_gt(checked, 0, "INV-9 classic: must have hero edge")
+
+
+func test_inv9_generated_hero_path_starts_at_stoop() -> void:
+	## Generated (rev2): no 6.5 m ring clip; hero spur starts near hero door stoop.
 	var bd := _make_generated(DEFAULT_TEST_SEED)
 	var layout := bd.get_layout()
-	if layout == null or layout.edges.is_empty():
-		pending("No edges — skip INV-9 ring test")
+	if layout == null or layout.fallback or layout.paths.is_empty():
+		pending("No generated paths — skip INV-9′")
 		return
+	var hero_i := VillageLayout.generated_hero_node()
 	var checked := 0
 	for i: int in range(layout.edges.size()):
 		var e: Vector2i = layout.edges[i]
-		if e.x != VillageLayout.HERO_NODE and e.y != VillageLayout.HERO_NODE:
+		if e.x != hero_i and e.y != hero_i:
 			continue
 		checked += 1
 		var poly := layout.paths[i] as Array
-		var last := poly[-1] as Vector2
-		var r := last.length()
-		assert_gte(r, 6.4,
-			"INV-9: hero edge path[-1] |p|=%.3f m must be ≥ 6.4 m" % r)
-		assert_lte(r, 6.6,
-			"INV-9: hero edge path[-1] |p|=%.3f m must be ≤ 6.6 m" % r)
-	assert_gt(checked, 0, "INV-9: must have at least one hero edge")
+		assert_gte(poly.size(), 2, "INV-9′: hero path must have ≥2 samples")
+		var first := poly[0] as Vector2
+		var stoop: Vector2 = VillageLayout.HERO_DOOR_STOOP
+		assert_lte(first.distance_to(stoop), 1.0,
+			"INV-9′: hero path[0] must be within 1 m of stoop (got %.3f m)" % first.distance_to(stoop))
+	assert_gt(checked, 0, "INV-9′: must have hero edge in generated graph")
 
 
 # ── (p) INV-10: stone count ∈ [70, 360] ──────────────────────────────────────

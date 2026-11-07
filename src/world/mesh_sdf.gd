@@ -5,7 +5,7 @@ extends RefCounted
 ## Pitch, band, and pad live in the asset header — not IvyParams (SD-MESH-16).
 
 const MAGIC := "IVYSDF1"
-const BAKER_VERSION := 3
+const BAKER_VERSION := 4
 
 var h: float = 0.05
 var band: float = 0.55
@@ -152,7 +152,9 @@ func _sample_cell(ix: int, iy: int, iz: int) -> float:
 func _read_trilinear(p: Vector3) -> float:
 	if _data.is_empty():
 		return band
-	var q := (p - origin) / h
+	# Baker stores Φ at cell centres (origin + (i + 0.5)·h); shift before floor so
+	# trilinear weights align with centre samples, not corner samples (ivy-b1e.3).
+	var q := (p - origin) / h - Vector3(0.5, 0.5, 0.5)
 	var bx := int(floor(q.x))
 	var by := int(floor(q.y))
 	var bz := int(floor(q.z))
@@ -204,7 +206,7 @@ static func _tri_weight(f: float, corner: int) -> float:
 func _read_trilinear_interp(p: Vector3) -> float:
 	if _data.is_empty():
 		return band
-	var q := (p - origin) / h
+	var q := (p - origin) / h - Vector3(0.5, 0.5, 0.5)
 	var bx := int(floor(q.x))
 	var by := int(floor(q.y))
 	var bz := int(floor(q.z))

@@ -87,6 +87,8 @@ func get_layout() -> VillageLayout:
 
 func _ready() -> void:
 	_layout = _make_layout()
+	var pond_center := VillagePondPlacement.resolve_center(_layout)
+	VillagePondShape.set_active(VillagePondShape.at(pond_center))
 	_apply_subtree(self)
 	_build_cottages()
 	var path_stones := VillageScatterPositions.path_stone_transforms(
@@ -94,6 +96,7 @@ func _ready() -> void:
 		_layout.stone_seed, _layout.min_stone_spacing)
 	_create_paths_from_transforms(path_stones)
 	_add_village_lawn_ground()
+	_add_village_pond()
 	_setup_multimesh_scatter(path_stones)
 	_add_hill_ring()
 
@@ -180,6 +183,11 @@ func _build_cottages() -> void:
 		var chimney_x := -bays + 1.0 + 2.0 * int(spec["chimney_bay"])
 		_place(placements, _P_CHIMNEY,
 			house * Transform3D(Basis.IDENTITY, Vector3(chimney_x, WALL_TOP + 0.3, -1.1)))
+		if spec.has("yard_prop"):
+			var half_depth := COTTAGE_DEPTH * 0.5
+			var yard_x := -bays + 1.0 + 2.0 * float(int(spec["chimney_bay"]) % bays)
+			_place(placements, String(spec["yard_prop"]),
+				house * Transform3D(Basis.IDENTITY, Vector3(yard_x, 0.0, half_depth + 0.85)))
 	for piece in placements:
 		_create_piece_multimesh(piece, "Cottage_" + piece, placements[piece],
 			GeometryInstance3D.SHADOW_CASTING_SETTING_ON)
@@ -246,15 +254,19 @@ func _apply_subtree(node: Node) -> void:
 # ── MultiMesh scatter setup ───────────────────────────────────────────────────
 
 ## Procedural scatter: grass, flower clusters (FLORA_DESIGN), path-side petals,
-## plants, far treeline, and bushes. Clover deferred (pond ring).
+## plants, pond clover, far treeline, and bushes.
 func _setup_multimesh_scatter(path_stones: Array[Transform3D]) -> void:
+	var filler_g := _layout.hamlet_centre_xz if _layout.is_generated else Vector2.ZERO
 	var bush_transforms := VillageScatterPositions.bush_common_positions(
-		_layout.cottages, _layout.bush_filler_inner, _layout.bush_filler_outer)
+		_layout.cottages, _layout.bush_filler_inner, _layout.bush_filler_outer, filler_g)
+	var grass_g := _layout.hamlet_centre_xz if _layout.is_generated else Vector2.ZERO
+	var grass_hero := VillageLayout.HERO_DOOR_STOOP if _layout.is_generated else Vector2.ZERO
 	var grass_ctx := VillageGrassExclusionContext.for_layout(
 		_layout.paths,
 		func(p: Vector2) -> bool:
 			return _layout.inside_any_cottage(p, VillageScatterPositions.COTTAGE_MARGIN),
-		path_stones, bush_transforms)
+		path_stones, bush_transforms, grass_g, grass_hero, _layout.is_generated,
+		_layout.cottages)
 	_setup_hybrid_grass(grass_ctx)
 	_scatter_piece_layers(
 		VillageScatterPositions.flower_cluster_layers(),
@@ -267,6 +279,10 @@ func _setup_multimesh_scatter(path_stones: Array[Transform3D]) -> void:
 	_scatter_piece_layers(
 		VillageScatterPositions.plant_layers(),
 		"Scatter_Plant",
+		GeometryInstance3D.SHADOW_CASTING_SETTING_OFF)
+	_scatter_piece_layers(
+		VillageScatterPositions.clover_layers(),
+		"Scatter_Clover",
 		GeometryInstance3D.SHADOW_CASTING_SETTING_OFF)
 	_create_scatter(
 		"res://assets/backdrop/pieces/Pine_2.gltf",
@@ -331,8 +347,30 @@ func _add_grass_blade_chunks(all: Array[Transform3D]) -> void:
 	for key in buckets.keys():
 		var transforms: Array[Transform3D] = buckets[key] as Array[Transform3D]
 		var node_name := "Scatter_Grass_Blades_%d_%d" % [key.x, key.y]
+		var chunk_aabb := _grass_chunk_custom_aabb(transforms, mesh.get_aabb())
 		_add_multimesh(mesh, node_name, transforms,
-			GeometryInstance3D.SHADOW_CASTING_SETTING_OFF, mat, mesh.get_aabb().grow(0.3))
+			GeometryInstance3D.SHADOW_CASTING_SETTING_OFF, mat, chunk_aabb)
+
+
+## Frustum culling uses MultiMesh.custom_aabb for the whole chunk. A single-tuft AABB at the
+## origin culled entire 6 m tiles when the camera zoomed near grass away from (0, 0, 0).
+static func _grass_chunk_custom_aabb(
+		transforms: Array[Transform3D], tuft_aabb: AABB) -> AABB:
+	if transforms.is_empty():
+		return AABB()
+	var half := tuft_aabb.size * 0.5
+	var merged := AABB()
+	var first := true
+	for t in transforms:
+		var scale := t.basis.get_scale()
+		var ext := Vector3(half.x * scale.x, half.y * scale.y, half.z * scale.z)
+		var box := AABB(t.origin + tuft_aabb.position - ext, ext * 2.0)
+		if first:
+			merged = box
+			first = false
+		else:
+			merged = merged.merge(box)
+	return merged.grow(0.15)
 
 
 func _create_scatter(
@@ -523,11 +561,24 @@ func export_fauna_anchors() -> FaunaEnvironment:
 		a.local_transform = t
 		a.hero_weight = FaunaGating.hero_weight_at_xz(Vector2(t.origin.x, t.origin.z))
 		env.anchors.append(a)
+	for t in VillageScatterPositions.fauna_clover_anchor_transforms():
+		var clover := FaunaAnchor.new()
+		clover.kind = FaunaConstants.AnchorKind.CLOVER
+		clover.local_transform = t
+		clover.hero_weight = FaunaGating.hero_weight_at_xz(Vector2(t.origin.x, t.origin.z))
+		env.anchors.append(clover)
 	return env
 
 
 func _reject_path_stone_xz(cx: float, cz: float) -> bool:
-	return Vector2(cx, cz).length() < 4.5 or _layout.inside_any_cottage(Vector2(cx, cz), 0.2)
+	var p := Vector2(cx, cz)
+	if _layout.is_generated:
+		if p.distance_to(VillageLayout.HERO_DOOR_STOOP) < 4.5:
+			return true
+	else:
+		if p.length() < 4.5:
+			return true
+	return _layout.inside_any_cottage(p, 0.2)
 
 
 ## True if p lies inside any cottage's wall exterior grown by `margin` metres.
@@ -543,18 +594,7 @@ static func inside_any_cottage(p: Vector2, margin: float) -> bool:
 ## for both modes so classic is bit-for-bit unchanged (same n, same lerpf bounds).
 ## Pine_2: 7.14 m at scale=1.0 → scale 1.0-1.5 → ~7.1-10.7 m height.
 func _pine_positions() -> Array[Transform3D]:
-	var out: Array[Transform3D] = []
-	var n := _layout.pine_count  # classic 22; generated 33
-	var st := 7
-	for i in range(n):
-		st = _lcg_step(st); var angle_jitter: float = (_lcg_f01(st) - 0.5) * 0.5
-		var angle: float = (float(i) / n) * TAU + angle_jitter
-		st = _lcg_step(st); var r: float = lerpf(_layout.pine_inner, _layout.pine_outer, _lcg_f01(st))
-		st = _lcg_step(st); var s: float = lerpf(1.0, 1.5, _lcg_f01(st))
-		st = _lcg_step(st); var rot: float = _lcg_f01(st) * TAU
-		var basis := Basis.from_euler(Vector3(0.0, rot, 0.0)).scaled(Vector3(s, s, s))
-		out.append(Transform3D(basis, Vector3(cos(angle) * r, 0.0, sin(angle) * r)))
-	return out
+	return VillageScatterPositions.forest_tree_positions(_layout)
 
 
 # ── Village paths ─────────────────────────────────────────────────────────────
@@ -592,18 +632,7 @@ func _create_paths_from_transforms(all_xf: Array[Transform3D]) -> void:
 ## One XZ polyline per cottage: straight out of the door for 2 m, then a gentle
 ## curve toward the hero that ends 6.5 m from the pivot.
 static func path_polylines() -> Array:
-	var out: Array = []
-	var bend := 1.0
-	for spec in COTTAGES:
-		var door := cottage_door(spec)
-		var stoop: Vector2 = door[0] + door[1] * 0.5
-		var turn: Vector2 = door[0] + door[1] * 2.0
-		var finish: Vector2 = turn.normalized() * 6.5
-		var dir := (finish - turn).normalized()
-		var mid: Vector2 = (turn + finish) * 0.5 + Vector2(-dir.y, dir.x) * 0.7 * bend
-		bend = -bend
-		out.append([stoop, turn, mid, finish])
-	return out
+	return VillageLayout.build_radial_hero_paths(COTTAGES, VillagePondSite.CLASSIC_CENTER)
 
 
 # ── Village lawn ground (far-tier grass read) ─────────────────────────────────
@@ -622,20 +651,98 @@ func _add_village_lawn_ground() -> void:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var r := _layout.lawn_radius  # classic default 20.0; generated 30.0 (SD-VILLAGE-GEN-6)
+	var lawn_c := Vector2.ZERO
+	if _layout.is_generated:
+		lawn_c = _layout.hamlet_centre_xz
 	var segs := 72
 	var y := LAWN_GROUND_Y_OFFSET
 	for i in range(segs):
 		var a0 := (float(i) / segs) * TAU
 		var a1 := (float(i + 1) / segs) * TAU
-		st.add_vertex(Vector3(0.0, y, 0.0))
-		st.add_vertex(Vector3(cos(a0) * r, y, sin(a0) * r))
-		st.add_vertex(Vector3(cos(a1) * r, y, sin(a1) * r))
+		st.add_vertex(Vector3(lawn_c.x, y, lawn_c.y))
+		st.add_vertex(Vector3(lawn_c.x + cos(a0) * r, y, lawn_c.y + sin(a0) * r))
+		st.add_vertex(Vector3(lawn_c.x + cos(a1) * r, y, lawn_c.y + sin(a1) * r))
 	st.generate_normals()
 	var mesh := st.commit()
 	var mat := _lawn_ground_material()
 	mesh.surface_set_material(0, mat)
 	var mi := MeshInstance3D.new()
 	mi.name = "LawnGround"
+	mi.mesh = mesh
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(mi)
+
+
+# ── Village pond (water + bank ring) ──────────────────────────────────────────
+
+## Slightly above `World/Ground` (y=0) so the disk is visible; lawn disk stays sunk.
+const POND_WATER_Y_OFFSET := 0.012
+const POND_BANK_Y_OFFSET := 0.008
+
+func _pond_water_material() -> ShaderMaterial:
+	var mat := ShaderMaterial.new()
+	mat.shader = load("res://src/render/shaders/village_pond_water.gdshader") as Shader
+	var c := VillageScatterPositions.pond_center_xz()
+	mat.set_shader_parameter("pond_center_xz", c)
+	mat.set_shader_parameter("pond_radius_m", VillageScatterPositions.POND_WATER_RADIUS_M)
+	return mat
+
+
+func _pond_bank_material() -> ShaderMaterial:
+	var mat := ShaderMaterial.new()
+	mat.shader = load("res://src/render/shaders/village_pond_bank.gdshader") as Shader
+	return mat
+
+
+func _add_village_pond() -> void:
+	var water := VillagePondShape.water_render_outline_xz()
+	var bank := VillagePondShape.bank_outer_outline_xz()
+	_add_pond_water_surface("PondWater", POND_WATER_Y_OFFSET, _pond_water_material())
+	_add_pond_polygon_ring("PondBank", water, bank, POND_BANK_Y_OFFSET, _pond_bank_material())
+
+
+func _add_pond_water_surface(node_name: String, y: float, mat: Material) -> void:
+	var mesh := VillagePondShape.build_water_surface_mesh(y)
+	if mesh.get_surface_count() == 0:
+		return
+	mesh.surface_set_material(0, mat)
+	var mi := MeshInstance3D.new()
+	mi.name = node_name
+	mi.mesh = mesh
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(mi)
+
+
+func _add_pond_polygon_ring(
+		node_name: String,
+		inner_xz: PackedVector2Array,
+		outer_xz: PackedVector2Array,
+		y: float,
+		mat: Material) -> void:
+	if inner_xz.size() < 3 or inner_xz.size() != outer_xz.size():
+		return
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for i in range(inner_xz.size()):
+		var i0 := inner_xz[i]
+		var i1 := inner_xz[(i + 1) % inner_xz.size()]
+		var o0 := outer_xz[i]
+		var o1 := outer_xz[(i + 1) % outer_xz.size()]
+		var v0 := Vector3(i0.x, y, i0.y)
+		var v1 := Vector3(i1.x, y, i1.y)
+		var v2 := Vector3(o0.x, y, o0.y)
+		var v3 := Vector3(o1.x, y, o1.y)
+		st.add_vertex(v0)
+		st.add_vertex(v2)
+		st.add_vertex(v1)
+		st.add_vertex(v1)
+		st.add_vertex(v2)
+		st.add_vertex(v3)
+	st.generate_normals()
+	var mesh := st.commit()
+	mesh.surface_set_material(0, mat)
+	var mi := MeshInstance3D.new()
+	mi.name = node_name
 	mi.mesh = mesh
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(mi)
@@ -650,7 +757,8 @@ func _add_hill_ring() -> void:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var segs := 64
-	_add_hill_annulus(st, segs, _layout.hill_inner, 140.0, 0.0, 7.5)  # classic 20.0; generated 30.0
+	var c := _layout.hamlet_centre_xz if _layout.is_generated else Vector2.ZERO
+	_add_hill_annulus(st, segs, _layout.hill_inner, 140.0, 0.0, 7.5, c)  # classic 20.0; generated on G
 	st.generate_normals()
 	var mesh := st.commit()
 	var mat := _lawn_ground_material()
@@ -663,15 +771,16 @@ func _add_hill_ring() -> void:
 
 
 func _add_hill_annulus(
-	st: SurfaceTool, segs: int, inner_r: float, outer_r: float, inner_y: float, outer_y: float
+	st: SurfaceTool, segs: int, inner_r: float, outer_r: float, inner_y: float, outer_y: float,
+	centre_xz: Vector2 = Vector2.ZERO
 ) -> void:
 	for i in range(segs):
 		var a0 := (float(i) / segs) * TAU
 		var a1 := (float(i + 1) / segs) * TAU
-		var v0 := Vector3(cos(a0) * inner_r, inner_y, sin(a0) * inner_r)
-		var v1 := Vector3(cos(a1) * inner_r, inner_y, sin(a1) * inner_r)
-		var v2 := Vector3(cos(a0) * outer_r, outer_y, sin(a0) * outer_r)
-		var v3 := Vector3(cos(a1) * outer_r, outer_y, sin(a1) * outer_r)
+		var v0 := Vector3(centre_xz.x + cos(a0) * inner_r, inner_y, centre_xz.y + sin(a0) * inner_r)
+		var v1 := Vector3(centre_xz.x + cos(a1) * inner_r, inner_y, centre_xz.y + sin(a1) * inner_r)
+		var v2 := Vector3(centre_xz.x + cos(a0) * outer_r, outer_y, centre_xz.y + sin(a0) * outer_r)
+		var v3 := Vector3(centre_xz.x + cos(a1) * outer_r, outer_y, centre_xz.y + sin(a1) * outer_r)
 		st.add_vertex(v0)
 		st.add_vertex(v2)
 		st.add_vertex(v1)

@@ -32,18 +32,26 @@ func _mesh_verts(mesh: Mesh) -> PackedVector3Array:
 
 ## Maximum XZ distance across all vertices in the array.
 func _max_xz_radius(verts: PackedVector3Array) -> float:
+	return _max_xz_radius_about(Vector2.ZERO, verts)
+
+
+func _max_xz_radius_about(centre: Vector2, verts: PackedVector3Array) -> float:
 	var mx := 0.0
 	for v in verts:
-		mx = maxf(mx, Vector2(v.x, v.z).length())
+		mx = maxf(mx, Vector2(v.x, v.z).distance_to(centre))
 	return mx
 
 
 ## Minimum XZ distance among vertices whose y is within `tol` of `target_y`.
 func _min_xz_at_y(verts: PackedVector3Array, target_y: float, tol: float) -> float:
+	return _min_xz_at_y_about(Vector2.ZERO, verts, target_y, tol)
+
+
+func _min_xz_at_y_about(centre: Vector2, verts: PackedVector3Array, target_y: float, tol: float) -> float:
 	var mn := INF
 	for v in verts:
 		if absf(v.y - target_y) < tol:
-			mn = minf(mn, Vector2(v.x, v.z).length())
+			mn = minf(mn, Vector2(v.x, v.z).distance_to(centre))
 	return mn
 
 
@@ -56,31 +64,13 @@ func _max_xz_at_y(verts: PackedVector3Array, target_y: float, tol: float) -> flo
 	return mx
 
 
-## Replicate _pine_positions LCG logic from VillageBackdrop using layout fields.
-## Returns XZ positions only (no scale/rot). Used for INV-20 without scene instantiation.
+## Forest / classic ring XZ positions (shared with VillageBackdrop._pine_positions).
 func _compute_pine_xz(layout: VillageLayout) -> Array[Vector2]:
-	var out: Array[Vector2] = []
-	var n := layout.pine_count
-	var st := 7
-	for i in range(n):
-		# Draw 1: angle jitter
-		st = VillageScatterPositions.lcg_step(st)
-		var angle_jitter: float = (VillageScatterPositions.lcg_f01(st) - 0.5) * 0.5
-		var angle: float = (float(i) / n) * TAU + angle_jitter
-		# Draw 2: radius
-		st = VillageScatterPositions.lcg_step(st)
-		var r: float = lerpf(layout.pine_inner, layout.pine_outer,
-			VillageScatterPositions.lcg_f01(st))
-		# Draw 3: scale (consumed but not needed for XZ)
-		st = VillageScatterPositions.lcg_step(st)
-		# Draw 4: rotation (consumed but not needed for XZ)
-		st = VillageScatterPositions.lcg_step(st)
-		out.append(Vector2(cos(angle) * r, sin(angle) * r))
-	return out
+	return VillageScatterPositions.forest_tree_xz(layout)
 
 
-## Farthest corner distance from origin for a cottage spec.
-func _farthest_corner_dist(spec: Dictionary) -> float:
+## Farthest cottage corner distance from hamlet centre G.
+func _farthest_corner_dist_from_g(spec: Dictionary, g: Vector2) -> float:
 	var rect := VillageBackdrop.cottage_exterior_rect(spec)
 	var corners: Array[Vector2] = [
 		rect.position,
@@ -90,7 +80,7 @@ func _farthest_corner_dist(spec: Dictionary) -> float:
 	]
 	var mx := 0.0
 	for c: Vector2 in corners:
-		mx = maxf(mx, c.length())
+		mx = maxf(mx, c.distance_to(g))
 	return mx
 
 
@@ -189,23 +179,23 @@ func test_generated_world_fields_seeds_1_to_5() -> void:
 		if layout.fallback:
 			pending("generate(%d) fell back to authored — skipping world-scale check" % seed)
 			continue
-		assert_almost_eq(layout.lawn_radius, 36.0, 1e-6,
+		assert_almost_eq(layout.lawn_radius, VillageLayout.GENERATED_LAWN_RADIUS, 1e-6,
 			"lawn_radius generated %s" % tag)
-		assert_almost_eq(layout.hill_inner, 36.0, 1e-6,
+		assert_almost_eq(layout.hill_inner, VillageLayout.GENERATED_HILL_INNER, 1e-6,
 			"hill_inner generated %s" % tag)
-		assert_almost_eq(layout.pine_inner, 34.2, 1e-6,
+		assert_almost_eq(layout.pine_inner, VillageLayout.GENERATED_PINE_INNER, 1e-6,
 			"pine_inner generated %s" % tag)
-		assert_almost_eq(layout.pine_outer, 50.4, 1e-6,
+		assert_almost_eq(layout.pine_outer, VillageLayout.GENERATED_PINE_OUTER, 1e-6,
 			"pine_outer generated %s" % tag)
-		assert_eq(layout.pine_count, 33,
+		assert_eq(layout.pine_count, VillageLayout.GENERATED_PINE_COUNT,
 			"pine_count generated %s" % tag)
-		assert_almost_eq(layout.fog_begin, 16.8, 1e-6,
+		assert_almost_eq(layout.fog_begin, VillageLayout.GENERATED_FOG_BEGIN, 1e-6,
 			"fog_begin generated %s" % tag)
 		assert_almost_eq(layout.fog_end, 95.0, 1e-6,
 			"fog_end generated %s" % tag)
 		assert_almost_eq(layout.bush_filler_inner, 8.0, 1e-6,
 			"bush_filler_inner generated %s" % tag)
-		assert_almost_eq(layout.bush_filler_outer, 26.4, 1e-6,
+		assert_almost_eq(layout.bush_filler_outer, VillageLayout.GENERATED_BUSH_FILLER_OUTER, 1e-6,
 			"bush_filler_outer generated %s" % tag)
 
 
@@ -221,9 +211,10 @@ func test_generated_lawn_radius_in_mesh() -> void:
 		return
 	var verts := _mesh_verts(node.mesh)
 	assert_gt(verts.size(), 0, "LawnGround must have vertices")
-	var max_r := _max_xz_radius(verts)
-	assert_almost_eq(max_r, 36.0, 0.01,
-		"Generated LawnGround vertex radius must be 36.0 m (builder reads layout.lawn_radius)")
+	var g := VillageLayout.VILLAGE_GREEN_G
+	var max_r := _max_xz_radius_about(g, verts)
+	assert_almost_eq(max_r, VillageLayout.GENERATED_LAWN_RADIUS, 0.01,
+		"Generated LawnGround vertex radius must match GENERATED_LAWN_RADIUS about G")
 
 
 func test_generated_hill_inner_in_mesh() -> void:
@@ -235,9 +226,10 @@ func test_generated_hill_inner_in_mesh() -> void:
 	if node == null:
 		return
 	var verts := _mesh_verts(node.mesh)
-	var inner_r := _min_xz_at_y(verts, 0.0, 0.1)
-	assert_almost_eq(inner_r, 36.0, 0.1,
-		"Generated HillRing inner radius must be ≈ 36.0 m (builder reads layout.hill_inner)")
+	var g := VillageLayout.VILLAGE_GREEN_G
+	var inner_r := _min_xz_at_y_about(g, verts, 0.0, 0.1)
+	assert_almost_eq(inner_r, VillageLayout.GENERATED_HILL_INNER, 0.1,
+		"Generated HillRing inner radius must match GENERATED_HILL_INNER about G")
 
 
 func test_generated_pine_count_and_radii() -> void:
@@ -255,17 +247,24 @@ func test_generated_pine_count_and_radii() -> void:
 	assert_not_null(treeline.multimesh, "FarTreeline must have a multimesh")
 	if treeline.multimesh == null:
 		return
-	assert_eq(treeline.multimesh.instance_count, 33,
-		"Generated FarTreeline instance_count must be 33 (builder reads layout.pine_count)")
+	assert_eq(treeline.multimesh.instance_count, VillageLayout.GENERATED_PINE_COUNT,
+		"Generated FarTreeline instance_count must match GENERATED_PINE_COUNT")
+	var g := VillageLayout.VILLAGE_GREEN_G
 	var buf := treeline.multimesh.buffer
+	var hero_back := 0
 	for i in range(treeline.multimesh.instance_count):
 		var ox: float = buf[i * 12 + 3]
 		var oz: float = buf[i * 12 + 11]
-		var r := sqrt(ox * ox + oz * oz)
-		assert_gte(r, 34.2,
-			"Generated pine[%d] radius %.3f must be >= 34.2 (pine_inner)" % [i, r])
-		assert_lte(r, 50.4,
-			"Generated pine[%d] radius %.3f must be <= 50.4 (pine_outer)" % [i, r])
+		var p := Vector2(ox, oz)
+		if p.y > VillageLayout.HERO_DOOR_STOOP.y:
+			hero_back += 1
+		for spec: Dictionary in bd.get_layout().cottages:
+			var rect := VillageBackdrop.cottage_exterior_rect(spec)
+			assert_false(rect.has_point(p),
+				"Generated forest[%d] must not sit inside cottage '%s'" \
+				% [i, String(spec.get("name", "?"))])
+	assert_gte(hero_back, 8,
+		"Dense +Z forest: expect >=8 trees south of hero stoop (got %d)" % hero_back)
 
 
 # ── (e) Bush filler range for seeds 1..5 ─────────────────────────────────────
@@ -279,14 +278,16 @@ func test_generated_bush_filler_range() -> void:
 			continue
 		var tag := "seed=%d" % seed
 		var all_bushes := VillageScatterPositions.bush_common_positions(
-			layout.cottages, layout.bush_filler_inner, layout.bush_filler_outer)
+			layout.cottages, layout.bush_filler_inner, layout.bush_filler_outer,
+			layout.hamlet_centre_xz)
 		assert_gte(all_bushes.size(), 10,
 			"%s: must have >= 10 total bushes in output" % tag)
 		# Filler bushes are always the last 10 elements (appended after per-cottage phase).
 		var filler_start := all_bushes.size() - 10
+		var g := layout.hamlet_centre_xz
 		for i in range(10):
 			var t: Transform3D = all_bushes[filler_start + i]
-			var r := Vector2(t.origin.x, t.origin.z).length()
+			var r := Vector2(t.origin.x, t.origin.z).distance_to(g)
 			assert_gte(r, layout.bush_filler_inner,
 				"%s filler[%d] r=%.3f < bush_filler_inner=%.1f" \
 				% [tag, i, r, layout.bush_filler_inner])
@@ -295,28 +296,85 @@ func test_generated_bush_filler_range() -> void:
 				% [tag, i, r, layout.bush_filler_outer])
 
 
+const _FOREST_KEEP_CLEAR_SEEDS: Array[int] = [
+	1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 240424020,
+]
+
+
+func test_forest_no_trunk_within_hero_keep_clear() -> void:
+	## Pines must not sit in the CamSun south-approach corridor (hero → village view).
+	for seed: int in _FOREST_KEEP_CLEAR_SEEDS:
+		var layout := VillageLayout.generate(seed)
+		if layout.fallback:
+			continue
+		var tag := "seed=%d" % seed
+		var pines := _compute_pine_xz(layout)
+		assert_eq(pines.size(), layout.pine_count, "%s: expected %d forest positions" % [tag, layout.pine_count])
+		for i: int in pines.size():
+			var p: Vector2 = pines[i]
+			assert_false(
+				VillageScatterPositions.forest_blocks_camsun_view(p),
+				"%s forest[%d] at (%.2f,%.2f) blocks CamSun corridor" % [tag, i, p.x, p.y])
+
+
+func test_forest_wedge_dense_behind_hero() -> void:
+	## Dense +Z wedge behind hero cottage (ivy-vlr R4); not split into side clusters only.
+	for seed_val in range(1, 11):
+		var layout := VillageLayout.generate(seed_val)
+		if layout.fallback:
+			continue
+		var tag := "seed=%d" % seed_val
+		var g := layout.hamlet_centre_xz
+		var r_lawn := layout.lawn_radius
+		var pines := _compute_pine_xz(layout)
+		assert_eq(pines.size(), layout.pine_count, "%s: forest count" % tag)
+		var in_wedge := 0
+		var center_back := 0
+		for p: Vector2 in pines:
+			if _pine_in_hero_wedge(p, g, r_lawn):
+				in_wedge += 1
+			if absf(p.x - g.x) < 6.0 and p.y > VillageLayout.HERO_DOOR_STOOP.y + 6.0:
+				center_back += 1
+		var min_wedge := int(ceil(float(pines.size()) * 0.55))
+		assert_gte(in_wedge, min_wedge,
+			"%s: wedge trees %d / %d (need >= %d)" % [tag, in_wedge, pines.size(), min_wedge])
+		assert_gte(center_back, 4,
+			"%s: need >=4 trunks within |dx|<6 m behind hero (got %d)" % [tag, center_back])
+
+
+static func _pine_in_hero_wedge(p: Vector2, g: Vector2, r_lawn: float) -> bool:
+	if p.y <= VillageLayout.HERO_DOOR_STOOP.y + 1.0:
+		return false
+	var dg := p - g
+	var r_g := dg.length()
+	if r_g < r_lawn - 3.0 or r_g > r_lawn + 11.0:
+		return false
+	return absf(atan2(dg.x, dg.y)) <= 0.62
+
+
 # ── (f) INV-20: pine_inner >= max cottage corner, no pine inside cottage ──────
 
 func test_inv20_pine_inner_exceeds_max_corner_distance() -> void:
-	## pine_inner (34.2 for generated) must be >= the farthest grown corner from origin
-	## across all cottages in the generated layout. This ensures no pine can be placed
-	## inside a cottage's XZ footprint (INV-20).
+	## Hamlet fits inside lawn R on G; forest collar band uses pine_inner..pine_outer (INV-20).
 	for seed in [1, 2, 3, 4, 5]:
 		var layout := VillageLayout.generate(seed)
 		if layout.fallback:
 			continue
 		var tag := "seed=%d" % seed
+		var g := layout.hamlet_centre_xz
 		var max_corner := 0.0
 		for spec: Dictionary in layout.cottages:
-			max_corner = maxf(max_corner, _farthest_corner_dist(spec))
-		assert_gte(layout.pine_inner, max_corner,
-			"%s: pine_inner=%.3f must be >= max cottage corner dist=%.3f (INV-20)" \
-			% [tag, layout.pine_inner, max_corner])
+			max_corner = maxf(max_corner, _farthest_corner_dist_from_g(spec, g))
+		assert_lte(max_corner, layout.lawn_radius + 0.5,
+			"%s: max cottage corner from G=%.3f must fit lawn R=%.1f" \
+			% [tag, max_corner, layout.lawn_radius])
+		assert_lt(layout.pine_inner, layout.lawn_radius,
+			"%s: pine_inner collar must sit inside lawn radius" % tag)
+		assert_lte(layout.pine_inner, layout.pine_outer, "%s: pine_inner <= pine_outer" % tag)
 
 
 func test_inv20_no_pine_inside_cottage_grown_rect() -> void:
-	## All pine XZ positions computed via the layout's fields must lie outside every
-	## cottage's exterior rect. Uses the same LCG sequence as VillageBackdrop._pine_positions.
+	## All forest trunks must lie outside every cottage exterior rect (ivy-3l6-C).
 	for seed in [1, 2, 3, 4, 5]:
 		var layout := VillageLayout.generate(seed)
 		if layout.fallback:
@@ -324,11 +382,11 @@ func test_inv20_no_pine_inside_cottage_grown_rect() -> void:
 		var tag := "seed=%d" % seed
 		var pines := _compute_pine_xz(layout)
 		assert_eq(pines.size(), layout.pine_count,
-			"%s: expected %d pine positions" % [tag, layout.pine_count])
+			"%s: expected %d forest positions" % [tag, layout.pine_count])
 		for pi in range(pines.size()):
 			var p := pines[pi]
 			for spec: Dictionary in layout.cottages:
 				var rect := VillageBackdrop.cottage_exterior_rect(spec)
 				assert_false(rect.has_point(p),
-					"%s pine[%d] at (%.2f,%.2f) is inside cottage '%s' exterior rect" \
+					"%s forest[%d] at (%.2f,%.2f) is inside cottage '%s' exterior rect" \
 					% [tag, pi, p.x, p.y, String(spec.get("name", "?"))])

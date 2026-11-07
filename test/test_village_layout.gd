@@ -3,7 +3,7 @@
 ## INV-15: The classic village render is byte-for-byte unchanged after the S1
 ## refactor. Evidence:
 ##   (a) authored().cottages deep-equals COTTAGES
-##   (b) authored().paths equals path_polylines() point-for-point
+##   (b) authored() paths keep clearance from pond bank (pond before paths)
 ##   (c) stone_seed=9999 / min_stone_spacing=0.0
 ##   (d) inside_cottages matches inside_any_cottage on a grid of sample points
 ##   (e) VillageBackdrop built with default authored() layout produces the same
@@ -29,22 +29,24 @@ func test_authored_cottages_equal_const() -> void:
 				"authored().cottages[%d]['%s'] mismatch" % [i, k])
 
 
-# ── (b) authored().paths equals path_polylines() point-for-point ──────────────
+# ── (b) authored paths detour around pond bank ────────────────────────────────
 
-func test_authored_paths_equal_static() -> void:
+func test_authored_paths_clear_pond_bank() -> void:
 	var layout := VillageLayout.authored()
-	var static_paths := VillageBackdrop.path_polylines()
-	assert_eq(layout.paths.size(), static_paths.size(),
-		"authored().paths must have same count as path_polylines()")
-	for i in range(layout.paths.size()):
-		var lp: Array = layout.paths[i]
-		var sp: Array = static_paths[i]
-		assert_eq(lp.size(), sp.size(), "path[%d] same length" % i)
-		for j in range(lp.size()):
-			assert_almost_eq((lp[j] as Vector2).x, (sp[j] as Vector2).x, 1e-5,
-				"path[%d][%d].x" % [i, j])
-			assert_almost_eq((lp[j] as Vector2).y, (sp[j] as Vector2).y, 1e-5,
-				"path[%d][%d].y" % [i, j])
+	assert_true(layout.pond_placed, "authored layout must place pond before paths")
+	var bank := VillagePondShape.at(layout.pond_center).bank_outer_outline_world_xz()
+	var need := VillagePondSite.PATH_CLEARANCE_M
+	for poly_raw in layout.paths:
+		var poly: Array = poly_raw as Array
+		for pt_raw in poly:
+			var pt := pt_raw as Vector2
+			var min_d := INF
+			for bi in range(bank.size()):
+				min_d = minf(
+					min_d,
+					VillagePondPlacement.segment_point_distance(
+						pt, bank[bi], bank[(bi + 1) % bank.size()]))
+			assert_gte(min_d, need - 1e-4, "path must stay clear of pond bank")
 
 
 # ── (c) stone_seed and min_stone_spacing ─────────────────────────────────────
@@ -60,6 +62,28 @@ func test_authored_stone_seed_is_9999() -> void:
 func test_authored_fallback_is_false() -> void:
 	var layout := VillageLayout.authored()
 	assert_false(layout.fallback, "authored() must have fallback=false")
+
+
+func test_authored_pond_clearance_fields_use_site_defaults() -> void:
+	## INV-15: authored() must not override generated-only pond clearance fields.
+	var layout := VillageLayout.authored()
+	assert_almost_eq(
+		layout.pond_cottage_clearance_m, VillagePondSite.COTTAGE_CLEARANCE_M, 1e-6,
+		"authored pond_cottage_clearance_m must stay at site default")
+	assert_almost_eq(
+		layout.pond_path_clearance_m, VillagePondSite.PATH_CLEARANCE_M, 1e-6,
+		"authored pond_path_clearance_m must stay at site default")
+
+
+func test_generate_sets_generated_pond_clearance_fields() -> void:
+	var layout := VillageLayout.generate(42)
+	if layout.fallback:
+		pending("seed 42 fell back — skip pond clearance field check")
+		return
+	assert_almost_eq(layout.pond_cottage_clearance_m, 3.0, 1e-6,
+		"generate() must set pond_cottage_clearance_m=3.0")
+	assert_almost_eq(layout.pond_path_clearance_m, 2.0, 1e-6,
+		"generate() must set pond_path_clearance_m=2.0")
 
 
 # ── (d) inside_cottages matches inside_any_cottage on a sample grid ────────────
@@ -103,6 +127,34 @@ func test_authored_cottage_rings_is_empty() -> void:
 	var layout := VillageLayout.authored()
 	assert_eq(layout.cottage_rings.size(), 0,
 		"authored().cottage_rings must be empty [] (no ring membership for classic layout)")
+	assert_false(layout.is_generated, "authored() must not set is_generated")
+	assert_eq(layout.hamlet_centre_xz, Vector2.ZERO, "classic hamlet centre at pivot")
+	assert_almost_eq(layout.plaza_side_m, 0.0, 1e-6, "classic plaza_side_m unset")
+	assert_true(layout.plaza_rect.size.is_zero_approx(), "classic plaza_rect empty")
+
+
+func test_plaza_rect_centred_on_g() -> void:
+	var g := Vector2(3.0, -18.0)
+	var side := 18.0
+	var r := VillageLayout.plaza_rect_at(g, side)
+	assert_almost_eq(r.get_center().x, g.x, 1e-4)
+	assert_almost_eq(r.get_center().y, g.y, 1e-4)
+	assert_almost_eq(r.size.x, side, 1e-4)
+	assert_almost_eq(r.size.y, side, 1e-4)
+
+
+func test_generated_plaza_side_in_range() -> void:
+	var layout := VillageLayout.generate(42)
+	if layout.fallback:
+		pending("seed 42 fell back — skip plaza field check")
+		return
+	assert_gte(layout.plaza_side_m, 16.0)
+	assert_lte(layout.plaza_side_m, 20.0)
+	var g := layout.hamlet_centre_xz
+	assert_almost_eq(
+		layout.plaza_rect.size.x, layout.plaza_side_m, 1e-4, "plaza_rect side must match plaza_side_m")
+	var keep := VillageLayout.plaza_keep_clear_rect(g, layout.plaza_side_m)
+	assert_lt(keep.size.x, layout.plaza_rect.size.x, "keep-clear inset shrinks rect")
 
 
 # ── S1 generate() stub ────────────────────────────────────────────────────────
@@ -111,8 +163,8 @@ func test_generate_stub_returns_authored_shape() -> void:
 	## S1: generate() is stubbed → same cottage count/layout as authored().
 	## S2+: generate() produces a real layout; cottage count is still 7 (INV-13).
 	var layout := VillageLayout.generate(42)
-	assert_eq(layout.cottages.size(), VillageBackdrop.COTTAGES.size(),
-		"generate() must return 7 cottages (authored count)")
+	assert_eq(layout.cottages.size(), VillageLayout.GENERATED_HAMLET_COUNT,
+		"generate() must return GENERATED_HAMLET_COUNT cottages")
 
 
 # ── Seed normalisation (SD-VILLAGE-GEN-2 / SD-VILLAGE-GEN-8 edge cases) ──────
@@ -121,7 +173,8 @@ func test_seed_normalisation_zero() -> void:
 	## Seed 0: 0 & 0x7FFFFFFF = 0. Must not fallback.
 	var layout := VillageLayout.generate(0)
 	assert_false(layout.fallback, "seed=0 must not fall back (SD-VILLAGE-GEN-8)")
-	assert_eq(layout.cottages.size(), 7, "seed=0 must produce 7 cottages")
+	assert_eq(layout.cottages.size(), VillageLayout.GENERATED_HAMLET_COUNT,
+		"seed=0 must produce GENERATED_HAMLET_COUNT cottages")
 
 
 func test_seed_normalisation_negative() -> void:
@@ -130,7 +183,8 @@ func test_seed_normalisation_negative() -> void:
 	# In GDScript, -1 & 0x7FFFFFFF = 2147483647 (two's-complement low 31 bits).
 	var layout_pos := VillageLayout.generate(-1 & 0x7FFFFFFF)
 	assert_false(layout_neg.fallback, "generate(-1) must not fall back")
-	assert_eq(layout_neg.cottages.size(), 7, "generate(-1) must produce 7 cottages")
+	assert_eq(layout_neg.cottages.size(), VillageLayout.GENERATED_HAMLET_COUNT,
+		"generate(-1) must produce GENERATED_HAMLET_COUNT cottages")
 	# Centres must match
 	for i: int in layout_neg.cottages.size():
 		var cn: Vector2 = layout_neg.cottages[i]["centre"]
@@ -147,7 +201,8 @@ func test_seed_normalisation_huge() -> void:
 	var layout := VillageLayout.generate(HUGE)
 	var layout2 := VillageLayout.generate(HUGE)
 	assert_false(layout.fallback, "huge seed must not fall back")
-	assert_eq(layout.cottages.size(), 7, "huge seed must produce 7 cottages")
+	assert_eq(layout.cottages.size(), VillageLayout.GENERATED_HAMLET_COUNT,
+		"huge seed must produce GENERATED_HAMLET_COUNT cottages")
 	for i: int in layout.cottages.size():
 		var c1: Vector2 = layout.cottages[i]["centre"]
 		var c2: Vector2 = layout2.cottages[i]["centre"]
@@ -173,23 +228,27 @@ const _REFERENCE_FINGERPRINTS := {
 	"Cottage_Prop_Chimney2": [7, 2019212655],
 	"Cottage_Wall_UnevenBrick_Straight": [9, 3563615590],
 	"Cottage_Roof_RoundTiles_4x6": [5, 3153429718],
-	"Scatter_Path_0": [18, 1630142961],
-	"Scatter_Path_1": [18, 3724659153],
-	"Scatter_Path_2": [17, 764894738],
-	"Scatter_Grass_Accent": [48, 477387432],
-	"Scatter_Flower_Flower_3_Group": [6, 1838170387],
-	"Scatter_Flower_Flower_3_Single": [11, 1327737020],
-	"Scatter_Flower_Flower_4_Group": [8, 472738313],
-	"Scatter_Flower_Flower_4_Single": [6, 2727710284],
-	"Scatter_Petal_Petal_1": [2, 1416668245],
-	"Scatter_Petal_Petal_2": [4, 74488022],
-	"Scatter_Petal_Petal_3": [3, 1037038042],
-	"Scatter_Petal_Petal_4": [3, 2303113989],
-	"Scatter_Petal_Petal_5": [5, 1267880977],
+	"Scatter_Path_0": [56, 881458508],
+	"Scatter_Path_1": [56, 2959288073],
+	"Scatter_Path_2": [56, 3622295605],
+	## Grass scatter slice (ivy-vlr / 48k grass) changed accent buffer layout — not path/layout.
+	"Scatter_Grass_Accent": [48, 2211811117],  ## re-baselined with Plant_7_Big, see below
+	"Scatter_Flower_Flower_3_Group": [4, 1239188146],
+	"Scatter_Flower_Flower_3_Single": [9, 55149561],
+	"Scatter_Flower_Flower_4_Group": [8, 1715658938],
+	"Scatter_Flower_Flower_4_Single": [5, 897501049],
+	"Scatter_Petal_Petal_1": [11, 2329237050],
+	"Scatter_Petal_Petal_2": [18, 1286106724],
+	"Scatter_Petal_Petal_3": [6, 4056015965],
+	"Scatter_Petal_Petal_4": [8, 1663965343],
+	"Scatter_Petal_Petal_5": [20, 3210729364],
 	"Scatter_Plant_Plant_7": [14, 1898465062],
-	"Scatter_Plant_Plant_7_Big": [8, 2122416198],
+	## Re-baselined (ivy-oan3.9, user-approved): one big plant stood in the classic pond; plants
+	## are now redrawn when they land in water. This also moves Scatter_Grass_Accent (grass
+	## avoids plant anchors). Plant_7 (small) bytes are unchanged.
+	"Scatter_Plant_Plant_7_Big": [8, 1368777133],
 	"FarTreeline": [22, 3381520378],
-	"Scatter_Bush_Common": [50, 1093590483],
+	"Scatter_Bush_Common": [50, 4061434494],
 }
 
 

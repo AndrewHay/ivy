@@ -3226,6 +3226,445 @@ wire backdrop, add **`test_village_grass_scatter.gd`**. Then **ivy-qg7.5** (`adv
 
 ---
 
+## SD-PLAY-GRASS — Grass wind playground spec *(ivy-6w1, epic ivy-dl6)*
+
+**Contracts:** G7 + `DESIGN.md` § *Algorithm playgrounds* (ratified 2026-11-06),
+`.cursor/rules/algorithm-playgrounds.mdc`. **Builds on:** AR-WIND-GRASS, SD-WIND-1/2,
+`wind_gust.gdshaderinc` (`ivy_wind_tip_displace_model`), `ambient_wind.gd`. **Next handoff:**
+Gameplay Architect (ivy-2aw). **This section specifies; it does not implement.**
+
+### SD-PLAY-GRASS-1 — System goal (design terms)
+
+A standalone scene, `scenes/playground/grass_wind_playground.tscn`, that renders the **real
+village blade mesh + `grass_blade.gdshader`** on a flat lawn and lets the *human* designer (a)
+switch between structurally different grass-blowing algorithms with one click, (b) drag every
+feel-shaping constant as a live slider that applies on the next frame, and (c) feel the
+difference directly. It runs **without** the village build, `SimClock`, HUD, or save state, and
+drives all motion from its **own** `_process(delta)` clock (gate always `1.0`), so it never
+depends on sim speed. It must not alter production behaviour: it sets uniforms on its **own**
+material instance, not the shared `RenderingServer` globals, and any global it does touch is
+restored on exit.
+
+**Inputs:** keyboard/mouse (orbit + panel), knob values, selected variant, time controls.
+**Outputs:** animated grass, a copy-out settings block, screenshots (for agent evidence).
+**Non-dependency:** no `src/sim/*`, no `AmbientWind` node required at runtime — the playground
+re-implements the identical update rule locally (see parity, SD-PLAY-GRASS-6).
+
+### SD-PLAY-GRASS-2 — Knob inventory (every constant that shapes grass feel)
+
+Source = where the production value lives today. "Prod" = production default (parity target).
+All knobs apply next frame. Groups A–C exist for **all** variants (where meaningful); group D
+knobs appear only when their variant is selected.
+
+**Group A — Envelope / direction / time (CPU-equivalent, `ambient_wind.gd`)**
+
+| Knob | Source | Prod | Min | Max | Feel it changes |
+|------|--------|------|-----|-----|-----------------|
+| `wind_strength` | `WIND_BASE_STRENGTH` | 1.0 | 0.0 | 3.0 | Overall bend amount (master gain). |
+| `strength_cap` | `WIND_STRENGTH_CAP` | 1.0 | 0.0 | 3.0 | Clamps peak bend; `min(cap, strength·envelope)`. |
+| `gust_envelope_on` | *(implicit)* | on | — | — | Toggles the slow whole-lawn breathing. |
+| `gust_period_sec` | `WIND_GUST_PERIOD_SEC` | 28.0 | 2.0 | 60.0 | How often the whole lawn swells stronger/weaker. |
+| `direction_deg` | `DIRECTION_BASE_ANGLE` (atan2(0.3,1)=16.7°) | 16.7 | 0 | 360 | Wind heading across the lawn. |
+| `direction_meander_rad` | `DIRECTION_MEANDER_RAD` | 0.35 | 0.0 | 1.5 | How far the heading wanders. |
+| `direction_drift_period_sec` | `DIRECTION_DRIFT_PERIOD_SEC` | 90.0 | 5.0 | 180.0 | How fast the heading wanders. |
+| `freeze_direction` | *(playground)* | off | — | — | Pins heading to `direction_deg` (no meander). |
+| `flutter_period_sec` | `FLUTTER_PERIOD_SEC` | 1.7 | 0.2 | 6.0 | Shimmer tempo (how fast tips vibrate). |
+| `time_scale` | *(playground)* | 1.0 | 0.0 | 2.0 | Slow-mo / fast; 0 = pause (see SD-PLAY-GRASS-5). |
+
+**Group B — Gust field (noise), used by variant 0 & 2**
+
+| Knob | Source | Prod | Min | Max | Feel |
+|------|--------|------|-----|-----|------|
+| `gust_tile_m` | `GUST_TILE_M` / `ivy_wind_gust_tile_m` | 24.0 | 2.0 | 64.0 | Size of gust patches on the ground. |
+| `gust_scroll_speed_m_s` | `GUST_SPEED_M_S` | 1.8 | 0.0 | 10.0 | How fast patches travel downwind. |
+| `gust_edge_lo` | smoothstep lo in `ivy_gust_at` | 0.38 | 0.0 | 1.0 | Lower gust threshold. |
+| `gust_edge_hi` | smoothstep hi in `ivy_gust_at` | 0.78 | 0.0 | 1.0 | Upper threshold; `lo..hi` sets gust coverage/contrast (must keep `lo < hi`). |
+
+**Group C — Blade displacement math (variant 0 core)**
+
+| Knob | Source | Prod | Min | Max | Feel |
+|------|--------|------|-----|-----|------|
+| `lean_base` | `0.10` in lean term | 0.10 | 0.0 | 1.0 | Baseline bend even in calm air. |
+| `lean_gust_gain` | `0.45` in lean term | 0.45 | 0.0 | 2.0 | Extra bend where a gust sits. |
+| `flutter_amp` | `0.04` in flutter term | 0.04 | 0.0 | 0.30 | Tip shimmer amplitude. |
+| `flutter_gust_base` | `0.4` in `(0.4+g)` | 0.4 | 0.0 | 2.0 | Flutter floor in calm vs under gust. |
+| `flutter_space_freq` | `1.3` in `dot(root,dir)·1.3` | 1.3 | 0.0 | 6.0 | Spatial wavenumber of flutter across the lawn (neighbour desync). |
+| `height_exp` | `h·h` (=2) in lean & flutter | 2.0 | 1.0 | 4.0 | How tip-concentrated the motion is (higher = stiffer base). |
+| `droop_on` | droop term | on | — | — | Arc-length dip that keeps bent blades from stretching. |
+
+**Group D — Variant-specific extras** — listed per variant in SD-PLAY-GRASS-3.
+
+### SD-PLAY-GRASS-3 — Algorithm variants (≥3, structurally different)
+
+All variants are **vertex-only**, no per-blade CPU state, no MultiMesh buffer rewrites. Per-blade
+identity comes from `COLOR.r` (`blade_hash_01`) and `root_world_xz`, already available in the
+shader. Each is a replaceable body for the "tip displace" function selected by an `int` uniform.
+
+**Variant 0 — Current (production).** *The parity baseline.*
+- Formula (exact production math): `g = smoothstep(gust_edge_lo, gust_edge_hi, noise((root_xz − scroll)/gust_tile_m))`; `lean = strength·H·(lean_base + lean_gust_gain·g)·h^height_exp`; `flutter = strength·H·flutter_amp·(flutter_gust_base + g)·sin(flutter_phase + hash·TAU + dot(root_xz, dir)·flutter_space_freq)·h^height_exp`; `offset = dir·(lean+flutter)`; `droop = |offset|²/(2H)·h`; `vertex += offset − (0,droop,0)`.
+- Knobs: groups A, B, C.
+- Feel: the shipped look — soft directional lean with patchy gusts and a fine tip shimmer.
+- Cost: 1 texture fetch + 1 `sin` + 1 `inverse(mat3)` per vertex (unchanged from today).
+
+**Variant 1 — Travelling sine wave front.** *Coherent rolling swells (wheat field).*
+- Formula: replace the noise gust with a 1-D plane wave along `dir`: `phase_w = dot(root_xz, dir)·(TAU/wave_length_m) − t·(TAU·wave_speed_m_s/wave_length_m)`; `g = pow(0.5 + 0.5·sin(phase_w), wave_sharpness)`. Feed that `g` into the **same** lean term; flutter optional (group C) at reduced amp.
+- Group D: `wave_length_m` (default 24.0, 2..64), `wave_speed_m_s` (default 1.8, 0..10), `wave_sharpness` (default 1.0, 0.3..6 — higher = crisper crests).
+- Feel: regular, strongly directional swells marching across the lawn in parallel lines; very periodic, "field of wheat" read. Contrast with v0's irregular patchiness.
+- Cost: 1 `sin` + 1 `pow`, **no** texture fetch — cheaper than v0.
+
+**Variant 2 — Noise-gust lean only (no flutter).** *Calm, massy heaving.*
+- Formula: variant 0 with `flutter` term dropped entirely; only `lean = strength·H·(lean_base + lean_gust_gain·g)·h^height_exp` and droop.
+- Knobs: groups A, B, and the lean/droop rows of C (flutter rows hidden).
+- Feel: slow breathing of whole patches, no high-frequency shimmer — reads heavier and calmer; isolates "is the shimmer carrying the life, or the gust lean?".
+- Cost: cheapest — texture fetch, no `sin`.
+
+**Variant 3 — Per-blade spring (overshoot-and-settle).** *Springy, lively, organic desync.*
+- Formula (vertex-only analytic spring, no CPU integration): drive a per-blade target `target = strength·H·(lean_base + lean_gust_gain·g)·h^height_exp`, then add an underdamped ring that reacts to the gust: `ring = overshoot_gain·target·exp(−spring_damping·frac)·sin(TAU·spring_freq_hz·t + hash·TAU·phase_spread)`, where `frac` is the fractional age within the flutter/gust cycle (cheap proxy for "time since the gust rose"). Final bend `= target + ring`. Each blade rings at its own hash-offset phase so the lawn shivers out of sync.
+- Group D: `spring_freq_hz` (default 1.2, 0.2..5), `spring_damping` (default 3.0, 0..12), `overshoot_gain` (default 0.25, 0..1), `phase_spread` (default 1.0, 0..1 — 0 = all blades in lockstep, 1 = fully scattered).
+- Feel: when a gust arrives blades overshoot and wobble back, each slightly out of step — bouncy and alive vs v0's smooth settle.
+- Cost: 1 extra `sin` + 1 `exp` per vertex over v0; still vertex-only.
+
+**Variant 4 — Push wave (gust visibly rolls across the lawn).** *Legible causation.*
+- Formula: a moving Gaussian ridge instead of a field. Let `s = dot(root_xz, dir)`; front position `f = fmod(t·front_speed_m_s, front_spacing_m)`; distance to nearest front `d = min(fmod(s − f, front_spacing_m), front_spacing_m − fmod(s − f, front_spacing_m))`; `g = front_peak·exp(−d²/(2·front_width_m²))`. Feed `g` into the production lean+flutter terms.
+- Group D: `front_width_m` (default 2.0, 0.3..12), `front_speed_m_s` (default 3.0, 0.2..15), `front_spacing_m` (default 12.0, 2..64), `front_peak` (default 1.0, 0..2).
+- Feel: a discrete gust you can **see** sweep across in a bent line, blades springing back behind it — the clearest "the wind did that" read; great for the top-down camera.
+- Cost: a couple of `fmod` + 1 `exp`, no texture fetch.
+
+### SD-PLAY-GRASS-4 — Stage requirements
+
+- **Camera presets** (buttons) + free orbit (reuse the AR-DBGCAM orbit affordance, not a new rig):
+  1. **Eye-level** — ~1.6 m height looking across the lawn, slight downward tilt (reads tip bend).
+  2. **Top-down** — bird's-eye straight down (reads gust fronts / push-wave rolling).
+  3. **Orbit 45°** — default three-quarter view.
+  Free orbit (yaw/pitch/zoom) available from any preset.
+- **Scale reference:** a 1.8 m human-height marker post and a 1 m ground grid on the lawn plane,
+  both toggleable, so bend amplitude is judged against real scale.
+- **Ground reference:** flat opaque lawn plane using the production ground sage tone so blades read
+  against the right base (not a bright disc).
+- **Time controls:** `Pause` (time_scale→0, phases hold), `slow-mo` slider **0.1×..2.0×**
+  (`time_scale`), `Reset phase` (zero flutter_phase, gust phase, scroll, drift, and any push-wave
+  front position — returns to a repeatable t=0), and **`Force gust now`** (snap the gust envelope to
+  its peak for v0/2, and spawn/align a front at the upwind lawn edge for v1/v4).
+- **Lawn & density:** `lawn_size_m` (square side, **4..40 m**, default 16) and `blade_density`
+  (blades/m², default = production density, range e.g. 20..400) — both rebuild the MultiMesh on
+  change (debounced; a brief rebuild hitch is acceptable in a dev tool).
+- **Wind direction override:** `direction_deg` + `freeze_direction` (group A) serve this; freezing
+  pins the heading so A/B variant comparisons aren't confounded by meander.
+- **Panel:** variant selector (dropdown incl. "0 — Current (production)"), grouped sliders (hide
+  group D rows for non-matching variants), preset dropdown, `Reset to production`, `Copy settings`.
+
+### SD-PLAY-GRASS-5 — Presets + copy-out format
+
+**Named presets** (dropdown): `Production` (= variant 0, all group A/B/C defaults; identical to
+`Reset to production`), `Dead calm` (v0, `wind_strength 0.15`, `gust_envelope_on off`), `Gentle
+breeze` (v0, `wind_strength 0.5`), `Blustery` (v0, `wind_strength 1.8`, `gust_period_sec 10`,
+`lean_gust_gain 0.9`), `Wheat field` (v1, `wave_length_m 30`, `wave_speed_m_s 2.5`,
+`wave_sharpness 2.0`), `Rolling gust` (v4, `front_width_m 1.5`, `front_speed_m_s 4`,
+`front_spacing_m 14`), `Springy meadow` (v3, `spring_freq_hz 1.5`, `overshoot_gain 0.35`,
+`phase_spread 1.0`). Presets set only the knobs they name; the rest fall back to production
+defaults.
+
+**Copy-out:** `Copy settings` prints to Output **and** copies to clipboard a single block holding
+the schema version, the selected `variant` id, and **every** knob value (so a chosen look can be
+diffed against production and promoted). Format = pretty JSON, e.g.:
+
+```json
+{
+  "schema": "grass_wind_playground.v1",
+  "variant": 0,
+  "knobs": {
+    "wind_strength": 1.0, "strength_cap": 1.0, "gust_envelope_on": true,
+    "gust_period_sec": 28.0, "direction_deg": 16.699, "direction_meander_rad": 0.35,
+    "direction_drift_period_sec": 90.0, "freeze_direction": false,
+    "flutter_period_sec": 1.7, "gust_tile_m": 24.0, "gust_scroll_speed_m_s": 1.8,
+    "gust_edge_lo": 0.38, "gust_edge_hi": 0.78,
+    "lean_base": 0.10, "lean_gust_gain": 0.45, "flutter_amp": 0.04,
+    "flutter_gust_base": 0.4, "flutter_space_freq": 1.3, "height_exp": 2.0, "droop_on": true
+  }
+}
+```
+
+(Variant-D knobs are included under `knobs` when their variant is selected.)
+
+### SD-PLAY-GRASS-6 — Parity requirement (explicit)
+
+**Variant 0 with default knobs must be numerically identical to production shader math.** Concretely:
+
+1. **Function-level parity (the hard gate).** With identical uniforms — `ivy_wind_dir`,
+   `ivy_wind_strength`, `ivy_wind_scroll`, `ivy_wind_flutter_phase`, `ivy_wind_gust_tile_m`, and the
+   **same gust noise texture** — the variant-0 displacement must equal
+   `ivy_wind_tip_displace_model` for every input tuple `(vertex_model, h, H, model_matrix,
+   root_world_xz, hash)`. Same constants (`0.10, 0.45, 0.04, 0.4, 1.3, 0.38, 0.78`, `h²`, droop
+   `|offset|²/(2H)·h`), same `strength < 0.001` early-out. Default knobs must map onto exactly those
+   numbers. A GUT test evaluates both on a fixed sample set and asserts equality to **≤1e-6**.
+2. **Clock parity (soft).** At default knobs and `time_scale = 1.0`, the playground's local clock
+   must reproduce the `AmbientWind` update rule: `flutter_phase += delta·(TAU/1.7)`,
+   `scroll += dir·(1.8·delta)` wrapped to `gust_tile_m`, gust envelope `0.5+0.5·sin` at 28 s, drift
+   at 90 s / 0.35 rad — so "default playground" and "production at NORMAL, gate=1" look the same.
+3. **No production leakage.** The playground sets uniforms on its **own** `ShaderMaterial` instance
+   (or local shader uniforms), **not** the shared `RenderingServer` global parameters consumed by
+   the village. If it must touch a global, it restores the prior value on exit. A test pins that
+   production grass math is untouched by the playground existing.
+
+### SD-PLAY-GRASS-7 — Example scenarios (for Architect & QA)
+
+- **A — A/B the shimmer.** Open playground (defaults = production). Set `freeze_direction on`.
+  Switch variant 0 → 2 (noise-gust lean only). Expectation: tip shimmer disappears, slow patch
+  heaving remains; designer judges whether the shimmer is load-bearing.
+- **B — Watch a gust roll.** Select variant 4, Top-down camera, press `Force gust now`. Expectation:
+  a visible bent band sweeps across the lawn along `direction_deg` at `front_speed_m_s`, blades
+  springing back behind it.
+- **C — Promote a look.** Select `Blustery`, tweak `lean_gust_gain` to taste, press `Copy settings`,
+  paste the JSON. Expectation: a complete, re-loadable knob block including the variant id.
+
+### SD-PLAY-GRASS-8 — Testable acceptance statements
+
+1. `scenes/playground/grass_wind_playground.tscn` opens standalone (no village build, no
+   `SimClock`, no HUD) and shows wind-driven grass within a couple of seconds.
+2. Panel exposes a variant selector with **≥3** structurally different variants including
+   **"0 — Current (production)"**, plus every group A/B/C knob as a live control; a slider change is
+   visible on the next frame.
+3. **Parity:** a GUT test proves variant 0 at default knobs equals `ivy_wind_tip_displace_model` to
+   ≤1e-6 on a fixed sample set (SD-PLAY-GRASS-6.1).
+4. **No leakage:** a GUT test proves the playground does not mutate the shared grass wind globals /
+   production grass math (SD-PLAY-GRASS-6.3).
+5. `Reset to production` restores all knobs to prod defaults and variant 0; `Copy settings` emits
+   the SD-PLAY-GRASS-5 JSON with the current variant and every knob.
+6. Time controls work: Pause holds all phases; slow-mo scales motion 0.1×..2.0×; `Reset phase`
+   returns to a repeatable t=0; `Force gust now` produces a visible gust.
+7. Each variant is perceptibly different from variant 0 under the same group-A settings (human feel
+   sign-off, fuzzy — QA supplies screenshots, Andrew gives the verdict).
+
+### SD-PLAY-GRASS-9 — Non-goals
+
+- Ivy growth playground (follow-up bead ivy-hn8b).
+- Changing the production grass look, the production constants, or `AmbientWind` behaviour.
+- A new weather module, wind-vs-growth coupling, or light-bake interaction.
+- Player-facing settings UI or a general-purpose parameter-framework (G7 non-goals).
+- Per-blade CPU simulation, MultiMesh buffer rewrites, or new camera infrastructure (reuse
+  AR-DBGCAM orbit).
+- Tall grass tiers 10–11 on the lawn.
+
+### SD-PLAY-GRASS-10 — Handoff to Gameplay Architect (ivy-2aw)
+
+Plan (a) the scene/panel structure under `scenes/playground/`, (b) a **variant-capable** grass
+wind shader that keeps production parity — the cleanest path is one `#include` body switched by an
+`int variant` uniform, with the knobs as `uniform`s on the playground material (production keeps
+reading globals; no demo fork, per G7), and (c) the two parity/leakage GUT tests. Decide whether
+variant selection lives in `wind_gust.gdshaderinc` (guarded so production compiles the v0 path
+only) or a playground-local include. Preserve: vertex-only, no `src/sim/*`, no per-blade CPU.
+
+---
+
+## AR-PLAY-GRASS — Grass wind playground architecture *(ivy-2aw, epic ivy-dl6)*
+
+**Consumes:** SD-PLAY-GRASS-1..10 (ivy-6w1), G7 / `DESIGN.md` § *Algorithm playgrounds*,
+`.cursor/rules/algorithm-playgrounds.mdc`. **Builds on:** `wind_gust.gdshaderinc`
+(`ivy_wind_tip_displace_model`, `ivy_gust_at`), `grass_blade.gdshader`,
+`src/presentation/fauna/ambient_wind.gd`, `VillageGrassMesh.blade_tuft_mesh()`, the
+`scenes/test_fauna/` standalone-scene precedent, and `DebugCamera` pure orbit statics (AR-DBGCAM).
+**Next handoff:** Gameplay Programmer (ivy-80a). **This section plans; it does not implement.**
+
+### AR-PLAY-GRASS-1 — System goal (implementation terms)
+
+A standalone `Node3D` scene that renders a lawn of the **real** `VillageGrassMesh` blade tuft under a
+**playground-local** `ShaderMaterial`, driven by a **playground-local** `_process(delta)` clock, with
+a reflection-free knob panel that (a) switches an `int variant` shader uniform, (b) writes every
+feel knob to that material's own uniforms next frame, and (c) copies the settings out as JSON. It
+imports **no** `src/sim/*`, instantiates **no** `AmbientWind` node, and writes **no**
+`RenderingServer` global shader parameter — so it cannot alter production grass.
+
+### AR-PLAY-GRASS-2 — Decision 1: how knobs reach the shader = **per-material uniforms; no new globals**
+
+- **Production path is untouched.** `grass_blade.gdshader` / `grass_accent.gdshader` / `leaf.gdshader`
+  keep `#include "wind_gust.gdshaderinc"` and its `global uniform` wind state; `project.godot`
+  `[shader_globals]` is unchanged; `AmbientWind.push_shader_globals()` is unchanged. Production look
+  is therefore **byte-for-byte identical by construction** — no production code path is edited.
+- **The playground uses its own shader** `src/render/shaders/grass_wind_playground.gdshader` whose
+  wind *state* (`pg_wind_dir`, `pg_wind_strength`, `pg_wind_scroll`, `pg_wind_flutter_phase`,
+  `pg_gust_tile_m`, local `uniform sampler2D pg_gust_noise`), **every Group A/B/C/D knob**, and
+  `uniform int pg_variant` are **plain per-material `uniform`s** (no `global`). The scene sets them
+  with `material.set_shader_parameter(...)` on its **own** material instance every frame.
+- **Reject new globals.** Adding the ~25 knobs as `global uniform`s would (a) pollute `project.godot`
+  for a dev tool, (b) make every playground edit a process-wide write that leaks into any production
+  grass in the same process (violating SD-PLAY-GRASS-6.3 unless save/restored — fragile), and (c)
+  buy nothing, since per-material uniforms are the natural isolation boundary and cost production
+  **zero** (production never declares them). The gust **noise texture** is shared only by *value*:
+  the playground material loads the same `res://assets/render/wind_gust_noise.tres` into its own
+  `pg_gust_noise` uniform; it never reads the global sampler.
+- **Hard GLSL constraint that forces this split:** Godot's shading language **cannot pass a
+  `sampler2D` as a function argument**, so a single shared `ivy_wind_tip_displace_*(…, sampler)` that
+  both production (global sampler) and playground (local sampler) call is impossible. The playground
+  must own a local `pg_gust_at()` reading its local sampler. This is *why* v0 math is re-expressed in
+  the playground shader rather than refactored into one include — parity is pinned by test instead
+  (AR-PLAY-GRASS-6).
+
+### AR-PLAY-GRASS-3 — Decision 2: variant switching = **uniform-int branch in the playground shader only**
+
+- All five variant bodies live in `grass_wind_playground.gdshader` (file-local functions +
+  `vertex()` dispatch on `pg_variant`). **Not** in `wind_gust.gdshaderinc` — keeping variants out of
+  the shared include guarantees production compiles **only** the v0 path and the leaf shader is
+  untouched (zero added production cost, zero regression surface).
+- A `uniform int` branch is **uniform control flow** (every invocation takes the same branch), so it
+  is cheap even though the playground shader compiles all five branches — acceptable for a dev tool.
+- **Variant 0** (`pg_variant == 0`) is a line-for-line transcription of
+  `ivy_wind_tip_displace_model` with each literal replaced by the matching knob uniform
+  (`0.10`→`lean_base`, `0.45`→`lean_gust_gain`, `0.04`→`flutter_amp`, `0.4`→`flutter_gust_base`,
+  `1.3`→`flutter_space_freq`, `h*h`→`pow(h, height_exp)`, `0.38/0.78`→`gust_edge_lo/hi`, droop
+  `|o|²/(2H)·h`, same `strength < 0.001` early-out). Default knob values **must** reduce to the exact
+  production numbers. Variants 1–4 per SD-PLAY-GRASS-3. `fragment()` is copied from
+  `grass_blade.gdshader` verbatim except `ivy_gust_at` → local `pg_gust_at` (so the sheen uses local
+  uniforms and the default colour is identical).
+
+### AR-PLAY-GRASS-4 — Decision 3: CPU params + clock = **one update rule, shared by AmbientWind (no fork)**
+
+- **`GrassWindClock`** (`src/presentation/fauna/grass_wind_clock.gd`, `RefCounted`, static pure
+  helpers) becomes the **single** implementation of the SD-WIND-1 update rule: `integrate_phases`
+  (the `phase/gust/drift/flutter += delta·(TAU/period)` wraps), `gust_envelope(gust_phase)`,
+  `direction_xz(base_angle, meander, drift_phase)`, `scroll_step(scroll, dir, speed, delta, tile)`,
+  `effective_strength(base, cap, envelope, gate)`.
+- **`AmbientWind.advance()` is refactored to delegate** phase integration + derivations to
+  `GrassWindClock`, keeping its own `SimClock`/gate-ease gating and output accessors. The arithmetic
+  is moved verbatim (no reassociation), so **outputs are unchanged** — pinned by the existing
+  `test/test_ambient_wind*.gd` (regression gate). This is the "no demo fork" requirement: production
+  and playground share one rule; the playground does **not** copy the integration.
+- **The playground driver** calls the same `GrassWindClock` helpers from `_process` with `gate = 1.0`
+  always and `delta' = delta · time_scale` (pause = 0), so "default playground" reproduces
+  "production at NORMAL, gate 1" (SD-PLAY-GRASS-6.2). It does **not** instantiate `AmbientWind`.
+- This keeps production **free of any dependency on `src/playground/`**: the shared clock lives next
+  to `AmbientWind`; only the knob *resource* lives under `src/playground/`, with a test asserting its
+  production defaults equal `AmbientWind`'s constants (AR-PLAY-GRASS-6).
+
+### AR-PLAY-GRASS-5 — Decision 4: reusable `src/playground/` pattern (ivy-hn8b reuses it)
+
+- **`GrassWindParams`** (`src/playground/grass_wind_params.gd`, `: Resource`) — every Group A/B/C/D
+  knob + `variant: int` as `@export`s, **defaults == production**; `to_dict()/from_dict()`,
+  `duplicate_params()`, `const SCHEMA := "grass_wind_playground.v1"`, `to_json_block() -> String`
+  (pretty JSON per SD-PLAY-GRASS-5), and `static func presets() -> Dictionary` (named → partial knob
+  overrides; unset knobs fall back to defaults).
+- **`GrassWindKnobSpec`** (`src/playground/grass_wind_knob_spec.gd`, static) — the **knob spec
+  table**: an ordered `Array[Dictionary]` of `{name, label, group, type (float|bool),
+  min, max, step, variants (which variants show it)}`. Data only; separates "what knobs exist" from
+  "how they render", so the ivy-growth playground supplies its **own** spec table against the same
+  panel.
+- **`KnobPanel`** (`src/playground/knob_panel.gd`, `: PanelContainer`) — **generic** builder driven
+  by a spec table: variant `OptionButton`, grouped `HSlider`+value label / `CheckBox` rows (Group-D
+  rows shown only for the matching variant), preset `OptionButton`, `Reset to production` and
+  `Copy settings` buttons. Emits `knob_changed(name, value)`, `variant_changed(v)`,
+  `preset_selected(name)`, `reset_requested`, `copy_requested`. No dependency on grass specifics →
+  reusable by ivy-hn8b. (Style via existing `src/ui/overlay_style.gd`, as `test_fauna` does.)
+- **`GrassWindMath`** (`src/playground/grass_wind_math.gd`, static) — a **GDScript CPU mirror** of the
+  blade-displacement math: `displace(variant, params, inputs, g) -> Vector3` (gust value `g` supplied
+  by the caller so the texture is factored out). This is the testable reference for parity
+  (AR-PLAY-GRASS-6); it mirrors the shader's v0 branch exactly and may also encode v1–v4.
+- **Scene controller** `src/playground/grass_wind_playground.gd` (`extends Node3D`, modelled on
+  `scenes/test_fauna/test_fauna.gd`): builds the lawn MultiMesh from
+  **`VillageGrassMesh.blade_tuft_mesh()`** (reused as-is — already a standalone static; **no edit to
+  `village_backdrop.gd`**) scattered on a deterministic LCG grid over `lawn_size_m` at
+  `blade_density` (debounced rebuild on change); owns the playground `ShaderMaterial`; drives
+  `GrassWindClock` each frame and pushes state+knobs to the material; owns a scale post (1.8 m) + 1 m
+  grid + sage lawn plane; time controls (Pause / slow-mo / Reset phase / Force gust now); camera
+  presets (eye-level / top-down / orbit-45) + free orbit reusing `DebugCamera.solve/clamp_*` statics
+  (or a `test_fauna`-style local orbit) — **no new rig**; and a `--out=` / `--variant=` / `--preset=`
+  CLI (same `OS.get_cmdline_user_args()` + PNG-capture pattern as `test_fauna.gd`) for scripted QA
+  capture, interactive when no `--out`.
+- **Scene** `scenes/playground/grass_wind_playground.tscn`: `Node3D` root (controller script),
+  `WorldEnvironment` (sky/ambient like `test_fauna`), `DirectionalLight3D`, `Camera3D`, a lawn
+  container `Node3D`, and a `CanvasLayer` hosting the `KnobPanel`.
+
+### AR-PLAY-GRASS-6 — File-by-file change list
+
+| File | New/Edit | Responsibility |
+|------|----------|----------------|
+| `src/presentation/fauna/grass_wind_clock.gd` | **new** | `GrassWindClock` — single pure SD-WIND-1 update rule (helpers above). |
+| `src/presentation/fauna/ambient_wind.gd` | **edit** | Delegate integration/derivations to `GrassWindClock`; **outputs unchanged**. |
+| `src/playground/grass_wind_params.gd` | **new** | `GrassWindParams : Resource` — knobs, defaults==prod, dict/JSON, presets. |
+| `src/playground/grass_wind_knob_spec.gd` | **new** | Static knob spec table (name/label/group/type/range/variant-visibility). |
+| `src/playground/knob_panel.gd` | **new** | Generic spec-driven `KnobPanel` (reused by ivy-hn8b). |
+| `src/playground/grass_wind_math.gd` | **new** | `GrassWindMath` CPU mirror of blade displacement (parity reference). |
+| `src/playground/grass_wind_playground.gd` | **new** | Scene controller: lawn, material, clock, camera, time, CLI. |
+| `scenes/playground/grass_wind_playground.tscn` | **new** | Standalone scene wiring the above. |
+| `src/render/shaders/grass_wind_playground.gdshader` | **new** | Per-material uniforms + `pg_variant` dispatch; v0 parity port + v1–v4. |
+| `test/test_grass_wind_params.gd` | **new** | Defaults==prod; dict round-trip; presets; JSON schema. |
+| `test/test_grass_wind_parity.gd` | **new** | SD-PLAY-GRASS-6.1 + 6.2 parity (≤1e-6). |
+| `test/test_grass_wind_no_leakage.gd` | **new** | SD-PLAY-GRASS-6.3 global-untouched proof. |
+| `test/test_grass_wind_playground_scene.gd` | **new** | Scene loads headless; lawn count>0; panel has ≥3 variants incl. v0. |
+
+**Do not touch:** `wind_gust.gdshaderinc`, `leaf.gdshader`, `grass_blade.gdshader`,
+`grass_accent.gdshader`, `project.godot [shader_globals]`, `village_backdrop.gd`,
+`VillageScatterPositions` (production grass layout).
+
+### AR-PLAY-GRASS-7 — Test plan
+
+1. **`test_grass_wind_parity.gd` (the hard gate, SD-PLAY-GRASS-6.1).** Over a fixed sample set of
+   `(vertex_model, h, H, model_matrix, root_world_xz, hash, g)`, assert `GrassWindMath.displace(0,
+   default_params, inputs, g)` equals an **independent literal transcription** of
+   `ivy_wind_tip_displace_model` (same `0.10/0.45/0.04/0.4/1.3`, `h²`, droop, `strength<0.001`
+   early-out) to **≤1e-6**. The same `g` is fed to both sides so the gust texture is factored out.
+2. **Clock parity (SD-PLAY-GRASS-6.2, same file).** With default params, `gate=1`, `time_scale=1`,
+   assert `GrassWindClock` integration reproduces `AmbientWind.advance(NORMAL, dt)` phase/scroll/
+   envelope/direction across N steps (≤1e-6).
+3. **`test_grass_wind_params.gd`.** Group A/B defaults == `AmbientWind` constants; Group C/D defaults
+   == the documented shader literals; `to_dict`→`from_dict` round-trips every field; each preset
+   overrides only its named knobs; `to_json_block()` matches the SD-PLAY-GRASS-5 schema/shape.
+4. **`test_grass_wind_no_leakage.gd` (SD-PLAY-GRASS-6.3).** Snapshot the four `ivy_wind_*` globals,
+   instantiate + `_ready` + tick the playground headless for several frames, assert the globals are
+   byte-identical afterward and that the playground never calls
+   `RenderingServer.global_shader_parameter_set` (grep-level assertion + value check).
+5. **`test_grass_wind_playground_scene.gd`.** Scene instantiates headless with no errors; lawn
+   MultiMesh `instance_count > 0`; `KnobPanel` built from the spec exposes a variant selector with
+   ≥3 entries incl. "0 — Current (production)" and one control per Group A/B/C knob.
+6. **Regression (must stay green):** full GUT suite (`run-tests` skill), `test_ambient_wind*.gd`,
+   `test_village_grass_mesh.gd`. A **`run-ui-script` scenario is *not* the right check here** — the
+   playground is its own scene with a `--variant`/`--preset`/`--out` CLI, not the main game flow; use
+   the standalone capture in AR-PLAY-GRASS-8 for visual evidence instead.
+
+### AR-PLAY-GRASS-8 — Screenshot procedure
+
+- New `.gd`/`.gdshader`/`.tscn` files need `Godot --headless --import` once to emit `.uid`/import
+  metadata before they resolve. Screenshots need a **real, non-headless** Godot run on macOS.
+- Capture each variant/preset via the scene's own CLI (mirrors `test_fauna.gd`):
+  `Godot res://scenes/playground/grass_wind_playground.tscn -- --variant=0 --preset=Production
+  --out=res://.tmp/grass_wind_playground/v0_production.png` — loop variants 0..4 and the
+  SD-PLAY-GRASS-5 presets; land all PNGs under `.tmp/grass_wind_playground/`.
+- For the parity eyeball, also capture production grass at matching camera/defaults and diff/compare
+  (QA ivy-9d4n owns the fuzzy feel sign-off and before/after links).
+
+### AR-PLAY-GRASS-9 — Risks, backward-compat, non-goals
+
+**Risks & mitigations.** (R1) *Shader v0 drifts from production* → `GrassWindMath` CPU mirror +
+parity test; v0 branch is a literal transcription whose defaults reduce to the production numbers;
+residual shader↔mirror drift (GUT can't run GLSL) is caught by code-review diff + the QA parity
+screenshot. (R2) *Global leakage* → per-material uniforms + local sampler only; leakage test pins
+it. (R3) *AmbientWind refactor changes outputs* → arithmetic moved verbatim, existing
+`test_ambient_wind*.gd` is the gate, plus the defaults-parity assertion. (R4) *Leaf/production shader
+regression* → those files are not edited (zero risk by construction). (R5) *Lawn rebuild hitch on
+density/size change* → debounce; acceptable in a dev tool. (R6) *Production performance* → unchanged;
+production compiles only `grass_blade.gdshader`, no `pg_variant`, no new globals.
+
+**Backward-compat expectations.** Production grass + leaf render byte-for-byte unchanged;
+`AmbientWind` public API and outputs unchanged; `project.godot` globals unchanged;
+`VillageGrassMesh.blade_tuft_mesh()` reused without modification.
+
+**Non-goals (architect).** Writing production/gameplay code; the ivy-growth playground (ivy-hn8b —
+it *reuses* `KnobPanel` + the params/spec pattern with its own spec); changing the production grass
+look, constants, or `AmbientWind` behaviour; editing `wind_gust.gdshaderinc` / `leaf.gdshader` /
+`grass_blade.gdshader` / `village_backdrop.gd`; a weather module, wind↔growth coupling, or
+light-bake interaction; player-facing UI; per-blade CPU simulation or MultiMesh buffer rewrites; a
+new camera rig (reuse `DebugCamera` statics); tall grass tiers 10–11.
+
+### AR-PLAY-GRASS-10 — Handoff to Gameplay Programmer (ivy-80a)
+
+Implement test-first in this order: (1) `GrassWindClock` + delegate `AmbientWind` to it (green
+`test_ambient_wind*`); (2) `GrassWindParams` + `GrassWindKnobSpec` + `GrassWindMath` with
+`test_grass_wind_params.gd` and `test_grass_wind_parity.gd`; (3) `grass_wind_playground.gdshader`
+(v0 parity branch first, then v1–v4); (4) `KnobPanel`; (5) scene controller + `.tscn` with
+`test_grass_wind_no_leakage.gd` + `test_grass_wind_playground_scene.gd`; (6) CLI capture + QA PNGs.
+Cite `AR-PLAY-GRASS-*` and `SD-PLAY-GRASS-*` in close notes. Keep vertex-only, no `src/sim/*`, no
+per-blade CPU, no `RenderingServer` global writes.
+
+---
+
 ## AR-PARAM — The parameter resource (INV-6, SD-PARAM)
 
 ### AR-PARAM-1 — One resource, injected

@@ -1,6 +1,25 @@
 #!/usr/bin/env bash
 # Run GUT headlessly and fail if any test script was skipped due to parse/load errors.
 # GUT alone can exit 0 when scripts are ignored (ivy-t3o).
+#
+# AGENTS: do not invoke this script (it needs extra permissions). Copy the commands
+# below and run them directly with working_directory = the project root. Run one
+# Godot test process at a time, and never kill Godot processes you did not start.
+#
+#   # 1. Run GUT, saving the log inside the workspace (pick ONE -gdir / -gtest form):
+#   /Applications/Godot.app/Contents/MacOS/Godot --headless --script addons/gut/gut_cmdln.gd -gdir=res://test -gexit > .tmp/gut.log 2>&1; echo "godot exit $?"
+#   #    slow:     -gdir=res://test/slow
+#   #    full:     -gdir=res://test -gdir=res://test/slow
+#   #    one file: -gtest=res://test/test_foo.gd   (instead of -gdir; full res:// path)
+#
+#   # 2. Show the result summary:
+#   tail -40 .tmp/gut.log
+#
+#   # 3. Check for skipped/broken scripts. Any output here means the run is NOT clean,
+#   #    even if GUT printed "All tests passed":
+#   grep -E 'Ignoring script res://test/|SCRIPT ERROR: Parse Error:.*\(res://test/|Failed to load script "res://test/|\[ERROR\]:  Nothing was run\.' .tmp/gut.log
+#
+# The run is clean only if: godot exit is 0, the summary shows no failures, and step 3 prints nothing.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

@@ -24,6 +24,24 @@ const PLANT_PIECES: Array[String] = [
 	"Plant_7_Big",
 ]
 
+const CLOVER_PIECES: Array[String] = [
+	"Clover_1",
+	"Clover_2",
+]
+
+## Village pond metrics — sourced from VillagePondSite (ivy-86l placement).
+const POND_WATER_RADIUS_M := VillagePondSite.MEAN_WATER_RADIUS_M
+const POND_BANK_OUTER_M := VillagePondSite.BANK_OUTER_M
+const POND_GRASS_CLEARANCE_M := VillagePondSite.SCATTER_CLEARANCE_M
+const CLOVER_LCG_SEED := 8601
+## Three jittered clover bands on the bank (inner → outer); outer band fades to lawn grass.
+const CLOVER_RING_ALONG := [0.24, 0.46, 0.68]
+const CLOVER_RING_SPACING_M := [0.40, 0.54, 0.72]
+const CLOVER_RING_PLACE_CHANCE := [1.0, 0.85, 0.52]
+const CLOVER_ARC_JITTER_M := 0.17
+const CLOVER_RADIAL_JITTER_M := 0.11
+const CLOVER_MIN_INSTANCES := 18
+
 # SD-GRASS-2 blade tuft lawn + wispy accents (SD-GRASS-1 card tier superseded).
 const GRASS_LCG_SEED := 42007
 const GRASS_ACCENT_LCG_SEED := 42042
@@ -38,6 +56,12 @@ const GRASS_FULL_DENSITY_OUTER_M := 12.0
 const GRASS_RING_OUTER_M := 14.5
 const GRASS_GRID_STEP_M := 0.17
 const GRASS_MAX_INSTANCES := 18000
+const GRASS_MAX_INSTANCES_GENERATED := 48000
+const GRASS_GRID_STEP_GENERATED_M := 0.12
+## Grid step that yields 48k blades within GRASS_RING_OUTER_GENERATED_M (ivy-vlr R3).
+const GRASS_GRID_STEP_GENERATED_FILL_M := 0.21
+## 0.85 × GENERATED_LAWN_RADIUS (56 m) — lush disk on G (ivy-3l6-C).
+const GRASS_RING_OUTER_GENERATED_M := 47.6
 const GRASS_PATCH_CELL_M := 2.5
 const GRASS_ANCHOR_HASH_CELL_M := 1.0
 const GRASS_ACCENT_COUNT := 48
@@ -46,6 +70,21 @@ const GRASS_ACCENT_OUTER_M := 11.5
 const COTTAGE_MARGIN := 0.35
 const PATH_CLEARANCE_M := 0.55
 const PLANT_CLEARANCE_M := 0.45
+const PATH_SPATIAL_CELL_M := 2.0
+const GRASS_FORBIDDEN_CELL_M := 0.5
+## Set true to accumulate stage timings in grass_profile_last_usec (headless profiling).
+const GRASS_PROFILE := false
+static var grass_profile_last_usec: Dictionary = {}
+static var _grass_blocks_pond_center: Vector2 = Vector2(1e9, 1e9)
+static var _grass_blocks_pond_far_sq: float = 0.0
+static var _grass_pond_exclusion_rect: Rect2 = Rect2()
+static var _grass_pond_water_rect: Rect2 = Rect2()
+static var _grass_patch_noise_grid: Dictionary = {}
+static var _grass_path_influence_rect: Rect2 = Rect2()
+static var _grass_anchor_cache_sig: int = -1
+static var _grass_anchor_cache: Array[Vector2] = []
+## Stop generated fill here when sparse outer disk would dominate CPU (≥30k blades in tests).
+const GRASS_GENERATED_FILL_CAP := 48000
 
 static func lcg_step(state: int) -> int:
 	return (state * 1664525 + 1013904223) & 0x7FFFFFFF
@@ -63,7 +102,8 @@ static func lcg_f01(state: int) -> float:
 static func bush_common_positions(
 		cottages: Array = [],
 		bush_filler_inner: float = 8.0,
-		bush_filler_outer: float = 15.0) -> Array[Transform3D]:
+		bush_filler_outer: float = 15.0,
+		filler_centre_xz: Vector2 = Vector2.ZERO) -> Array[Transform3D]:
 	# Resolve default: empty sentinel → use the authored classic COTTAGES.
 	if cottages.is_empty():
 		cottages = VillageBackdrop.COTTAGES
@@ -85,6 +125,8 @@ static func bush_common_positions(
 				continue
 			if VillageLayout.inside_cottages(cottages, p, 0.3):
 				continue
+			if blocks_scatter_at(p):
+				continue
 			var cx: float = p.x
 			var cz: float = p.y
 			st = lcg_step(st); var s: float = lerpf(0.55, 0.80, lcg_f01(st))
@@ -96,9 +138,12 @@ static func bush_common_positions(
 	while placed_extra < 10:
 		st2 = lcg_step(st2); var angle: float = lcg_f01(st2) * TAU
 		st2 = lcg_step(st2); var r: float = lerpf(bush_filler_inner, bush_filler_outer, lcg_f01(st2))
-		var cx2: float = cos(angle) * r
-		var cz2: float = sin(angle) * r
-		if Vector2(cx2, cz2).length() < 5.0 or VillageLayout.inside_cottages(cottages, Vector2(cx2, cz2), 1.0):
+		var cx2: float = filler_centre_xz.x + cos(angle) * r
+		var cz2: float = filler_centre_xz.y + sin(angle) * r
+		if Vector2(cx2, cz2).distance_to(filler_centre_xz) < 5.0 \
+				or VillageLayout.inside_cottages(cottages, Vector2(cx2, cz2), 1.0):
+			continue
+		if blocks_scatter_at(Vector2(cx2, cz2)):
 			continue
 		st2 = lcg_step(st2); var s2: float = lerpf(0.55, 0.80, lcg_f01(st2))
 		st2 = lcg_step(st2); var rot2: float = lcg_f01(st2) * TAU
@@ -106,6 +151,230 @@ static func bush_common_positions(
 		out.append(Transform3D(basis2, Vector3(cx2, 0.0, cz2)))
 		placed_extra += 1
 	return out
+
+
+const _FOREST_LCG_SEED := 7
+const _FOREST_MIN_SEP_M := 3.0
+const _FOREST_W_MAX := 1.45
+const _FOREST_BACK_YARD_Z_MAX := 5.5
+const _FOREST_WEDGE_Z_MAX := 38.0
+const _FOREST_WEDGE_X_HALF := 18.0
+const _FOREST_WEDGE_PHI_HALF_RAD := 0.62
+const _FOREST_WEDGE_R_INSET_M := 3.0
+const _FOREST_WEDGE_R_OUTSET_M := 11.0
+const _FOREST_COLLAR_INSET_M := 2.0
+const _FOREST_COLLAR_OUTER_M := 12.0
+## CamSun authored at rig-local +Z≈8, view toward −Z; keep trunks off this south approach only.
+const _FOREST_CAMSUN_X_HALF := 5.0
+const _FOREST_CAMSUN_Z_MIN := 2.0
+const _FOREST_CAMSUN_Z_MAX := 9.5
+const _FOREST_WEDGE_SAMPLE_FRAC := 0.84
+const _FOREST_WEDGE_QUOTA_FRAC := 0.72
+const _FOREST_WEDGE_MIN_BEFORE_COLLAR := 26
+
+
+## Classic horizon ring at layout origin (INV-15 bit-identical).
+static func classic_pine_ring_positions(layout: VillageLayout) -> Array[Transform3D]:
+	var out: Array[Transform3D] = []
+	var n := layout.pine_count
+	var st := _FOREST_LCG_SEED
+	for i in range(n):
+		st = lcg_step(st)
+		var angle_jitter: float = (lcg_f01(st) - 0.5) * 0.5
+		var angle: float = (float(i) / n) * TAU + angle_jitter
+		st = lcg_step(st)
+		var r: float = lerpf(layout.pine_inner, layout.pine_outer, lcg_f01(st))
+		st = lcg_step(st)
+		var s: float = lerpf(1.0, 1.5, lcg_f01(st))
+		st = lcg_step(st)
+		var rot: float = lcg_f01(st) * TAU
+		var basis := Basis.from_euler(Vector3(0.0, rot, 0.0)).scaled(Vector3(s, s, s))
+		out.append(Transform3D(basis, Vector3(cos(angle) * r, 0.0, sin(angle) * r)))
+	return out
+
+
+static func forest_tree_xz(layout: VillageLayout) -> Array[Vector2]:
+	var xf := forest_tree_positions(layout)
+	var out: Array[Vector2] = []
+	for t in xf:
+		out.append(Vector2(t.origin.x, t.origin.z))
+	return out
+
+
+## Generated: dense +Z wedge + G-centred collar; classic: pivot annulus (ivy-3l6-C).
+static func forest_tree_positions(layout: VillageLayout) -> Array[Transform3D]:
+	if not layout.is_generated:
+		return classic_pine_ring_positions(layout)
+	var g := layout.hamlet_centre_xz
+	var r_lawn := layout.lawn_radius
+	var target := layout.pine_count
+	var path_segments: Array = layout.path_polylines()
+	var accepted: Array[Vector2] = []
+	var st := _FOREST_LCG_SEED
+	var attempts := 0
+	var max_attempts := target * 80
+	var wedge_quota := mini(target, int(ceil(float(target) * _FOREST_WEDGE_QUOTA_FRAC)))
+	while accepted.size() < target and attempts < max_attempts:
+		attempts += 1
+		st = lcg_step(st)
+		var wedge_only := accepted.size() < wedge_quota \
+				or accepted.size() < _FOREST_WEDGE_MIN_BEFORE_COLLAR
+		var p: Vector2
+		if wedge_only or lcg_f01(st) < _FOREST_WEDGE_SAMPLE_FRAC:
+			st = lcg_step(st)
+			var r_s := lerpf(
+				r_lawn - _FOREST_WEDGE_R_INSET_M, r_lawn + _FOREST_WEDGE_R_OUTSET_M, lcg_f01(st))
+			st = lcg_step(st)
+			var phi := lerpf(-_FOREST_WEDGE_PHI_HALF_RAD, _FOREST_WEDGE_PHI_HALF_RAD, lcg_f01(st))
+			p = g + Vector2(sin(phi) * r_s, cos(phi) * r_s)
+		else:
+			st = lcg_step(st)
+			var px2 := lerpf(g.x - 62.0, g.x + 62.0, lcg_f01(st))
+			st = lcg_step(st)
+			var pz2 := lerpf(g.y - 50.0, g.y + 42.0, lcg_f01(st))
+			p = Vector2(px2, pz2)
+		var w := _forest_accept_weight(p, g, r_lawn, layout)
+		if w <= 0.0:
+			continue
+		st = lcg_step(st)
+		if lcg_f01(st) > w / _FOREST_W_MAX:
+			continue
+		if not _forest_site_ok(p, layout, path_segments):
+			continue
+		var ok_sep := true
+		for other: Vector2 in accepted:
+			if p.distance_to(other) < _FOREST_MIN_SEP_M:
+				ok_sep = false
+				break
+		if not ok_sep:
+			continue
+		accepted.append(p)
+	if accepted.size() < _FOREST_WEDGE_MIN_BEFORE_COLLAR:
+		_forest_top_up_positions(accepted, _FOREST_WEDGE_MIN_BEFORE_COLLAR, g, r_lawn, layout, path_segments)
+	if accepted.size() < target:
+		_forest_top_up_positions(accepted, target, g, r_lawn, layout, path_segments, false)
+	var out: Array[Transform3D] = []
+	for p in accepted:
+		st = lcg_step(st)
+		var s: float = lerpf(1.0, 1.5, lcg_f01(st))
+		st = lcg_step(st)
+		var rot: float = lcg_f01(st) * TAU
+		var basis := Basis.from_euler(Vector3(0.0, rot, 0.0)).scaled(Vector3(s, s, s))
+		out.append(Transform3D(basis, Vector3(p.x, 0.0, p.y)))
+	return out
+
+
+static func _forest_in_wedge(p: Vector2, g: Vector2, r_lawn: float) -> bool:
+	if p.y <= VillageLayout.HERO_DOOR_STOOP.y + 1.0:
+		return false
+	var dg := p - g
+	var r_g := dg.length()
+	if r_g < r_lawn - _FOREST_WEDGE_R_INSET_M or r_g > r_lawn + _FOREST_WEDGE_R_OUTSET_M:
+		return false
+	var phi := atan2(dg.x, dg.y)
+	return absf(phi) <= _FOREST_WEDGE_PHI_HALF_RAD
+
+
+static func _forest_top_up_positions(
+		accepted: Array[Vector2],
+		target: int,
+		g: Vector2,
+		r_lawn: float,
+		layout: VillageLayout,
+		path_segments: Array,
+		wedge_only: bool = true) -> void:
+	var r_step := _FOREST_MIN_SEP_M
+	var phi_step := 0.12
+	var r := r_lawn - _FOREST_WEDGE_R_INSET_M
+	while r <= r_lawn + _FOREST_WEDGE_R_OUTSET_M and accepted.size() < target:
+		var phi := -_FOREST_WEDGE_PHI_HALF_RAD
+		while phi <= _FOREST_WEDGE_PHI_HALF_RAD and accepted.size() < target:
+			var p := g + Vector2(sin(phi) * r, cos(phi) * r)
+			if wedge_only or _forest_in_wedge(p, g, r_lawn):
+				_forest_try_accept_forest(p, accepted, g, r_lawn, layout, path_segments)
+			phi += phi_step
+		r += r_step
+	if wedge_only or accepted.size() >= target:
+		return
+	r = r_lawn - _FOREST_COLLAR_INSET_M
+	while r <= r_lawn + _FOREST_COLLAR_OUTER_M and accepted.size() < target:
+		var phi := -1.2
+		while phi <= 1.2 and accepted.size() < target:
+			var p := g + Vector2(sin(phi) * r, cos(phi) * r)
+			if not _forest_in_wedge(p, g, r_lawn):
+				_forest_try_accept_forest(p, accepted, g, r_lawn, layout, path_segments)
+			phi += phi_step
+		r += r_step
+
+
+static func _forest_try_accept_forest(
+		p: Vector2,
+		accepted: Array[Vector2],
+		g: Vector2,
+		r_lawn: float,
+		layout: VillageLayout,
+		path_segments: Array) -> bool:
+	if _forest_accept_weight(p, g, r_lawn, layout) <= 0.0:
+		return false
+	if not _forest_site_ok(p, layout, path_segments):
+		return false
+	for other: Vector2 in accepted:
+		if p.distance_to(other) < _FOREST_MIN_SEP_M:
+			return false
+	accepted.append(p)
+	return true
+
+
+static func _forest_accept_weight(p: Vector2, g: Vector2, r_lawn: float, _layout: VillageLayout) -> float:
+	var dg := p - g
+	var r_g := dg.length()
+	if p.y <= _FOREST_BACK_YARD_Z_MAX and r_g < r_lawn:
+		return 0.0
+	if _forest_in_wedge(p, g, r_lawn):
+		return 1.45
+	if r_g >= r_lawn - _FOREST_COLLAR_INSET_M and r_g <= r_lawn + _FOREST_COLLAR_OUTER_M \
+			and p.y <= g.y + 6.0:
+		var w := 0.55
+		var phi := rad_to_deg(atan2(dg.x, -(dg.y)))
+		if absf(phi) <= 75.0 and r_g >= r_lawn - _FOREST_COLLAR_INSET_M \
+				and r_g <= r_lawn + 10.0:
+			w = 0.75
+		return w
+	if p.y > 0.0 and p.y <= _FOREST_BACK_YARD_Z_MAX:
+		return 0.0
+	return 0.06
+
+
+const _FOREST_HERO_KEEP_CLEAR_M := 13.0
+
+
+## True when a trunk at [param p] would sit in the CamSun → village sight corridor (tests + placement).
+static func forest_blocks_camsun_view(p: Vector2) -> bool:
+	return _forest_camsun_corridor(p)
+
+
+static func _forest_camsun_corridor(p: Vector2) -> bool:
+	var h := VillageLayout.HERO_DOOR_STOOP
+	if p.y > h.y + 7.0:
+		return false
+	if p.y < _FOREST_CAMSUN_Z_MIN or p.y > _FOREST_CAMSUN_Z_MAX:
+		return false
+	return absf(p.x - h.x) <= _FOREST_CAMSUN_X_HALF
+
+
+static func _forest_site_ok(p: Vector2, layout: VillageLayout, path_segments: Array) -> bool:
+	if VillageLayout.inside_cottages(layout.cottages, p, 0.45):
+		return false
+	if blocks_scatter_at(p):
+		return false
+	if min_xz_dist_to_path_segments(p, path_segments) < 0.55:
+		return false
+	if _forest_camsun_corridor(p):
+		return false
+	var g := layout.hamlet_centre_xz
+	if p.distance_to(g) < layout.lawn_radius - 4.0:
+		return false
+	return true
 
 
 ## Dense blade tuft instances (SD-GRASS-2).
@@ -138,67 +407,355 @@ static func grass_positions(ctx: VillageGrassExclusionContext) -> Array[Transfor
 
 
 static func _grass_blade_grid_positions(ctx: VillageGrassExclusionContext) -> Array[Transform3D]:
+	_grass_exclusion_session_begin(ctx)
+	if GRASS_PROFILE:
+		grass_profile_last_usec = {
+			"setup": 0, "loop": 0, "path_setup": 0, "anchors": 0, "trim": 0}
+	var t_setup := Time.get_ticks_usec() if GRASS_PROFILE else 0
+	var grid_out := _grass_blade_grid_fill(ctx)
+	if GRASS_PROFILE:
+		grass_profile_last_usec["setup"] = Time.get_ticks_usec() - t_setup
+	_grass_exclusion_session_end()
+	return grid_out
+
+
+static func _grass_blade_grid_fill(ctx: VillageGrassExclusionContext) -> Array[Transform3D]:
 	var out: Array[Transform3D] = []
-	var anchors := collect_scatter_anchor_xz(ctx)
+	var t_anchors := Time.get_ticks_usec() if GRASS_PROFILE else 0
+	var anchors := _grass_scatter_anchors_cached(ctx)
+	if GRASS_PROFILE:
+		grass_profile_last_usec["anchors"] = Time.get_ticks_usec() - t_anchors
 	var anchor_hash := _build_anchor_spatial_hash(anchors, GRASS_ANCHOR_HASH_CELL_M)
-	var half := GRASS_RING_OUTER_M + GRASS_GRID_STEP_M
-	var n_cells := int(ceil((2.0 * half) / GRASS_GRID_STEP_M))
+	var t_path := Time.get_ticks_usec() if GRASS_PROFILE else 0
+	var path_records := _path_segment_clearance_records(ctx.path_segments)
+	var path_hash := _build_path_spatial_hash(path_records, PATH_SPATIAL_CELL_M)
+	_grass_path_influence_rect = _path_clearance_influence_rect(path_records)
+	if GRASS_PROFILE:
+		grass_profile_last_usec["path_setup"] = Time.get_ticks_usec() - t_path
+	# Classic 0.17 m; generated 0.21 m fills 48k on G before outer ring exhaust (ivy-vlr R3).
+	var grid_step := GRASS_GRID_STEP_M if not ctx.generated_grass else GRASS_GRID_STEP_GENERATED_FILL_M
+	var ring_outer := GRASS_RING_OUTER_GENERATED_M if ctx.generated_grass else GRASS_RING_OUTER_M
+	var grass_cap := GRASS_MAX_INSTANCES_GENERATED if ctx.generated_grass else GRASS_MAX_INSTANCES
+	if ctx.generated_grass:
+		grass_cap = mini(grass_cap, GRASS_GENERATED_FILL_CAP)
+	var g := ctx.grid_centre_xz if ctx.generated_grass else Vector2.ZERO
+	var hero_ref := ctx.hero_reference_xz if ctx.generated_grass else Vector2.ZERO
+	var t_forbid := Time.get_ticks_usec() if GRASS_PROFILE else 0
+	var forbidden := _build_grass_forbidden_coarse(
+		ctx, g, hero_ref, ring_outer, grid_step, path_records, path_hash, anchor_hash)
+	if GRASS_PROFILE:
+		grass_profile_last_usec["forbidden"] = Time.get_ticks_usec() - t_forbid
+	var trust_forbidden := not forbidden.is_empty()
+	var half := ring_outer + grid_step
+	var n_cells := int(ceil((2.0 * half) / grid_step))
 	var st := GRASS_LCG_SEED
-	for iy in range(n_cells):
-		for ix in range(n_cells):
-			var cx := -half + (float(ix) + 0.5) * GRASS_GRID_STEP_M
-			var cz := -half + (float(iy) + 0.5) * GRASS_GRID_STEP_M
-			var center := Vector2(cx, cz)
-			var r_center := center.length()
-			if r_center < GRASS_HERO_FRINGE_INNER_M or r_center > GRASS_RING_OUTER_M:
-				continue
-			st = lcg_step(st)
-			var jx: float = (lcg_f01(st) - 0.5) * GRASS_GRID_STEP_M
-			st = lcg_step(st)
-			var jz: float = (lcg_f01(st) - 0.5) * GRASS_GRID_STEP_M
-			var p := center + Vector2(jx, jz)
-			var r := p.length()
-			if r < GRASS_HERO_FRINGE_INNER_M or r > GRASS_RING_OUTER_M:
-				continue
-			if r < GRASS_HERO_FOOTPRINT_R:
-				continue
-			if ctx.is_inside_cottage.is_valid() and ctx.is_inside_cottage.call(p):
-				continue
-			if min_xz_dist_to_path_segments(p, ctx.path_segments) < PATH_CLEARANCE_M:
-				continue
-			if _anchor_blocks(p, anchor_hash, PLANT_CLEARANCE_M, GRASS_ANCHOR_HASH_CELL_M):
-				continue
-			st = lcg_step(st)
-			var hero_keep := _grass_hero_fringe_keep(r, p) if r < GRASS_RING_INNER_M \
-					else _grass_hero_density_keep(r, p)
-			if lcg_f01(st) > hero_keep:
-				continue
-			if r > GRASS_FULL_DENSITY_OUTER_M:
-				var keep_p := 1.0 - (r - GRASS_FULL_DENSITY_OUTER_M) \
-						/ (GRASS_RING_OUTER_M - GRASS_FULL_DENSITY_OUTER_M)
-				st = lcg_step(st)
-				if lcg_f01(st) > keep_p:
-					continue
-			st = lcg_step(st)
-			var rot: float = lcg_f01(st) * TAU
-			st = lcg_step(st)
-			var s_rand: float = lerpf(0.8, 1.1, lcg_f01(st))
-			var patch := lerpf(0.8, 1.15, _grass_patch_noise(p))
-			var hero := _grass_hero_height_scale(r)
-			var fade_h := _grass_fade_height_scale(r)
-			var s: float = s_rand * patch * hero * fade_h
-			var basis := Basis.from_euler(Vector3(0.0, rot, 0.0)).scaled(Vector3(s, s, s))
-			out.append(Transform3D(basis, Vector3(p.x, 0.0, p.y)))
-	trim_grass_instances_to_cap(out, GRASS_MAX_INSTANCES)
+	var t_loop := Time.get_ticks_usec() if GRASS_PROFILE else 0
+	var mid := n_cells / 2
+	for rad in range(n_cells / 2 + 1):
+		if out.size() >= grass_cap:
+			break
+		for dx in range(-rad, rad + 1):
+			if out.size() >= grass_cap:
+				break
+			st = _grass_blade_try_grid_ixiy(
+				ctx, out, mid + dx, mid - rad, n_cells, g, half, grid_step,
+				hero_ref, ring_outer, grass_cap, path_records, path_hash, anchor_hash,
+				forbidden, trust_forbidden, st)
+			st = _grass_blade_try_grid_ixiy(
+				ctx, out, mid + dx, mid + rad, n_cells, g, half, grid_step,
+				hero_ref, ring_outer, grass_cap, path_records, path_hash, anchor_hash,
+				forbidden, trust_forbidden, st)
+		for dy in range(-rad + 1, rad):
+			if out.size() >= grass_cap:
+				break
+			st = _grass_blade_try_grid_ixiy(
+				ctx, out, mid - rad, mid + dy, n_cells, g, half, grid_step,
+				hero_ref, ring_outer, grass_cap, path_records, path_hash, anchor_hash,
+				forbidden, trust_forbidden, st)
+			st = _grass_blade_try_grid_ixiy(
+				ctx, out, mid + rad, mid + dy, n_cells, g, half, grid_step,
+				hero_ref, ring_outer, grass_cap, path_records, path_hash, anchor_hash,
+				forbidden, trust_forbidden, st)
+	if GRASS_PROFILE:
+		grass_profile_last_usec["loop"] = Time.get_ticks_usec() - t_loop
+	var t_trim := Time.get_ticks_usec() if GRASS_PROFILE else 0
+	var trim_origin := g if ctx.generated_grass else hero_ref
+	trim_grass_instances_to_cap(out, grass_cap, trim_origin)
+	if GRASS_PROFILE:
+		grass_profile_last_usec["trim"] = Time.get_ticks_usec() - t_trim
+		_grass_profile_print("classic_grid" if not ctx.generated_grass else "generated_grid")
 	return out
 
 
-static func trim_grass_instances_to_cap(out: Array[Transform3D], cap: int) -> void:
+static func _build_grass_forbidden_coarse(
+		ctx: VillageGrassExclusionContext,
+		g: Vector2,
+		hero_ref: Vector2,
+		_ring_outer: float,
+		grid_step: float,
+		path_records: Array,
+		_path_hash: Dictionary,
+		anchor_hash: Dictionary) -> Dictionary:
+	var cell := GRASS_FORBIDDEN_CELL_M
+	var jitter_slack := grid_step * 0.75
+	var anchor_clear := PLANT_CLEARANCE_M + jitter_slack
+	var out: Dictionary = {}
+	_forbidden_stamp_disk(out, hero_ref, GRASS_HERO_FOOTPRINT_R + jitter_slack, cell)
+	var path_pad := jitter_slack + GRASS_FORBIDDEN_CELL_M * 0.866
+	for rec in path_records:
+		var rect: Rect2 = rec["rect"]
+		_forbidden_stamp_rect(out, rect.grow(path_pad), cell)
+	if not ctx.cottage_exclusion_rects.is_empty():
+		for rect in ctx.cottage_exclusion_rects:
+			_forbidden_stamp_rect(out, rect, cell)
+	elif ctx.is_inside_cottage.is_valid():
+		for spec in VillageBackdrop.COTTAGES:
+			_forbidden_stamp_rect(
+				out, VillageBackdrop.cottage_exterior_rect(spec).grow(COTTAGE_MARGIN), cell)
+	_forbidden_stamp_rect(out, _grass_pond_water_rect.grow(POND_GRASS_CLEARANCE_M), cell)
+	if not ctx.generated_grass:
+		_forbidden_stamp_pond_bank(out, cell)
+	for key in anchor_hash.keys():
+		for a in anchor_hash[key] as Array[Vector2]:
+			_forbidden_stamp_disk(out, a, anchor_clear, cell)
+	return out
+
+
+static func _forbidden_stamp_rect(out: Dictionary, rect: Rect2, cell_m: float) -> void:
+	if rect.size.x <= 0.0 or rect.size.y <= 0.0:
+		return
+	var ix0 := int(floor(rect.position.x / cell_m))
+	var ix1 := int(floor((rect.position.x + rect.size.x) / cell_m))
+	var iy0 := int(floor(rect.position.y / cell_m))
+	var iy1 := int(floor((rect.position.y + rect.size.y) / cell_m))
+	for ix in range(ix0, ix1 + 1):
+		for iy in range(iy0, iy1 + 1):
+			out[Vector2i(ix, iy)] = true
+
+
+static func _forbidden_stamp_disk(
+		out: Dictionary, centre: Vector2, radius: float, cell_m: float) -> void:
+	if radius <= 0.0:
+		return
+	var rect := Rect2(centre.x - radius, centre.y - radius, radius * 2.0, radius * 2.0)
+	var r_sq := radius * radius
+	var ix0 := int(floor(rect.position.x / cell_m))
+	var ix1 := int(floor((rect.position.x + rect.size.x) / cell_m))
+	var iy0 := int(floor(rect.position.y / cell_m))
+	var iy1 := int(floor((rect.position.y + rect.size.y) / cell_m))
+	for ix in range(ix0, ix1 + 1):
+		for iy in range(iy0, iy1 + 1):
+			var p := Vector2((float(ix) + 0.5) * cell_m, (float(iy) + 0.5) * cell_m)
+			if p.distance_squared_to(centre) <= r_sq:
+				out[Vector2i(ix, iy)] = true
+
+
+static func _forbidden_stamp_pond_bank(out: Dictionary, cell_m: float) -> void:
+	var rect := _grass_pond_exclusion_rect
+	if rect.size.x <= 0.0:
+		return
+	var c := _grass_blocks_pond_center
+	var far_sq := _grass_blocks_pond_far_sq
+	var ix0 := int(floor(rect.position.x / cell_m))
+	var ix1 := int(floor((rect.position.x + rect.size.x) / cell_m))
+	var iy0 := int(floor(rect.position.y / cell_m))
+	var iy1 := int(floor((rect.position.y + rect.size.y) / cell_m))
+	for ix in range(ix0, ix1 + 1):
+		for iy in range(iy0, iy1 + 1):
+			var p := Vector2((float(ix) + 0.5) * cell_m, (float(iy) + 0.5) * cell_m)
+			if p.distance_squared_to(c) > far_sq:
+				continue
+			if _grass_pond_water_rect.has_point(p):
+				continue
+			if not rect.has_point(p):
+				continue
+			if blocks_grass_at(p):
+				out[Vector2i(ix, iy)] = true
+
+
+static func _grass_coarse_forbidden(forbidden: Dictionary, p: Vector2) -> bool:
+	if forbidden.is_empty():
+		return false
+	var cell := GRASS_FORBIDDEN_CELL_M
+	return forbidden.has(Vector2i(int(floor(p.x / cell)), int(floor(p.y / cell))))
+
+
+static func _grass_blade_try_grid_ixiy(
+		ctx: VillageGrassExclusionContext,
+		out: Array[Transform3D],
+		ix: int,
+		iy: int,
+		n_cells: int,
+		g: Vector2,
+		half: float,
+		grid_step: float,
+		hero_ref: Vector2,
+		ring_outer: float,
+		grass_cap: int,
+		path_records: Array,
+		path_hash: Dictionary,
+		anchor_hash: Dictionary,
+		forbidden: Dictionary,
+		trust_forbidden: bool,
+		st: int) -> int:
+	if out.size() >= grass_cap:
+		return st
+	if ix < 0 or iy < 0 or ix >= n_cells or iy >= n_cells:
+		return st
+	var cx := g.x - half + (float(ix) + 0.5) * grid_step
+	var cz := g.y - half + (float(iy) + 0.5) * grid_step
+	var center := Vector2(cx, cz)
+	var r_g_center := center.distance_to(g)
+	var r_h_center := center.distance_to(hero_ref)
+	if r_g_center > ring_outer:
+		return st
+	if not ctx.generated_grass and r_h_center < GRASS_HERO_FRINGE_INNER_M:
+		return st
+	if _grass_coarse_forbidden(forbidden, center):
+		return st
+	st = lcg_step(st)
+	var jx: float = (lcg_f01(st) - 0.5) * grid_step
+	st = lcg_step(st)
+	var jz: float = (lcg_f01(st) - 0.5) * grid_step
+	var p := center + Vector2(jx, jz)
+	var r_g := p.distance_to(g)
+	var r_h := p.distance_to(hero_ref)
+	if r_g > ring_outer:
+		return st
+	if not ctx.generated_grass and r_h < GRASS_HERO_FRINGE_INNER_M:
+		return st
+	if r_h < GRASS_HERO_FOOTPRINT_R:
+		return st
+	if trust_forbidden and _grass_coarse_forbidden(forbidden, p):
+		return st
+	if not trust_forbidden:
+		if _grass_path_influence_rect.has_point(p):
+			if _min_xz_dist_path_spatial(p, path_records, path_hash, PATH_SPATIAL_CELL_M) \
+					< PATH_CLEARANCE_M:
+				return st
+	if not trust_forbidden:
+		if blocks_grass_at(p):
+			return st
+		if _grass_cottage_blocks(p, ctx):
+			return st
+	var anchor_clear := PLANT_CLEARANCE_M + grid_step * 0.75
+	if _anchor_blocks(p, anchor_hash, anchor_clear, GRASS_ANCHOR_HASH_CELL_M):
+		return st
+	st = lcg_step(st)
+	var hero_keep := _grass_hero_fringe_keep(r_h, p) if r_h < GRASS_RING_INNER_M \
+			else _grass_hero_density_keep(r_h, p)
+	if lcg_f01(st) > hero_keep:
+		return st
+	if r_g > GRASS_FULL_DENSITY_OUTER_M:
+		var keep_p := 1.0 - (r_g - GRASS_FULL_DENSITY_OUTER_M) \
+				/ (ring_outer - GRASS_FULL_DENSITY_OUTER_M)
+		st = lcg_step(st)
+		if lcg_f01(st) > keep_p:
+			return st
+	st = lcg_step(st)
+	var rot: float = lcg_f01(st) * TAU
+	st = lcg_step(st)
+	var s_rand: float = lerpf(0.8, 1.1, lcg_f01(st))
+	var patch_noise := _grass_patch_noise(p)
+	var patch := lerpf(0.8, 1.15, patch_noise)
+	var hero := _grass_hero_height_scale(r_h)
+	var fade_h := _grass_fade_height_scale(r_g, ring_outer)
+	var s: float = s_rand * patch * hero * fade_h
+	if ctx.generated_grass:
+		# Slightly lusher at 0.21 m step (≈0.24 m visual density).
+		s *= lerpf(1.08, 1.22, patch_noise)
+	if not ctx.generated_grass and VillagePondShape.classic()._is_in_water(p, 0.0):
+		return st
+	var basis := Basis.from_euler(Vector3(0.0, rot, 0.0)).scaled(Vector3(s, s, s))
+	out.append(Transform3D(basis, Vector3(p.x, 0.0, p.y)))
+	return st
+
+
+static func _grass_scatter_anchors_light(ctx: VillageGrassExclusionContext) -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	for t in ctx.path_stones:
+		out.append(Vector2(t.origin.x, t.origin.z))
+	for t in ctx.bush_transforms:
+		out.append(Vector2(t.origin.x, t.origin.z))
+	return out
+
+
+static func _grass_exclusion_session_begin(ctx: VillageGrassExclusionContext) -> void:
+	_grass_blocks_pond_center = pond_center_xz()
+	_grass_blocks_pond_far_sq = (POND_BANK_OUTER_M + 2.5) * (POND_BANK_OUTER_M + 2.5)
+	_grass_pond_exclusion_rect = _pond_grass_exclusion_rect()
+	_grass_pond_water_rect = _pond_water_exclusion_rect()
+	_grass_patch_noise_grid.clear()
+
+
+static func _grass_exclusion_session_end() -> void:
+	_grass_blocks_pond_center = Vector2(1e9, 1e9)
+	_grass_blocks_pond_far_sq = 0.0
+	_grass_pond_exclusion_rect = Rect2()
+	_grass_pond_water_rect = Rect2()
+	_grass_patch_noise_grid.clear()
+
+
+static func _prewarm_grass_patch_noise(hero_ref: Vector2, ring_outer: float) -> void:
+	var cell := GRASS_PATCH_CELL_M
+	var extent := ring_outer + cell * 2.0
+	var ix0 := int(floor((hero_ref.x - extent) / cell))
+	var ix1 := int(floor((hero_ref.x + extent) / cell))
+	var iz0 := int(floor((hero_ref.y - extent) / cell))
+	var iz1 := int(floor((hero_ref.y + extent) / cell))
+	var r_sq := ring_outer * ring_outer
+	for ix in range(ix0, ix1 + 1):
+		for iz in range(iz0, iz1 + 1):
+			var cx := (float(ix) + 0.5) * cell
+			var cz := (float(iz) + 0.5) * cell
+			var p := Vector2(cx, cz)
+			if p.distance_squared_to(hero_ref) > r_sq + cell * cell * 2.0:
+				continue
+			_grass_patch_noise_grid[Vector2i(ix, iz)] = _grass_patch_noise(p)
+
+
+static func _grass_patch_noise_at(p: Vector2) -> float:
+	var cell := GRASS_PATCH_CELL_M
+	var key := Vector2i(int(floor(p.x / cell)), int(floor(p.y / cell)))
+	if _grass_patch_noise_grid.has(key):
+		return _grass_patch_noise_grid[key]
+	var v := _grass_patch_noise(p)
+	_grass_patch_noise_grid[key] = v
+	return v
+
+
+static func _grass_profile_print(label: String) -> void:
+	var u: Dictionary = grass_profile_last_usec
+	print(
+		"GRASS_PROFILE %s ms: setup=%.2f anchors=%.2f path=%.2f forbid=%.2f loop=%.2f trim=%.2f" % [
+			label,
+			float(u.get("setup", 0)) / 1000.0,
+			float(u.get("anchors", 0)) / 1000.0,
+			float(u.get("path_setup", 0)) / 1000.0,
+			float(u.get("forbidden", 0)) / 1000.0,
+			float(u.get("loop", 0)) / 1000.0,
+			float(u.get("trim", 0)) / 1000.0,
+		])
+
+
+static func _grass_cottage_blocks(p: Vector2, ctx: VillageGrassExclusionContext) -> bool:
+	if not ctx.cottage_exclusion_rects.is_empty():
+		for rect in ctx.cottage_exclusion_rects:
+			if rect.has_point(p):
+				return true
+		return false
+	if ctx.is_inside_cottage.is_valid():
+		return ctx.is_inside_cottage.call(p)
+	return false
+
+
+static func trim_grass_instances_to_cap(
+		out: Array[Transform3D], cap: int, sort_origin_xz: Vector2 = Vector2.ZERO) -> void:
 	if out.size() <= cap:
 		return
 	out.sort_custom(func(a: Transform3D, b: Transform3D) -> bool:
-		var ra := Vector2(a.origin.x, a.origin.z).length_squared()
-		var rb := Vector2(b.origin.x, b.origin.z).length_squared()
+		var ra := Vector2(a.origin.x, a.origin.z).distance_squared_to(sort_origin_xz)
+		var rb := Vector2(b.origin.x, b.origin.z).distance_squared_to(sort_origin_xz)
 		return ra < rb)
 	out.resize(cap)
 
@@ -234,13 +791,13 @@ static func _grass_hero_height_scale(r: float) -> float:
 	return lerpf(0.6, 1.0, (r - GRASS_RING_INNER_M) / 1.0)
 
 
-static func _grass_fade_height_scale(r: float) -> float:
+static func _grass_fade_height_scale(r: float, ring_outer: float = GRASS_RING_OUTER_M) -> float:
 	if r <= GRASS_FULL_DENSITY_OUTER_M:
 		return 1.0
-	if r >= GRASS_RING_OUTER_M:
+	if r >= ring_outer:
 		return 0.6
 	return lerpf(1.0, 0.6, (r - GRASS_FULL_DENSITY_OUTER_M) \
-			/ (GRASS_RING_OUTER_M - GRASS_FULL_DENSITY_OUTER_M))
+			/ (ring_outer - GRASS_FULL_DENSITY_OUTER_M))
 
 
 static func _grass_patch_noise(p: Vector2) -> float:
@@ -283,7 +840,7 @@ static func _anchor_blocks(
 			if not grid.has(key):
 				continue
 			for a in grid[key] as Array[Vector2]:
-				if p.distance_to(a) < clearance:
+				if p.distance_to(a) < clearance - 1e-6:
 					return true
 	return false
 
@@ -297,6 +854,84 @@ static func min_xz_dist_to_path_segments(p: Vector2, segments: Array) -> float:
 			var b := seg[i + 1] as Vector2
 			best = minf(best, _dist_point_to_segment(p, a, b))
 	return best
+
+
+static func _path_clearance_influence_rect(records: Array) -> Rect2:
+	if records.is_empty():
+		return Rect2(-1e6, -1e6, 2e6, 2e6)
+	var merged: Rect2 = records[0]["rect"]
+	for i in range(1, records.size()):
+		merged = merged.merge(records[i]["rect"])
+	return merged
+
+
+static func _path_segment_clearance_records(segments: Array) -> Array:
+	var out: Array = []
+	for seg_raw in segments:
+		var seg := seg_raw as Array
+		for i in range(seg.size() - 1):
+			var a := seg[i] as Vector2
+			var b := seg[i + 1] as Vector2
+			var min_x := minf(a.x, b.x) - PATH_CLEARANCE_M
+			var min_y := minf(a.y, b.y) - PATH_CLEARANCE_M
+			var max_x := maxf(a.x, b.x) + PATH_CLEARANCE_M
+			var max_y := maxf(a.y, b.y) + PATH_CLEARANCE_M
+			var rect := Rect2(min_x, min_y, max_x - min_x, max_y - min_y)
+			out.append({"a": a, "b": b, "rect": rect})
+	return out
+
+
+static func _build_path_spatial_hash(records: Array, cell_m: float) -> Dictionary:
+	var grid: Dictionary = {}
+	for idx in range(records.size()):
+		var rect: Rect2 = records[idx]["rect"]
+		var ix0 := int(floor(rect.position.x / cell_m))
+		var ix1 := int(floor((rect.position.x + rect.size.x) / cell_m))
+		var iz0 := int(floor(rect.position.y / cell_m))
+		var iz1 := int(floor((rect.position.y + rect.size.y) / cell_m))
+		for ix in range(ix0, ix1 + 1):
+			for iz in range(iz0, iz1 + 1):
+				var key := Vector2i(ix, iz)
+				if not grid.has(key):
+					grid[key] = [] as Array[int]
+				(grid[key] as Array[int]).append(idx)
+	return grid
+
+
+static func _min_xz_dist_path_spatial(
+		p: Vector2, records: Array, grid: Dictionary, cell_m: float) -> float:
+	var best := INF
+	var cx := int(floor(p.x / cell_m))
+	var cz := int(floor(p.y / cell_m))
+	var cell_radius := int(ceil(PATH_CLEARANCE_M / cell_m)) + 1
+	for dx in range(-cell_radius, cell_radius + 1):
+		for dz in range(-cell_radius, cell_radius + 1):
+			var key := Vector2i(cx + dx, cz + dz)
+			if not grid.has(key):
+				continue
+			for idx in grid[key] as Array[int]:
+				var rec = records[idx]
+				var rect: Rect2 = rec["rect"]
+				if not rect.has_point(p):
+					continue
+				best = minf(best, _dist_point_to_segment(p, rec["a"], rec["b"]))
+	return best
+
+
+static func _min_xz_dist_to_path_records(p: Vector2, records: Array) -> float:
+	return _min_xz_dist_path_spatial(
+		p, records, _build_path_spatial_hash(records, PATH_SPATIAL_CELL_M), PATH_SPATIAL_CELL_M)
+
+
+static func _grass_scatter_anchors_cached(ctx: VillageGrassExclusionContext) -> Array[Vector2]:
+	var sig := (1 if ctx.generated_grass else 0) \
+			^ (ctx.path_stones.size() << 1) \
+			^ (ctx.bush_transforms.size() << 9) \
+			^ (ctx.cottage_exclusion_rects.size() << 17)
+	if sig != _grass_anchor_cache_sig:
+		_grass_anchor_cache_sig = sig
+		_grass_anchor_cache = collect_scatter_anchor_xz(ctx)
+	return _grass_anchor_cache
 
 
 static func collect_scatter_anchor_xz(ctx: VillageGrassExclusionContext) -> Array[Vector2]:
@@ -317,6 +952,10 @@ static func collect_scatter_anchor_xz(ctx: VillageGrassExclusionContext) -> Arra
 		out.append(Vector2(t.origin.x, t.origin.z))
 	for t in ctx.bush_transforms:
 		out.append(Vector2(t.origin.x, t.origin.z))
+	var clover := clover_layers()
+	for piece in CLOVER_PIECES:
+		for t in clover[piece] as Array[Transform3D]:
+			out.append(Vector2(t.origin.x, t.origin.z))
 	return out
 
 
@@ -424,7 +1063,10 @@ static func flower_cluster_layers() -> Dictionary:
 	for _c in range(CLUSTER_COUNT):
 		st = lcg_step(st); var angle: float = lcg_f01(st) * TAU
 		st = lcg_step(st); var r: float = lerpf(5.5, 11.4, lcg_f01(st))
-		var center := Vector3(cos(angle) * r, 0.0, sin(angle) * r)
+		var center_xz := Vector2(cos(angle) * r, sin(angle) * r)
+		if blocks_scatter_at(center_xz):
+			continue
+		var center := Vector3(center_xz.x, 0.0, center_xz.y)
 		st = lcg_step(st)
 		var member_count := 3 if lcg_f01(st) < 0.45 else 4
 		for _m in range(member_count):
@@ -434,6 +1076,8 @@ static func flower_cluster_layers() -> Dictionary:
 			st = lcg_step(st); var s: float = lerpf(0.17, 0.23, lcg_f01(st))
 			st = lcg_step(st); var rot: float = lcg_f01(st) * TAU
 			var pos := center + Vector3(cos(off_a) * off_r, 0.0, sin(off_a) * off_r)
+			if blocks_scatter_at(Vector2(pos.x, pos.z)):
+				continue
 			var basis := Basis.from_euler(Vector3(0.0, rot, 0.0)).scaled(Vector3(s, s, s))
 			var piece: String = FLOWER_CLUSTER_PIECES[piece_idx]
 			(layers[piece] as Array[Transform3D]).append(Transform3D(basis, pos))
@@ -477,28 +1121,238 @@ static func petal_layers(path_stones: Array[Transform3D]) -> Dictionary:
 	return layers
 
 
+static func pond_center_xz() -> Vector2:
+	return VillagePondShape.active().center_xz()
+
+
+static func is_in_pond_water(p: Vector2, margin_m: float = 0.0) -> bool:
+	return VillagePondShape.is_in_water(p, margin_m)
+
+
+static func is_on_pond_clover_bank(p: Vector2) -> bool:
+	return VillagePondShape.is_on_clover_bank(p)
+
+
+static func blocks_scatter_at(p: Vector2) -> bool:
+	return VillagePondShape.blocks_scatter_at(p)
+
+
+static func _poly_padded_rect(poly: PackedVector2Array, pad: float) -> Rect2:
+	if poly.is_empty():
+		return Rect2()
+	var min_x := poly[0].x
+	var max_x := poly[0].x
+	var min_y := poly[0].y
+	var max_y := poly[0].y
+	for v in poly:
+		min_x = minf(min_x, v.x)
+		max_x = maxf(max_x, v.x)
+		min_y = minf(min_y, v.y)
+		max_y = maxf(max_y, v.y)
+	return Rect2(min_x - pad, min_y - pad, (max_x - min_x) + pad * 2.0, (max_y - min_y) + pad * 2.0)
+
+
+static func _pond_water_exclusion_rect() -> Rect2:
+	return _poly_padded_rect(
+		VillagePondShape.water_render_outline_xz(), POND_GRASS_CLEARANCE_M)
+
+
+static func _pond_grass_exclusion_rect() -> Rect2:
+	var poly := VillagePondShape.bank_outer_outline_xz()
+	return _poly_padded_rect(poly, POND_GRASS_CLEARANCE_M + 0.5)
+
+
+static func blocks_grass_at(p: Vector2) -> bool:
+	var pond_c := _grass_blocks_pond_center if _grass_blocks_pond_center.x < 1e8 else pond_center_xz()
+	if p.distance_squared_to(pond_c) > _grass_blocks_pond_far_sq if _grass_blocks_pond_center.x < 1e8 \
+			else (POND_BANK_OUTER_M + 2.5) * (POND_BANK_OUTER_M + 2.5):
+		return false
+	if is_in_pond_water(p, POND_GRASS_CLEARANCE_M):
+		return true
+	var bank_rect := _grass_pond_exclusion_rect if _grass_blocks_pond_center.x < 1e8 \
+			else _pond_grass_exclusion_rect()
+	if not bank_rect.has_point(p):
+		return false
+	var along := VillagePondShape.bank_shoreline_along_grass(p)
+	if along < 0.0:
+		return false
+	return along < VillagePondSite.GRASS_BANK_MIN_ALONG
+
+
+static func _closed_polyline_length(poly: PackedVector2Array) -> float:
+	var total := 0.0
+	var n := poly.size()
+	if n < 2:
+		return 0.0
+	for i in range(n):
+		total += poly[i].distance_to(poly[(i + 1) % n])
+	return total
+
+
+static func _point_on_closed_polyline(poly: PackedVector2Array, dist: float) -> Vector2:
+	var n := poly.size()
+	if n == 0:
+		return Vector2.ZERO
+	if n == 1:
+		return poly[0]
+	var total := _closed_polyline_length(poly)
+	if total <= 1e-6:
+		return poly[0]
+	var t := fposmod(dist, total)
+	var acc := 0.0
+	for i in range(n):
+		var a: Vector2 = poly[i]
+		var b: Vector2 = poly[(i + 1) % n]
+		var seg_len := a.distance_to(b)
+		if seg_len <= 1e-6:
+			continue
+		if acc + seg_len >= t - 1e-8:
+			return a.lerp(b, (t - acc) / seg_len)
+		acc += seg_len
+	return poly[0]
+
+
+static func _pond_bank_ring_polyline(ring_along: float) -> PackedVector2Array:
+	var inner := VillagePondShape.water_render_outline_xz()
+	var outer := VillagePondShape.bank_outer_outline_xz()
+	var n := mini(inner.size(), outer.size())
+	var ring := PackedVector2Array()
+	ring.resize(n)
+	for i in range(n):
+		ring[i] = inner[i].lerp(outer[i], ring_along)
+	return ring
+
+
+static func clover_bank_instance_count() -> int:
+	var total := 0
+	var layers := clover_layers()
+	for piece in CLOVER_PIECES:
+		total += (layers[piece] as Array).size()
+	return total
+
+
+## Clover_1 / Clover_2 in three jittered rings on the bank (FLORA #3–4, ivy-86l).
+static func clover_layers() -> Dictionary:
+	var layers: Dictionary = {}
+	for piece in CLOVER_PIECES:
+		layers[piece] = [] as Array[Transform3D]
+
+	var inner := VillagePondShape.water_render_outline_xz()
+	var outer := VillagePondShape.bank_outer_outline_xz()
+	var n := mini(inner.size(), outer.size())
+	if n == 0:
+		return layers
+
+	var st := CLOVER_LCG_SEED
+	for ring_idx in range(CLOVER_RING_ALONG.size()):
+		var ring_along: float = CLOVER_RING_ALONG[ring_idx]
+		var spacing: float = CLOVER_RING_SPACING_M[ring_idx]
+		var place_chance: float = CLOVER_RING_PLACE_CHANCE[ring_idx]
+		var ring_poly := _pond_bank_ring_polyline(ring_along)
+		var perimeter := _closed_polyline_length(ring_poly)
+		if perimeter <= 1e-3:
+			continue
+		var slots := maxi(4, int(perimeter / spacing))
+		for k in range(slots):
+			st = lcg_step(st)
+			if lcg_f01(st) > place_chance:
+				continue
+			st = lcg_step(st)
+			var dist := float(k) * perimeter / float(slots)
+			dist += (lcg_f01(st) - 0.5) * CLOVER_ARC_JITTER_M
+			st = lcg_step(st)
+			var xz := _point_on_closed_polyline(ring_poly, dist)
+			st = lcg_step(st)
+			var seg_idx := int(lcg_f01(st) * float(n)) % n
+			var radial := (outer[seg_idx] - inner[seg_idx])
+			if radial.length_squared() > 1e-8:
+				radial = radial.normalized()
+				st = lcg_step(st)
+				xz += radial * (lcg_f01(st) - 0.5) * 2.0 * CLOVER_RADIAL_JITTER_M
+			if not VillagePondShape.is_on_clover_bank(xz):
+				continue
+			st = lcg_step(st)
+			var piece_idx: int = int(lcg_f01(st) * 2.0) % 2
+			st = lcg_step(st)
+			var s: float = lerpf(0.10, 0.16, lcg_f01(st))
+			st = lcg_step(st)
+			var rot: float = lcg_f01(st) * TAU
+			var basis := Basis.from_euler(Vector3(0.0, rot, 0.0)).scaled(Vector3(s, s, s))
+			var piece: String = CLOVER_PIECES[piece_idx]
+			(layers[piece] as Array[Transform3D]).append(
+				Transform3D(basis, Vector3(xz.x, 0.0, xz.y)))
+
+	return layers
+
+
+static func fauna_clover_anchor_transforms() -> Array[Transform3D]:
+	var out: Array[Transform3D] = []
+	var layers := clover_layers()
+	for piece in CLOVER_PIECES:
+		for t in layers[piece] as Array[Transform3D]:
+			out.append(t)
+	return out
+
+
+## Classic polar garden plants (pivot-centred); pond checks use [method VillagePondShape.classic]
+## so placement cannot drift when [method VillagePondShape.active] was left on a generated pond.
+static func blocks_grass_at_for_shape(p: Vector2, shape: VillagePondShape) -> bool:
+	var pond_c := shape.center_xz()
+	var far_sq := (POND_BANK_OUTER_M + 2.5) * (POND_BANK_OUTER_M + 2.5)
+	if p.distance_squared_to(pond_c) > far_sq:
+		return false
+	if shape._is_in_water(p, POND_GRASS_CLEARANCE_M):
+		return true
+	var bank_rect := _poly_padded_rect(
+		shape._bank_outer_outline_local(), POND_GRASS_CLEARANCE_M + 0.5)
+	if not bank_rect.has_point(p):
+		return false
+	var along := shape._bank_shoreline_along_grass(p)
+	if along < 0.0:
+		return false
+	return along < VillagePondSite.GRASS_BANK_MIN_ALONG
+
+
+## Fixed-seed polar placement (14 small + 8 big). Candidates inside the ACTIVE pond's water
+## are rejected and redrawn (the backdrop sets the active pond before scatter runs), so no
+## plant ever stands in water. Rejection reads only [method is_in_pond_water] — no
+## grass-session statics — so it cannot leak state between callers.
 static func plant_layers() -> Dictionary:
 	var layers: Dictionary = {
 		"Plant_7": [] as Array[Transform3D],
 		"Plant_7_Big": [] as Array[Transform3D],
 	}
 	var st := 5503
-	for _i in range(14):
+	var placed_7 := 0
+	var attempts_7 := 0
+	while placed_7 < 14 and attempts_7 < 14 * 40:
+		attempts_7 += 1
 		st = lcg_step(st); var angle: float = lcg_f01(st) * TAU
 		st = lcg_step(st); var r: float = lerpf(6.0, 14.5, lcg_f01(st))
+		var p := Vector2(cos(angle) * r, sin(angle) * r)
+		if is_in_pond_water(p):
+			continue
 		st = lcg_step(st); var s: float = lerpf(0.16, 0.22, lcg_f01(st))
 		st = lcg_step(st); var rot: float = lcg_f01(st) * TAU
 		var basis := Basis.from_euler(Vector3(0.0, rot, 0.0)).scaled(Vector3(s, s, s))
 		(layers["Plant_7"] as Array[Transform3D]).append(
-			Transform3D(basis, Vector3(cos(angle) * r, 0.0, sin(angle) * r)))
-	for _i in range(8):
+			Transform3D(basis, Vector3(p.x, 0.0, p.y)))
+		placed_7 += 1
+	var placed_big := 0
+	var attempts_big := 0
+	while placed_big < 8 and attempts_big < 8 * 40:
+		attempts_big += 1
 		st = lcg_step(st); var angle2: float = lcg_f01(st) * TAU
 		st = lcg_step(st); var r2: float = lerpf(7.0, 13.0, lcg_f01(st))
+		var p2 := Vector2(cos(angle2) * r2, sin(angle2) * r2)
+		if is_in_pond_water(p2):
+			continue
 		st = lcg_step(st); var s2: float = lerpf(0.14, 0.18, lcg_f01(st))
 		st = lcg_step(st); var rot2: float = lcg_f01(st) * TAU
 		var basis2 := Basis.from_euler(Vector3(0.0, rot2, 0.0)).scaled(Vector3(s2, s2, s2))
 		(layers["Plant_7_Big"] as Array[Transform3D]).append(
-			Transform3D(basis2, Vector3(cos(angle2) * r2, 0.0, sin(angle2) * r2)))
+			Transform3D(basis2, Vector3(p2.x, 0.0, p2.y)))
+		placed_big += 1
 	return layers
 
 

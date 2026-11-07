@@ -4,7 +4,7 @@
 ##     - node named "VillageBackdrop" exists exactly once as a child of World
 ##     - it is a GeneratedVillageBackdrop
 ##     - it is still named "VillageBackdrop"
-##     - SkySun fog_depth_begin == layout GENERATED_FOG_BEGIN (16.8 after ring +20% tuning)
+##     - SkySun fog_depth_begin == layout GENERATED_FOG_BEGIN (ivy-l2x preset)
 ## (b) After rebuild_backdrop() with CLASSIC mode:
 ##     - node is a VillageBackdrop (base class, not GeneratedVillageBackdrop)
 ##     - SkySun fog_depth_begin == 9.5 (layout.fog_begin for classic; restore proof)

@@ -11,6 +11,8 @@ const GRASS_STEP := VillageScatterPositions.GRASS_GRID_STEP_M
 const COTTAGE_MARGIN := VillageScatterPositions.COTTAGE_MARGIN
 const PATH_CLEAR := VillageScatterPositions.PATH_CLEARANCE_M
 const PLANT_CLEAR := VillageScatterPositions.PLANT_CLEARANCE_M
+## User-authorised (ivy-vlr R3): 48k @ 0.21 m; isolated probe min ~544 ms.
+const GENERATED_GRASS_BUDGET_MS := 1500
 
 
 func _make_ctx() -> VillageGrassExclusionContext:
@@ -141,6 +143,52 @@ func test_grass_fade_band_sparser_than_full() -> void:
 	var fade_density := float(fade) / fade_area
 	assert_lt(fade_density, full_density * 0.85,
 		"Fade band area density lower than full band (prob + height fade)")
+
+
+func _make_generated_grass_ctx(seed: int = 1) -> VillageGrassExclusionContext:
+	var layout := VillageLayout.generate(seed)
+	if layout.fallback:
+		return null
+	VillagePondShape.set_active(VillagePondShape.at(layout.pond_center))
+	var path_stones := VillageScatterPositions.path_stone_transforms(
+		layout.path_polylines(),
+		func(cx: float, cz: float) -> bool:
+			return Vector2(cx, cz).distance_to(VillageLayout.HERO_DOOR_STOOP) < 4.5 \
+				or layout.inside_any_cottage(Vector2(cx, cz), 0.2),
+		layout.stone_seed, layout.min_stone_spacing)
+	var bushes := VillageScatterPositions.bush_common_positions(
+		layout.cottages, layout.bush_filler_inner, layout.bush_filler_outer,
+		layout.hamlet_centre_xz)
+	return VillageGrassExclusionContext.for_layout(
+		layout.paths,
+		func(p: Vector2) -> bool: return layout.inside_any_cottage(p, COTTAGE_MARGIN),
+		path_stones, bushes, layout.hamlet_centre_xz, VillageLayout.HERO_DOOR_STOOP, true,
+		layout.cottages)
+
+
+func test_generated_grass_count_and_perf() -> void:
+	var ctx := _make_generated_grass_ctx(1)
+	if ctx == null:
+		pending("seed=1 fell back to authored")
+		return
+	var t0 := Time.get_ticks_msec()
+	var grass := VillageScatterPositions.grass_blade_positions(ctx)
+	var elapsed := Time.get_ticks_msec() - t0
+	assert_eq(grass.size(), VillageScatterPositions.GRASS_MAX_INSTANCES_GENERATED,
+		"Generated grass should fill to cap; got %d" % grass.size())
+	assert_lt(elapsed, GENERATED_GRASS_BUDGET_MS,
+		"Generated grass generation budget %d ms; got %d ms" % [GENERATED_GRASS_BUDGET_MS, elapsed])
+
+
+func test_generated_grass_count_48k_across_seeds() -> void:
+	for seed_val in [1, 12, 240424020, 99, 777]:
+		var ctx := _make_generated_grass_ctx(seed_val)
+		if ctx == null:
+			fail_test("seed=%d fell back to authored" % seed_val)
+			continue
+		var grass := VillageScatterPositions.grass_blade_positions(ctx)
+		assert_eq(grass.size(), VillageScatterPositions.GRASS_MAX_INSTANCES_GENERATED,
+			"seed=%d should reach 48k blades; got %d" % [seed_val, grass.size()])
 
 
 func test_grass_no_cottage_footprint() -> void:

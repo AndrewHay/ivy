@@ -2,6 +2,7 @@ class_name FaunaGating
 extends RefCounted
 
 const VillagePresentationScale = preload("res://src/world/village_presentation_scale.gd")
+const VillageScatterPositions = preload("res://src/world/village_scatter_positions.gd")
 
 ## Human-readable hint when `_pick_species` fails (hour gates, etc.).
 static func spawn_hour_hint(local_solar_hour: float) -> String:
@@ -129,8 +130,8 @@ static func anchor_in_species_ring(species: FaunaConstants.Species, anchor: Faun
 		FaunaConstants.Species.LADYBIRD:
 			if anchor.kind != FaunaConstants.AnchorKind.CLOVER:
 				return false
-			return r >= FaunaConstants.GARDEN_RING_INNER_M \
-				and r <= VillagePresentationScale.scaled_clover_outer_m()
+			var p := Vector2(anchor.local_transform.origin.x, anchor.local_transform.origin.z)
+			return VillageScatterPositions.is_on_pond_clover_bank(p)
 		_:
 			if anchor.kind != FaunaConstants.AnchorKind.FLOWER:
 				return false

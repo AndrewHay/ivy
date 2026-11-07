@@ -41,6 +41,12 @@ static func all() -> Array[Entry]:
 			false,
 			"res://scenes/test_fauna/test_fauna.tscn"),
 		Entry.new(
+			"grass_wind_playground",
+			"Grass wind playground",
+			"",
+			false,
+			"res://scenes/playground/grass_wind_playground.tscn"),
+		Entry.new(
 			"nature_flora_lineup",
 			"Nature flora lineup",
 			"",

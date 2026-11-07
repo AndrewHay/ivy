@@ -2,7 +2,7 @@
 ##
 ## Draws a contact sheet of up to 8 seed layouts plus the authored layout.
 ## Each cell shows: pivot marker, keep-out circle (r=5.9), inner ring bounds
-## (r=13.8/15.6), outer ring bounds (r=23.4/25.8), lawn ring (r=36),
+## (r=17/19.2), outer ring bounds (r=27/29.4), lawn ring (r=44),
 ## cottage exterior rects (colour by type; inner cottages dimmed), door position +
 ## outward normal tick, cottage name label, path polylines (colour by edge type:
 ## hero-edge=cyan, cross-ring=yellow, same-ring=green), and node dots.
@@ -21,8 +21,8 @@ const _DEFAULT_OUT   := "res://.tmp/village_gen/s3_networks.png"
 ## Pixel size of each individual cell in the contact sheet.
 const _CELL_PX := 256
 ## World metres visible on each side of the origin (square view). 32 m fits the
-## ~33 m outer corners + 36 m lawn ring.
-const _WORLD_HALF_M := 38.0
+## ~35 m outer corners + 44 m lawn ring.
+const _WORLD_HALF_M := 46.0
 ## Layout of cells in the contact sheet (cols × rows). 0=authored + up to 6 seeds.
 const _COLS := 3
 ## Colours (RGBA 32-bit, packed as 0xRRGGBBAA little-endian byte order for Image.set_pixel).
@@ -32,7 +32,7 @@ const _C_GRID         := Color(0.25, 0.23, 0.20, 1.0)  # faint grid
 const _C_KEEPOUT      := Color(0.9,  0.2,  0.2,  0.6)  # red keep-out ring
 const _C_INNER_RING   := Color(0.4,  0.8,  1.0,  0.6)  # light-blue inner ring bounds
 const _C_OUTER_RING   := Color(0.2,  0.5,  0.9,  0.5)  # mid-blue outer ring bounds
-const _C_LAWN         := Color(0.3,  0.8,  0.3,  0.3)  # green lawn hint (r=36)
+const _C_LAWN         := Color(0.3,  0.8,  0.3,  0.3)  # green lawn hint (r=44)
 const _C_PIVOT        := Color(1.0,  1.0,  0.0,  1.0)  # yellow pivot
 const _C_DOOR         := Color(1.0,  0.6,  0.0,  1.0)  # orange door marker
 const _C_DOOR_NORM    := Color(1.0,  0.9,  0.1,  1.0)  # yellow door-normal tick
@@ -114,24 +114,17 @@ func _draw_cell(layout: VillageLayout, label: String, ox: int, oy: int) -> void:
 		for px in range(_cell):
 			_img.set_pixel(ox + px, oy + py, _C_BG)
 
-	# Draw circles (keep-out, inner ring, outer ring, lawn) as ring outlines
-	_draw_circle_outline(ox, oy,  5.9, _C_KEEPOUT,    1)
-	_draw_circle_outline(ox, oy, 13.8, _C_INNER_RING, 1)
-	_draw_circle_outline(ox, oy, 15.6, _C_INNER_RING, 1)
-	_draw_circle_outline(ox, oy, 23.4, _C_OUTER_RING, 1)
-	_draw_circle_outline(ox, oy, 25.8, _C_OUTER_RING, 1)
-	_draw_circle_outline(ox, oy, 36.0, _C_LAWN,       1)
+	# Draw circles: keep-out at pivot, hamlet clearing at G, lawn at G
+	_draw_circle_outline(ox, oy, 5.9, _C_KEEPOUT, 1)
+	var g := layout.hamlet_centre_xz
+	if layout.is_generated:
+		g = VillageLayout.VILLAGE_GREEN_G
+	_draw_circle_at(ox, oy, g, VillageLayout.CLEARING_RADIUS_G, _C_INNER_RING, 1)
+	_draw_circle_at(ox, oy, g, VillageLayout.GENERATED_LAWN_RADIUS, _C_LAWN, 1)
 
-	# Draw cottages (dim inner cottages slightly to distinguish from outer)
 	for i: int in layout.cottages.size():
 		var spec: Dictionary = layout.cottages[i]
 		var col: Color = _COTTAGE_COLORS[i % _COTTAGE_COLORS.size()]
-		# If ring info is available, dim inner cottages
-		var ring_id := -1
-		if layout.cottage_rings.size() == layout.cottages.size():
-			ring_id = int(layout.cottage_rings[i])
-		if ring_id == 0:
-			col = col.lerp(_C_INNER_DIM, 0.35)
 		_draw_cottage(ox, oy, spec, col)
 
 	# Draw path polylines (S3: drawn before pivot so pivot overlays them)
@@ -216,10 +209,6 @@ func _draw_paths(layout: VillageLayout, ox: int, oy: int) -> void:
 			var bi := e.y
 			if ai == VillageLayout.HERO_NODE or bi == VillageLayout.HERO_NODE:
 				col = _C_PATH_HERO
-			elif layout.cottage_rings.size() == n_cottages and ai < n_cottages and bi < n_cottages:
-				# Cross-ring if one is inner and the other is outer
-				if int(layout.cottage_rings[ai]) != int(layout.cottage_rings[bi]):
-					col = _C_PATH_CROSS
 		# Draw polyline segments
 		for i: int in range(poly.size() - 1):
 			var pa := poly[i] as Vector2
@@ -259,26 +248,32 @@ func _draw_network_nodes(layout: VillageLayout, ox: int, oy: int) -> void:
 		for dy2: int in range(-1, 2):
 			for dx2: int in range(-1, 2):
 				_safe_set(spx + dx2, spy + dy2, _C_NODE)
-	# Hero node (bright white dot at origin)
-	var hpx := _w2px(0.0) + ox
-	var hpy := _w2py(0.0) + oy
+	var hero_xz := Vector2.ZERO
+	if layout.is_generated:
+		hero_xz = VillageLayout.HERO_DOOR_STOOP
+	var hpx := _w2px(hero_xz.x) + ox
+	var hpy := _w2py(hero_xz.y) + oy
 	for dy2: int in range(-2, 3):
 		for dx2: int in range(-2, 3):
 			_safe_set(hpx + dx2, hpy + dy2, _C_PIVOT)
 
 
-func _draw_circle_outline(ox: int, oy: int, radius_m: float, col: Color, thickness: int) -> void:
+func _draw_circle_at(ox: int, oy: int, centre: Vector2, radius_m: float, col: Color, thickness: int) -> void:
 	var r_px := radius_m * float(_cell) / (2.0 * _WORLD_HALF_M)
-	var cx := _w2px(0.0) + ox
-	var cy := _w2py(0.0) + oy
+	var cx := _w2px(centre.x) + ox
+	var cy := _w2py(centre.y) + oy
 	var steps := maxi(64, int(r_px * TAU))
 	for i: int in steps:
 		var angle := float(i) / float(steps) * TAU
 		var px := int(round(float(cx) + cos(angle) * r_px))
-		var py := int(round(float(cy) - sin(angle) * r_px))  # y flipped
+		var py := int(round(float(cy) - sin(angle) * r_px))
 		for t: int in range(-thickness, thickness + 1):
 			_safe_set(px + t, py, col)
 			_safe_set(px, py + t, col)
+
+
+func _draw_circle_outline(ox: int, oy: int, radius_m: float, col: Color, thickness: int) -> void:
+	_draw_circle_at(ox, oy, Vector2.ZERO, radius_m, col, thickness)
 
 
 ## Convert world metres (XZ) → pixel X in cell (X right, origin centre).

@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 MAGIC = b"IVYSDF1"
-BAKER_VERSION = 3
+BAKER_VERSION = 4
 
 
 def load_glb_mesh(path: Path):
@@ -188,8 +188,17 @@ def point_tri_dist(p, v0, v1, v2):
     return ((p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2 + (p[2] - q[2]) ** 2) ** 0.5
 
 
-def ray_inside_shell(p, tris, verts):
-    # Cast +X ray; odd crossings => inside one closed shell.
+def _permute_xyz(v, axis: int):
+    """Cycle (x,y,z) so ``axis`` becomes +X for ray casting (ivy-7p0)."""
+    if axis == 0:
+        return v
+    if axis == 1:
+        return (v[1], v[2], v[0])
+    return (v[2], v[0], v[1])
+
+
+def _ray_crossings_plus_x(p, tris, verts) -> int:
+    # Cast +X ray; count forward triangle hits (odd => inside for clean shells).
     px, py, pz = p
     count = 0
     for i0, i1, i2 in tris:
@@ -201,7 +210,6 @@ def ray_inside_shell(p, tris, verts):
         z0, z1, z2 = v0[2], v1[2], v2[2]
         if (z0 > pz) == (z1 > pz) and (z0 > pz) == (z2 > pz):
             continue
-        # Möller–Trumbore-ish slab for +X
         e1 = (v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2])
         e2 = (v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2])
         h = (0.0, pz - v0[2], py - v0[1])
@@ -221,17 +229,34 @@ def ray_inside_shell(p, tris, verts):
         t *= f
         if t > 1e-6:
             count += 1
-    return count % 2 == 1
+    return count
+
+
+def ray_inside_shell(p, tris, verts):
+    """+X parity for a single closed shell (tilted meshes keep a stable axis)."""
+    return _ray_crossings_plus_x(p, tris, verts) % 2 == 1
+
+
+def _ray_inside_shell_multi_axis(p, tris, verts) -> bool:
+    """Any-axis parity for axis-aligned kit pieces (ivy-7p0)."""
+    for axis in (0, 1, 2):
+        pp = _permute_xyz(p, axis)
+        vperm = [_permute_xyz(v, axis) for v in verts]
+        if _ray_crossings_plus_x(pp, tris, vperm) % 2 == 1:
+            return True
+    return False
 
 
 def ray_inside(p, shells):
     """Inside the union of closed glTF node meshes (ivy-7p0).
 
-    ``shells`` is a list of (verts, tris) pairs — one per scene-graph node with
-    a mesh. Overlapping closed pieces break single-mesh parity; union per shell
-    restores consistent sign in overlap regions.
+    One merged mesh uses +X only. Multiple glTF node shells use any-axis
+    parity per piece, then union — overlap breaks single-mesh +X parity.
     """
-    return any(ray_inside_shell(p, tris, verts) for verts, tris in shells)
+    if len(shells) <= 1:
+        verts, tris = shells[0]
+        return ray_inside_shell(p, tris, verts)
+    return any(_ray_inside_shell_multi_axis(p, tris, verts) for verts, tris in shells)
 
 
 def bake(verts, tris, cell: float, band: float, shells=None):

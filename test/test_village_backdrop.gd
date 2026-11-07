@@ -235,6 +235,25 @@ func test_grass_instanced_triangle_budget() -> void:
 		"Grass instanced tris must be <= GRASS_MAX × 35; got %d" % instanced_tris)
 
 
+func test_grass_blade_chunks_custom_aabb_covers_instances() -> void:
+	## Wrong custom_aabb (single tuft at origin) frustum-culled whole tiles when zoomed in.
+	for mmi_node in _find_nodes_of_type(_backdrop, MultiMeshInstance3D):
+		var mmi := mmi_node as MultiMeshInstance3D
+		if not mmi.name.begins_with("Scatter_Grass_Blades_"):
+			continue
+		var mm := mmi.multimesh
+		assert_not_null(mm, mmi.name)
+		var aabb := mm.custom_aabb
+		assert_gt(aabb.size.length_squared(), 0.01, "Chunk %s must set custom_aabb" % mmi.name)
+		var buf := mm.buffer
+		for i in range(mm.instance_count):
+			var b := i * 12
+			var origin := Vector3(buf[b + 3], buf[b + 7], buf[b + 11])
+			assert_true(
+				aabb.has_point(origin),
+				"custom_aabb must contain instance at %s (%s)" % [origin, mmi.name])
+
+
 func test_surface_count_under_160() -> void:
 	## Counts MeshInstance3D surfaces + MultiMesh surfaces (1 draw per surface regardless of instances).
 	var total_surfaces := 0
