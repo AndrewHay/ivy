@@ -6,6 +6,7 @@ const GrassWindParams = preload("res://src/playground/grass_wind_params.gd")
 const GrassWindKnobSpec = preload("res://src/playground/grass_wind_knob_spec.gd")
 const GrassWindClock = preload("res://src/presentation/fauna/grass_wind_clock.gd")
 const KnobPanel = preload("res://src/playground/knob_panel.gd")
+const PlaygroundCheckboxStyle = preload("res://src/playground/playground_checkbox_style.gd")
 const DebugCamera = preload("res://src/world/debug_camera.gd")
 const VillageGrassMesh = preload("res://src/world/village_grass_mesh.gd")
 
@@ -158,6 +159,7 @@ func _make_stage_panel() -> Control:
 
 func _make_stage_toggle(label: String, initial: bool, cb: Callable) -> CheckBox:
 	var c := CheckBox.new()
+	PlaygroundCheckboxStyle.apply(c)
 	c.text = label
 	c.button_pressed = initial
 	c.toggled.connect(cb)

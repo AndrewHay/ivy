@@ -1,0 +1,8 @@
+# QA ivy-9d4n — grass-wind playground evidence runner.
+# Automated captures use Godot user args on the playground scene (not ui-script verbs).
+# Re-run examples (project root, working_directory=/Users/andrewhay/github/ivy):
+#   /Applications/Godot.app/Contents/MacOS/Godot res://scenes/playground/grass_wind_playground.tscn -- \
+#     --out=res://.tmp/grass_wind_playground_qa/variant_0_adv1.png --variant=0 --advance-sec=1.0
+# Main-game regression baseline:
+SPEED pause
+SCREENSHOT boot_grass_wind_qa_baseline.png

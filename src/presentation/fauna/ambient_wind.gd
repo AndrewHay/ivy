@@ -76,6 +76,9 @@ func advance(speed: SimClock.Speed, delta: float) -> void:
 	_gate = move_toward(_gate, gate_target, GATE_EASE_PER_SEC * delta)
 	if speed != SimClock.Speed.NORMAL:
 		return
+	if _clock_cfg.is_empty():
+		# Not yet in the tree (no _ready): the pre-refactor code worked standalone too.
+		_clock_cfg = _build_clock_cfg()
 	var state := _clock_state_from_members()
 	state = GrassWindClock.advance(state, _clock_cfg, delta, 1.0)
 	_apply_clock_state(state)

@@ -9,6 +9,7 @@ signal copy_requested
 
 const _OverlayStyle = preload("res://src/ui/overlay_style.gd")
 const GrassWindKnobSpec = preload("res://src/playground/grass_wind_knob_spec.gd")
+const PlaygroundCheckboxStyle = preload("res://src/playground/playground_checkbox_style.gd")
 
 var _params: Resource
 var _spec: Array[Dictionary] = []
@@ -317,6 +318,7 @@ func _make_knob_row(spec: Dictionary) -> Dictionary:
 		out["label"] = val_lbl
 	else:
 		var check := CheckBox.new()
+		PlaygroundCheckboxStyle.apply(check)
 		check.button_pressed = _params.get(spec["name"])
 		check.toggled.connect(func(on: bool):
 			knob_changed.emit(spec["name"], on)
