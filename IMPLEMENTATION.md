@@ -1688,17 +1688,37 @@ tune `PLANT_CLEARANCE_M` once in QA if clumps overlap.
 
 **Owner:** `VillageScatterPositions.grass_blade_positions(ctx)`; alias `grass_positions(ctx)`.
 **`VillageBackdrop._setup_hybrid_grass`** builds 6 m world-aligned **`Scatter_Grass_Blades_*`**
-chunks with shared **`grass_blade.gdshader`**. Card tier removed (`cross_card_mesh`, `grass_card.gdshader`).
+chunks. **Dual shaders (ivy-k9r0):** Generated uses **`grass_blade.gdshader`** with
+`dissolve_active = 1`, `dissolve_start = 14`, `dissolve_end = 30` (`GRASS_CAMERA_DISSOLVE_*`);
+Classic uses **`grass_blade_classic.gdshader`** (HEAD parity byte-copy of pre-dissolve blade
+shader — no dissolve uniforms, no chunk visibility cull). Card tier removed
+(`cross_card_mesh`, `grass_card.gdshader`).
 
 **Geometry:** `VillageGrassMesh.blade_tuft_mesh()` — 7 tapered blades × 5 tris (35 tris/tuft), opaque,
 `cull_disabled`, no alpha. Per-blade hash in `COLOR.r`; UV.y 1 at root / 0 at tip.
 
-**Placement constants:** inner ring **`GRASS_RING_INNER_M` `4.5`**, outer **`GRASS_RING_OUTER_M` `14.5`**,
-full density to **`GRASS_FULL_DENSITY_OUTER_M` `12.0`**, linear fade band 12–14.5 m, hero height fade
-4.5–5.5 m, grid **`GRASS_GRID_STEP_M` `0.17`**, cap **`GRASS_MAX_INSTANCES` `18000`**, patch height noise
-(cell 2.5 m). Spatial-hash anchor rejection; generation **< 400 ms** headless.
+**Placement constants (ivy-k9r0):** hero inner ring unchanged (`GRASS_RING_INNER_M` `4.5`, hero fringe/fade).
+Radial fill to treeline/lawn edge: **`GRASS_RADIAL_EDGE_CLASSIC_M` `19.0`** (authored `pine_inner`),
+**`GRASS_RADIAL_EDGE_GENERATED_M` `56.0`** (`GENERATED_LAWN_RADIUS`). Density profile
+**`d(r)`**: **`GRASS_DENSITY_CORE_PER_M2` `40`** for **`r ≤ GRASS_DENSITY_FLAT_FRACTION × r_edge`**
+(`0.7`), **smoothstep** C1 to **`GRASS_DENSITY_EDGE_PER_M2` `15`** at **`r = r_edge`**; per-cell
+keep **`d(r)/40`** via **`_grass_cell_u01(ix, iy, *)`** (stateless hash; full-cell jitter; row-major
+fill). Grid step **`1/√40 ≈ 0.158 m`**; caps **`π·r_edge²·core·1.15`**. Generated
+render (Generated only): per-blade **camera dissolve** in `grass_blade.gdshader`
+(`dissolve_start` **14**, `dissolve_end` **30**; stable `COLOR.r` threshold vs
+`keep(d)=1-smoothstep(d0,d1,d)`). `GRASS_CAMERA_DISSOLVE_END_CLASSIC_M` (**131072**) applies only
+in dissolve FPS sweep tooling — Classic does not use `grass_blade.gdshader`. Generated chunks:
+**no** chunk `visibility_range` (`visibility_range_end = 0`, FADE_DISABLED; was FADE_SELF
+rectangles). Helper `grass_chunk_visibility_end_m(d1)` kept for tools only. Outer blade height fade
+removed (hero height scale only).
 
-**Shipped stats (tower scenario, headless):** **14 315 tufts**, **31 chunks**, **248 ms** generation.
+**FPS (dissolve sweep, chunk vis OFF, M2 Pro — ivy-k9r0):** shipped `d0=14` `d1=30`; high cam
+**29.8 FPS** (at the **30** goal, not above). See bead notes for full table (`grass_dissolve_fps_sweep`).
+
+**Shipped stats (ivy-k9r0):** classic **~15.7k** blades / **~416 ms** placement; generated **~277k**
+/ **~2.4 s** placement + **~215 ms** chunk buffer build; **`apply_village_mode_live`** wall **~4.8 s**
+(script harness; full UI switch can be longer — **ivy-6zz** loading budget). Classic has **no** grass
+visibility culling.
 
 **Ground colour alignment (ivy-7ka.6):** `world_ground.gdshader` + `village_ground.gdshader` retuned toward
 blade root/mid sage; **±5% gust sheen** from `ivy_gust_at(world_xz)` × `ivy_wind_strength`.

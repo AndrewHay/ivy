@@ -4,6 +4,13 @@ const GrassWindParams = preload("res://src/playground/grass_wind_params.gd")
 const AmbientWind = preload("res://src/presentation/fauna/ambient_wind.gd")
 
 
+func test_default_blade_density_matches_village_production() -> void:
+	assert_almost_eq(
+		GrassWindParams.DEFAULT_BLADE_DENSITY_PER_M2,
+		VillageScatterPositions.GRASS_DENSITY_CORE_PER_M2,
+		1e-6)
+
+
 func test_defaults_match_ambient_wind_constants() -> void:
 	var p := GrassWindParams.new()
 	assert_almost_eq(p.wind_strength, AmbientWind.WIND_BASE_STRENGTH, 1e-6)

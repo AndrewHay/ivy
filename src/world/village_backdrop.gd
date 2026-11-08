@@ -310,7 +310,7 @@ func _scatter_piece_layers(
 
 func _setup_hybrid_grass(ctx: VillageGrassExclusionContext) -> void:
 	var tufts := VillageScatterPositions.grass_blade_positions(ctx)
-	_add_grass_blade_chunks(tufts)
+	_add_grass_blade_chunks(tufts, ctx.generated_grass)
 	var accent_path := "res://assets/backdrop/pieces/Grass_Wispy_Short.gltf"
 	var accent_mesh := _extract_first_mesh(accent_path)
 	var accent_mat: Material = null
@@ -327,12 +327,16 @@ func _setup_hybrid_grass(ctx: VillageGrassExclusionContext) -> void:
 const GRASS_BLADE_CHUNK_M := 6.0
 
 
-func _add_grass_blade_chunks(all: Array[Transform3D]) -> void:
+func _add_grass_blade_chunks(all: Array[Transform3D], generated_grass: bool) -> void:
 	if all.is_empty():
 		return
 	var mesh := VillageGrassMesh.blade_tuft_mesh()
 	var mat := ShaderMaterial.new()
-	mat.shader = load("res://src/render/shaders/grass_blade.gdshader") as Shader
+	if generated_grass:
+		mat.shader = load("res://src/render/shaders/grass_blade.gdshader") as Shader
+		_configure_grass_blade_material(mat)
+	else:
+		mat.shader = load("res://src/render/shaders/grass_blade_classic.gdshader") as Shader
 	var origin_xz := Vector2(global_position.x, global_position.z)
 	var buckets: Dictionary = {}
 	for t in all:
@@ -348,8 +352,27 @@ func _add_grass_blade_chunks(all: Array[Transform3D]) -> void:
 		var transforms: Array[Transform3D] = buckets[key] as Array[Transform3D]
 		var node_name := "Scatter_Grass_Blades_%d_%d" % [key.x, key.y]
 		var chunk_aabb := _grass_chunk_custom_aabb(transforms, mesh.get_aabb())
-		_add_multimesh(mesh, node_name, transforms,
+		var mmi := _add_multimesh(mesh, node_name, transforms,
 			GeometryInstance3D.SHADOW_CASTING_SETTING_OFF, mat, chunk_aabb)
+		if mmi != null and _layout.is_generated:
+			_apply_generated_grass_chunk_visibility(mmi)
+
+
+func _configure_grass_blade_material(mat: ShaderMaterial) -> void:
+	mat.set_shader_parameter(
+		"dissolve_start", VillageScatterPositions.GRASS_CAMERA_DISSOLVE_START_M)
+	mat.set_shader_parameter("dissolve_active", 1.0)
+	mat.set_shader_parameter(
+		"dissolve_end", VillageScatterPositions.GRASS_CAMERA_DISSOLVE_END_GENERATED_M)
+
+
+func _apply_generated_grass_chunk_visibility(mmi: MultiMeshInstance3D) -> void:
+	## Per-blade shader dissolve handles the circular taper; chunk visibility cull
+	## caused rectangular staircase pops (FADE_SELF on 6 m tiles). Optional hard
+	## cull disabled — frustum + custom_aabb only (ivy-k9r0).
+	mmi.visibility_range_end = 0.0
+	mmi.visibility_range_end_margin = 0.0
+	mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_DISABLED
 
 
 ## Frustum culling uses MultiMesh.custom_aabb for the whole chunk. A single-tuft AABB at the
@@ -359,18 +382,16 @@ static func _grass_chunk_custom_aabb(
 	if transforms.is_empty():
 		return AABB()
 	var half := tuft_aabb.size * 0.5
-	var merged := AABB()
-	var first := true
+	var min_o := Vector3(INF, INF, INF)
+	var max_o := Vector3(-INF, -INF, -INF)
+	var max_scale := 0.0
 	for t in transforms:
-		var scale := t.basis.get_scale()
-		var ext := Vector3(half.x * scale.x, half.y * scale.y, half.z * scale.z)
-		var box := AABB(t.origin + tuft_aabb.position - ext, ext * 2.0)
-		if first:
-			merged = box
-			first = false
-		else:
-			merged = merged.merge(box)
-	return merged.grow(0.15)
+		min_o = min_o.min(t.origin)
+		max_o = max_o.max(t.origin)
+		max_scale = maxf(max_scale, t.basis.get_scale().length())
+	var ext := half * maxf(max_scale, 1.0)
+	var base := tuft_aabb.position
+	return AABB(min_o + base - ext, (max_o - min_o) + ext * 2.0).grow(0.15)
 
 
 func _create_scatter(
@@ -419,9 +440,9 @@ func _add_multimesh(
 		transforms: Array[Transform3D],
 		shadow: GeometryInstance3D.ShadowCastingSetting,
 		material_override: Material = null,
-		custom_aabb: AABB = AABB()) -> void:
+		custom_aabb: AABB = AABB()) -> MultiMeshInstance3D:
 	if transforms.is_empty():
-		return
+		return null
 	var mm := MultiMesh.new()
 	mm.mesh = mesh
 	mm.transform_format = MultiMesh.TRANSFORM_3D
@@ -451,6 +472,7 @@ func _add_multimesh(
 	if material_override != null:
 		mmi.material_override = material_override
 	add_child(mmi)
+	return mmi
 
 
 func _extract_first_mesh(path: String) -> Mesh:

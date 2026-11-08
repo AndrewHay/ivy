@@ -97,7 +97,7 @@ static func all_knobs() -> Array[Dictionary]:
 	_add_float(rows, "lawn_size_m", "Lawn size (m)", "Stage", 4.0, 40.0, 0.5, [0, 1, 2, 3, 4],
 		"Side length of the square test lawn. Rebuilds the grass (brief pause) and affects performance.")
 	_add_float(rows, "blade_density_per_m2", "Blade density (/m²)", "Stage", 20.0, 400.0, 1.0, [0, 1, 2, 3, 4],
-		"Blades per square metre. Production is about 35. Rebuilds the grass (brief pause) and affects performance.")
+		"Blades per square metre. Production is 40 in the core, easing to 15 at the lawn edge. Rebuilds the grass (brief pause) and affects performance.")
 	return rows
 
 

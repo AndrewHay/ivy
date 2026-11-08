@@ -338,7 +338,63 @@ func test_export_fauna_anchors_includes_path_petals() -> void:
 	FaunaIntegration.set_gut_fauna_test_active(false)
 
 
+func test_generated_grass_shader_dissolve_active() -> void:
+	var saw := false
+	var bd := _make_generated(DEFAULT_TEST_SEED)
+	for mmi_node in _collect_nodes_of_type(bd, MultiMeshInstance3D):
+		var mmi := mmi_node as MultiMeshInstance3D
+		if not mmi.name.begins_with("Scatter_Grass_Blades_"):
+			continue
+		saw = true
+		var mat := mmi.material_override as ShaderMaterial
+		assert_not_null(mat, mmi.name)
+		assert_true(
+			mat.shader.resource_path.ends_with("grass_blade.gdshader"),
+			"Generated uses dissolve grass_blade.gdshader")
+		assert_almost_eq(mat.get_shader_parameter("dissolve_active"), 1.0, 0.01)
+		assert_almost_eq(
+			mat.get_shader_parameter("dissolve_start"),
+			VillageScatterPositions.GRASS_CAMERA_DISSOLVE_START_M, 0.01)
+		assert_almost_eq(
+			mat.get_shader_parameter("dissolve_end"),
+			VillageScatterPositions.GRASS_CAMERA_DISSOLVE_END_GENERATED_M, 0.01)
+		assert_eq(mmi.visibility_range_end, 0.0, "Chunk visibility off; shader dissolve only")
+		assert_eq(
+			mmi.visibility_range_fade_mode,
+			GeometryInstance3D.VISIBILITY_RANGE_FADE_DISABLED)
+	assert_true(saw, "Generated grass chunks expected")
+
+
+func test_generated_grass_per_blade_dissolve_chunk_cull() -> void:
+	var mat := ShaderMaterial.new()
+	mat.shader = load("res://src/render/shaders/grass_blade.gdshader")
+	var vb := VillageBackdrop.new()
+	vb.call("_configure_grass_blade_material", mat)
+	assert_almost_eq(
+		mat.get_shader_parameter("dissolve_end"),
+		VillageScatterPositions.GRASS_CAMERA_DISSOLVE_END_GENERATED_M, 0.01)
+	assert_almost_eq(mat.get_shader_parameter("dissolve_active"), 1.0, 0.01)
+	assert_true(mat.shader.resource_path.ends_with("grass_blade.gdshader"))
+	var mmi := MultiMeshInstance3D.new()
+	vb.call("_apply_generated_grass_chunk_visibility", mmi)
+	assert_eq(mmi.visibility_range_fade_mode, GeometryInstance3D.VISIBILITY_RANGE_FADE_DISABLED)
+	assert_eq(mmi.visibility_range_end, 0.0, "Chunk visibility off; shader dissolve only")
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+func _collect_nodes_of_type(root: Node, type) -> Array:
+	var result: Array = []
+	_collect_type(root, type, result)
+	return result
+
+
+func _collect_type(node: Node, type, result: Array) -> void:
+	if node != null and is_instance_of(node, type):
+		result.append(node)
+	for child in node.get_children():
+		_collect_type(child, type, result)
+
 
 func _collect_matching_names(node: Node, prefix: String, out: Array[String]) -> void:
 	if node.name.begins_with(prefix):

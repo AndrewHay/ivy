@@ -1,0 +1,41 @@
+# ivy-k9r0 grass QA — Generated village, square mesh scenario, seed via --village-seed=1
+# Allow grass + shader build to settle (~35 s designer waiver ivy-6zz).
+WAIT 40000
+CAMERA sun
+SCREENSHOT s01_default_cam_sun.png
+CAMERA top
+SCREENSHOT s01_default_cam_top.png
+# Orbit / zoom dissolve sweep (>=6 frames, varied radius/yaw/height)
+ORBIT 0 8 2
+SCREENSHOT s02_orbit_r8_az0_eye.png
+ORBIT 90 8 2
+SCREENSHOT s02_orbit_r8_az90_eye.png
+ORBIT 180 12 2
+SCREENSHOT s02_orbit_r12_az180_eye.png
+ORBIT 270 16 2
+SCREENSHOT s02_orbit_r16_az270_eye.png
+ORBIT 0 22 8
+SCREENSHOT s02_orbit_r22_az0_mid.png
+ORBIT 45 26 14
+SCREENSHOT s02_orbit_r26_az45_high.png
+ORBIT 315 30 14
+SCREENSHOT s02_orbit_r30_az315_high.png
+# Near-identical positions 0.3 m apart (dissolve pop check)
+ORBIT 0 14.0 8
+SCREENSHOT s02_pop_near_a_r14.0.png
+ORBIT 0 14.3 8
+SCREENSHOT s02_pop_near_b_r14.3.png
+# Lawn edge oblique (generated treeline ~56 m)
+ORBIT 0 42 10
+SCREENSHOT s03_generated_edge_wide.png
+ORBIT_AIM_BACKDROP 0 48 6 8 0.4 90
+SCREENSHOT s03_generated_edge_oblique.png
+# Classic comparison + colour (pre-switch; VILLAGE_MODE is live-rebuild QA hook)
+VILLAGE_MODE classic_village 0
+WAIT 8000
+CAMERA sun
+SCREENSHOT s04_classic_sun.png
+ORBIT_AIM_BACKDROP 0 16 5 6 0.5 110
+SCREENSHOT s04_classic_pine_ring_edge.png
+ORBIT 0 26 14
+SCREENSHOT s04_classic_high.png

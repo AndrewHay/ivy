@@ -53,15 +53,26 @@ const GRASS_HERO_DENSITY_OUTER_M := 6.0
 const GRASS_HERO_INNER_NOISE_M := 0.4
 const GRASS_HERO_KEEP_MIN := 0.15
 const GRASS_FULL_DENSITY_OUTER_M := 12.0
+## Legacy hero-band outer (accents); radial fill uses GRASS_RADIAL_EDGE_* (ivy-k9r0).
 const GRASS_RING_OUTER_M := 14.5
-const GRASS_GRID_STEP_M := 0.17
-const GRASS_MAX_INSTANCES := 18000
-const GRASS_MAX_INSTANCES_GENERATED := 48000
-const GRASS_GRID_STEP_GENERATED_M := 0.12
-## Grid step that yields 48k blades within GRASS_RING_OUTER_GENERATED_M (ivy-vlr R3).
-const GRASS_GRID_STEP_GENERATED_FILL_M := 0.21
-## 0.85 × GENERATED_LAWN_RADIUS (56 m) — lush disk on G (ivy-3l6-C).
-const GRASS_RING_OUTER_GENERATED_M := 47.6
+const GRASS_DENSITY_CORE_PER_M2 := 40.0
+const GRASS_DENSITY_EDGE_PER_M2 := 15.0
+const GRASS_DENSITY_FLAT_FRACTION := 0.7
+## Playground / prod alias (uniform lawn uses core density).
+const GRASS_DENSITY_PER_M2 := GRASS_DENSITY_CORE_PER_M2
+const GRASS_GRID_STEP_M := 1.0 / sqrt(GRASS_DENSITY_CORE_PER_M2)
+const GRASS_GRID_STEP_GENERATED_M := GRASS_GRID_STEP_M
+const GRASS_GRID_STEP_GENERATED_FILL_M := GRASS_GRID_STEP_M
+## Grass disk meets the inner pine ring (VillageLayout.pine_inner classic default).
+const GRASS_RADIAL_EDGE_CLASSIC_M := 19.0
+## Generated grass fills to the lawn disc before the forest collar (56 m).
+const GRASS_RADIAL_EDGE_GENERATED_M := VillageLayout.GENERATED_LAWN_RADIUS
+## Headroom ~15% over π·r_edge²·core (ivy-k9r0); must not truncate outer spiral.
+const GRASS_MAX_INSTANCES := int(roundi(PI * GRASS_RADIAL_EDGE_CLASSIC_M * GRASS_RADIAL_EDGE_CLASSIC_M \
+	* GRASS_DENSITY_CORE_PER_M2 * 1.15))
+const GRASS_MAX_INSTANCES_GENERATED := int(roundi(PI \
+	* GRASS_RADIAL_EDGE_GENERATED_M * GRASS_RADIAL_EDGE_GENERATED_M \
+	* GRASS_DENSITY_CORE_PER_M2 * 1.15))
 const GRASS_PATCH_CELL_M := 2.5
 const GRASS_ANCHOR_HASH_CELL_M := 1.0
 const GRASS_ACCENT_COUNT := 48
@@ -83,8 +94,62 @@ static var _grass_patch_noise_grid: Dictionary = {}
 static var _grass_path_influence_rect: Rect2 = Rect2()
 static var _grass_anchor_cache_sig: int = -1
 static var _grass_anchor_cache: Array[Vector2] = []
-## Stop generated fill here when sparse outer disk would dominate CPU (≥30k blades in tests).
-const GRASS_GENERATED_FILL_CAP := 48000
+const GRASS_GENERATED_FILL_CAP := GRASS_MAX_INSTANCES_GENERATED
+## Per-blade camera dissolve (production grass_blade.gdshader); ivy-k9r0.
+const GRASS_BLADE_CHUNK_M := 6.0
+const GRASS_BLADE_CHUNK_HALF_DIAGONAL_M := 3.0 * 1.4142135623730951
+const GRASS_CAMERA_DISSOLVE_START_M := 14.0
+const GRASS_CAMERA_DISSOLVE_END_DEFAULT_M := 30.0
+const GRASS_CAMERA_DISSOLVE_END_GENERATED_M := GRASS_CAMERA_DISSOLVE_END_DEFAULT_M
+const GRASS_CAMERA_DISSOLVE_END_CLASSIC_M := 131072.0
+
+
+static func grass_chunk_visibility_end_m(dissolve_end_m: float) -> float:
+	return dissolve_end_m + GRASS_BLADE_CHUNK_HALF_DIAGONAL_M
+
+const _GRASS_PATCH_SAMPLE_RADIUS_M := 1.5
+const _GRASS_PATCH_EXCLUSION_CLEARANCE_M := 3.0
+
+
+static func grass_radial_edge_m(ctx: VillageGrassExclusionContext) -> float:
+	return GRASS_RADIAL_EDGE_GENERATED_M if ctx.generated_grass else GRASS_RADIAL_EDGE_CLASSIC_M
+
+
+static func grass_radial_flat_m(r_edge: float) -> float:
+	return GRASS_DENSITY_FLAT_FRACTION * r_edge
+
+
+static func grass_target_density_m2(r: float, r_edge: float) -> float:
+	var r_flat := grass_radial_flat_m(r_edge)
+	if r <= r_flat:
+		return GRASS_DENSITY_CORE_PER_M2
+	if r >= r_edge:
+		return GRASS_DENSITY_EDGE_PER_M2
+	var t := (r - r_flat) / (r_edge - r_flat)
+	t = clampf(t, 0.0, 1.0)
+	t = t * t * (3.0 - 2.0 * t)
+	return lerpf(GRASS_DENSITY_CORE_PER_M2, GRASS_DENSITY_EDGE_PER_M2, t)
+
+
+static func grass_target_density_slope_at_flat(r_edge: float) -> float:
+	var eps := 0.001
+	return (grass_target_density_m2(grass_radial_flat_m(r_edge) + eps, r_edge) \
+			- grass_target_density_m2(grass_radial_flat_m(r_edge), r_edge)) / eps
+
+
+static func _grass_cell_u01(ix: int, iy: int, channel: int) -> float:
+	var p := Vector2(float(ix) * 0.161803 + float(channel) * 2.71, float(iy) * 0.161803 + float(channel) * 5.23)
+	return _hash21(p)
+
+
+static func _grass_world_u01(world_p: Vector2, channel: int) -> float:
+	var q := world_p + Vector2(float(channel) * 0.173, float(channel) * 0.291)
+	return _hash21(q * 0.318309)
+
+
+static func grass_radial_keep_p(r_g: float, r_edge: float) -> float:
+	return grass_target_density_m2(r_g, r_edge) / GRASS_DENSITY_CORE_PER_M2
+
 
 static func lcg_step(state: int) -> int:
 	return (state * 1664525 + 1013904223) & 0x7FFFFFFF
@@ -432,9 +497,8 @@ static func _grass_blade_grid_fill(ctx: VillageGrassExclusionContext) -> Array[T
 	_grass_path_influence_rect = _path_clearance_influence_rect(path_records)
 	if GRASS_PROFILE:
 		grass_profile_last_usec["path_setup"] = Time.get_ticks_usec() - t_path
-	# Classic 0.17 m; generated 0.21 m fills 48k on G before outer ring exhaust (ivy-vlr R3).
 	var grid_step := GRASS_GRID_STEP_M if not ctx.generated_grass else GRASS_GRID_STEP_GENERATED_FILL_M
-	var ring_outer := GRASS_RING_OUTER_GENERATED_M if ctx.generated_grass else GRASS_RING_OUTER_M
+	var ring_outer := grass_radial_edge_m(ctx)
 	var grass_cap := GRASS_MAX_INSTANCES_GENERATED if ctx.generated_grass else GRASS_MAX_INSTANCES
 	if ctx.generated_grass:
 		grass_cap = mini(grass_cap, GRASS_GENERATED_FILL_CAP)
@@ -448,34 +512,17 @@ static func _grass_blade_grid_fill(ctx: VillageGrassExclusionContext) -> Array[T
 	var trust_forbidden := not forbidden.is_empty()
 	var half := ring_outer + grid_step
 	var n_cells := int(ceil((2.0 * half) / grid_step))
-	var st := GRASS_LCG_SEED
 	var t_loop := Time.get_ticks_usec() if GRASS_PROFILE else 0
-	var mid := n_cells / 2
-	for rad in range(n_cells / 2 + 1):
+	for iy in range(n_cells):
 		if out.size() >= grass_cap:
 			break
-		for dx in range(-rad, rad + 1):
+		for ix in range(n_cells):
 			if out.size() >= grass_cap:
 				break
-			st = _grass_blade_try_grid_ixiy(
-				ctx, out, mid + dx, mid - rad, n_cells, g, half, grid_step,
+			_grass_blade_try_grid_ixiy(
+				ctx, out, ix, iy, n_cells, g, half, grid_step,
 				hero_ref, ring_outer, grass_cap, path_records, path_hash, anchor_hash,
-				forbidden, trust_forbidden, st)
-			st = _grass_blade_try_grid_ixiy(
-				ctx, out, mid + dx, mid + rad, n_cells, g, half, grid_step,
-				hero_ref, ring_outer, grass_cap, path_records, path_hash, anchor_hash,
-				forbidden, trust_forbidden, st)
-		for dy in range(-rad + 1, rad):
-			if out.size() >= grass_cap:
-				break
-			st = _grass_blade_try_grid_ixiy(
-				ctx, out, mid - rad, mid + dy, n_cells, g, half, grid_step,
-				hero_ref, ring_outer, grass_cap, path_records, path_hash, anchor_hash,
-				forbidden, trust_forbidden, st)
-			st = _grass_blade_try_grid_ixiy(
-				ctx, out, mid + rad, mid + dy, n_cells, g, half, grid_step,
-				hero_ref, ring_outer, grass_cap, path_records, path_hash, anchor_hash,
-				forbidden, trust_forbidden, st)
+				forbidden, trust_forbidden)
 	if GRASS_PROFILE:
 		grass_profile_last_usec["loop"] = Time.get_ticks_usec() - t_loop
 	var t_trim := Time.get_ticks_usec() if GRASS_PROFILE else 0
@@ -596,79 +643,67 @@ static func _grass_blade_try_grid_ixiy(
 		path_hash: Dictionary,
 		anchor_hash: Dictionary,
 		forbidden: Dictionary,
-		trust_forbidden: bool,
-		st: int) -> int:
+		trust_forbidden: bool) -> void:
 	if out.size() >= grass_cap:
-		return st
+		return
 	if ix < 0 or iy < 0 or ix >= n_cells or iy >= n_cells:
-		return st
+		return
 	var cx := g.x - half + (float(ix) + 0.5) * grid_step
 	var cz := g.y - half + (float(iy) + 0.5) * grid_step
 	var center := Vector2(cx, cz)
 	var r_g_center := center.distance_to(g)
 	var r_h_center := center.distance_to(hero_ref)
 	if r_g_center > ring_outer:
-		return st
+		return
 	if not ctx.generated_grass and r_h_center < GRASS_HERO_FRINGE_INNER_M:
-		return st
+		return
 	if _grass_coarse_forbidden(forbidden, center):
-		return st
-	st = lcg_step(st)
-	var jx: float = (lcg_f01(st) - 0.5) * grid_step
-	st = lcg_step(st)
-	var jz: float = (lcg_f01(st) - 0.5) * grid_step
+		return
+	var jx: float = (_grass_cell_u01(ix, iy, 0) - 0.5) * grid_step
+	var jz: float = (_grass_cell_u01(ix, iy, 1) - 0.5) * grid_step
 	var p := center + Vector2(jx, jz)
 	var r_g := p.distance_to(g)
 	var r_h := p.distance_to(hero_ref)
 	if r_g > ring_outer:
-		return st
+		return
 	if not ctx.generated_grass and r_h < GRASS_HERO_FRINGE_INNER_M:
-		return st
+		return
 	if r_h < GRASS_HERO_FOOTPRINT_R:
-		return st
+		return
 	if trust_forbidden and _grass_coarse_forbidden(forbidden, p):
-		return st
+		return
 	if not trust_forbidden:
 		if _grass_path_influence_rect.has_point(p):
 			if _min_xz_dist_path_spatial(p, path_records, path_hash, PATH_SPATIAL_CELL_M) \
 					< PATH_CLEARANCE_M:
-				return st
+				return
 	if not trust_forbidden:
 		if blocks_grass_at(p):
-			return st
+			return
 		if _grass_cottage_blocks(p, ctx):
-			return st
+			return
 	var anchor_clear := PLANT_CLEARANCE_M + grid_step * 0.75
 	if _anchor_blocks(p, anchor_hash, anchor_clear, GRASS_ANCHOR_HASH_CELL_M):
-		return st
-	st = lcg_step(st)
+		return
 	var hero_keep := _grass_hero_fringe_keep(r_h, p) if r_h < GRASS_RING_INNER_M \
 			else _grass_hero_density_keep(r_h, p)
-	if lcg_f01(st) > hero_keep:
-		return st
-	if r_g > GRASS_FULL_DENSITY_OUTER_M:
-		var keep_p := 1.0 - (r_g - GRASS_FULL_DENSITY_OUTER_M) \
-				/ (ring_outer - GRASS_FULL_DENSITY_OUTER_M)
-		st = lcg_step(st)
-		if lcg_f01(st) > keep_p:
-			return st
-	st = lcg_step(st)
-	var rot: float = lcg_f01(st) * TAU
-	st = lcg_step(st)
-	var s_rand: float = lerpf(0.8, 1.1, lcg_f01(st))
+	if _grass_cell_u01(ix, iy, 2) > hero_keep:
+		return
+	var radial_p := grass_radial_keep_p(r_g, ring_outer)
+	if _grass_cell_u01(ix, iy, 3) > radial_p:
+		return
+	var rot: float = _grass_cell_u01(ix, iy, 4) * TAU
+	var s_rand: float = lerpf(0.8, 1.1, _grass_cell_u01(ix, iy, 5))
 	var patch_noise := _grass_patch_noise(p)
 	var patch := lerpf(0.8, 1.15, patch_noise)
 	var hero := _grass_hero_height_scale(r_h)
-	var fade_h := _grass_fade_height_scale(r_g, ring_outer)
-	var s: float = s_rand * patch * hero * fade_h
+	var s: float = s_rand * patch * hero
 	if ctx.generated_grass:
-		# Slightly lusher at 0.21 m step (≈0.24 m visual density).
 		s *= lerpf(1.08, 1.22, patch_noise)
 	if not ctx.generated_grass and VillagePondShape.classic()._is_in_water(p, 0.0):
-		return st
+		return
 	var basis := Basis.from_euler(Vector3(0.0, rot, 0.0)).scaled(Vector3(s, s, s))
 	out.append(Transform3D(basis, Vector3(p.x, 0.0, p.y)))
-	return st
 
 
 static func _grass_scatter_anchors_light(ctx: VillageGrassExclusionContext) -> Array[Vector2]:
@@ -1369,3 +1404,74 @@ static func fauna_flower_anchor_transforms_with_paths(
 		for t in petals[piece] as Array[Transform3D]:
 			out.append(t)
 	return out
+
+
+static func measure_patch_density_cv(
+		grass: Array[Transform3D], lawn_centre: Vector2, sample_r: float,
+		radius: float = _GRASS_PATCH_SAMPLE_RADIUS_M, n_samples: int = 36) -> float:
+	var densities: Array[float] = []
+	for i in range(n_samples):
+		var ang := float(i) * (TAU / float(n_samples))
+		var centre := lawn_centre + Vector2(cos(ang), sin(ang)) * sample_r
+		densities.append(measure_patch_density_m2(grass, centre, radius))
+	var mean := 0.0
+	for d in densities:
+		mean += d
+	mean /= float(n_samples)
+	if mean < 1e-6:
+		return 0.0
+	var var_sum := 0.0
+	for d in densities:
+		var_sum += (d - mean) * (d - mean)
+	var_sum /= float(n_samples)
+	return sqrt(var_sum) / mean
+
+
+static func measure_patch_density_m2(
+		grass: Array[Transform3D], patch_centre: Vector2,
+		radius: float = _GRASS_PATCH_SAMPLE_RADIUS_M) -> float:
+	var r_sq := radius * radius
+	var n := 0
+	for t in grass:
+		var p := Vector2(t.origin.x, t.origin.z)
+		if p.distance_squared_to(patch_centre) <= r_sq:
+			n += 1
+	var area := PI * radius * radius
+	return float(n) / area if area > 0.0 else 0.0
+
+
+static func grass_patch_exclusion_clear(p: Vector2, ctx: VillageGrassExclusionContext) -> bool:
+	var pad := _GRASS_PATCH_EXCLUSION_CLEARANCE_M
+	if _grass_cottage_blocks(p, ctx):
+		return false
+	if blocks_grass_at(p):
+		return false
+	if min_xz_dist_to_path_segments(p, ctx.path_segments) < PATH_CLEARANCE_M + pad:
+		return false
+	for a in collect_scatter_anchor_xz(ctx):
+		if p.distance_to(a) < PLANT_CLEARANCE_M + pad:
+			return false
+	return true
+
+
+static func find_open_grass_patch_centre(
+		ctx: VillageGrassExclusionContext,
+		lawn_centre: Vector2,
+		target_r: float,
+		seed_salt: int = 0) -> Vector2:
+	var r_edge := grass_radial_edge_m(ctx)
+	const RADIAL_STEPS := 12
+	const ANGLE_STEPS := 64
+	for ri in range(RADIAL_STEPS):
+		var dr := (float(ri) / float(RADIAL_STEPS - 1) - 0.5) * 3.5
+		var r := target_r + dr
+		if r < 1.0 or r > r_edge - 0.25:
+			continue
+		for ai in range(ANGLE_STEPS):
+			var angle := float(ai) * (TAU / float(ANGLE_STEPS)) + float(seed_salt) * 0.041
+			var p := lawn_centre + Vector2(cos(angle), sin(angle)) * r
+			if p.distance_to(lawn_centre) > r_edge - 0.25:
+				continue
+			if grass_patch_exclusion_clear(p, ctx):
+				return p
+	return Vector2(INF, INF)

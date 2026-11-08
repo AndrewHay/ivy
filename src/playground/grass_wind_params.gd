@@ -7,8 +7,8 @@ const PRESET_PRODUCTION := "Production"
 const CUSTOM_PRESET := "Custom"
 const FaunaConstants = preload("res://src/presentation/fauna/fauna_constants.gd")
 
-## Production-equivalent blade density (~1 / 0.17² m⁻²).
-const DEFAULT_BLADE_DENSITY_PER_M2 := 1.0 / (0.17 * 0.17)
+## Production core blade density (matches VillageScatterPositions; village edge eases to 15/m²).
+const DEFAULT_BLADE_DENSITY_PER_M2 := VillageScatterPositions.GRASS_DENSITY_CORE_PER_M2
 
 @export var variant: int = 0
 

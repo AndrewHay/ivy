@@ -3,8 +3,13 @@ render_mode cull_disabled, specular_disabled;
 
 #include "res://src/render/shaders/wind_gust.gdshaderinc"
 
+uniform float dissolve_start = 14.0;
+uniform float dissolve_end = 30.0;
+uniform float dissolve_active = 0.0;
+
 varying float v_h;
 varying float v_hash;
+varying float v_keep;
 varying vec3 v_world_pos;
 varying vec2 v_uv;
 
@@ -44,10 +49,22 @@ void vertex() {
 			VERTEX, v_h, blade_H, MODEL_MATRIX, root_world_xz, COLOR.r);
 	VERTEX = pos;
 	v_world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	v_keep = 1.0;
+	if (dissolve_active > 0.5) {
+		vec3 root_world = (MODEL_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+		vec3 cam = (INV_VIEW_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+		v_keep = 1.0 - smoothstep(dissolve_start, dissolve_end, distance(root_world, cam));
+		if (v_hash > v_keep) {
+			VERTEX = vec3(0.0);
+		}
+	}
 }
 
 
 void fragment() {
+	if (dissolve_active > 0.5 && v_hash > v_keep) {
+		discard;
+	}
 	float h = clamp(v_h, 0.0, 1.0);
 	vec3 root_col = srgb_to_linear(vec3(0.18, 0.30, 0.14));
 	vec3 mid_col = srgb_to_linear(vec3(0.36, 0.52, 0.26));

@@ -235,8 +235,26 @@ func test_grass_instanced_triangle_budget() -> void:
 		"Grass instanced tris must be <= GRASS_MAX × 35; got %d" % instanced_tris)
 
 
+func test_classic_grass_shader_dissolve_noop() -> void:
+	var saw := false
+	for mmi_node in _find_nodes_of_type(_backdrop, MultiMeshInstance3D):
+		var mmi := mmi_node as MultiMeshInstance3D
+		if not mmi.name.begins_with("Scatter_Grass_Blades_"):
+			continue
+		saw = true
+		var mat := mmi.material_override as ShaderMaterial
+		assert_not_null(mat)
+		assert_true(
+			mat.shader.resource_path.ends_with("grass_blade_classic.gdshader"),
+			"Classic uses HEAD-parity grass shader")
+		assert_eq(mmi.visibility_range_end, 0.0, "Classic chunks must not visibility-cull grass")
+	assert_true(saw, "Classic grass chunks expected")
+
+
 func test_grass_blade_chunks_custom_aabb_covers_instances() -> void:
 	## Wrong custom_aabb (single tuft at origin) frustum-culled whole tiles when zoomed in.
+	var tuft_aabb := VillageGrassMesh.blade_tuft_mesh().get_aabb()
+	var tuft_corners := _tuft_aabb_corners(tuft_aabb)
 	for mmi_node in _find_nodes_of_type(_backdrop, MultiMeshInstance3D):
 		var mmi := mmi_node as MultiMeshInstance3D
 		if not mmi.name.begins_with("Scatter_Grass_Blades_"):
@@ -252,6 +270,12 @@ func test_grass_blade_chunks_custom_aabb_covers_instances() -> void:
 			assert_true(
 				aabb.has_point(origin),
 				"custom_aabb must contain instance at %s (%s)" % [origin, mmi.name])
+			var xf := _multimesh_transform_from_buffer(buf, b)
+			for corner in tuft_corners:
+				var world_pt := xf * corner
+				assert_true(
+					aabb.has_point(world_pt),
+					"custom_aabb must contain tuft corner %s (inst %d %s)" % [world_pt, i, mmi.name])
 
 
 func test_surface_count_under_160() -> void:
@@ -651,6 +675,30 @@ func _check_no_vine_names(node: Node, patterns: Array) -> void:
 			"Vine-named node found in backdrop: '%s'" % node.name)
 	for child in node.get_children():
 		_check_no_vine_names(child, patterns)
+
+
+func _multimesh_transform_from_buffer(buf: PackedFloat32Array, b: int) -> Transform3D:
+	var t := Transform3D()
+	t.basis.x = Vector3(buf[b + 0], buf[b + 4], buf[b + 8])
+	t.basis.y = Vector3(buf[b + 1], buf[b + 5], buf[b + 9])
+	t.basis.z = Vector3(buf[b + 2], buf[b + 6], buf[b + 10])
+	t.origin = Vector3(buf[b + 3], buf[b + 7], buf[b + 11])
+	return t
+
+
+func _tuft_aabb_corners(aabb: AABB) -> Array[Vector3]:
+	var p := aabb.position
+	var s := aabb.size
+	return [
+		p,
+		p + Vector3(s.x, 0.0, 0.0),
+		p + Vector3(0.0, s.y, 0.0),
+		p + Vector3(0.0, 0.0, s.z),
+		p + Vector3(s.x, s.y, 0.0),
+		p + Vector3(s.x, 0.0, s.z),
+		p + Vector3(0.0, s.y, s.z),
+		p + s,
+	]
 
 
 func _nearest_xz_dist_from_origin(aabb: AABB) -> float:
