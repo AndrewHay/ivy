@@ -11,6 +11,8 @@ description: Captures a PNG screenshot of the running ivy game scene. Use when v
 
 Headlessly launches the main scene, lets it settle, and writes a PNG to disk.
 
+In **generated village** mode the player `DebugCamera` eye is clamped to the lawn disc (`CameraBounds`, 2 m inset); use throwaway cameras only inside that disc (or `run_ui_script` `ORBIT`, which clamps) so PNGs match the true playable view.
+
 ## Run command
 
 Run with `required_permissions: ["all"]` and `working_directory: /Users/andrewhay/github/ivy`:

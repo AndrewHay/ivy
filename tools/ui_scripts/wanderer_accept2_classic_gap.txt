@@ -1,0 +1,8 @@
+# Wanderer acceptance pass 2 — classic close top-down gap check (ivy-ydiy.7)
+WAIT 3
+WANDERER_SEED 11
+WANDERER_GOTO SHOWING
+WANDERER_ADVANCE 0.3
+WANDERER_CAM 0.5 16 0 0
+SCREENSHOT topdown_gap_16m.png
+WANDERER_DUMP

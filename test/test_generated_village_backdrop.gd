@@ -76,8 +76,11 @@ func test_far_treeline_instance_count() -> void:
 	assert_not_null(treeline.multimesh, "FarTreeline must have a multimesh")
 	if treeline.multimesh == null:
 		return
-	assert_eq(treeline.multimesh.instance_count, VillageLayout.GENERATED_PINE_COUNT,
-		"Generated FarTreeline must match GENERATED_PINE_COUNT")
+	var layout := bd.get_layout()
+	var placed := VillageScatterPositions.forest_tree_positions(layout).size()
+	assert_eq(treeline.multimesh.instance_count, placed,
+		"Generated FarTreeline must match forest placement count (ivy-89a6 backdrop)")
+	assert_gte(placed, 24, "backdrop places >=24 trees")
 
 
 # ── (d) LawnGround radius ≈ 30 m ─────────────────────────────────────────────
@@ -338,9 +341,11 @@ func test_export_fauna_anchors_includes_path_petals() -> void:
 	FaunaIntegration.set_gut_fauna_test_active(false)
 
 
-func test_generated_grass_shader_dissolve_active() -> void:
+func test_generated_grass_shader_anchor_plaza_g() -> void:
 	var saw := false
 	var bd := _make_generated(DEFAULT_TEST_SEED)
+	var layout := bd.get_layout()
+	var expected_anchor := Vector2(bd.global_position.x, bd.global_position.z) + layout.hamlet_centre_xz
 	for mmi_node in _collect_nodes_of_type(bd, MultiMeshInstance3D):
 		var mmi := mmi_node as MultiMeshInstance3D
 		if not mmi.name.begins_with("Scatter_Grass_Blades_"):
@@ -351,13 +356,17 @@ func test_generated_grass_shader_dissolve_active() -> void:
 		assert_true(
 			mat.shader.resource_path.ends_with("grass_blade.gdshader"),
 			"Generated uses dissolve grass_blade.gdshader")
-		assert_almost_eq(mat.get_shader_parameter("dissolve_active"), 1.0, 0.01)
+		assert_almost_eq(mat.get_shader_parameter("dissolve_active"), 0.0, 0.01,
+			"Radial placement handles lawn edge; shader draw is camera-independent")
+		var anchor: Vector2 = mat.get_shader_parameter("anchor_xz")
+		assert_almost_eq(anchor.x, expected_anchor.x, 0.02, "anchor_xz matches plaza G in world")
+		assert_almost_eq(anchor.y, expected_anchor.y, 0.02)
 		assert_almost_eq(
 			mat.get_shader_parameter("dissolve_start"),
-			VillageScatterPositions.GRASS_CAMERA_DISSOLVE_START_M, 0.01)
+			VillageScatterPositions.GRASS_ANCHOR_DISSOLVE_START_M, 0.01)
 		assert_almost_eq(
 			mat.get_shader_parameter("dissolve_end"),
-			VillageScatterPositions.GRASS_CAMERA_DISSOLVE_END_GENERATED_M, 0.01)
+			VillageScatterPositions.GRASS_ANCHOR_DISSOLVE_END_M, 0.01)
 		assert_eq(mmi.visibility_range_end, 0.0, "Chunk visibility off; shader dissolve only")
 		assert_eq(
 			mmi.visibility_range_fade_mode,
@@ -369,11 +378,16 @@ func test_generated_grass_per_blade_dissolve_chunk_cull() -> void:
 	var mat := ShaderMaterial.new()
 	mat.shader = load("res://src/render/shaders/grass_blade.gdshader")
 	var vb := VillageBackdrop.new()
-	vb.call("_configure_grass_blade_material", mat)
+	var plaza_g := Vector2(3.0, -1.5)
+	vb.call("_configure_grass_blade_material", mat, plaza_g)
+	var expected_anchor := Vector2(vb.global_position.x, vb.global_position.z) + plaza_g
+	var anchor: Vector2 = mat.get_shader_parameter("anchor_xz")
+	assert_almost_eq(anchor.x, expected_anchor.x, 0.001)
+	assert_almost_eq(anchor.y, expected_anchor.y, 0.001)
 	assert_almost_eq(
 		mat.get_shader_parameter("dissolve_end"),
-		VillageScatterPositions.GRASS_CAMERA_DISSOLVE_END_GENERATED_M, 0.01)
-	assert_almost_eq(mat.get_shader_parameter("dissolve_active"), 1.0, 0.01)
+		VillageScatterPositions.GRASS_ANCHOR_DISSOLVE_END_M, 0.01)
+	assert_almost_eq(mat.get_shader_parameter("dissolve_active"), 0.0, 0.01)
 	assert_true(mat.shader.resource_path.ends_with("grass_blade.gdshader"))
 	var mmi := MultiMeshInstance3D.new()
 	vb.call("_apply_generated_grass_chunk_visibility", mmi)

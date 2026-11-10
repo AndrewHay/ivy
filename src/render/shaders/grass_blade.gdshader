@@ -6,6 +6,7 @@ render_mode cull_disabled, specular_disabled;
 uniform float dissolve_start = 14.0;
 uniform float dissolve_end = 30.0;
 uniform float dissolve_active = 0.0;
+uniform vec2 anchor_xz = vec2(0.0, 0.0);
 
 varying float v_h;
 varying float v_hash;
@@ -52,8 +53,8 @@ void vertex() {
 	v_keep = 1.0;
 	if (dissolve_active > 0.5) {
 		vec3 root_world = (MODEL_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
-		vec3 cam = (INV_VIEW_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
-		v_keep = 1.0 - smoothstep(dissolve_start, dissolve_end, distance(root_world, cam));
+		float d_anchor = distance(root_world.xz, anchor_xz);
+		v_keep = 1.0 - smoothstep(dissolve_start, dissolve_end, d_anchor);
 		if (v_hash > v_keep) {
 			VERTEX = vec3(0.0);
 		}

@@ -1,6 +1,8 @@
 class_name SkySun
 extends Node3D
 
+const HeroFog = preload("res://src/world/hero_fog.gd")
+
 ## Presentation only. Drives the DirectionalLight3D and the procedural sky from
 ## `Solar`, applying the SD-TIME-4 render blend so the sun does not strobe at
 ## time-lapse speeds. The light field never sees this blend.
@@ -52,6 +54,11 @@ var _sun: DirectionalLight3D
 var _env: WorldEnvironment
 var _sky_shader: ShaderMaterial
 var _base_energy: float = 1.2
+var _fog_nominal_begin: float = 9.5
+var _fog_nominal_end: float = 95.0
+var _fog_centre_mode: HeroFog.CentreMode = HeroFog.DEFAULT_MODE
+var _fog_anchor: Vector3 = Vector3.ZERO
+var _fog_anchor_valid: bool = false
 
 
 func setup(s: Solar) -> void:
@@ -70,10 +77,82 @@ func setup(s: Solar) -> void:
 ## Called by World.rebuild_backdrop() after each build so the fog seam is updated.
 ## Classic layout carries 9.5/95, so rebuilding into classic restores the default.
 func set_fog_depth(begin: float, end: float) -> void:
+	_fog_nominal_begin = begin
+	_fog_nominal_end = end
+	_ensure_depth_fog_active()
+	_apply_depth_fog_range()
+
+
+func set_fog_centre_mode(mode: HeroFog.CentreMode) -> void:
+	_fog_centre_mode = mode
+	_apply_depth_fog_range()
+
+
+func get_fog_centre_mode() -> HeroFog.CentreMode:
+	return _fog_centre_mode
+
+
+func get_fog_nominal_begin() -> float:
+	return _fog_nominal_begin
+
+
+func get_fog_nominal_end() -> float:
+	return _fog_nominal_end
+
+
+func set_fog_anchor(anchor: Vector3) -> void:
+	_fog_anchor = anchor
+	_fog_anchor_valid = true
+	_apply_depth_fog_range()
+
+
+## Re-applies depth fog from the active viewport camera (call after camera moves or mode changes).
+func sync_depth_fog_from_active_camera() -> void:
+	_apply_depth_fog_range()
+
+
+func read_fog_environment_state() -> Dictionary:
+	if _env == null or _env.environment == null:
+		return {}
+	var e := _env.environment
+	return {
+		"fog_enabled": e.fog_enabled,
+		"fog_mode": e.fog_mode,
+		"fog_depth_begin": e.fog_depth_begin,
+		"fog_depth_end": e.fog_depth_end,
+		"fog_density": e.fog_density,
+		"fog_depth_curve": e.fog_depth_curve,
+		"fog_aerial_perspective": e.fog_aerial_perspective,
+		"fog_sky_affect": e.fog_sky_affect,
+	}
+
+
+func _ensure_depth_fog_active() -> void:
 	if _env == null or _env.environment == null:
 		return
-	_env.environment.fog_depth_begin = begin
-	_env.environment.fog_depth_end = end
+	var e := _env.environment
+	e.fog_enabled = true
+	e.fog_mode = Environment.FOG_MODE_DEPTH
+
+
+func _apply_depth_fog_range() -> void:
+	if _env == null or _env.environment == null:
+		return
+	_ensure_depth_fog_active()
+	if _fog_centre_mode == HeroFog.CentreMode.CAMERA:
+		_env.environment.fog_depth_begin = _fog_nominal_begin
+		_env.environment.fog_depth_end = _fog_nominal_end
+		return
+	if not _fog_anchor_valid:
+		_env.environment.fog_depth_begin = _fog_nominal_begin
+		_env.environment.fog_depth_end = _fog_nominal_end
+		return
+	var cam := get_viewport().get_camera_3d()
+	if cam == null:
+		return
+	HeroFog.apply_depth_fog_to_environment(
+		_env.environment, cam.global_transform, _fog_anchor,
+		_fog_nominal_begin, _fog_nominal_end, HeroFog.CentreMode.HERO)
 
 
 ## `seconds_per_game_day` comes from `SimClock.seconds_per_game_day()`.
@@ -102,6 +181,7 @@ func update(game_day: float, seconds_per_game_day: float) -> void:
 		_env.environment.ambient_light_color = ambient_light_color_for(s.y, lit)
 		_env.environment.ambient_light_energy = ambient_energy_for(lit)
 		_env.environment.fog_light_color = fog_color_for(s.y, lit)
+		_apply_depth_fog_range()
 		if _sky_shader != null:
 			var tw := twilight_glow_for(s.y, lit)
 			_sky_shader.set_shader_parameter("sky_top_color", sky_top_color_for(s.y, lit))

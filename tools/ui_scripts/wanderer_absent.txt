@@ -1,0 +1,6 @@
+# Any non-birthday scenario: no wanderer. WANDERER_DUMP must report no controller.
+# Run: --building=ivy --village-mode=generated_village --village-seed=7 --outdir=res://.tmp/wanderer/birthday/ivy/
+WAIT 3
+WANDERER_DUMP
+ORBIT 30 26 12
+SCREENSHOT orbit_wide.png

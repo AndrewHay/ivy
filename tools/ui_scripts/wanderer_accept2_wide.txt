@@ -1,0 +1,17 @@
+# Wanderer acceptance pass 2 — WIDE cam / top-down gap check while SHOWING (ivy-ydiy.7)
+# Run: --scenario=res://assets/structures/scenarios/square.tres --outdir=res://.tmp/wanderer/accept2/classic/
+WAIT 3
+WANDERER_SEED 11
+WANDERER_GOTO SHOWING
+WANDERER_ADVANCE 0.3
+WANDERER_DUMP
+WANDERER_CAM WIDE
+WANDERER_DUMP
+SCREENSHOT wide_recheck.png
+WANDERER_DUMP
+WANDERER_CAM 0.5 30 0 0
+SCREENSHOT topdown_gap.png
+WANDERER_DUMP
+WANDERER_CAM 12 7 4 -35
+SCREENSHOT front_left_close.png
+WANDERER_DUMP

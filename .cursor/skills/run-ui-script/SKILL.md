@@ -110,7 +110,7 @@ Plain `.txt`, one verb per line, `#` comments and blank lines ignored.
 | `SET_PARAM <name> <value>` | Override one `IvyParams` field before the run. Use it for A/B comparisons such as `diel_gate_enabled false` |
 | `CAMERA <name\|index>` | Switch to a `CameraRig` child camera by name (`sun`, `shade`, `top`, `silhouette`) or 0-based index |
 | `DUMP_LEAF_COLOUR [seed_azimuth_deg]` | Emit LG-2a (area-weighted mean `Color.g` delta, sun vs shade hemisphere) and LG-2b (healthy-tier area-fraction delta). Reports PASS/FAIL against SD-METRIC-7 thresholds |
-| `ORBIT <azimuth_deg> [radius_m=8] [height_m=2]` | Throwaway camera on a circle around `World.get_orbit_pivot()`, aimed at the pivot; 0 = CamSun side; `CAMERA` switches back |
+| `ORBIT <azimuth_deg> [radius_m=8] [height_m=2]` | Throwaway camera on a circle around `World.get_orbit_pivot()`, aimed at the pivot; 0 = CamSun side; `CAMERA` switches back. **Generated village:** eye XZ is clamped to the lawn disc (`CameraBounds`, margin 2 m) so screenshots match the playable view |
 | `SNAPSHOT_LOAD <folder\|latest>` | Load a debug snapshot recipe, replay to saved tick, restore camera (ivy-nrp) |
 | `SCREENSHOT [name.png]` | Capture a PNG into the output directory |
 

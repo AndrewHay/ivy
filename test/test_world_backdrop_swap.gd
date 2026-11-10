@@ -46,15 +46,12 @@ func _count_backdrop_children(world: Node) -> int:
 	return count
 
 
-## Read fog_depth_begin from SkySun's WorldEnvironment.
+## Layout fog begin stored on SkySun (nominal hero distances; runtime Environment is offset in HERO mode).
 func _fog_depth_begin(world: Node) -> float:
 	var sky_sun := world.get_node_or_null("SkySun") as SkySun
 	if sky_sun == null:
 		return -1.0
-	var env := sky_sun.get_node_or_null("WorldEnvironment") as WorldEnvironment
-	if env == null or env.environment == null:
-		return -1.0
-	return env.environment.fog_depth_begin
+	return sky_sun.get_fog_nominal_begin()
 
 
 # ── (a) Generated mode swap ───────────────────────────────────────────────────

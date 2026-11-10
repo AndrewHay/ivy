@@ -1,0 +1,9 @@
+# Wanderer acceptance pass 2 — generated village door pause reframed (ivy-ydiy.7)
+# Run: --scenario=res://assets/structures/scenarios/square.tres --village-mode=generated_village --village-seed=7 --outdir=res://.tmp/wanderer/accept2/generated/
+WAIT 3
+WANDERER_SEED 11
+WANDERER_GOTO DOOR_PAUSE
+WANDERER_ADVANCE 0.1
+WANDERER_CAM 9 4 1.0 150
+SCREENSHOT door_pause_c.png
+WANDERER_DUMP

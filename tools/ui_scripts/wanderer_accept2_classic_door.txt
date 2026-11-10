@@ -1,0 +1,10 @@
+# Wanderer acceptance pass 2 — classic door pause / inside re-capture (ivy-ydiy.7)
+# Run: --scenario=res://assets/structures/scenarios/square.tres --outdir=res://.tmp/wanderer/accept2/classic/
+WAIT 3
+WANDERER_SEED 11
+WANDERER_GOTO DOOR_PAUSE
+WANDERER_ADVANCE 0.3
+WANDERER_DUMP
+WANDERER_CAM 9 2.5 1.0 0
+SCREENSHOT door_pause_b.png
+WANDERER_DUMP

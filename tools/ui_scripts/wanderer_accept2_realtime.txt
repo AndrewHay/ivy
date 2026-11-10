@@ -1,0 +1,15 @@
+# Wanderer acceptance pass 2 — real-time: sim left paused at boot, NO advance/goto/cam verbs.
+# WANDERER_DUMP is a read-only probe (prints the brain state) used to prove movement numerically.
+# Run: --scenario=res://assets/structures/scenarios/square.tres --outdir=res://.tmp/wanderer/accept2/realtime/
+WAIT 3000
+WANDERER_DUMP
+ORBIT 0 16 22
+SCREENSHOT rt_a.png
+WANDERER_DUMP
+WAIT 3000
+WANDERER_DUMP
+SCREENSHOT rt_b.png
+WAIT 3000
+WANDERER_DUMP
+SCREENSHOT rt_c.png
+DUMP

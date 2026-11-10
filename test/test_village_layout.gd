@@ -222,7 +222,9 @@ const _REFERENCE_FINGERPRINTS := {
 	"Cottage_WindowShutters_Wide_Flat_Closed": [14, 4128123923],
 	"Cottage_Wall_Plaster_Straight": [44, 1972257807],
 	"Cottage_Wall_Plaster_Door_Flat": [7, 4143240826],
-	"Cottage_Door_1_Flat": [7, 3179870872],
+	## Re-baselined (door-flush fix, snapshot 20261109-203511_ivy_d1): leaf sunk 6.3 cm so its
+	## outer face is flush with the wall plane. Only this buffer moves; layout is unchanged.
+	"Cottage_Door_1_Flat": [7, 937301372],
 	"Cottage_Roof_Front_Brick4": [14, 2923429747],
 	"Cottage_Roof_RoundTiles_4x8": [2, 2205579321],
 	"Cottage_Prop_Chimney2": [7, 2019212655],

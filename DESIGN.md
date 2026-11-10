@@ -211,6 +211,38 @@ and insect drift feel like one breeze. Combined motion stays subtle; hero ivy re
 Contracts: `IMPLEMENTATION.md` § SD-FAUNA. Behaviour summary and status: **`FAUNA_DESIGN.md`**.
 Tracking: bead `ivy-ckq`.
 
+## Village wanderer (presentation layer)
+
+The wanderer appears only in the **Birthday** scenario (picker entry `birthday`: the village
+cottage in the generated village). Every other scenario has no wanderer
+(`BuildingCatalog.Entry.wanderer`).
+
+A small low-poly figure (2 m tall) walks the village paths at ~2 m/s (a brisk, playful pace) between randomly chosen
+cottages. At a door he pauses, goes inside (hidden ~10 s), comes out, pauses, then steps about
+2.5 m straight out from the door and stops facing away from the house. He says a short phrase in
+a speech bubble above his head. A large flat image (~2x cottage height, width from the jpg aspect
+ratio) then appears with one bottom corner at the top of his head — never covering him — rising
+up and to his left, parallel to the house wall and facing the same way he does, so it never
+clips the house he just left. After ~5 s it vanishes and he walks back to the path and on to a
+different random cottage. While walking, a random quote bubble appears every 20 s. Images (`*.jpg`) and
+quotes (one per line in a `.txt`) are loaded at startup from a single folder; a missing or empty
+folder degrades gracefully (he still walks).
+
+**Why:** the village feels inhabited, and the wanderer is a quiet, personal channel (the
+designer's own images and lines) that arrives by itself. He is a visitor, not a lever.
+
+**Boundary:** presentation only, like ambient fauna. No reads or writes of growth, light bake,
+physiology, or `IvyParams`; no gameplay collision layers; no player control; no input capture.
+The loop repeats indefinitely and must not require player attention. Constraint to watch: the
+reveal image must not become a persistent wall hiding the hero ivy — it is short-lived (~5 s)
+and tied to a spot on the village paths.
+
+**Non-goals (MVP):** dialogue trees, player interaction with the figure, pathfinding beyond the
+existing path graph, rigged skeletal assets, audio, per-image captions. Richer motions (wave,
+sit, etc.) are later beats; the figure is kept to few primitives so they are easy to add.
+
+Tracking: epic `ivy-ydiy`. Walk-feel tuning lives in a playground scene (principle G7).
+
 
 
 ## Village wind & ground cover

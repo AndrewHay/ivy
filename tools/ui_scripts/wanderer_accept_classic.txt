@@ -1,0 +1,47 @@
+# Wanderer acceptance — classic village, core scenario shots (ivy-ydiy.7)
+# Run: --scenario=res://assets/structures/scenarios/square.tres --outdir=res://.tmp/wanderer/accept/
+WAIT 3
+WANDERER_SEED 11
+WANDERER_DUMP
+# Walking on path: two frames 0.4 s apart (walk-cycle pose differs)
+WANDERER_ADVANCE 6
+WANDERER_DUMP
+WANDERER_CAM 7 1.6 1.0 -90
+SCREENSHOT classic_walk_a.png
+WANDERER_ADVANCE 0.4
+WANDERER_CAM 7 1.6 1.0 -90
+SCREENSHOT classic_walk_b.png
+WANDERER_CAM 18 9 0 0
+SCREENSHOT classic_walk_overview.png
+# Door pause
+WANDERER_GOTO DOOR_PAUSE
+WANDERER_DUMP
+WANDERER_CAM 8 4 1.0 0
+SCREENSHOT classic_door_pause.png
+# Inside (hidden)
+WANDERER_GOTO INSIDE
+WANDERER_ADVANCE 3
+WANDERER_DUMP
+WANDERER_CAM 8 4 1.0 0
+SCREENSHOT classic_inside.png
+# Exit / saying
+WANDERER_GOTO SAYING
+WANDERER_ADVANCE 0.5
+WANDERER_DUMP
+WANDERER_CAM BUBBLE
+SCREENSHOT classic_saying.png
+# Showing
+WANDERER_GOTO SHOWING
+WANDERER_ADVANCE 1.0
+WANDERER_DUMP
+WANDERER_CAM REVEAL
+SCREENSHOT classic_reveal_front.png
+WANDERER_CAM WIDE
+SCREENSHOT classic_reveal_oblique.png
+# Oblique view: image corner at head, figure not covered
+WANDERER_CAM 14 4 3 -30
+SCREENSHOT classic_reveal_corner.png
+WANDERER_ADVANCE 6
+WANDERER_DUMP
+WANDERER_CAM 18 9 0 0
+SCREENSHOT classic_after_reveal.png

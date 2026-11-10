@@ -8,6 +8,7 @@ const _BuildingPicker = preload("res://src/ui/building_picker.gd")
 const GameModes = preload("res://src/world/game_modes.gd")
 const RngStream = preload("res://src/core/rng_stream.gd")
 const _PlantingTool = preload("res://src/ui/planting_tool.gd")
+const WandererIntegration = preload("res://src/presentation/wanderer/wanderer_integration.gd")
 
 const _LoadingOverlay = preload("res://src/ui/loading_overlay.gd")
 const _DebugSessionLog = preload("res://src/debug/debug_session_log.gd")
@@ -26,6 +27,8 @@ var script_driven: bool = false
 ## `tools/replay_snapshot.gd` sets this so snapshot replay does not seed/bake a throwaway
 ## procedural session before load_snapshot_recipe rebuilds the saved building.
 var skip_script_bootstrap: bool = false
+## Catalog id for a script_driven run (`run_ui_script.gd --building=`); empty keeps the default.
+var script_building_id: String = ""
 
 @onready var _world: Node3D = $World
 @onready var _sim: Node = $Sim
@@ -113,6 +116,9 @@ func _on_building_selected(building_id: String) -> void:
 	if not standalone.is_empty():
 		get_tree().change_scene_to_file(standalone)
 		return
+	var forced_mode := BuildingCatalog.village_mode_for(building_id)
+	if not forced_mode.is_empty() and forced_mode != _village_mode:
+		_on_village_mode_changed(forced_mode)
 	_bootstrap_generation += 1
 	_session_log = null
 	_loading_overlay = _LoadingOverlay.new()
@@ -192,6 +198,8 @@ func _bootstrap_simulation(auto_seed: bool) -> bool:
 	# it is already pushed by _load_building before _bootstrap_simulation is called.
 	if _world.has_method("set_village_mode"):
 		_world.call("set_village_mode", _village_mode, _village_seed)
+	if script_driven and not script_building_id.is_empty():
+		_world.set_scripted_building_id(script_building_id)
 	_world.ensure_mesh_scenario_loaded()
 	# Collision shapes — ConcavePolygonShape3D trimeshes from StructureBody.build() on the
 	# mesh path, the Tower/Wall trimeshes on the procedural path, and the WorldBoundaryShape3D
@@ -713,11 +721,23 @@ func _tick_fauna(clock: SimClock, delta: float) -> void:
 	fauna.tick(ctx, delta)
 
 
+func _tick_wanderer(clock: SimClock, delta: float) -> void:
+	if not WandererIntegration.world_runtime_enabled():
+		return
+	var w: Node3D = _world.get_wanderer_controller()
+	if w == null:
+		return
+	var paused := clock.speed == SimClock.Speed.PAUSE
+	w.tick(delta, paused)
+
+
 func _process(delta: float) -> void:
 	if not _sim.has_method("get_clock"):
 		return
 	var clock: SimClock = _sim.get_clock()
 	if clock == null:
+		if _world != null and _world.get_sky_sun() != null:
+			_world.get_sky_sun().sync_depth_fog_from_active_camera()
 		return
 	_world.get_sky_sun().update(clock.display_game_day(), clock.seconds_per_game_day())
 	var wind: AmbientWind = _world.get_ambient_wind()
@@ -725,6 +745,7 @@ func _process(delta: float) -> void:
 		wind.advance(clock.speed, delta)
 		wind.push_shader_globals()
 	_tick_fauna(clock, delta)
+	_tick_wanderer(clock, delta)
 	if _hud != null:
 		_hud.refresh(clock, _world.get_sky_sun(), _debug_camera.get_yaw(), wind)
 	if _dev_overlay != null and _dev_overlay.has_method("refresh"):

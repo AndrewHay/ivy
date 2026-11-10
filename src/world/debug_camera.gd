@@ -71,6 +71,15 @@ const _ZOOM_PER_NOTCH := 0.9
 const _NOTCHES_PER_PAN_UNIT := 0.5
 const _NOTCHES_PER_KEY_PRESS := 1.0
 
+const CameraBounds = preload("res://src/world/camera_bounds.gd")
+
+var _lawn_bounds_active: bool = false
+## Diagnostic captures only (default off). When true, lawn clamp is skipped.
+var lawn_bounds_diagnostic_opt_out: bool = false
+var _lawn_centre_xz: Vector2 = Vector2.ZERO
+var _lawn_radius: float = 0.0
+var _lawn_margin: float = CameraBounds.LAWN_EYE_MARGIN_M
+
 
 func _ready() -> void:
 	# Inherit script_driven from the scene owner (Main). This is safe because
@@ -237,6 +246,41 @@ func set_orbit_pivot(p: Vector3) -> void:
 	_gliding = false
 
 
+## Generated village: keep orbit eye inside the lawn disc (ivy-7h1f).
+func set_lawn_camera_bounds(centre_xz: Vector2, lawn_radius: float, margin: float = -1.0) -> void:
+	_lawn_centre_xz = centre_xz
+	_lawn_radius = lawn_radius
+	_lawn_margin = margin if margin >= 0.0 else CameraBounds.LAWN_EYE_MARGIN_M
+	_lawn_bounds_active = lawn_radius > 0.0
+	_enforce_lawn_orbit_bounds()
+
+
+func clear_lawn_camera_bounds() -> void:
+	_lawn_bounds_active = false
+
+
+func _enforce_lawn_orbit_bounds() -> void:
+	if not _lawn_bounds_active or script_driven or lawn_bounds_diagnostic_opt_out:
+		return
+	# The village can be built before setup() assigns a spec (picker → generated village).
+	if spec == null and _orbit_pivot_override == null and not _has_origin and not _gliding:
+		return
+	var p := _pivot()
+	var r := CameraBounds.constrain_orbit(
+		p, _yaw, _pitch, _radius, _lawn_centre_xz, _lawn_radius, _lawn_margin,
+		_zoom_min_r, _zoom_max_r)
+	_yaw = r["yaw"]
+	_pitch = r["pitch"]
+	_radius = r["radius"]
+	var np: Vector3 = r["pivot"]
+	if _has_origin:
+		_origin = np
+	if _orbit_pivot_override != null:
+		_orbit_pivot_override = np
+	if _gliding:
+		_glide_to = CameraBounds.clamp_eye_xz(_glide_to, _lawn_centre_xz, _lawn_radius, _lawn_margin)
+
+
 func activate_for_planting() -> void:
 	if script_driven or spec == null:
 		return
@@ -330,10 +374,12 @@ func _process(delta: float) -> void:
 		_origin = _glide_to
 		_has_origin = true
 		_orbit_pivot_override = _origin
+	_enforce_lawn_orbit_bounds()
 	global_transform = solve(_pivot(), _yaw, _pitch, _radius)
 
 
 func _apply_orbit_view() -> void:
+	_enforce_lawn_orbit_bounds()
 	make_current()
 	global_transform = solve(_pivot(), _yaw, _pitch, _radius)
 
@@ -357,6 +403,9 @@ func _rotate_by_key(keycode: Key) -> bool:
 
 
 func _begin_glide_to(world_point: Vector3) -> void:
+	if _lawn_bounds_active:
+		world_point = CameraBounds.clamp_eye_xz(
+			world_point, _lawn_centre_xz, _lawn_radius, _lawn_margin)
 	var from := _pivot()
 	if from.distance_squared_to(world_point) < 0.01:
 		_origin = world_point

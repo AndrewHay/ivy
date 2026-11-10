@@ -13,6 +13,10 @@ const StructureBodyScript = preload("res://src/world/structure_body.gd")
 const StructureScenarioScript = preload("res://src/world/structure_scenario.gd")
 const SeedAnchorsScript = preload("res://src/world/seed_anchors.gd")
 const BuildingCatalog = preload("res://src/world/building_catalog.gd")
+const HeroFog = preload("res://src/world/hero_fog.gd")
+const CameraBounds = preload("res://src/world/camera_bounds.gd")
+const WandererIntegration = preload("res://src/presentation/wanderer/wanderer_integration.gd")
+const WandererController = preload("res://src/presentation/wanderer/wanderer_controller.gd")
 
 @onready var _tower: Tower = $Tower
 @onready var _wall: Wall = $Wall
@@ -44,6 +48,7 @@ var _overhang_built: bool = false
 ## Village mode/seed store (AR-VG-WIRE). Set before rebuild_backdrop() or load_building().
 var _village_mode: String = GameModes.CLASSIC
 var _village_seed: int = 0
+var _wanderer_controller: Node3D = null
 
 ## CamSun local origin y when the rig sits at the tower — horizontal cameras aim here.
 const _CANONICAL_CAM_AIM_Y := 2.0
@@ -84,6 +89,12 @@ func get_active_building_id() -> String:
 	return _active_building_id
 
 
+## Scripted runs set `mesh_scenario` directly instead of calling load_building(); this
+## tags the run with its catalog id so id-gated features (the wanderer) still apply.
+func set_scripted_building_id(building_id: String) -> void:
+	_active_building_id = building_id
+
+
 func load_building(building_id: String) -> void:
 	_teardown_active_building()
 	_active_building_id = building_id
@@ -118,6 +129,8 @@ func _teardown_active_building() -> void:
 		_village_backdrop.visible = false
 	if _fauna_controller != null:
 		_fauna_controller.clear_environment()
+	if _wanderer_controller != null:
+		_wanderer_controller.unbind()
 
 
 func _show_procedural_wall() -> void:
@@ -279,8 +292,60 @@ func rebuild_backdrop() -> void:
 		var layout: VillageLayout = (_village_backdrop as VillageBackdrop).get_layout()
 		if layout != null:
 			sky_sun.set_fog_depth(layout.fog_begin, layout.fog_end)
+			sky_sun.set_fog_centre_mode(HeroFog.DEFAULT_MODE)
+			sky_sun.set_fog_anchor(_hero_fog_anchor_world())
 
+	_apply_village_camera_lawn_bounds()
 	_apply_village_presentation()
+	_bind_wanderer()
+
+
+func get_wanderer_controller() -> Node3D:
+	return _wanderer_controller
+
+
+func _bind_wanderer() -> void:
+	if not WandererIntegration.world_runtime_enabled():
+		return
+	if not BuildingCatalog.wanderer_for(_active_building_id):
+		if _wanderer_controller != null:
+			_wanderer_controller.unbind()
+		return
+	if _wanderer_controller == null:
+		_wanderer_controller = WandererController.new()
+		_wanderer_controller.name = "WandererController"
+		add_child(_wanderer_controller)
+	if _village_backdrop is VillageBackdrop:
+		_wanderer_controller.bind_backdrop(_village_backdrop as VillageBackdrop, _village_mode)
+	else:
+		_wanderer_controller.unbind()
+
+
+func get_village_lawn_camera_bounds() -> Dictionary:
+	if _village_mode != GameModes.GENERATED:
+		return {}
+	if not (_village_backdrop is VillageBackdrop):
+		return {}
+	var layout: VillageLayout = (_village_backdrop as VillageBackdrop).get_layout()
+	if layout == null or not layout.is_generated:
+		return {}
+	var pivot := get_orbit_pivot()
+	return {
+		"centre_xz": Vector2(pivot.x, pivot.z) + layout.hamlet_centre_xz,
+		"radius": layout.lawn_radius,
+		"margin": CameraBounds.LAWN_EYE_MARGIN_M,
+	}
+
+
+func _apply_village_camera_lawn_bounds() -> void:
+	if not (_debug_camera is DebugCamera):
+		return
+	var dc := _debug_camera as DebugCamera
+	var b := get_village_lawn_camera_bounds()
+	if b.is_empty():
+		dc.clear_lawn_camera_bounds()
+		return
+	dc.set_lawn_camera_bounds(b["centre_xz"], b["radius"], b["margin"])
 
 
 ## Camera rig scale, debug-camera zoom, and fauna ring/LOD scale — generated only (ivy-0ka).
@@ -317,6 +382,13 @@ func get_seed_index() -> int:
 
 func get_seed_anchors():
 	return _seed_anchors
+
+
+## World position for hero-centred fog (hero door stoop, layout space).
+func _hero_fog_anchor_world() -> Vector3:
+	var pivot := get_orbit_pivot()
+	var h := VillageLayout.HERO_DOOR_STOOP
+	return Vector3(pivot.x + h.x, pivot.y + 1.0, pivot.z + h.y)
 
 
 func get_orbit_pivot() -> Vector3:

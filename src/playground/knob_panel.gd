@@ -8,9 +8,10 @@ signal reset_requested
 signal copy_requested
 
 const _OverlayStyle = preload("res://src/ui/overlay_style.gd")
-const GrassWindKnobSpec = preload("res://src/playground/grass_wind_knob_spec.gd")
 const PlaygroundCheckboxStyle = preload("res://src/playground/playground_checkbox_style.gd")
+const PlaygroundKnobHost = preload("res://src/playground/playground_knob_host.gd")
 
+var _host: PlaygroundKnobHost
 var _params: Resource
 var _spec: Array[Dictionary] = []
 var _row_nodes: Dictionary = {}
@@ -23,10 +24,12 @@ var _group_headers: Dictionary = {}
 func build_from_spec(
 		spec: Array[Dictionary],
 		params: Resource,
-		presets: Dictionary) -> void:
+		presets: Dictionary,
+		host: PlaygroundKnobHost = null) -> void:
+	_host = host if host != null else PlaygroundKnobHost.grass_wind()
 	_spec = spec
 	_params = params
-	_defaults = GrassWindParams.new()
+	_defaults = _host.fresh_defaults()
 	_row_nodes.clear()
 	_group_headers.clear()
 	_variant = params.get("variant")
@@ -109,7 +112,7 @@ func sync_preset_dropdown() -> void:
 	var opt: OptionButton = get_node_or_null("Margin/VBox/PresetRow/Preset") as OptionButton
 	if opt == null:
 		return
-	var target := GrassWindParams.detect_preset_name(_params as GrassWindParams)
+	var target := _host.detect_preset_name(_params)
 	for i in range(opt.item_count):
 		if opt.get_item_text(i) == target:
 			if opt.selected != i:
@@ -120,7 +123,7 @@ func sync_preset_dropdown() -> void:
 func _refresh_variant_help() -> void:
 	if _variant_help != null:
 		_variant_help.text = "%s\n\n%s" % [
-			GrassWindKnobSpec.VARIANT_HELP, GrassWindKnobSpec.VARIANT_DESCRIPTIONS[_variant]]
+			_host.variant_help, _host.variant_descriptions[_variant]]
 
 
 func _make_help_label(node_name: String, text: String = "") -> Label:
@@ -150,7 +153,7 @@ func _knob_tooltip(spec: Dictionary) -> String:
 	else:
 		parts.append("Default: %s" % ("on" if default_value else "off"))
 	var variants: Array = spec["variants"]
-	if variants.size() >= GrassWindKnobSpec.VARIANT_LABELS.size():
+	if variants.size() >= _host.variant_labels.size():
 		parts.append("Used by: every variant")
 	else:
 		parts.append("Used by: variant %s only" % ", ".join(PackedStringArray(
@@ -222,14 +225,14 @@ func _make_variant_row() -> HBoxContainer:
 	var lbl := Label.new()
 	lbl.text = "Variant"
 	lbl.custom_minimum_size = Vector2(72, 0)
-	_set_tip(lbl, GrassWindKnobSpec.VARIANT_HELP)
+	_set_tip(lbl, _host.variant_help)
 	row.add_child(lbl)
 	var opt := OptionButton.new()
 	opt.name = "Variant"
-	opt.tooltip_text = GrassWindKnobSpec.VARIANT_HELP
-	for i in range(GrassWindKnobSpec.VARIANT_LABELS.size()):
-		opt.add_item(GrassWindKnobSpec.VARIANT_LABELS[i], i)
-		opt.set_item_tooltip(i, GrassWindKnobSpec.VARIANT_DESCRIPTIONS[i])
+	opt.tooltip_text = _host.variant_help
+	for i in range(_host.variant_labels.size()):
+		opt.add_item(_host.variant_labels[i], i)
+		opt.set_item_tooltip(i, _host.variant_descriptions[i])
 	opt.select(_variant)
 	opt.item_selected.connect(func(idx: int):
 		_variant = idx
@@ -249,17 +252,17 @@ func _make_preset_row(presets: Dictionary) -> HBoxContainer:
 	var lbl := Label.new()
 	lbl.text = "Preset"
 	lbl.custom_minimum_size = Vector2(72, 0)
-	_set_tip(lbl, GrassWindKnobSpec.PRESET_HELP)
+	_set_tip(lbl, _host.preset_help)
 	row.add_child(lbl)
 	var opt := OptionButton.new()
 	opt.name = "Preset"
-	opt.tooltip_text = GrassWindKnobSpec.PRESET_HELP
-	var tips := GrassWindParams.preset_tips()
-	for n in GrassWindParams.ordered_preset_names():
+	opt.tooltip_text = _host.preset_help
+	var tips := _host.preset_tips()
+	for n in _host.ordered_preset_names():
 		opt.add_item(n)
 		opt.set_item_tooltip(opt.item_count - 1, tips.get(n, ""))
 	# Informational only: shown when the knobs match no preset, never pickable.
-	opt.add_item(GrassWindParams.CUSTOM_PRESET)
+	opt.add_item(_host.custom_preset_label())
 	var custom_idx := opt.item_count - 1
 	opt.set_item_disabled(custom_idx, true)
 	opt.set_item_tooltip(custom_idx, "Your slider values do not match any preset.")
@@ -304,8 +307,11 @@ func _make_knob_row(spec: Dictionary) -> Dictionary:
 		val_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		val_lbl.text = _format_value(spec["name"], slider.value)
 		slider.value_changed.connect(func(v: float):
-			val_lbl.text = _format_value(spec["name"], v)
-			knob_changed.emit(spec["name"], v)
+			var out_v: Variant = v
+			if spec.get("is_int", false):
+				out_v = int(roundi(v))
+			val_lbl.text = _format_value(spec["name"], float(out_v))
+			knob_changed.emit(spec["name"], out_v)
 			sync_preset_dropdown())
 		var root: Control = slider_wrap["root"]
 		_set_tip(root, tip)
@@ -347,6 +353,8 @@ func _refresh_row_visibility(row: Dictionary) -> void:
 
 
 func _format_value(name: String, v: float) -> String:
+	if name == "tree_count" and v < 0.0:
+		return "layout"
 	if name.ends_with("_deg"):
 		return "%.1f" % v
 	if name.contains("density"):

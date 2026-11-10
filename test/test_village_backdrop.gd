@@ -376,6 +376,36 @@ func test_each_door_faces_hero_and_has_path() -> void:
 			"Cottage '%s' path must start at its door" % spec["name"])
 
 
+func test_door_leaves_sit_flush_in_wall_opening() -> void:
+	## Regression (snapshot 20261109-203511_ivy_d1, "door is not flush to the house"): the
+	## Door_1_Flat kit bbox spans z[-0.058, 0.063] about the wall plaster plane, so an
+	## unadjusted leaf stood 6 cm proud. Its outer face must now sit on the plaster plane.
+	var leaves: MultiMeshInstance3D = null
+	var walls: MultiMeshInstance3D = null
+	for mmi_node in _find_nodes_of_type(_backdrop, MultiMeshInstance3D):
+		var nm := (mmi_node as Node).name as String
+		if nm.begins_with("Cottage_Door_1_Flat"):
+			leaves = mmi_node
+		elif nm.begins_with("Cottage_Wall_Plaster_Door_Flat"):
+			walls = mmi_node
+	assert_not_null(leaves, "Cottage_Door_1_Flat MultiMesh must exist")
+	assert_not_null(walls, "Cottage_Wall_Plaster_Door_Flat MultiMesh must exist")
+	if leaves == null or walls == null:
+		return
+	assert_eq(leaves.multimesh.instance_count, walls.multimesh.instance_count,
+		"one door leaf per door wall piece")
+	var lb := leaves.multimesh.buffer
+	var wb := walls.multimesh.buffer
+	var leaf_aabb := leaves.multimesh.mesh.get_aabb()
+	for i in range(leaves.multimesh.instance_count):
+		var normal := Vector3(wb[i * 12 + 2], 0.0, wb[i * 12 + 10]).normalized()
+		var leaf_origin := Vector3(lb[i * 12 + 3], lb[i * 12 + 7], lb[i * 12 + 11])
+		var wall_origin := Vector3(wb[i * 12 + 3], wb[i * 12 + 7], wb[i * 12 + 11])
+		var front := (leaf_origin - wall_origin).dot(normal) + leaf_aabb.end.z
+		assert_almost_eq(front, 0.0, 0.005,
+			"door leaf %d outer face must lie on the wall plaster plane (got %.3f m)" % [i, front])
+
+
 func test_door_leaves_face_out_of_their_doors() -> void:
 	## Regression: MultiMesh buffers are row-major. Writing basis vectors
 	## contiguously transposed every instance rotation, turning ±90° walls inside

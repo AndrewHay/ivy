@@ -66,7 +66,10 @@ const _P_WALL_DOOR := "Wall_Plaster_Door_Flat"
 const _P_WALL_BRICK := "Wall_UnevenBrick_Straight"
 const _P_DOOR_LEAF := "Door_1_Flat"
 ## Door_1_Flat bbox centre is ~0.51 m on kit +X; wall door piece is centred on X (same as Door_2_Round in build_structures).
-const _DOOR_LEAF_KIT_OFFSET := Vector3(-0.51267, 0.0, 0.0)
+## Z: the leaf's kit bbox is z[-0.058, 0.063] about the wall's plaster plane (z = 0), so left at 0 its
+## frame stands 6 cm proud of the plaster and reads as stuck on. Sink it by its front extent so the
+## leaf's outer face is flush with the wall plane; the back stays inside the 0.2 m wall thickness.
+const _DOOR_LEAF_KIT_OFFSET := Vector3(-0.51267, 0.0, -0.063)
 const _P_SHUTTER := "WindowShutters_Wide_Flat_Closed"
 const _P_GABLE := "Roof_Front_Brick4"
 const _P_CHIMNEY := "Prop_Chimney2"
@@ -334,7 +337,7 @@ func _add_grass_blade_chunks(all: Array[Transform3D], generated_grass: bool) -> 
 	var mat := ShaderMaterial.new()
 	if generated_grass:
 		mat.shader = load("res://src/render/shaders/grass_blade.gdshader") as Shader
-		_configure_grass_blade_material(mat)
+		_configure_grass_blade_material(mat, _layout.hamlet_centre_xz)
 	else:
 		mat.shader = load("res://src/render/shaders/grass_blade_classic.gdshader") as Shader
 	var origin_xz := Vector2(global_position.x, global_position.z)
@@ -358,12 +361,15 @@ func _add_grass_blade_chunks(all: Array[Transform3D], generated_grass: bool) -> 
 			_apply_generated_grass_chunk_visibility(mmi)
 
 
-func _configure_grass_blade_material(mat: ShaderMaterial) -> void:
+func _configure_grass_blade_material(mat: ShaderMaterial, layout_plaza_g_xz: Vector2) -> void:
+	var anchor_world := Vector2(global_position.x, global_position.z) + layout_plaza_g_xz
+	mat.set_shader_parameter("anchor_xz", anchor_world)
 	mat.set_shader_parameter(
-		"dissolve_start", VillageScatterPositions.GRASS_CAMERA_DISSOLVE_START_M)
-	mat.set_shader_parameter("dissolve_active", 1.0)
+		"dissolve_start", VillageScatterPositions.GRASS_ANCHOR_DISSOLVE_START_M)
 	mat.set_shader_parameter(
-		"dissolve_end", VillageScatterPositions.GRASS_CAMERA_DISSOLVE_END_GENERATED_M)
+		"dissolve_end", VillageScatterPositions.GRASS_ANCHOR_DISSOLVE_END_M)
+	## Placement radial density already thins at the lawn edge; keep full draw for any camera.
+	mat.set_shader_parameter("dissolve_active", 0.0)
 
 
 func _apply_generated_grass_chunk_visibility(mmi: MultiMeshInstance3D) -> void:

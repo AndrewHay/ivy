@@ -1,0 +1,19 @@
+# Wanderer QA captures — square mesh, classic village
+# Run: --scenario=res://assets/structures/scenarios/square.tres --outdir=res://.tmp/wanderer/
+WAIT 3
+WANDERER_SEED 1
+WANDERER_GOTO SHOWING
+WANDERER_ADVANCE 1.0
+WANDERER_CAM REVEAL
+SCREENSHOT reveal_front.png
+WANDERER_CAM WIDE
+SCREENSHOT reveal_oblique.png
+WANDERER_SEED 4
+WANDERER_GOTO SAYING
+WANDERER_ADVANCE 0.5
+WANDERER_CAM BUBBLE
+SCREENSHOT exit_phrase.png
+WANDERER_GOTO WALKING
+WANDERER_WAIT_BUBBLE
+WANDERER_CAM BUBBLE
+SCREENSHOT bubble.png

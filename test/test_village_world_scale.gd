@@ -247,24 +247,26 @@ func test_generated_pine_count_and_radii() -> void:
 	assert_not_null(treeline.multimesh, "FarTreeline must have a multimesh")
 	if treeline.multimesh == null:
 		return
-	assert_eq(treeline.multimesh.instance_count, VillageLayout.GENERATED_PINE_COUNT,
-		"Generated FarTreeline instance_count must match GENERATED_PINE_COUNT")
-	var g := VillageLayout.VILLAGE_GREEN_G
+	var layout := bd.get_layout()
+	var placed := VillageScatterPositions.forest_tree_positions(layout).size()
+	assert_eq(treeline.multimesh.instance_count, placed,
+		"Generated FarTreeline instance_count must match placement output")
+	assert_gte(placed, 24, "CamSun backdrop must place >=24 trees")
+	var ForestPlaygroundCamera = preload("res://src/playground/forest_playground_camera.gd")
+	var stats := ForestPlaygroundCamera.count_trees_visible_in_camsun(
+		VillageScatterPositions.forest_tree_xz(layout),
+		layout.fog_begin, layout.fog_end, true, 0.5)
+	assert_gte(stats["visible"], 12, "backdrop: >=12 CamSun trees at <=50%% hero haze")
 	var buf := treeline.multimesh.buffer
-	var hero_back := 0
 	for i in range(treeline.multimesh.instance_count):
 		var ox: float = buf[i * 12 + 3]
 		var oz: float = buf[i * 12 + 11]
 		var p := Vector2(ox, oz)
-		if p.y > VillageLayout.HERO_DOOR_STOOP.y:
-			hero_back += 1
-		for spec: Dictionary in bd.get_layout().cottages:
+		for spec: Dictionary in layout.cottages:
 			var rect := VillageBackdrop.cottage_exterior_rect(spec)
 			assert_false(rect.has_point(p),
 				"Generated forest[%d] must not sit inside cottage '%s'" \
 				% [i, String(spec.get("name", "?"))])
-	assert_gte(hero_back, 8,
-		"Dense +Z forest: expect >=8 trees south of hero stoop (got %d)" % hero_back)
 
 
 # ── (e) Bush filler range for seeds 1..5 ─────────────────────────────────────
@@ -309,7 +311,9 @@ func test_forest_no_trunk_within_hero_keep_clear() -> void:
 			continue
 		var tag := "seed=%d" % seed
 		var pines := _compute_pine_xz(layout)
-		assert_eq(pines.size(), layout.pine_count, "%s: expected %d forest positions" % [tag, layout.pine_count])
+		var placed := VillageScatterPositions.forest_tree_positions(layout).size()
+		assert_eq(pines.size(), placed, "%s: expected %d forest positions" % [tag, placed])
+		assert_gte(placed, 24, "%s: backdrop tree count" % tag)
 		for i: int in pines.size():
 			var p: Vector2 = pines[i]
 			assert_false(
@@ -317,29 +321,18 @@ func test_forest_no_trunk_within_hero_keep_clear() -> void:
 				"%s forest[%d] at (%.2f,%.2f) blocks CamSun corridor" % [tag, i, p.x, p.y])
 
 
-func test_forest_wedge_dense_behind_hero() -> void:
-	## Dense +Z wedge behind hero cottage (ivy-vlr R4); not split into side clusters only.
+func test_forest_backdrop_in_camsun_band() -> void:
+	const ForestPlaygroundCamera = preload("res://src/playground/forest_playground_camera.gd")
 	for seed_val in range(1, 11):
 		var layout := VillageLayout.generate(seed_val)
 		if layout.fallback:
 			continue
 		var tag := "seed=%d" % seed_val
-		var g := layout.hamlet_centre_xz
-		var r_lawn := layout.lawn_radius
 		var pines := _compute_pine_xz(layout)
-		assert_eq(pines.size(), layout.pine_count, "%s: forest count" % tag)
-		var in_wedge := 0
-		var center_back := 0
-		for p: Vector2 in pines:
-			if _pine_in_hero_wedge(p, g, r_lawn):
-				in_wedge += 1
-			if absf(p.x - g.x) < 6.0 and p.y > VillageLayout.HERO_DOOR_STOOP.y + 6.0:
-				center_back += 1
-		var min_wedge := int(ceil(float(pines.size()) * 0.55))
-		assert_gte(in_wedge, min_wedge,
-			"%s: wedge trees %d / %d (need >= %d)" % [tag, in_wedge, pines.size(), min_wedge])
-		assert_gte(center_back, 4,
-			"%s: need >=4 trunks within |dx|<6 m behind hero (got %d)" % [tag, center_back])
+		var stats := ForestPlaygroundCamera.count_trees_visible_in_camsun(
+			pines, layout.fog_begin, layout.fog_end, true, 0.5)
+		assert_gte(stats["visible"], 10,
+			"%s: need >=10 visible backdrop trees (got %d)" % [tag, stats["visible"]])
 
 
 static func _pine_in_hero_wedge(p: Vector2, g: Vector2, r_lawn: float) -> bool:
@@ -381,8 +374,9 @@ func test_inv20_no_pine_inside_cottage_grown_rect() -> void:
 			continue
 		var tag := "seed=%d" % seed
 		var pines := _compute_pine_xz(layout)
-		assert_eq(pines.size(), layout.pine_count,
-			"%s: expected %d forest positions" % [tag, layout.pine_count])
+		var placed := VillageScatterPositions.forest_tree_positions(layout).size()
+		assert_eq(pines.size(), placed,
+			"%s: expected %d forest positions" % [tag, placed])
 		for pi in range(pines.size()):
 			var p := pines[pi]
 			for spec: Dictionary in layout.cottages:

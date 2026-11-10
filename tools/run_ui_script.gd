@@ -7,6 +7,7 @@ const _CoverageMetric = preload("res://src/metrics/coverage.gd")
 const _LeafColourMetric = preload("res://src/metrics/leaf_colour_metric.gd")
 const _StructureScenario = preload("res://src/world/structure_scenario.gd")
 const _UiScriptVerbs = preload("res://tools/ui_script_verbs.gd")
+const _BuildingCatalog = preload("res://src/world/building_catalog.gd")
 ## Output defaults inside the project so runs need no write access outside the
 ## workspace. `.tmp/` is gitignored.
 const _DEFAULT_OUTDIR := "res://.tmp/ui_scripts/"
@@ -88,6 +89,17 @@ func _ready() -> void:
 	scene_root.set("script_driven", true)
 	# Village mode/seed pre-bootstrap flags (AR-VG-WIRE S5).
 	# Default classic — every existing script is unchanged when flags are absent.
+	# --building=<catalog id> supplies the entry's scenario and forced village mode as
+	# defaults (explicit --scenario / --village-mode still win) and tags the run with the id.
+	var building_arg: String = args.get("building", "")
+	if not building_arg.is_empty():
+		scene_root.set("script_building_id", building_arg)
+		var entry_scenario := _building_scenario_path(building_arg)
+		if not entry_scenario.is_empty() and not args.has("scenario"):
+			args["scenario"] = entry_scenario
+		var entry_mode := _BuildingCatalog.village_mode_for(building_arg)
+		if not entry_mode.is_empty() and not args.has("village_mode"):
+			args["village_mode"] = entry_mode
 	var village_mode_arg: String = args.get("village_mode", "")
 	if not village_mode_arg.is_empty():
 		scene_root.set("_village_mode", village_mode_arg)
@@ -659,6 +671,69 @@ func _ready() -> void:
 					fc.get("debug_fail_weight"), fc.get("debug_fail_rng"),
 					fc.get("debug_fail_distance"), clk_spd]
 			print("[ui-script]   FAUNA_COUNT ", n, dbg)
+		elif line.begins_with("WANDERER_SEED "):
+			var ws := line.split(" ", false)
+			var ctrl := _wanderer_ctrl(main)
+			if ctrl != null:
+				ctrl.call("reseed", int(ws[1]))
+			print("[ui-script]   WANDERER_SEED ", ws[1])
+		elif line.begins_with("WANDERER_ADVANCE "):
+			var wa := line.split(" ", false)
+			var ctrl_a := _wanderer_ctrl(main)
+			if ctrl_a != null:
+				ctrl_a.call("debug_advance", float(wa[1]))
+			print("[ui-script]   WANDERER_ADVANCE ", wa[1])
+		elif line.begins_with("WANDERER_GOTO "):
+			var wg := line.split(" ", false)
+			var ctrl_g := _wanderer_ctrl(main)
+			if ctrl_g == null or not ctrl_g.call("debug_advance_to", wg[1], 900.0):
+				printerr("[ui-script] FAILED step ", step, ": WANDERER_GOTO ", wg[1])
+				get_tree().quit(1)
+				return
+			print("[ui-script]   WANDERER_GOTO ", wg[1])
+		elif line.begins_with("WANDERER_ENABLE "):
+			var we := line.split(" ", false)
+			var ctrl_e := _wanderer_ctrl(main)
+			if ctrl_e != null:
+				ctrl_e.call("set_enabled", int(we[1]) != 0)
+			print("[ui-script]   WANDERER_ENABLE ", we[1])
+		elif line.begins_with("WANDERER_DUMP"):
+			var ctrl_d := _wanderer_ctrl(main)
+			var dump: String = str(ctrl_d.call("debug_dump")) if ctrl_d != null else "no controller"
+			print("[ui-script]   WANDERER_DUMP ", dump)
+		elif line.begins_with("WANDERER_WAIT_BUBBLE"):
+			var ctrl_wb := _wanderer_ctrl(main)
+			var wait_max := 90.0
+			var waited := 0.0
+			while waited < wait_max:
+				if ctrl_wb != null:
+					var fr: Dictionary = ctrl_wb.call("get_framing_local")
+					if fr.get("has_bubble", false):
+						break
+					ctrl_wb.call("debug_advance", 0.25)
+				waited += 0.25
+			print("[ui-script]   WANDERER_WAIT_BUBBLE ", waited)
+		elif line.begins_with("WANDERER_CAM "):
+			var wc := line.split(" ", false)
+			var world_w := main.get_node("World")
+			var mode := wc[1] if wc.size() >= 2 else ""
+			if mode in ["REVEAL", "WIDE", "BUBBLE"]:
+				await _ui_wanderer_framing_cam(world_w, main, mode)
+				print("[ui-script]   WANDERER_CAM ", mode)
+			else:
+				var standoff_w := float(wc[1]) if wc.size() >= 2 else 14.0
+				var eye_hw := float(wc[2]) if wc.size() >= 3 else 3.5
+				var look_hw := float(wc[3]) if wc.size() >= 4 else 3.0
+				var bearing_w := float(wc[4]) if wc.size() >= 5 else 0.0
+				var ctrl_c := _wanderer_ctrl(main)
+				var fx := 0.0
+				var fz := 0.0
+				if ctrl_c != null:
+					var gp: Vector3 = ctrl_c.call("get_figure_global_position")
+					fx = gp.x
+					fz = gp.z
+				await _ui_orbit_aim_at_world_xz(world_w, fx, fz, standoff_w, eye_hw, look_hw, bearing_w)
+				print("[ui-script]   WANDERER_CAM ", standoff_w, eye_hw, look_hw, bearing_w)
 		elif line.begins_with("ORBIT "):
 			# ORBIT <azimuth_deg> [radius_m=8] [height_m=2]: a throwaway camera on a circle
 			# around World.get_orbit_pivot(), looking at the pivot. Azimuth 0 is +Z (the
@@ -674,12 +749,23 @@ func _ready() -> void:
 				get_tree().quit(1)
 				return
 			var pivot: Vector3 = world.get_orbit_pivot()
+			const CameraBounds = preload("res://src/world/camera_bounds.gd")
+			if world.has_method("get_village_lawn_camera_bounds"):
+				var b: Dictionary = world.get_village_lawn_camera_bounds()
+				if not b.is_empty():
+					radius = minf(radius, maxf(b["radius"] - b["margin"] - 0.5, 2.0))
 			var orbit_cam := world.get_node_or_null("UiScriptOrbitCam") as Camera3D
 			if orbit_cam == null:
 				orbit_cam = Camera3D.new()
 				orbit_cam.name = "UiScriptOrbitCam"
 				world.add_child(orbit_cam)
 			var eye := Vector3(pivot.x + sin(az) * radius, height, pivot.z + cos(az) * radius)
+			if world.has_method("get_village_lawn_camera_bounds"):
+				var bounds: Dictionary = world.get_village_lawn_camera_bounds()
+				if not bounds.is_empty():
+					eye = CameraBounds.clamp_free_camera_eye(
+						eye, bounds["centre_xz"], bounds["radius"], bounds["margin"])
+					height = eye.y
 			orbit_cam.look_at_from_position(eye, Vector3(pivot.x, minf(pivot.y, height), pivot.z))
 			orbit_cam.make_current()
 			# Camera transform/current changes reach the RenderingServer on the next frame;
@@ -758,6 +844,87 @@ func _ui_orbit_aim_at_world_xz(
 	print("[ui-script]   ORBIT_AIM aim=", aim_pt, " standoff=", standoff, " eye=", eye_aim)
 
 
+const _WandererRevealCamera = preload("res://src/presentation/wanderer/wanderer_reveal_camera.gd")
+const _WandererBrain = preload("res://src/presentation/wanderer/wanderer_brain.gd")
+
+
+func _ui_wanderer_framing_cam(world: Node, main: Node, mode: String) -> void:
+	var ctrl := _wanderer_ctrl(main)
+	if ctrl == null:
+		printerr("[ui-script] WANDERER_CAM: no controller")
+		return
+	var backdrop := world.get_node_or_null("VillageBackdrop")
+	if backdrop == null or not backdrop.has_method("get_layout"):
+		printerr("[ui-script] WANDERER_CAM: no VillageBackdrop layout")
+		return
+	var layout: VillageLayout = backdrop.call("get_layout")
+	var bk_xf: Transform3D = backdrop.global_transform
+	var frame: Dictionary = ctrl.call("get_framing_local")
+	var figure_xz: Vector2 = frame["figure_xz"]
+	var placement: Dictionary = frame["placement"]
+	var hero_xz: Vector2 = frame["hero_xz"]
+	var rects := _WandererRevealCamera.obstruction_rects(layout)
+	var orbit_cam := world.get_node_or_null("UiScriptOrbitCam") as Camera3D
+	if orbit_cam == null:
+		orbit_cam = Camera3D.new()
+		orbit_cam.name = "UiScriptOrbitCam"
+		world.add_child(orbit_cam)
+	var fov_y := deg_to_rad(orbit_cam.fov)
+	var shot: Dictionary = {}
+	var aspect := 16.0 / 9.0
+	var vp := world.get_viewport().get_visible_rect().size
+	if vp.y > 1e-3:
+		aspect = vp.x / vp.y
+	var door_exterior := Vector2.ZERO
+	if placement.has("figure_xz"):
+		var n: Vector2 = placement.get("normal", Vector2(0, 1))
+		var P: Vector2 = placement["figure_xz"]
+		var s := P.distance_to(Vector2(figure_xz.x, figure_xz.y))
+		if s > 0.5:
+			door_exterior = P - n * s
+	match mode:
+		"REVEAL":
+			shot = _WandererRevealCamera.compute_reveal_front(
+				placement, rects, fov_y, aspect, door_exterior)
+		"WIDE":
+			shot = _WandererRevealCamera.compute_reveal_oblique(
+				placement, rects, fov_y, aspect, door_exterior)
+		"BUBBLE":
+			var st: int = int(frame.get("brain_state", -1))
+			var fyaw: float = float(frame.get("figure_yaw", 0.0))
+			var head_y: float = float(frame.get("figure_head_y", 2.0))
+			if st == _WandererBrain.State.SAYING:
+				var outward := Vector2(sin(fyaw), cos(fyaw))
+				shot = _WandererRevealCamera.compute_bubble_phrase(
+					figure_xz, outward, rects, 7.0, 3.0, head_y)
+			else:
+				shot = _WandererRevealCamera.compute_bubble_walk(figure_xz, hero_xz, rects)
+		_:
+			return
+	var eye_local: Vector3 = shot["eye"]
+	var look_local: Vector3 = shot["look"]
+	var eye_w := bk_xf * eye_local
+	var look_w := bk_xf * look_local
+	orbit_cam.look_at_from_position(eye_w, look_w)
+	orbit_cam.make_current()
+	for _f in range(3):
+		await get_tree().process_frame
+
+
+func _wanderer_ctrl(main: Node) -> Node:
+	var world := main.get_node_or_null("World")
+	if world == null or not world.has_method("get_wanderer_controller"):
+		return null
+	return world.get_wanderer_controller()
+
+
+func _building_scenario_path(building_id: String) -> String:
+	for entry in _BuildingCatalog.all():
+		if entry.id == building_id:
+			return entry.scenario_path
+	return ""
+
+
 func _parse_args() -> Dictionary:
 	var args: Dictionary = {}
 	for a in OS.get_cmdline_user_args():
@@ -771,4 +938,6 @@ func _parse_args() -> Dictionary:
 			args["village_mode"] = a.substr(15)
 		elif a.begins_with("--village-seed="):
 			args["village_seed"] = a.substr(15)
+		elif a.begins_with("--building="):
+			args["building"] = a.substr(11)
 	return args

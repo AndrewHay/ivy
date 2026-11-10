@@ -1,0 +1,17 @@
+# Repro: empty/stale speech-bubble panel left above the head after a bubble ends (ivy-ydiy.7 QA)
+# Run: --scenario=res://assets/structures/scenarios/square.tres --village-mode=generated_village --village-seed=7 --outdir=res://.tmp/wanderer/accept/
+WAIT 3
+WANDERER_SEED 11
+WANDERER_GOTO DOOR_PAUSE
+WANDERER_DUMP
+WANDERER_CAM 7 2.5 1.0 60
+SCREENSHOT stale_door_pause.png
+WANDERER_GOTO EXIT_PAUSE
+WANDERER_DUMP
+WANDERER_CAM 7 2.5 1.0 180
+SCREENSHOT stale_exit_pause.png
+WANDERER_GOTO SHOWING
+WANDERER_ADVANCE 0.5
+WANDERER_DUMP
+WANDERER_CAM 7 2.5 1.0 180
+SCREENSHOT stale_showing.png

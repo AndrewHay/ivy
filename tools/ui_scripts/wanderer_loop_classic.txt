@@ -1,0 +1,14 @@
+# Village wanderer classic loop — screenshot QA (ivy-ydiy)
+# Run: --scenario=res://assets/structures/scenarios/square.tres --outdir=res://.tmp/wanderer/
+WAIT 3
+WANDERER_SEED 1
+WANDERER_ADVANCE 3
+WANDERER_CAM 6 2 1.8 0
+SCREENSHOT wanderer_walk.png
+WANDERER_GOTO SHOWING
+WANDERER_ADVANCE 0.5
+WANDERER_CAM 14 3.5 3.0 0
+SCREENSHOT wanderer_image_face.png
+WANDERER_CAM 14 3.5 3.0 70
+SCREENSHOT wanderer_image_oblique.png
+WANDERER_DUMP

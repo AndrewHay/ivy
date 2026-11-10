@@ -11,6 +11,8 @@ const GRASS_EDGE := VillageScatterPositions.GRASS_DENSITY_EDGE_PER_M2
 const R_EDGE_C := VillageScatterPositions.GRASS_RADIAL_EDGE_CLASSIC_M
 const R_EDGE_G := VillageScatterPositions.GRASS_RADIAL_EDGE_GENERATED_M
 const R_FLAT_FRAC := VillageScatterPositions.GRASS_DENSITY_FLAT_FRACTION
+const GEN_SCALE := VillageScatterPositions.GRASS_GENERATED_DENSITY_SCALE
+const GRASS_STEP_G := VillageScatterPositions.GRASS_GRID_STEP_GENERATED_M
 const COTTAGE_MARGIN := VillageScatterPositions.COTTAGE_MARGIN
 const PATH_CLEAR := VillageScatterPositions.PATH_CLEARANCE_M
 const PLANT_CLEAR := VillageScatterPositions.PLANT_CLEARANCE_M
@@ -70,7 +72,9 @@ func test_grass_radial_density_constants() -> void:
 	assert_almost_eq(R_EDGE_C, 19.0, 1e-6)
 	assert_almost_eq(R_EDGE_G, VillageLayout.GENERATED_LAWN_RADIUS, 1e-6)
 	var cap_c := int(roundi(PI * R_EDGE_C * R_EDGE_C * GRASS_CORE * 1.15))
-	var cap_g := int(roundi(PI * R_EDGE_G * R_EDGE_G * GRASS_CORE * 1.15))
+	assert_almost_eq(GEN_SCALE, 0.5, 1e-6)
+	assert_almost_eq(GRASS_STEP_G, 1.0 / sqrt(GRASS_CORE * GEN_SCALE), 1e-4)
+	var cap_g := int(roundi(PI * R_EDGE_G * R_EDGE_G * GRASS_CORE * GEN_SCALE * 1.15))
 	assert_eq(GRASS_MAX, cap_c)
 	assert_eq(VillageScatterPositions.GRASS_MAX_INSTANCES_GENERATED, cap_g)
 
@@ -123,11 +127,13 @@ func test_grass_open_patch_density_generated() -> void:
 	var p_core := VillageScatterPositions.find_open_grass_patch_centre(ctx, g, r_flat * 0.65, 41)
 	assert_false(is_inf(p_core.x))
 	var d_core := VillageScatterPositions.measure_patch_density_m2(grass, p_core)
-	assert_between(d_core, GRASS_CORE * 0.78, GRASS_CORE * 1.15, "G open core %.1f/m²" % d_core)
+	var g_core := GRASS_CORE * GEN_SCALE
+	var g_edge := GRASS_EDGE * GEN_SCALE
+	assert_between(d_core, g_core * 0.78, g_core * 1.15, "G open core %.1f/m²" % d_core)
 	var p_edge := VillageScatterPositions.find_open_grass_patch_centre(ctx, g, R_EDGE_G - 1.0, 55)
 	assert_false(is_inf(p_edge.x))
 	var d_edge := VillageScatterPositions.measure_patch_density_m2(grass, p_edge)
-	assert_between(d_edge, GRASS_EDGE * 0.85, GRASS_EDGE * 1.15, "G open edge %.1f/m²" % d_edge)
+	assert_between(d_edge, g_edge * 0.8, g_edge * 1.2, "G open edge %.1f/m²" % d_edge)
 
 
 func test_grass_radial_density_curve() -> void:
@@ -166,7 +172,8 @@ func test_generated_radial_annulus_monotone() -> void:
 		var a := r0 + float(i)
 		var b := a + 1.0
 		var d := _annulus_density(grass, g, a, b)
-		var target_mid := VillageScatterPositions.grass_target_density_m2((a + b) * 0.5, R_EDGE_G)
+		var target_mid := VillageScatterPositions.grass_target_density_m2(
+			(a + b) * 0.5, R_EDGE_G) * GEN_SCALE
 		assert_between(d, target_mid * 0.75, target_mid * 1.25,
 			"Annulus [%.0f,%.0f) %.1f/m² target ~%.1f" % [a, b, d, target_mid])
 		assert_lte(d, prev * 1.06, "Monotone falloff annulus %d" % i)
@@ -182,7 +189,7 @@ func test_generated_falloff_patch_cv() -> void:
 	var grass := VillageScatterPositions.grass_blade_positions(ctx)
 	var r_sample := 46.0
 	var cv := VillageScatterPositions.measure_patch_density_cv(grass, g, r_sample)
-	var target := VillageScatterPositions.grass_target_density_m2(r_sample, R_EDGE_G)
+	var target := VillageScatterPositions.grass_target_density_m2(r_sample, R_EDGE_G) * GEN_SCALE
 	const PATCH_R := 1.5
 	var patch_area := PI * PATCH_R * PATCH_R
 	var poisson_cv := 1.0 / sqrt(target * patch_area) if target * patch_area > 1.0 else 1.0
@@ -359,11 +366,12 @@ func test_generated_grass_count_and_perf() -> void:
 	var t0 := Time.get_ticks_msec()
 	var grass := VillageScatterPositions.grass_blade_positions(ctx)
 	var elapsed := Time.get_ticks_msec() - t0
-	assert_gte(grass.size(), 150000, "Generated radial fill should be large; got %d" % grass.size())
+	assert_gte(grass.size(), int(150000 * GEN_SCALE),
+		"Generated radial fill should be large; got %d" % grass.size())
 	assert_lte(grass.size(), VillageScatterPositions.GRASS_MAX_INSTANCES_GENERATED,
 		"Must stay under cap")
 	var max_r := _max_radius(grass, g)
-	assert_between(max_r, R_EDGE_G - 1.0, R_EDGE_G + GRASS_STEP,
+	assert_between(max_r, R_EDGE_G - 1.0, R_EDGE_G + GRASS_STEP_G,
 		"Generated grass must reach lawn edge")
 	assert_lt(elapsed, GENERATED_GRASS_BUDGET_MS,
 		"Generated grass generation budget %d ms; got %d ms" % [GENERATED_GRASS_BUDGET_MS, elapsed])
@@ -378,9 +386,11 @@ func test_generated_grass_core_and_edge_density() -> void:
 	var grass := VillageScatterPositions.grass_blade_positions(ctx)
 	var r_flat := R_FLAT_FRAC * R_EDGE_G
 	var core := _annulus_density(grass, g, r_flat * 0.55, r_flat * 0.92)
-	assert_between(core, GRASS_CORE * 0.72, GRASS_CORE * 1.12, "Generated core %.1f/m²" % core)
+	assert_between(core, GRASS_CORE * GEN_SCALE * 0.72, GRASS_CORE * GEN_SCALE * 1.12,
+		"Generated core %.1f/m²" % core)
 	var edge := _annulus_density(grass, g, R_EDGE_G - 1.2, R_EDGE_G - 0.05)
-	assert_between(edge, GRASS_EDGE * 0.55, GRASS_EDGE * 1.35, "Generated edge %.1f/m²" % edge)
+	assert_between(edge, GRASS_EDGE * GEN_SCALE * 0.55, GRASS_EDGE * GEN_SCALE * 1.35,
+		"Generated edge %.1f/m²" % edge)
 	assert_lt(edge, core * 0.85, "Generated edge sparser than core")
 
 

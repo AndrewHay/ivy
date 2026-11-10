@@ -101,6 +101,13 @@ implemented. Remove the marker as each file lands.
 | `src/render/shaders/leaf.gdshader` | Per-instance atlas sub-rect, alpha scissor with alpha-to-coverage, culling disabled, backlight transmittance. |
 | `src/render/materials/leaf_material.tres` | `ShaderMaterial` wiring the LeafSet017 colour / normal / roughness maps. |
 | `src/render/materials/tower_brick.tres` | **[planned]** Project-side copy of the ambientCG brick material with cylinder UV scaling; the asset `.tres` stays untouched. |
+| `src/presentation/wanderer/wanderer_params.gd` | `WandererParams` — tunables for the village stroll presentation (SD-WANDERER-P); `pause_with_sim` defaults false so the figure animates while the sim is paused at boot. |
+| `src/presentation/wanderer/wanderer_controller.gd` | `WandererController` — `World` sibling of `VillageBackdrop`; ticks from `main._tick_wanderer`; procedural figure, `Label3D` bubble, hero-facing image quad. |
+| `src/presentation/wanderer/wanderer_brain.gd` | `WandererBrain` — pure visit loop state machine (walk → door → inside → phrase → image). |
+| `src/presentation/wanderer/wanderer_route_graph.gd` | `WandererRouteGraph` — path-graph routing with classic spoke bridging. |
+| `src/presentation/wanderer/wanderer_reveal_camera.gd` | `WandererRevealCamera` — QA camera placement (cottage clearance, FOV fit); `WANDERER_CAM REVEAL/WIDE/BUBBLE`. |
+| `wanderer_content/` | Runtime `.jpg` + `quotes.txt` (`.gdignore`); placeholders from `tools/generate_wanderer_placeholders.gd`. |
+| `tools/ui_scripts/wanderer_loop_classic.txt` | UI-script QA: walk + image reveal captures via `WANDERER_*` verbs. |
 
 ### Metrics and UI
 
@@ -226,6 +233,7 @@ implemented. Remove the marker as each file lands.
 | Player agency | `src/world/seed_anchors.gd`, `src/ui/hud.gd` |
 | Acceptance and metrics | `src/metrics/coverage.gd`, `src/metrics/leaf_colour_metric.gd`, `src/metrics/blacklist.gd`, `tools/acceptance_harness.gd` |
 | Cameras and screenshots | `src/world/camera_rig.gd`, `src/world/debug_camera.gd`, `tools/take_screenshot.*`, `tools/run_ui_script.*`, `tools/ui_scripts/` |
+| Village wanderer (ivy-ydiy) | `src/presentation/wanderer/*`, `src/world/world.gd` (`_bind_wanderer`), `src/main/main.gd` (`_tick_wanderer`), `test/test_wanderer_*.gd`, `IMPLEMENTATION.md` SD/AR-WANDERER |
 | Debug snapshots (ivy-nrp) | `src/debug/snapshot_*.gd`, `src/ui/snapshot_annotation_overlay.gd`, `tools/replay_snapshot.*`, `.cursor/skills/revisit-snapshot/SKILL.md`, `test/test_debug_snapshot.gd` |
 | Testing | `test/`, `addons/gut/` |
 

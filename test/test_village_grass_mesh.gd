@@ -51,17 +51,32 @@ func test_blade_tuft_color_hash_per_blade() -> void:
 	assert_gte(seen.size(), 5, "Distinct per-blade hashes in COLOR.r")
 
 
-func test_grass_camera_dissolve_constants() -> void:
-	assert_eq(VillageScatterPositions.GRASS_CAMERA_DISSOLVE_START_M, 14.0)
-	assert_eq(
-		VillageScatterPositions.GRASS_CAMERA_DISSOLVE_END_GENERATED_M,
-		VillageScatterPositions.GRASS_CAMERA_DISSOLVE_END_DEFAULT_M)
-	var vis := VillageScatterPositions.grass_chunk_visibility_end_m(
-		VillageScatterPositions.GRASS_CAMERA_DISSOLVE_END_GENERATED_M)
-	assert_almost_eq(vis, 30.0 + VillageScatterPositions.GRASS_BLADE_CHUNK_HALF_DIAGONAL_M, 0.02)
+func test_grass_anchor_dissolve_constants() -> void:
+	assert_almost_eq(
+		VillageScatterPositions.GRASS_ANCHOR_DISSOLVE_START_M,
+		VillageLayout.GENERATED_LAWN_RADIUS - 4.0, 0.01)
+	assert_almost_eq(
+		VillageScatterPositions.GRASS_ANCHOR_DISSOLVE_END_M,
+		VillageLayout.GENERATED_LAWN_RADIUS + 2.0, 0.01)
 
 
-func test_grass_blade_shader_per_camera_dissolve() -> void:
+func test_grass_blade_dissolve_keep_anchor_not_camera() -> void:
+	var anchor := Vector2.ZERO
+	var start := 14.0
+	var end := 30.0
+	var root_near := Vector2(10.0, 0.0)
+	var root_mid := Vector2(22.0, 0.0)
+	var k_near := VillageScatterPositions.grass_blade_dissolve_keep(
+		root_near, anchor, start, end, 1.0)
+	var k_mid := VillageScatterPositions.grass_blade_dissolve_keep(
+		root_mid, anchor, start, end, 1.0)
+	assert_almost_eq(k_near, 1.0, 0.001, "Inside dissolve_start → full keep")
+	assert_gt(k_near, k_mid, "Farther from anchor → lower keep")
+	assert_lt(k_mid, 1.0, "Between start and end → partial keep")
+
+
+func test_grass_blade_shader_anchor_dissolve_contract() -> void:
+	## Was per-camera (ivy-k9r0); ivy-j68r uses anchor_xz so coverage does not follow the camera.
 	var f := FileAccess.open("res://src/render/shaders/grass_blade.gdshader", FileAccess.READ)
 	assert_not_null(f)
 	var text := f.get_as_text()
@@ -69,7 +84,11 @@ func test_grass_blade_shader_per_camera_dissolve() -> void:
 	assert_true(text.contains("dissolve_start"), "Shader must expose dissolve_start")
 	assert_true(text.contains("dissolve_end"), "Shader must expose dissolve_end")
 	assert_true(text.contains("dissolve_active"), "Shader dissolve_active for classic no-op")
+	assert_true(text.contains("anchor_xz"), "Shader must expose anchor_xz")
 	assert_true(text.contains("v_hash") or text.contains("COLOR.r"), "Stable per-blade hash for dissolve")
+	var vert := _extract_shader_function_body(text, "vertex")
+	assert_false(vert.contains("INV_VIEW_MATRIX"), "Dissolve must not use camera position")
+	assert_true(vert.contains("anchor_xz"), "Dissolve must use anchor_xz")
 	assert_false(_vertex_body_has_early_return(text), "vertex() must not early-return (breaks varyings)")
 
 

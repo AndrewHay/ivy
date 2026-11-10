@@ -3,6 +3,7 @@ extends GutTest
 
 func before_each() -> void:
 	FaunaIntegration.set_gut_fauna_test_active(true)
+	VillagePresentationScale.fauna_world_scale = 1.0
 
 
 func after_each() -> void:

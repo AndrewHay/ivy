@@ -23,6 +23,10 @@
 .beads-credential-key
 .beads/proxieddb/
 
+# Wanderer photos + quotes are personal and stay local; only the folder marker is tracked.
+wanderer_content/*
+!wanderer_content/.gdignore
+
 # OS / tooling cruft
 .DS_Store
 __pycache__/

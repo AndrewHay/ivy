@@ -1,0 +1,14 @@
+# Birthday scenario: the wanderer is present (village cottage, generated village).
+# Run: --building=birthday --village-seed=7 --outdir=res://.tmp/wanderer/birthday/birthday/
+WAIT 3
+WANDERER_SEED 11
+WANDERER_ADVANCE 6
+WANDERER_DUMP
+WANDERER_CAM 7 1.6 1.0 -90
+SCREENSHOT walking.png
+WANDERER_GOTO SHOWING
+WANDERER_ADVANCE 0.5
+WANDERER_CAM REVEAL
+SCREENSHOT reveal.png
+ORBIT 30 26 12
+SCREENSHOT orbit_wide.png

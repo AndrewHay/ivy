@@ -61,8 +61,11 @@ const GRASS_DENSITY_FLAT_FRACTION := 0.7
 ## Playground / prod alias (uniform lawn uses core density).
 const GRASS_DENSITY_PER_M2 := GRASS_DENSITY_CORE_PER_M2
 const GRASS_GRID_STEP_M := 1.0 / sqrt(GRASS_DENSITY_CORE_PER_M2)
-const GRASS_GRID_STEP_GENERATED_M := GRASS_GRID_STEP_M
-const GRASS_GRID_STEP_GENERATED_FILL_M := GRASS_GRID_STEP_M
+## Generated lawn plants this fraction of the classic density at every radius; at 1.0 its
+## ~280k tufts (~8M tris, no distance cull) dominated frame time.
+const GRASS_GENERATED_DENSITY_SCALE := 0.5
+const GRASS_GRID_STEP_GENERATED_M := GRASS_GRID_STEP_M / sqrt(GRASS_GENERATED_DENSITY_SCALE)
+const GRASS_GRID_STEP_GENERATED_FILL_M := GRASS_GRID_STEP_GENERATED_M
 ## Grass disk meets the inner pine ring (VillageLayout.pine_inner classic default).
 const GRASS_RADIAL_EDGE_CLASSIC_M := 19.0
 ## Generated grass fills to the lawn disc before the forest collar (56 m).
@@ -72,7 +75,7 @@ const GRASS_MAX_INSTANCES := int(roundi(PI * GRASS_RADIAL_EDGE_CLASSIC_M * GRASS
 	* GRASS_DENSITY_CORE_PER_M2 * 1.15))
 const GRASS_MAX_INSTANCES_GENERATED := int(roundi(PI \
 	* GRASS_RADIAL_EDGE_GENERATED_M * GRASS_RADIAL_EDGE_GENERATED_M \
-	* GRASS_DENSITY_CORE_PER_M2 * 1.15))
+	* GRASS_DENSITY_CORE_PER_M2 * GRASS_GENERATED_DENSITY_SCALE * 1.15))
 const GRASS_PATCH_CELL_M := 2.5
 const GRASS_ANCHOR_HASH_CELL_M := 1.0
 const GRASS_ACCENT_COUNT := 48
@@ -95,17 +98,34 @@ static var _grass_path_influence_rect: Rect2 = Rect2()
 static var _grass_anchor_cache_sig: int = -1
 static var _grass_anchor_cache: Array[Vector2] = []
 const GRASS_GENERATED_FILL_CAP := GRASS_MAX_INSTANCES_GENERATED
-## Per-blade camera dissolve (production grass_blade.gdshader); ivy-k9r0.
+## Per-blade shader dissolve (grass_blade.gdshader); ivy-k9r0 camera ring, ivy-j68r anchor.
 const GRASS_BLADE_CHUNK_M := 6.0
 const GRASS_BLADE_CHUNK_HALF_DIAGONAL_M := 3.0 * 1.4142135623730951
+## Legacy names kept for FPS sweep tooling; shader measures distance from anchor_xz when active.
 const GRASS_CAMERA_DISSOLVE_START_M := 14.0
 const GRASS_CAMERA_DISSOLVE_END_DEFAULT_M := 30.0
 const GRASS_CAMERA_DISSOLVE_END_GENERATED_M := GRASS_CAMERA_DISSOLVE_END_DEFAULT_M
 const GRASS_CAMERA_DISSOLVE_END_CLASSIC_M := 131072.0
+## If dissolve_active=1: fade band just outside placement ring (r_edge from plaza G).
+const GRASS_ANCHOR_DISSOLVE_START_M := GRASS_RADIAL_EDGE_GENERATED_M - 4.0
+const GRASS_ANCHOR_DISSOLVE_END_M := GRASS_RADIAL_EDGE_GENERATED_M + 2.0
 
 
 static func grass_chunk_visibility_end_m(dissolve_end_m: float) -> float:
 	return dissolve_end_m + GRASS_BLADE_CHUNK_HALF_DIAGONAL_M
+
+
+## Mirrors grass_blade.gdshader v_keep when dissolve_active; anchor is world-space plaza XZ.
+static func grass_blade_dissolve_keep(
+		root_xz: Vector2,
+		anchor_xz: Vector2,
+		dissolve_start: float,
+		dissolve_end: float,
+		dissolve_active: float) -> float:
+	if dissolve_active <= 0.5:
+		return 1.0
+	var d := root_xz.distance_to(anchor_xz)
+	return 1.0 - smoothstep(dissolve_start, dissolve_end, d)
 
 const _GRASS_PATCH_SAMPLE_RADIUS_M := 1.5
 const _GRASS_PATCH_EXCLUSION_CLEARANCE_M := 3.0
@@ -218,228 +238,35 @@ static func bush_common_positions(
 	return out
 
 
-const _FOREST_LCG_SEED := 7
-const _FOREST_MIN_SEP_M := 3.0
-const _FOREST_W_MAX := 1.45
-const _FOREST_BACK_YARD_Z_MAX := 5.5
-const _FOREST_WEDGE_Z_MAX := 38.0
-const _FOREST_WEDGE_X_HALF := 18.0
-const _FOREST_WEDGE_PHI_HALF_RAD := 0.62
-const _FOREST_WEDGE_R_INSET_M := 3.0
-const _FOREST_WEDGE_R_OUTSET_M := 11.0
-const _FOREST_COLLAR_INSET_M := 2.0
-const _FOREST_COLLAR_OUTER_M := 12.0
-## CamSun authored at rig-local +Z≈8, view toward −Z; keep trunks off this south approach only.
-const _FOREST_CAMSUN_X_HALF := 5.0
-const _FOREST_CAMSUN_Z_MIN := 2.0
-const _FOREST_CAMSUN_Z_MAX := 9.5
-const _FOREST_WEDGE_SAMPLE_FRAC := 0.84
-const _FOREST_WEDGE_QUOTA_FRAC := 0.72
-const _FOREST_WEDGE_MIN_BEFORE_COLLAR := 26
+static func _forest_placement_script() -> Script:
+	return load("res://src/playground/forest_placement.gd") as Script
+
+
+static func _forest_production_params() -> Resource:
+	return (load("res://src/playground/forest_params.gd") as Script).call("production")
 
 
 ## Classic horizon ring at layout origin (INV-15 bit-identical).
 static func classic_pine_ring_positions(layout: VillageLayout) -> Array[Transform3D]:
-	var out: Array[Transform3D] = []
-	var n := layout.pine_count
-	var st := _FOREST_LCG_SEED
-	for i in range(n):
-		st = lcg_step(st)
-		var angle_jitter: float = (lcg_f01(st) - 0.5) * 0.5
-		var angle: float = (float(i) / n) * TAU + angle_jitter
-		st = lcg_step(st)
-		var r: float = lerpf(layout.pine_inner, layout.pine_outer, lcg_f01(st))
-		st = lcg_step(st)
-		var s: float = lerpf(1.0, 1.5, lcg_f01(st))
-		st = lcg_step(st)
-		var rot: float = lcg_f01(st) * TAU
-		var basis := Basis.from_euler(Vector3(0.0, rot, 0.0)).scaled(Vector3(s, s, s))
-		out.append(Transform3D(basis, Vector3(cos(angle) * r, 0.0, sin(angle) * r)))
-	return out
+	return _forest_placement_script().call(
+		"forest_tree_positions", layout, _forest_production_params())
 
 
 static func forest_tree_xz(layout: VillageLayout) -> Array[Vector2]:
-	var xf := forest_tree_positions(layout)
-	var out: Array[Vector2] = []
-	for t in xf:
-		out.append(Vector2(t.origin.x, t.origin.z))
-	return out
+	return _forest_placement_script().call(
+		"forest_tree_xz", layout, _forest_production_params())
 
 
 ## Generated: dense +Z wedge + G-centred collar; classic: pivot annulus (ivy-3l6-C).
 static func forest_tree_positions(layout: VillageLayout) -> Array[Transform3D]:
-	if not layout.is_generated:
-		return classic_pine_ring_positions(layout)
-	var g := layout.hamlet_centre_xz
-	var r_lawn := layout.lawn_radius
-	var target := layout.pine_count
-	var path_segments: Array = layout.path_polylines()
-	var accepted: Array[Vector2] = []
-	var st := _FOREST_LCG_SEED
-	var attempts := 0
-	var max_attempts := target * 80
-	var wedge_quota := mini(target, int(ceil(float(target) * _FOREST_WEDGE_QUOTA_FRAC)))
-	while accepted.size() < target and attempts < max_attempts:
-		attempts += 1
-		st = lcg_step(st)
-		var wedge_only := accepted.size() < wedge_quota \
-				or accepted.size() < _FOREST_WEDGE_MIN_BEFORE_COLLAR
-		var p: Vector2
-		if wedge_only or lcg_f01(st) < _FOREST_WEDGE_SAMPLE_FRAC:
-			st = lcg_step(st)
-			var r_s := lerpf(
-				r_lawn - _FOREST_WEDGE_R_INSET_M, r_lawn + _FOREST_WEDGE_R_OUTSET_M, lcg_f01(st))
-			st = lcg_step(st)
-			var phi := lerpf(-_FOREST_WEDGE_PHI_HALF_RAD, _FOREST_WEDGE_PHI_HALF_RAD, lcg_f01(st))
-			p = g + Vector2(sin(phi) * r_s, cos(phi) * r_s)
-		else:
-			st = lcg_step(st)
-			var px2 := lerpf(g.x - 62.0, g.x + 62.0, lcg_f01(st))
-			st = lcg_step(st)
-			var pz2 := lerpf(g.y - 50.0, g.y + 42.0, lcg_f01(st))
-			p = Vector2(px2, pz2)
-		var w := _forest_accept_weight(p, g, r_lawn, layout)
-		if w <= 0.0:
-			continue
-		st = lcg_step(st)
-		if lcg_f01(st) > w / _FOREST_W_MAX:
-			continue
-		if not _forest_site_ok(p, layout, path_segments):
-			continue
-		var ok_sep := true
-		for other: Vector2 in accepted:
-			if p.distance_to(other) < _FOREST_MIN_SEP_M:
-				ok_sep = false
-				break
-		if not ok_sep:
-			continue
-		accepted.append(p)
-	if accepted.size() < _FOREST_WEDGE_MIN_BEFORE_COLLAR:
-		_forest_top_up_positions(accepted, _FOREST_WEDGE_MIN_BEFORE_COLLAR, g, r_lawn, layout, path_segments)
-	if accepted.size() < target:
-		_forest_top_up_positions(accepted, target, g, r_lawn, layout, path_segments, false)
-	var out: Array[Transform3D] = []
-	for p in accepted:
-		st = lcg_step(st)
-		var s: float = lerpf(1.0, 1.5, lcg_f01(st))
-		st = lcg_step(st)
-		var rot: float = lcg_f01(st) * TAU
-		var basis := Basis.from_euler(Vector3(0.0, rot, 0.0)).scaled(Vector3(s, s, s))
-		out.append(Transform3D(basis, Vector3(p.x, 0.0, p.y)))
-	return out
-
-
-static func _forest_in_wedge(p: Vector2, g: Vector2, r_lawn: float) -> bool:
-	if p.y <= VillageLayout.HERO_DOOR_STOOP.y + 1.0:
-		return false
-	var dg := p - g
-	var r_g := dg.length()
-	if r_g < r_lawn - _FOREST_WEDGE_R_INSET_M or r_g > r_lawn + _FOREST_WEDGE_R_OUTSET_M:
-		return false
-	var phi := atan2(dg.x, dg.y)
-	return absf(phi) <= _FOREST_WEDGE_PHI_HALF_RAD
-
-
-static func _forest_top_up_positions(
-		accepted: Array[Vector2],
-		target: int,
-		g: Vector2,
-		r_lawn: float,
-		layout: VillageLayout,
-		path_segments: Array,
-		wedge_only: bool = true) -> void:
-	var r_step := _FOREST_MIN_SEP_M
-	var phi_step := 0.12
-	var r := r_lawn - _FOREST_WEDGE_R_INSET_M
-	while r <= r_lawn + _FOREST_WEDGE_R_OUTSET_M and accepted.size() < target:
-		var phi := -_FOREST_WEDGE_PHI_HALF_RAD
-		while phi <= _FOREST_WEDGE_PHI_HALF_RAD and accepted.size() < target:
-			var p := g + Vector2(sin(phi) * r, cos(phi) * r)
-			if wedge_only or _forest_in_wedge(p, g, r_lawn):
-				_forest_try_accept_forest(p, accepted, g, r_lawn, layout, path_segments)
-			phi += phi_step
-		r += r_step
-	if wedge_only or accepted.size() >= target:
-		return
-	r = r_lawn - _FOREST_COLLAR_INSET_M
-	while r <= r_lawn + _FOREST_COLLAR_OUTER_M and accepted.size() < target:
-		var phi := -1.2
-		while phi <= 1.2 and accepted.size() < target:
-			var p := g + Vector2(sin(phi) * r, cos(phi) * r)
-			if not _forest_in_wedge(p, g, r_lawn):
-				_forest_try_accept_forest(p, accepted, g, r_lawn, layout, path_segments)
-			phi += phi_step
-		r += r_step
-
-
-static func _forest_try_accept_forest(
-		p: Vector2,
-		accepted: Array[Vector2],
-		g: Vector2,
-		r_lawn: float,
-		layout: VillageLayout,
-		path_segments: Array) -> bool:
-	if _forest_accept_weight(p, g, r_lawn, layout) <= 0.0:
-		return false
-	if not _forest_site_ok(p, layout, path_segments):
-		return false
-	for other: Vector2 in accepted:
-		if p.distance_to(other) < _FOREST_MIN_SEP_M:
-			return false
-	accepted.append(p)
-	return true
-
-
-static func _forest_accept_weight(p: Vector2, g: Vector2, r_lawn: float, _layout: VillageLayout) -> float:
-	var dg := p - g
-	var r_g := dg.length()
-	if p.y <= _FOREST_BACK_YARD_Z_MAX and r_g < r_lawn:
-		return 0.0
-	if _forest_in_wedge(p, g, r_lawn):
-		return 1.45
-	if r_g >= r_lawn - _FOREST_COLLAR_INSET_M and r_g <= r_lawn + _FOREST_COLLAR_OUTER_M \
-			and p.y <= g.y + 6.0:
-		var w := 0.55
-		var phi := rad_to_deg(atan2(dg.x, -(dg.y)))
-		if absf(phi) <= 75.0 and r_g >= r_lawn - _FOREST_COLLAR_INSET_M \
-				and r_g <= r_lawn + 10.0:
-			w = 0.75
-		return w
-	if p.y > 0.0 and p.y <= _FOREST_BACK_YARD_Z_MAX:
-		return 0.0
-	return 0.06
-
-
-const _FOREST_HERO_KEEP_CLEAR_M := 13.0
+	return _forest_placement_script().call(
+		"forest_tree_positions", layout, _forest_production_params())
 
 
 ## True when a trunk at [param p] would sit in the CamSun → village sight corridor (tests + placement).
 static func forest_blocks_camsun_view(p: Vector2) -> bool:
-	return _forest_camsun_corridor(p)
-
-
-static func _forest_camsun_corridor(p: Vector2) -> bool:
-	var h := VillageLayout.HERO_DOOR_STOOP
-	if p.y > h.y + 7.0:
-		return false
-	if p.y < _FOREST_CAMSUN_Z_MIN or p.y > _FOREST_CAMSUN_Z_MAX:
-		return false
-	return absf(p.x - h.x) <= _FOREST_CAMSUN_X_HALF
-
-
-static func _forest_site_ok(p: Vector2, layout: VillageLayout, path_segments: Array) -> bool:
-	if VillageLayout.inside_cottages(layout.cottages, p, 0.45):
-		return false
-	if blocks_scatter_at(p):
-		return false
-	if min_xz_dist_to_path_segments(p, path_segments) < 0.55:
-		return false
-	if _forest_camsun_corridor(p):
-		return false
-	var g := layout.hamlet_centre_xz
-	if p.distance_to(g) < layout.lawn_radius - 4.0:
-		return false
-	return true
+	return _forest_placement_script().call(
+		"forest_blocks_camsun_view", p, _forest_production_params())
 
 
 ## Dense blade tuft instances (SD-GRASS-2).

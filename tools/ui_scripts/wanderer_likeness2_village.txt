@@ -1,0 +1,6 @@
+# Village close-up for likeness2 QA
+WAIT 3
+WANDERER_SEED 3
+WANDERER_ADVANCE 10
+WANDERER_CAM 4.5 1.65 0.9 135
+SCREENSHOT village_closeup.png

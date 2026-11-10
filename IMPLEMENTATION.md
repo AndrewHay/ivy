@@ -1602,6 +1602,631 @@ Forbidden imports from `src/presentation/fauna/*`: `src/sim/*`, env/light-bake/g
 
 ---
 
+## SD-WANDERER — Village wanderer (presentation layer)  *(epic ivy-ydiy, stage ivy-ydiy.2)*
+
+Player intent: `DESIGN.md` § **Village wanderer**. A 2 m low-poly figure strolls the village path
+network between cottages, vanishes into each for ~10 s, re-emerges, says a phrase, then reveals a
+large image for ~5 s that hangs in the air beside him, parallel to the house he left (reveal
+redesign, `ivy-ydiy.9`: he steps out 2.5 m, faces away from the house, image top-left; no longer
+hero-facing). **User numbers are requirements** (2 m, 1 m/s — doubled to 2 m/s by user request, 10 s, 5 s, 20 s,
+image ≈ 2× cottage height, width from jpg aspect). Top priority: that loop working end to end.
+Presentation-only like SD-FAUNA: no `src/sim/*`, env/light-bake/growth, or `IvyParams` access; no
+collision layers; no input capture. All tunables live in one Resource, `WandererParams` (SD-WANDERER-P).
+
+### Scope and conventions
+
+- **Space:** all positions are XZ in the backdrop pivot frame (same frame as `VillageLayout`), y = 0
+  ground; world transform via the controller's `global_transform` (SD-FAUNA-3 style). Hero structure
+  XZ = `params.hero_xz` = `Vector2.ZERO` (hero door stoop `VillageLayout.HERO_DOOR_STOOP` is only a
+  path node, not the facing target).
+- **Houses** = `layout.cottages` (7 specs). The hero is not in that list, so it can never be a visit
+  target (GD assumption, flagged to user). **Door spot** of a house =
+  `door_exterior + outward_normal * door_stand_off_m` from `VillageBackdrop.cottage_door(spec)`;
+  **stoop** = `door_exterior + normal * 0.5` (the path node authored by `VillageLayout`).
+- **Single scale rule (Generated vs Classic):** figure, speed, image and routing are **plain metres in
+  both modes** — cottages, doors and paths are *not* scaled in Generated mode (only lawn radii, fauna
+  rings and the camera rig are). Only the **bubble** scales:
+  `bubble_pixel_size * VillagePresentationScale.camera_rig_scale_for_mode(mode)` so text keeps its
+  apparent size under the 1.35× dolly-back. Nothing reads `fauna_world_scale`.
+- **Time:** wall-clock `dt` supplied by `main.gd` (`_tick_wanderer`, after `_tick_fauna`), forced to
+  0 while `ctx.paused` (Pause freezes everything on screen, SD-WIND-1 precedent). Grow/Fast do **not**
+  scale it — the visitor lives in wall time; the user's seconds are wall seconds. Controller is off
+  (hidden, not ticking) when `VillageBackdrop` is hidden.
+- **RNG:** own `RandomNumberGenerator` (`params.rng_seed`, 0 = randomize). Never touch global
+  `randf/randi/seed` or SD-RNG streams (SD-FAUNA-12 precedent).
+
+### State machine (SD-WANDERER-1)
+
+Eight states (`EXIT_WALK` added by the reveal redesign; **append it to the enum as value 7** so
+existing ordinals stay stable); transitions are driven only by timers and route/leg arrival.
+
+| # | State | Entry actions | Exits when | Next |
+|---|-------|---------------|------------|------|
+| 0 | `DISABLED` | Figure/bubble/image hidden; warn once (`push_warning`) | Layout rebuilt with ≥ 2 reachable houses | `WALKING` |
+| 1 | `WALKING` | Pick target house ≠ last visited; Dijkstra route stoop→…→target stoop→door spot; figure visible, walk cycle on | Arc-length reaches route end | `DOOR_PAUSE` |
+| 2 | `DOOR_PAUSE` | Stop; smooth-turn to face the wall (−normal); walk cycle blends to idle | `door_pause_s` = **1.0 s** | `INSIDE` |
+| 3 | `INSIDE` | **Hide figure; clear bubble** (instant; no fade); `last_house = target` | `inside_s` = **10.0 s** | `EXIT_PAUSE` |
+| 4 | `EXIT_PAUSE` | Show figure at the **same door spot**, `yaw = yaw_of(+n)` (outward; set instantly, no turn), idle | `exit_pause_s` = **1.0 s** (unchanged) | `EXIT_WALK` (or skip) |
+| 7 | `EXIT_WALK` | Fix `present_pos = door_exterior + n·present_standoff_m` (SD-WANDERER-4); walk the straight 2-point leg `door_spot → present_pos` along `+n`. Yaw stays `yaw_of(+n)` the whole way (the leg tangent *is* n; nothing to turn). Walk cycle runs exactly as in `WALKING` (same arc-length speed with `speed_ease_m`, `phase += TAU·v_actual·dt/stride_length_m`, `motion = v_actual/walk_speed_mps`) | Arc length reaches `|present_pos − door_spot|` = `present_standoff_m − door_stand_off_m` = **2.2 m** (≈ **3.0 s**: 1.6 m at full speed + 0.72 s ease at each end) | `SAYING` (or skip); **no extra pause** — he is already stopped and idle-blended by the end ease, bubble fade-in (0.2 s) is the settle |
+| 5 | `SAYING` | Show exit-phrase bubble (random quote) above the figure **at `present_pos`**; duration `bubble_duration(text)` | Bubble fully faded | `SHOWING` (or skip) |
+| 6 | `SHOWING` | Bubble slot already empty; place image (SD-WANDERER-4) from `present_pos` and **frozen yaw = `yaw_of(+n)`**; fade in | `image_s` = **5.0 s** incl. fades | `WALKING` (route starts at `present_pos`, SD-WANDERER-R §8) |
+
+`yaw_of(n) = atan2(n.x, n.y)` (n as XZ `Vector2`; the figure's forward is `(sin yaw, cos yaw)`).
+`EXIT_WALK` is **not** part of the quote clock (that only ticks in `WALKING`), emits no bubble, and
+freezes under pause like every other timer. The state table lists `EXIT_WALK` after `EXIT_PAUSE`
+(flow order) although its enum value is 7.
+
+Skip rules: no quotes → skip `SAYING`; no images → skip `SHOWING` **and `EXIT_WALK`** (the step-out
+exists only to make room for the image; with no image `EXIT_PAUSE` → `SAYING` at the door spot as
+before, and the next route starts at the door spot as before); neither → `EXIT_PAUSE` → `WALKING`.
+`SHOWING → WALKING` has no extra pause; the image fade-out (0.3 s) is inside the 5.0 s. Because the
+first leg segment always points **back toward the house** (≈180° from his facing), a **leg-start
+turn gate** applies to every leg: speed is held at 0 while `|Δyaw to route tangent| > leg_turn_gate_deg`
+(90°), then the normal ease-in; this costs ≤ 0.33 s at 270°/s and prevents moon-walking
+(`leg_turn_gate_deg`, new `WandererParams` entry, group Timing/Figure — no knob needed). **Start:** `Controller`
+picks a random reachable house as `last_house`, places the figure at its door spot, and enters
+`WALKING` toward a different house (visible within the first frame, no 10 s wait).
+
+**Timing table (defaults = production):**
+
+| Param | Default | Note |
+|-------|---------|------|
+| `walk_speed_mps` | 1.0 | steady-state speed on path arc length |
+| `speed_ease_m` | 0.3 | speed factor = clamp(min(s_from_start, s_to_end)/0.3, 0.25, 1) |
+| `door_pause_s` | 1.0 | before vanishing |
+| `inside_s` | 10.0 | hidden |
+| `exit_pause_s` | 1.0 | after reappearing at the door, before the step-out |
+| `present_standoff_m` | 2.5 | NEW. Distance of the present spot from the door **wall face** along `+n`; effective value `max(present_standoff_m, 1.0)` (must exceed the ~0.7 m eave overhang; the floor makes a bad knob value harmless) |
+| `leg_turn_gate_deg` | 90 | NEW. Leg-start speed gate (see skip rules) |
+| EXIT_WALK duration | ≈ 3.0 s | derived: 2.2 m at 1 m/s with 0.3 m ease at both ends; tests assert **distance**, ±1 tick on time |
+| `bubble_duration(text)` | clamp(2.0 + 0.06·len, 3.0, 6.0) s | `bubble_base_s`, `bubble_s_per_char`, `bubble_min_s`, `bubble_max_s`; fade-in 0.2 s, fade-out 0.4 s are **inside** it |
+| `image_s` | 5.0 | fade-in 0.3 + hold 4.4 + fade-out 0.3 |
+| `quote_interval_s` | 20.0 | accumulated **WALKING** seconds |
+| `quote_min_walk_s` | 3.0 | no quote in the first 3 s of a leg (deferred, not dropped) |
+
+Typical non-walking time per cycle ≈ 1 + 10 + 1 + 3.0 (step-out) + 4.4 + 5 = **24.4 s**, plus walk
+(15–35 s, which now includes the ~2 m walk back to the stoop).
+
+**Bubble / image / quote coexistence (SD-WANDERER-2):**
+1. One bubble slot; a new bubble replaces the current one.
+2. **Quote timer** counts accumulated seconds **only in `WALKING`**; it is *not* reset on arrival or
+   leg change (carries across legs), and resets to 0 when it fires. It does not tick in any other
+   state. Quote fire in `WALKING` only. A quote bubble outliving arrival may continue through
+   `DOOR_PAUSE` and is cleared on entering `INSIDE`.
+3. `SAYING` and `SHOWING` are strictly sequential — the exit-phrase bubble is gone **before** the
+   image appears, and no bubble can start during `SHOWING`. This is how "a bubble never overlaps the
+   image corner anchor" (epic acceptance 10) is guaranteed structurally, not by geometry.
+4. Image and bubble text pick "random, ≠ previous" when ≥ 2 exist; with exactly 1 repeat is allowed.
+
+### Content (SD-WANDERER-3)
+
+- **Folder:** `params.content_dir` = `res://wanderer_content/` (single folder, no merging). It
+  contains an empty **`.gdignore`** so Godot never imports the jpgs; files are read at runtime with
+  `Image.load_from_file(ProjectSettings.globalize_path(path))` → `ImageTexture.create_from_image`
+  (mipmaps on). Works for editor/CLI runs; exported builds are a non-goal (use `user://` by editing
+  `content_dir`).
+- **Images:** `*.jpg`/`*.jpeg` (case-insensitive), sorted by name (deterministic order), ≤
+  `max_images` (64); each downscaled so its long side ≤ `image_max_px` (2048); unreadable files
+  skipped with `push_warning`. Aspect = width/height of the loaded image.
+- **Quotes:** `quotes.txt` if present, else the first `.txt` alphabetically (warn if >1). UTF-8, BOM
+  stripped; each line `strip_edges`; blank lines and lines starting `#` skipped; lines longer than
+  `bubble_max_chars` (140) are truncated with `…`. **Both the walking quote and the exit phrase draw
+  from this one list** (keep short lines for short phrases; no second list in MVP).
+- **Degradation:** missing folder / zero images / zero quotes → the matching feature is skipped (see
+  SD-WANDERER-1 skip rules); never an error dialog or crash. Content loads **once** at controller
+  creation, not on every village rebuild.
+- **Ship placeholders:** a `tools/` generator writes 3 solid-colour/gradient jpgs
+  (4:3 `512×384`, 3:4 `384×512`, 16:9 `640×360`, each with a large text-free marker pattern so the
+  orientation and mirroring are visible — an asymmetric marker, e.g. a corner arrow) plus a starter `quotes.txt` (~8 short lines) into
+  `wanderer_content/`; they are committed so the feature is visible out of the box.
+
+### Routing (SD-WANDERER-R)
+
+Built **once per layout** (and rebuilt when `VillageBackdrop` rebuilds on mode/seed change; the
+state machine then restarts at the Start rule). Input: `layout.paths` (works for classic
+`authored()`, generated, and `fallback`, since all expose `paths`) + `layout.cottages`.
+
+1. **Nodes/edges:** every polyline vertex is a node; consecutive vertices are edges (cost =
+   Euclidean length). Interior vertices are **never** merged with each other (dense 0.3 m meander
+   resampling would collapse).
+2. **Junction snapping:** for every polyline **endpoint** E, find the nearest point Q on any *other*
+   polyline within `snap_m` (0.35); if Q is within 1e-3 of a vertex link to it, else **split** that
+   segment at Q and link E↔Q (T-junction). Crossings are not split (generator forbids them).
+3. **Door attach:** for each house attach its stoop to the nearest graph point within
+   `door_snap_m` (1.0); append the final stoop→door-spot leg. No attach → that house is
+   **unreachable** (never a target).
+4. **Component bridging (needed by Classic):** classic spokes end on a 6.5 m hero ring and are
+   mutually disconnected. After 1–3, while door-bearing components > 1: take the closest pair of
+   **polyline terminals** from different components with distance ≤ `bridge_max_m` (12.0) and add a
+   bridge edge: a **circular arc about `hero_xz`** (10° steps, shorter way) when both terminals have
+   radius ≥ 5.0 m and |Δr| ≤ 0.75 m (the classic hero ring; never crosses the 4.5 m hero keep-out),
+   otherwise a straight segment; reject any bridge that enters a cottage rect grown by 0.2 m.
+5. **Target pick:** candidates = reachable houses in the figure's component, excluding `last_house`.
+   Uniform random. **< 1 candidate (i.e. < 2 reachable houses) → `DISABLED`** (no straight-line
+   cross-lawn fallback — paths-only is a hard rule). Missing/empty `paths` ⇒ disabled + one warning.
+6. **Route:** Dijkstra (graph ≤ ~2 k nodes; run at leg start only, never per frame) from the current
+   door-spot polyline start; the route polyline drops points closer than 0.01 m.
+7. Same house never twice running; hero never a target; asymmetric reachability is impossible
+   (undirected graph).
+8. **Leg start from the present spot (reveal redesign).** `present_pos` is on the lawn/stoop side of
+   the exited house, **off the graph**, but it lies on the ray through that house's stoop:
+   `stoop = door_exterior + n·door_stoop_m (0.5)`, `present_pos = door_exterior + n·present_standoff_m`.
+   So rejoining is a **straight 2.0 m spur back along −n** (never toward or across the house: the
+   whole spur stays on the outward side of the door wall plane, ≥ 0.5 m from it). The leg polyline is
+   `[present_pos] + route(from_house, target)[k:]` where `k` skips the leading `door_spot` point
+   (he does **not** return to the door spot — the stoop is the first graph-side node). The 2.0 m spur
+   is the *only* off-graph walking allowed (alongside the 2.2 m `EXIT_WALK` out-leg, which retraces
+   the same ray); no other lawn cross-cutting, and no collision check against neighbours/pond
+   (non-goal, as for the image). Router API consequence: `route()` stays door-spot→door-spot;
+   the **brain** composes the leg by replacing its first point with `present_pos` (only when a
+   step-out happened; with no images the leg begins at the door spot exactly as before). Tests:
+   `route[0] == present_pos`, `route[1] == stoop` (±1e-3), segment 0 direction == −n (dot > 0.999),
+   no route point has `dot(pt − door_exterior, n) < 0` for the first 2 m (never inside the
+   exited house's wall plane), later legs unchanged.
+
+### Image reveal (SD-WANDERER-4)
+
+**Reveal redesign (`ivy-ydiy.9`) — replaces "image always faces the hero" and the old
+"side away from the hero" rule.** The image is **always top-left of the figure, full size, parallel to
+the exited house's door wall, facing the same way he does.** `hero_xz` is no longer read by placement.
+
+Inputs: `n` = door outward normal (unit `Vector2`, XZ); `W0 = door_exterior` (XZ, on the wall face);
+`P = W0 + n·s` = figure XZ at `SHOWING` (`s = max(present_standoff_m, 1.0)`, default **2.5**; the
+figure's facing at this point is `+n`). Signature change:
+`WandererImagePlacement.compute(door_exterior: Vector2, n: Vector2, params, aspect) -> Dictionary`
+(figure position derived inside, so test/playground/brain share one formula).
+
+1. **Size (unchanged):** `H = structure_height_m (3.5) * image_height_factor (2.0)` = **7.0 m**;
+   `W = H * aspect`; if `W > image_max_width_m` (16.0) scale both uniformly so `W = 16`.
+2. **Orientation:** `yaw = atan2(n.x, n.y)`; plane is yaw-only (vertical, upright, no pitch/roll).
+   QuadMesh convention: front = local **+Z**, `rotation.y = yaw` maps +Z → `(sin yaw, 0, cos yaw)` =
+   `(n.x, 0, n.y)`, i.e. **front normal = n** (outward door normal = his facing). Local **+X** maps to
+   `(cos yaw, 0, −sin yaw)` = `(n.y, 0, −n.x)`.
+3. **Left vector (his own left while facing along n):** `left = UP × n3 = (n.y, 0, −n.x)` — equal to
+   the quad's local +X. Check: facing +Z ⇒ left = +X; facing −Z ⇒ left = −X (Godot right-handed, +Y up).
+4. **Corner:** `head_top = (P.x, figure_height_m, P.y)`;
+   `corner = head_top + (0, image_corner_lift_m (0.05), 0)` = the image's bottom corner **nearest his
+   axis**, at x/z of his axis, 0.05 m above his head.
+5. **Centre:** `centre = corner + left·(W/2) + UP·(H/2)` →
+   `centre.xz = P + (n.y, −n.x)·W/2`, `centre.y = figure_height_m + image_corner_lift_m + H/2`
+   (= 5.55 m at defaults). Node: `position = centre`, `rotation.y = yaw`, `QuadMesh.size = (W, H)`.
+6. **Reading direction (not mirrored):** the front face has +U along local +X = `left`. A viewer
+   standing in front of the figure (outward of him, looking back toward the house, i.e. along −n) has
+   their right-hand side = `left`, so the texture reads left→right normally and the image sits to the
+   **viewer's right** of the figure; its bottom-left corner (as the viewer sees it) is the head
+   anchor. No UV flip. The back face (seen only from inside the house side) is mirrored — accepted;
+   keep `cull_disabled` so orbit cameras still see it.
+7. **Figure never covered:** image `y ≥ 2.05 m > 2.0 = figure top` everywhere, so no ray to any part of
+   the figure crosses the quad. Strictly stronger than before (no horizontal overlap needed).
+8. **No clip into the exited house, by construction:** the plane is at wall distance exactly `s ≥ 1.0`
+   (default 2.5 m) for *every* point (the plane is parallel to the wall and extends only along `left`
+   and up), vs. the ~0.7 m eave overhang. Neighbour cottages, trees and the pond are **not
+   checked** (user decision); `image_depth_test` stays as the fallback knob. Because `left` runs
+   parallel to the wall, a wide image slides past the house's side corner but stays outward of the
+   door-wall plane.
+9. Material: unshaded, `cull_disabled`, alpha-fade, no shadow, `image_depth_test` true.
+10. One image node reused for all reveals (swap texture/size/transform) — **one image at a time**, no
+    per-cycle allocation. No images ⇒ `SHOWING` and `EXIT_WALK` skipped.
+
+Returned dictionary: `{size, normal (= n), left (Vector2), yaw, centre, corner, figure_xz (= P)}`;
+the old `side` key is **removed**. Worked example (door at W0 = (0,0), n = (0,1) ⇒ yaw 0, facing +Z):
+`P = (0, 2.5)`, `left = (1, 0)`; 4:3 image: `W = 9.33`, `corner = (0, 2.05, 2.5)`,
+`centre = (4.67, 5.55, 2.5)`, spanning x ∈ [0, 9.33], y ∈ [2.05, 9.05], z = 2.5.
+
+### Figure and walk cycle (SD-WANDERER-5)
+
+Primitive breakdown (all `MeshInstance3D` under one yaw-pivot `Node3D`; total **6 meshes, < 150
+tris**, 3 flat materials; shadows cast):
+
+| Part | Primitive | Size / position (m, figure origin at feet) |
+|------|-----------|--------------------------------------------|
+| Legs ×2 | Box 0.20×0.95×0.22, pivot at hip | hips y = 0.95, x = ±0.12 |
+| Torso | Box 0.46×0.65×0.26 | y 0.95 → 1.60 |
+| Arms ×2 | Box 0.12×0.60×0.12, pivot at shoulder | shoulders y = 1.52, x = ±0.29 |
+| Head | Sphere r = 0.20 (8 segments × 4 rings) | centre y = 1.80, top = **2.00** |
+
+Invariant: AABB height = `figure_height_m` (2.0 ± 0.01). Walk driven by pure
+`WandererFigure.pose(variant, params, phase, motion) -> Dictionary` (testable, shared by playground):
+
+- `phase += TAU * v_actual * dt / stride_length_m` (stride 1.8 m per full cycle ⇒ ~0.9 m steps, no
+  foot skating at 1 m/s). `motion = clamp(v_actual / walk_speed_mps, 0, 1)` blends amplitudes
+  (idle blend `idle_blend_s` 0.2 s) so the figure settles to a neutral pose when stopped.
+- Legs: `±leg_swing_deg (24°) · sin(phase)` about X at the hip; arms opposite legs at
+  `arm_swing_deg (18°)`; torso `bob = bob_m (0.04) · (0.5 + 0.5·cos 2·phase)` vertical, roll
+  `torso_roll_deg (2.5°)·sin(phase)`, forward lean `torso_lean_deg (4°)`.
+- Facing: `yaw = lerp_angle(yaw, atan2(dir.x, dir.z), min(1, turn_rate_deg_s·dt/Δ))` — rate-limited
+  at **270°/s**; direction from the route tangent (look-ahead 0.5 m to hide polyline kinks).
+- `walk_variant` (enum): `0 CURRENT` = sine pendulum above (production); `1 EASED` = triangle-eased
+  pendulum with dwell at extremes; `2 WADDLE` = roll-dominant (roll ×4, swing ×0.6, bob ×1.5);
+  `3 MARCH` = stiff (arms ×1.4, no bob). Variants differ only in `pose()`.
+
+### Bubble (SD-WANDERER-6)
+
+`Label3D` billboard (`BILLBOARD_ENABLED`, `no_depth_test` true, outline for legibility, optional dark
+rounded panel quad behind), bottom-anchored `bubble_gap_m` (0.4) above `head_top`, centred, text
+wrapped at `bubble_wrap_px` (400), ≤ 140 chars, font 48 px × `bubble_pixel_size` (0.0065 ⇒ ~0.31 m
+line height at scale 1.0), Generated ×1.35. Follows the figure each frame; hidden on `INSIDE`.
+
+### SD-WANDERER-P — `WandererParams` (one Resource; defaults = production)
+
+`src/presentation/wanderer/wanderer_params.gd` (`class_name WandererParams extends Resource`), static
+`production()`; playground edits a duplicate, production reads the same class.
+
+| Group | Param = default |
+|-------|-----------------|
+| Figure | `figure_height_m=2.0`, `walk_speed_mps=1.0`, `speed_ease_m=0.3`, `turn_rate_deg_s=270`, `stride_length_m=1.8`, `leg_swing_deg=24`, `arm_swing_deg=18`, `torso_roll_deg=2.5`, `torso_lean_deg=4`, `bob_m=0.04`, `idle_blend_s=0.2`, `walk_variant=0` |
+| Timing | `door_pause_s=1.0`, `inside_s=10.0`, `exit_pause_s=1.0`, `present_standoff_m=2.5` *(new)*, `leg_turn_gate_deg=90` *(new)*, `image_s=5.0`, `image_fade_s=0.3`, `quote_interval_s=20.0`, `quote_min_walk_s=3.0` |
+| Bubble | `bubble_base_s=2.0`, `bubble_s_per_char=0.06`, `bubble_min_s=3.0`, `bubble_max_s=6.0`, `bubble_fade_in_s=0.2`, `bubble_fade_out_s=0.4`, `bubble_gap_m=0.4`, `bubble_font_size=48`, `bubble_pixel_size=0.0065`, `bubble_wrap_px=400`, `bubble_max_chars=140` |
+| Image | `structure_height_m=3.5`, `image_height_factor=2.0`, `image_max_width_m=16.0`, `image_corner_lift_m=0.05`, `image_max_px=2048`, `image_depth_test=true`, `hero_xz=Vector2.ZERO` (routing bridge only; **no longer read by image placement**) |
+| Routing | `snap_m=0.35`, `door_snap_m=1.0`, `door_stoop_m=0.5`, `door_stand_off_m=0.3`, `bridge_max_m=12.0` |
+| Content | `content_dir="res://wanderer_content"`, `quotes_file="quotes.txt"`, `max_images=64` |
+| Misc | `enabled=true`, `rng_seed=0` |
+
+### Edge cases and guardrails
+
+| Case | Behaviour |
+|------|-----------|
+| Folder missing / 0 images / 0 quotes | Skip the matching state(s); still walks and visits |
+| Corrupt/huge jpg | Skipped with warning / downscaled to ≤ 2048 px |
+| Single image or quote | Repeat allowed (the "≠ previous" rule only applies when ≥ 2) |
+| Ultra-wide or tall jpg | `W` clamped to 16 m (uniform shrink); tall: narrow slab, H stays 7 m; always extends to his left only, so it still never crosses the door-wall plane |
+| `present_standoff_m` set < 1.0 (knob misuse) | Effective standoff floors at 1.0 m; never clips the eave |
+| Reveal at a door whose outward side has a neighbour/tree/pond | Not checked (user decision); may overlap — accepted |
+| < 2 reachable houses / no paths | `DISABLED`, hidden, one warning — no straight-line cross-lawn walking |
+| Layout / mode / seed rebuild mid-cycle | Controller rebuilds graph, hides everything, restarts at Start rule |
+| Pause | `dt = 0`; every timer, walk phase and fade freezes |
+| Quote fires on arrival frame | Quote only fires in `WALKING` and not within 3 s of leg start; cleared on `INSIDE` |
+| Backdrop hidden | Controller hidden/not ticking |
+| Soak ≥ 10 cycles | One figure, one bubble `Label3D`, one image node reused; node count and texture count constant |
+
+### Example scenarios
+
+1. **Happy path (Classic):** starts at CE door, picks CB, routes spoke→hero-ring arc→spoke (~30 m,
+   ≈ 31 s), quote at t = 20 s ("..." bubble 4.4 s), arrives, pauses 1 s, vanishes 10 s, reappears
+   facing out, 1 s later walks 2.2 m straight out from the door (≈ 3 s) and stops facing away from
+   CB, says a 38-char phrase (4.3 s), then a 4:3 image 9.3×7 m rises with its bottom-left corner
+   (as the viewer in front of him sees it) at his head, extending up and to his left, parallel to
+   CB's door wall and facing the way he does; 5 s later it vanishes, he turns round (≤ 0.33 s),
+   walks the 2 m spur back to CB's stoop and on to CC (≠ CB).
+2. **No content:** empty folder → he walks/vanishes/reappears with no bubbles or images; loop
+   continues; warning logged once.
+3. **Generated seed change mid-image:** controller resets, figure respawns at a random door of the new
+   village, quote timer 0, no image shown.
+
+### Tests (suggested, GUT; no scene needed except figure/controller smoke)
+
+Router: classic graph connected after bridging; every house reachable; route never leaves
+polylines/bridges; T-junction split; no-paths ⇒ DISABLED; target ≠ last over 500 draws; hero never
+chosen. State machine (fake clock, `dt` stepping): exact 1.0/10.0/1.0 s, `EXIT_WALK` covers
+`present_standoff_m − door_stand_off_m` (2.2 m) of arc length along +n with yaw constant at
+`yaw_of(+n)`, ends at `present_pos`, no bubble during it, `SAYING`/`SHOWING` figure pos == `present_pos`
+(not the door spot), next leg `route[0] == present_pos` and `route[1] == stoop`; leg-start turn
+gate (no forward motion until `|Δyaw| ≤ 90°`, none sliding backwards); no images ⇒ no `EXIT_WALK`
+and the leg starts at the door spot; bubble duration formula, 5.0 s image, quote at accumulated 20 s of WALKING only (not during other states), skip rules,
+pause freezes, no bubble/image coexistence, 12-cycle soak with stable child/texture counts. Content:
+loader on a `user://` fixture folder (jpg + txt, blank/BOM/`#` lines, bad jpg skipped, none).
+Image (**rewritten; all hero-facing / outward-side / `side`-key / `P ≈ hero` fallback assertions are
+deleted**): over every classic cottage door plus 16 synthetic normals (incl. diagonal), aspects
+{0.2, 0.75, 1.33, 1.78, 4.0}: `corner == (P.x, figure_height_m + image_corner_lift_m, P.y)`
+(±1e-4, i.e. at the head); `front·n > 0.99` where `front = (sin yaw, cos yaw)` and exactly `yaw =
+atan2(n.x, n.y)`; `left == (n.y, −n.x)` and quad local +X (`cos yaw, −sin yaw`) agree; `centre ==
+corner + left·W/2 + UP·H/2`; the image's four corners all satisfy `dot(c − door_exterior, n) ≥
+present_standoff_m − 1e-3` (min over the quad **≥ standoff ≥ 1.0 > 0.7 eave**, so no clip into the
+exited house); all four corners have `dot(c − P, left) ∈ {0, W}` and `y ∈ {2.05, 9.05}` (top-left of
+him); min image y ≥ `figure_height_m` and the figure AABB does not intersect the quad (not covered);
+yaw-only (basis up == UP); W/H from aspect, clamp 16; changing `present_standoff_m` shifts P and
+the plane by exactly the delta; standoff < 1.0 floors to 1.0; ignoring `hero_xz` (changing it does not
+change placement). Figure: AABB height 2.0, ≤ 8 meshes, `pose()` at phase 0/π/2 per variant.
+Params: `WandererParams.production()` equals this table (hard-numbers pin). Parity: sim hash
+identical with wanderer on/off. Source-scan: no `src/sim`, `IvyParams`, or global `randf/randi`
+under `src/presentation/wanderer/`.
+
+### Playground (bead ivy-ydiy.5, G7) — `scenes/playground/wanderer_playground.tscn`
+
+Isolation: no village/sim/HUD/save; flat ground grid, a 2 m figure plus 3.5 m cottage box and 7 m
+pole as scale references, hero marker. **Knobs** (live, next frame): all *Figure* params;
+`bubble_*` and image `corner_lift`/`height_factor`/`max_width` for preview, plus **`present_standoff_m`**
+(slider 0.5–6.0 m, default 2.5; below ~0.7 m the preview visibly clips the eave — that is the point). **Variant selector:**
+Current (production) / Eased / Waddle / March (`walk_variant`). **Modes:** *Treadmill* (in place,
+speed slider 0–3 m/s, default 1.0) or *Circuit* (loop around the stage), pause + slow-mo
+(0.1–1×), buttons "show bubble" and "show image reveal" (pick any jpg; **door-wall azimuth slider** 0–360° replaces the old hero-azimuth slider — it rotates the
+outward normal `n`; the stage adds a door-wall slab with a 0.7 m eave-overhang ledge so clipping is
+visible; the preview calls the production `WandererImagePlacement.compute` with that `n`, figure at
+`P = W0 + n·standoff`, facing `n`). A third "step out" button previews `EXIT_WALK` (door spot → `P`).
+Camera presets side / front / ¾ / top + free orbit. Presets: Production, Strolling, Brisk, Marching,
+Waddle; Reset-to-production; Copy-out (changed params as a `.tres`/GDScript snippet). Routing and
+timing are **not** playground concerns (not judged by feel). Parity test: playground "Current +
+Reset" `pose()` output equals production for the same `(phase, motion)`; restores any global state
+on exit.
+
+### Non-goals
+
+Player interaction, dialogue trees, per-image captions, audio, rigged/skeletal assets, richer
+motions (wave/sit — later, via `pose()` variants), pathfinding beyond the path graph (no lawn
+cross-cutting), exported-build content loading, hot-reload of content, multiple wanderers, any sim
+coupling, minimum leg length, avoidance of the image clipping **neighbouring** cottages, trees or the
+pond (user: "don't bother"), choosing the image side by anything (it is always top-left), keeping the
+image facing the hero, pathfinding for the 2 m spur back to the stoop, any new walk-feel variants.
+
+### Handoff to Gameplay Architect (ivy-ydiy.3)
+
+Decide files (suggested `src/presentation/wanderer/`: `wanderer_params.gd`, `wanderer_content.gd`,
+`wanderer_router.gd`, `wanderer_figure.gd`, `wanderer_controller.gd`, `wanderer_state.gd`),
+controller placement as a sibling of `VillageBackdrop` under `World`, the `main.gd::_tick_wanderer`
+hook (dt + paused), rebuild hook on backdrop/layout change, the hero XZ reference, and the
+placeholder-content generator tool. Open items for the user: hero exclusion (assumed), exact
+Classic bridging look (hero-ring arc through lawn), image clipping into roofs.
+
+### Handoff to Gameplay Architect — reveal redesign (ivy-ydiy.9 → ivy-ydiy.10)
+
+Delta for the AR-WANDERER section (its brain/placement/router/test/camera rows are now stale where
+they say "hero-facing", `side`, or `EXIT_PAUSE → SAYING`): (1) `WandererBrain`: append `EXIT_WALK` (7),
+new outputs `present_pos`, leg composition per SD-WANDERER-R §8, leg-start turn gate; (2)
+`WandererImagePlacement.compute(door_exterior, n, params, aspect)` per SD-WANDERER-4 (drop `side`,
+add `left`, `figure_xz`); the brain needs the exited house's `door_exterior` + `normal` (router
+`houses[i]` has `normal`, `door_spot`, `stoop`; **add `door_exterior`**); (3) `WandererParams`: add
+`present_standoff_m=2.5`, `leg_turn_gate_deg=90` + production-pin test; (4) controller: image node
+`rotation.y = placement.yaw`, no hero reference; (5) `WandererRevealCamera`: hero-side/wide-from-hero
+shots are obsolete — REVEAL = eye in front of the figure (outward of him, along `+n`, offset toward
+`left` so the whole slab fits the frustum, FOV fit), WIDE = diagonal from `+n` and `−left`;
+(6) playground: `present_standoff_m` knob, door-wall azimuth slider, step-out button;
+(7) UI-script: `WANDERER_GOTO EXIT_WALK`; (8) tests per the rewritten *Tests* paragraph; delete the
+hero-facing image tests. **Non-goals** as listed above.
+
+### AR-WANDERER — Architecture / implementation plan  *(epic ivy-ydiy, stage ivy-ydiy.3)*
+
+**Goal (implementation terms):** one presentation-only `Node3D` (`WandererController`) under `World`,
+ticked by `main.gd`, driven by a pure, scene-tree-free state machine (`WandererBrain`) over a pure
+route graph (`WandererRouteGraph`). All feel-critical maths (`pose()`, image placement) are pure
+statics so tests and the playground (ivy-ydiy.5) share production code. No `src/sim`, `IvyParams`,
+env/light-bake, collision layers, `Input`, or global RNG anywhere under `src/presentation/wanderer/`.
+
+#### AR-WANDERER-1 Files (all new unless marked)
+
+| File | Responsibility / public API |
+|------|-----------------------------|
+| `src/presentation/wanderer/wanderer_params.gd` | `class_name WandererParams extends Resource`; SD-WANDERER-P table as `@export`s; `static production()`, `duplicate_params()`, `reset_to_production()`, `to_dict/from_dict`, `to_json_block()`, `matches_preset()`, statics `presets()/ordered_preset_names()/detect_preset_name(p)/preset_tips()`, `apply_preset(name)`, `const CUSTOM_PRESET`. **`var variant: int` property aliasing `walk_variant`** (getter/setter) because `KnobPanel.build_from_spec` reads `params.get("variant")`. `func bubble_duration(text: String) -> float`. |
+| `…/wanderer_content.gd` | `class_name WandererContent extends RefCounted`. Fields `textures: Array[Texture2D]`, `aspects: PackedFloat32Array`, `names: PackedStringArray`, `quotes: PackedStringArray`. `static load_from_dir(params) -> WandererContent` (never errors; empty content on any failure), `static parse_quotes(text, max_chars) -> PackedStringArray` (BOM/blank/`#`/truncate `…`), `static from_arrays(quotes, aspects) -> WandererContent` (texture-less; for tests/brain), `image_count()`, `quote_count()`, `aspect(i)`, `quote(i)`. |
+| `…/wanderer_route_graph.gd` | `class_name WandererRouteGraph extends RefCounted`. `static build(layout: VillageLayout, params) -> WandererRouteGraph` (extracts houses from `layout.cottages` via `VillageBackdrop.cottage_door`, then `from_raw`); `static from_raw(houses: Array[Dictionary], polylines: Array, params, pond: Dictionary = {})` (pure; `houses[i] = {name, door: Vector2, normal: Vector2}`). Outputs: `houses[i] = {name, door_spot, normal, stoop, node, reachable, component}`, `reachable_houses() -> PackedInt32Array`, `is_disabled() -> bool` (< 2 reachable in one component), `candidates_from(house) -> PackedInt32Array` (same component, reachable, ≠ house), `route(from_house, to_house) -> PackedVector2Array` (door spot → … → door spot, Dijkstra, dedupe < 0.01 m), `segments() -> Array` (`[a,b]` incl. bridges, for the "never leaves graph" test), `bridge_count`, `node_count`. |
+| `…/wanderer_image_placement.gd` | `class_name WandererImagePlacement`; `static compute(p_xz: Vector2, params, aspect: float) -> Dictionary` = `{size: Vector2(W,H), normal: Vector2, yaw: float, centre: Vector3, corner: Vector3, side: int}` per SD-WANDERER-4 (centre side farther from `params.hero_xz`; yaw-only). Local-frame metres. |
+| `…/wanderer_figure.gd` | `class_name WandererFigure`; `static build(params) -> Node3D` (root yaw-pivot; children `LegL, LegR, Torso` with `ArmL, ArmR, Head` under Torso; 6 `MeshInstance3D`, 3 flat `StandardMaterial3D`, < 150 tris); `static pose(variant, params, phase, motion) -> Dictionary` (`leg_l_deg, leg_r_deg, arm_l_deg, arm_r_deg, bob_m, roll_deg, lean_deg`); `static apply_pose(root, pose, params)`; `static measured_height(root) -> float`. |
+| `…/wanderer_brain.gd` | `class_name WandererBrain extends RefCounted`. `enum State {DISABLED, WALKING, DOOR_PAUSE, INSIDE, EXIT_PAUSE, SAYING, SHOWING}`. `setup(params, graph, content, rng)`, `start()`, `tick(dt)`, `drain_events() -> Array[Dictionary]`, `static state_name(s)`. Read-only frame outputs: `state, state_t, figure_visible, pos: Vector2, yaw, walk_phase, motion, bubble_text, bubble_alpha, bubble_kind ("phrase"/"quote"), image_index, image_alpha, image_placement, quote_clock, current_house, last_house, target_house, cycles_completed, route_progress_m, route_length_m`. Events: `{type:"state", from, to}`, `{type:"bubble", text, kind}`, `{type:"image", index, placement}`. |
+| `…/wanderer_controller.gd` | `class_name WandererController extends Node3D`. Creates once: figure (`WandererFigure.build`), `Label3D` bubble, one `MeshInstance3D` + `QuadMesh` + unshaded alpha `StandardMaterial3D` for the image (reused). API: `bind_backdrop(backdrop: VillageBackdrop, mode_id: String)`, `unbind()`, `tick(delta, paused: bool)`, `set_enabled(bool)`, `reseed(seed)`, `get_figure_global_position() -> Vector3`, `get_brain()`, plus `debug_*` below. Syncs `global_transform` to the bound backdrop **every tick** (backdrop is repositioned without rebuild by `_apply_scenario_camera_framing`); `visible = false` and no ticking when backdrop null/hidden/disabled. |
+| `…/wanderer_integration.gd` | `class_name WandererIntegration`; `static world_runtime_enabled()` — copy of `FaunaIntegration` GUT gate (meta `ivy_gut_wanderer_integration`) so mesh-building GUT tests don't load jpgs. |
+| `wanderer_content/` (+ `.gdignore`, `quotes.txt`, 3 jpgs) | Placeholders, committed (see AR-WANDERER-5). |
+| `tools/generate_wanderer_placeholders.gd` | `extends SceneTree`; run `Godot --headless --script res://tools/generate_wanderer_placeholders.gd`. |
+| `tools/run_ui_script.gd` (**modified, already dirty**) | Additive verbs (AR-WANDERER-6). |
+| `src/world/world.gd` (**modified, already dirty**) | ~25 additive lines (AR-WANDERER-3). |
+| `src/main/main.gd` (**modified, already dirty**) | ~8 additive lines (AR-WANDERER-3). |
+| `test/test_wanderer_*.gd` | See AR-WANDERER-4. |
+| `scenes/playground/wanderer_playground.tscn`, `src/playground/wanderer_playground.gd`, `wanderer_knob_spec.gd`; additive `PlaygroundKnobHost.wanderer()` | ivy-ydiy.5 only. |
+
+Deliberately **not** split out: no `wanderer_state.gd` (enum lives in the brain); no autoload; no
+`.tscn` for the controller (built in code like the figure); `main.tscn` is untouched.
+
+#### AR-WANDERER-2 Class contracts that matter
+
+- **Brain is deterministic given `(params, graph, content, rng seed)` and `dt` sequence.** `tick(dt)`
+  consumes time in a loop: each state reports how much of `remaining` it used before its own exit and
+  the leftover carries into the next state, so one large `dt` or a 1/30 s sequence yield identical
+  transitions and exact 1.0 / 10.0 / 1.0 / bubble / 5.0 s boundaries (no per-frame rounding drift).
+  A single `tick` also caps at 0.25 s per inner step (frame hitches cannot skip a walking arc).
+- **Brain reads `params` live every tick** (no cached copies) so the playground can edit the same
+  Resource; `walk_variant` only affects `WandererFigure.pose`.
+- **Walk:** brain owns arc-length `s`, speed ease (`clamp(min(s, L−s)/speed_ease_m, 0.25, 1)·v`),
+  `walk_phase += TAU·v_actual·dt/stride_length_m`, smoothed `motion` (rate `1/idle_blend_s`), yaw
+  rate-limited toward the 0.5 m look-ahead tangent (DOOR_PAUSE targets `−normal`, EXIT_PAUSE `+normal`;
+  yaw convention `atan2(dir.x, dir.z)`, node `rotation.y = yaw`).
+- **Quote clock** (`quote_clock`) is accumulated only in `WALKING`, carries across legs, fires when
+  `≥ quote_interval_s` **and** leg time ≥ `quote_min_walk_s`; resets to 0 on fire. Needs
+  `content.quote_count() > 0`. A bubble cannot start in `SHOWING`.
+- **Start:** `start()` picks `last_house` uniformly from the largest component's reachable houses,
+  places `pos` at its door spot and enters `WALKING` with a route to a different house (or `DISABLED`
+  + one `push_warning`). `start()` is also the rebuild/reseed entry.
+- **Graph "never leaves paths":** all route points lie on `segments()`; no straight cross-lawn edge
+  other than the explicit bridge rule (SD-WANDERER-R §4). Add one extra bridge rejection: bridge
+  points inside `layout.pond_center` ± (pond radius + `pond_path_clearance_m`) are rejected
+  (classic spokes detour the pond, so ring-terminal radii may deviate from 6.5 m — the programmer must
+  first dump classic terminal radii and confirm the SD numbers 5.0 / 0.75 / 12.0 hold, else adjust
+  `bridge_*` params and note it).
+
+#### AR-WANDERER-3 Integration (kept minimal; the tree is dirty with unrelated work)
+
+`world.gd` (≈ 25 additive lines, no edits to existing logic):
+1. `var _wanderer_controller: WandererController = null`; `func get_wanderer_controller()`.
+2. `func _bind_wanderer()`: if `not WandererIntegration.world_runtime_enabled()` return; lazily
+   `WandererController.new()`, `name = "WandererController"`, `add_child` (sibling of
+   `VillageBackdrop`); then if `_village_backdrop is VillageBackdrop`:
+   `_wanderer_controller.bind_backdrop(bd, _village_mode)` else `unbind()`.
+3. Call `_bind_wanderer()` as the **last line of `rebuild_backdrop()`** (covers mode/seed swap and
+   every mesh-building load, since `_activate_mesh_scenario → rebuild_backdrop`). `bind_backdrop`
+   compares the backdrop's `get_layout()` instance with the last one: same instance ⇒ only refresh
+   mode/transform (no restart); new ⇒ rebuild graph + `brain.start()` + hide image/bubble.
+4. In `_teardown_active_building()` add `if _wanderer_controller != null: _wanderer_controller.unbind()`
+   (backdrop is hidden there).
+5. `_apply_scenario_camera_framing` / `_apply_village_presentation`: **no change** (controller follows
+   the backdrop transform each tick; bubble scale comes from `bind_backdrop(…, mode_id)` via
+   `VillagePresentationScale.camera_rig_scale_for_mode(mode_id)`).
+
+`main.gd` (≈ 8 additive lines): `_tick_wanderer(clock, delta)` after `_tick_fauna(clock, delta)` in
+`_process`: `var w := _world.get_wanderer_controller(); if w != null: w.tick(delta, clock.speed == SimClock.Speed.PAUSE)`.
+`paused ⇒ dt = 0` is applied **inside** `tick` (single place). Consequence to surface to the user:
+while the game starts paused ("stay paused while the player aims") the wanderer is frozen until the
+first plant — per SD (SD-WIND-1 precedent); not changed here.
+
+Hero reference: hero structure is at backdrop-local `(0,0)` in both modes (`HERO_DOOR_STOOP = (0, 2.59)`
+is classic **and** generated hero stoop); `params.hero_xz = Vector2.ZERO` confirmed. Houses come
+only from `layout.cottages`, so the hero can never be a target.
+
+#### AR-WANDERER-4 Tests (GUT, flat in `test/`)
+
+| File | Key assertions |
+|------|----------------|
+| `test_wanderer_params.gd` | `production()` pins every SD-WANDERER-P number; `bubble_duration` for len 0/10/50/200 = 3.0/3.0/5.0/6.0; `variant` alias; `to_dict/from_dict` round trip; `reset_to_production`. |
+| `test_wanderer_content.gd` | `user://` fixture dir: jpg + quotes.txt → counts; BOM/blank/`#`/overlong lines; bad jpg skipped; first `.txt` fallback; missing dir / empty dir ⇒ zero counts, no error; `.jpeg`/uppercase ext; downscale to `image_max_px`; shipped `res://wanderer_content` loads ≥ 3 images and ≥ 8 quotes (guards the `.gdignore`/`DirAccess` assumption). |
+| `test_wanderer_route_graph.gd` | Synthetic `from_raw`: T-junction split, door attach ≤ 1.0, unreachable house excluded, < 2 reachable ⇒ disabled, determinism. **Classic** `VillageLayout.authored()`: all 7 houses reachable in one component after bridging, `bridge_count ≥ 1`, bridges avoid hero keep-out (4.5 m), pond, and cottage rects+0.2; every route point on `segments()`; `route(a,b)` starts/ends at door spots; length ≥ euclid. **Generated** seeds (programmer pins two non-fallback seeds, e.g. 1 and 7, via `VillageLayout.generate`): ≥ 2 reachable, routes valid; `fallback`/empty paths ⇒ disabled. 500 draws of target ≠ last, hero never present (no house within 1 m of `(0,0)`). |
+| `test_wanderer_image_placement.gd` | `H = 7.0`; `W = H·aspect` for 4:3/3:4/16:9; `W` clamp 16 for 4:1; `corner == head_top + (0, 0.05, 0)`; min y ≥ head_top.y; normal toward hero; yaw-only (basis up == UP); outward-side rule; both signs of `side`; figure AABB disjoint from quad for 16 azimuths; `P ≈ hero` ⇒ `+Z` fallback. |
+| `test_wanderer_figure.gd` | `measured_height ≈ 2.0 ± 0.01` at idle; exactly 6 `MeshInstance3D`; triangles < 150; `pose()` at phase 0 / π/2 / π per variant (Current/Eased/Waddle/March); `motion = 0` ⇒ neutral; feet-skate: `stride·phase_rate == v` identity. |
+| `test_wanderer_brain.gd` | With synthetic graph + fake content (`from_arrays`) and fixed seed, `dt = 1/30` and `dt = 1.0` give identical event timelines: DOOR_PAUSE 1.0, INSIDE 10.0, EXIT_PAUSE 1.0, SAYING = `bubble_duration(text)`, SHOWING 5.0 (±1 tick); figure hidden exactly during INSIDE; bubble cleared on INSIDE; no bubble/image overlap ever; quote at accumulated 20 s of WALKING (not at 20 s wall time across a 10 s INSIDE), not within 3 s of leg start (deferred not dropped); skip rules (no quotes / no images / neither); target ≠ last over 200 legs; hero never target; `paused` (via `dt = 0`) freezes; `< 2` reachable ⇒ DISABLED + warning once; 12-cycle soak: `cycles_completed == 12`, no unbounded growth in event queue; walking speed 1.0 ± 0.01 m/s mid-leg and eases at ends; yaw rate ≤ 270°/s. |
+| `test_wanderer_controller.gd` | Instance + `add_child_autofree`; bind to a real `VillageBackdrop` (classic) ⇒ figure visible, `get_figure_global_position()` on a path; node/child counts and `ImageTexture` count stable across a 12-cycle soak (`debug_advance(700)`); empty-folder `content_dir` ⇒ still walks, bubble/image nodes hidden; unbind ⇒ hidden; rebind same layout ⇒ no restart, new layout ⇒ restart; image node hidden except during SHOWING; Generated mode scales bubble `pixel_size` ×1.35; `paused` ⇒ figure position unchanged; `debug_advance` ignores pause. |
+| `test_wanderer_source_isolation.gd` | Source scan of `src/presentation/wanderer/*.gd`: no `src/sim`, `IvyParams`, `SimClock` writes, `Input.`, `randf(`/`randi(`/`seed(` (global), `collision_layer`/`PhysicsServer`. |
+| `test_world_wanderer_binding.gd` | Extend the `test_world_backdrop_swap.gd` pattern: with `WandererIntegration` gate on, `World.rebuild_backdrop()` ⇒ controller exists once (no duplicates after 3 swaps), bound to the new backdrop; with gate off ⇒ no controller. |
+| `test_wanderer_playground_parity.gd` | ivy-ydiy.5 (see below). |
+
+UI-script scenarios (`tools/ui_scripts/`) are the check for the multi-step loop in the real village (AR-WANDERER-6), not GUT.
+
+#### AR-WANDERER-5 Placeholder content generator
+
+`tools/generate_wanderer_placeholders.gd` (`extends SceneTree`, `_init` writes then `quit()`), uses
+`Image.create` + per-pixel fill + `Image.save_jpg(path, 0.9)` (works headless). Writes into
+`res://wanderer_content/` (globalized): `placeholder_4x3.jpg` 512×384, `placeholder_3x4.jpg` 384×512,
+`placeholder_16x9.jpg` 640×360 — each a distinct bold gradient with a text-free **asymmetric**
+marker (bright triangle at the top-left, thick border) so orientation, mirroring and facing are
+readable; plus `quotes.txt` (8–10 short lines ≤ 40 chars, one `# comment` line) and an empty
+`.gdignore`. Outputs are **committed**; the script is idempotent and re-runnable.
+
+#### AR-WANDERER-6 QA tooling (screenshot / UI-script plan)
+
+Existing verbs (`ORBIT`, `ORBIT_AIM`, `ORBIT_AIM_BACKDROP`, `SPEED`, `WAIT`, `SCREENSHOT`) cover
+framing but `SPEED pause` (the determinism idiom) **freezes** the wanderer. Add these **additive**
+verbs to `tools/run_ui_script.gd` (each a small `elif line.begins_with(...)` branch):
+
+| Verb | Effect |
+|------|--------|
+| `WANDERER_SEED <n>` | `controller.reseed(n)` ⇒ deterministic restart |
+| `WANDERER_ADVANCE <seconds>` | `controller.debug_advance(s)` in fixed 1/30 s steps, ignores pause, no wall time |
+| `WANDERER_GOTO <STATE>` | `debug_advance_to(name, max_s=900)`; `FAILED` + quit(1) if not reached |
+| `WANDERER_ENABLE <0\|1>` | `set_enabled` (for the sim-parity pair) |
+| `WANDERER_DUMP` | prints `state=… t=… house=… pos=… yaw=… bubble="…" alpha=… image=… quote_clock=… cycles=…` |
+| `WANDERER_CAM [standoff=14] [eye_h=3.5] [look_y=3.0] [bearing_deg=0]` | calls `_ui_orbit_aim_at_world_xz(world, fx, fz, standoff, eye_h, look_y, bearing)` with the figure's global XZ ⇒ camera sits between figure and hero (sees the image face-on); non-zero bearing (±70°) for the "corner at head / figure unobscured" oblique shot; for a walking/bubble close-up use `standoff 6, eye_h 2.0, look_y 1.8` |
+
+Controller `debug_*` API backing them: `debug_advance(seconds)`, `debug_advance_to(state_name, max_s) -> bool`,
+`debug_dump() -> String`, `get_figure_global_position()`. Scripts to add: `wanderer_loop_classic.txt`
+(`SPEED pause`, `WANDERER_SEED 1`, `WANDERER_CAM 6 2 1.8`, `WANDERER_ADVANCE 12` → `SCREENSHOT wanderer_walk.png`;
+`WANDERER_GOTO DOOR_PAUSE` → shot; `WANDERER_GOTO EXIT_PAUSE` + `ADVANCE 1.0`; `WANDERER_GOTO SAYING` → close-up bubble
+shot; `WANDERER_GOTO SHOWING` + `WANDERER_ADVANCE 1` → `WANDERER_CAM 14 3.5 3.0` face-on shot and a `bearing 70` oblique shot;
+`WANDERER_ADVANCE 700` + `WANDERER_DUMP` for the ≥ 10-cycle soak log), `wanderer_loop_generated.txt` (same under the
+Generated mode via the existing `generated_village.txt` boot flags), `wanderer_empty_folder.txt` (needs a
+`WANDERER_CONTENT <dir>` flag **or** run with a temporary `--wanderer-content=` user arg read by the controller; programmer
+picks the simpler — an env/user-arg override on `WandererParams.content_dir` is acceptable), and
+`wanderer_sim_parity_{on,off}.txt` (`SPEED pause`, `WANDERER_ENABLE x`, `WANDERER_ADVANCE 120`, `ADVANCE_DAYS 5`, `DUMP`;
+diff the two `[ui-script]` DUMP lines). Screenshots must be read, not just exit-code checked; land under `.tmp/`.
+
+#### AR-WANDERER-7 Playground plan (ivy-ydiy.5)
+
+Reuse forest infra: `KnobPanel.build_from_spec(WandererKnobSpec.all_knobs(), params, WandererParams.presets(), PlaygroundKnobHost.wanderer())`
+(add `static wanderer()` to the host, 8 lines; the host needs `WandererParams` to expose `detect_preset_name`, `preset_tips`,
+`ordered_preset_names`, `CUSTOM_PRESET`, `new()` = defaults — hence those statics on `WandererParams`, AR-WANDERER-1).
+`src/playground/wanderer_knob_spec.gd`: `VARIANT_LABELS = ["Current (production)", "Eased", "Waddle", "March"]`, descriptions, rows for
+all *Figure* params (groups Gait / Body / Turn), preview-only rows for `bubble_*`, `image_corner_lift_m`, `image_height_factor`,
+`image_max_width_m`. `src/playground/wanderer_playground.gd` (`extends Node3D`, mirrors `forest_playground.gd` structure:
+`_ready` builds stage + UI, `_exit_tree` restores global state): `WandererFigure.build/pose/apply_pose` with its own phase
+integrator (Treadmill: speed slider 0–3; Circuit: loop on a radius-6 circle), scale refs (3.5 m cottage box, 7 m pole, 2 m
+cube), hero marker, ground grid, camera presets side/front/¾/top + free orbit (reuse `forest_playground_camera.gd` if its API
+fits, else a minimal orbit), pause + slow-mo 0.1–1×, buttons "Show bubble" (Label3D with a random quote) and "Show image
+reveal" (file dialog / dropdown of `wanderer_content`, hero-azimuth slider, uses `WandererImagePlacement.compute` +
+`WandererContent`), presets Production/Strolling/Brisk/Marching/Waddle (`WandererParams.presets()`), Reset, Copy-out
+(`to_json_block()`). **Same implementation:** playground edits `WandererParams.production().duplicate_params()` and calls
+the production `pose()`; no fork. Tests: `test_wanderer_playground_parity.gd` (Current + Reset ⇒ `pose()` equals
+production for a grid of `(phase, motion)`; `PlaygroundKnobHost.wanderer().fresh_defaults()` equals `production()`;
+no global state leaked — mirror `test_forest_playground_no_leakage.gd`) and a scene-loads test mirroring
+`test_forest_playground_scene.gd`. Screenshot capture via the `--camera=/--out=` args pattern already in `forest_playground.gd`.
+The human gives the feel verdict; QA supplies screenshots + parity only.
+
+#### AR-WANDERER-8 Ordered, test-first implementation sequence (Gameplay Programmer, ivy-ydiy.4)
+
+1. `WandererParams` + `test_wanderer_params.gd` (pins; `variant` alias; presets/statics may land with ivy-ydiy.5 but add the statics now — host needs them).
+2. `WandererContent` + `test_wanderer_content.gd`; run the placeholder generator; commit `wanderer_content/` (**verify early that `DirAccess` lists a `.gdignore` folder under `res://` in editor/CLI runs; fallback: `FileAccess`-index file or globalized absolute `DirAccess.open`**).
+3. `WandererImagePlacement` + tests.
+4. `WandererRouteGraph` (`from_raw` first, then `build`, classic bridging, generated seeds) + tests. Spike first: dump classic terminal radii/pond clearance to confirm SD numbers.
+5. `WandererFigure` (+ `pose` variants) + tests. (After this, ivy-ydiy.5 can proceed in parallel.)
+6. `WandererBrain` + `test_wanderer_brain.gd` (largest test file; fake clock/`dt` stepping).
+7. `WandererController` + `test_wanderer_controller.gd` (+ `WandererIntegration`).
+8. `world.gd` / `main.gd` hooks (minimal, additive; **do not touch unrelated dirty hunks**) + `test_world_wanderer_binding.gd`; run `test_world_backdrop_swap.gd` and the village tests to confirm no regressions.
+9. `test_wanderer_source_isolation.gd`; UI-script verbs + scripts; run `smoke.txt` and `wanderer_loop_classic.txt`, read screenshots (take-screenshot / run-ui-script skills; non-headless Godot for images).
+10. Docs: `TECHNICAL_INDEX.md` entries + `DESIGN.md` pointer already present; `sync_project_memory`.
+
+Close the implement bead with test command + pass summary and the screenshot paths; QA closes the accept bead.
+
+#### AR-WANDERER-9 Risks and mitigations
+
+| Risk | Mitigation |
+|------|------------|
+| Classic spokes are disconnected; ring terminals may not match SD radii (pond detours) | Spike in step 4; bridge rejection includes pond + cottage rects; test asserts connectivity; `bridge_max_m` is a param |
+| Per-frame float drift in timers/phases | Carry-over `tick` loop; tests at `dt = 1/30` **and** `1.0` |
+| `.gdignore` folder + `DirAccess` / export | Early test in step 2; exported builds remain a non-goal |
+| Controller offset when backdrop moves without rebuild | `global_transform` synced from the backdrop every tick; test moves the backdrop |
+| Large image clips roofs / hides hero ivy | Short-lived, upright; `image_depth_test` knob; flagged to user |
+| Frozen on game-start pause (aiming) | Per SD; flagged to user; debug verbs bypass pause for QA |
+| Dirty `main.gd`/`world.gd`/`run_ui_script.gd` | Additive hunks only; stage explicit paths on commit; mention in notes |
+| Generated mode: camera rig ×1.35 makes the 2 m figure look smaller | Metres kept consistent with structures (SD); only bubble scales |
+
+#### AR-WANDERER-10 Non-goals
+
+No second wanderer, interaction, audio, captions, exported-build content, hot-reload, new routing
+beyond the path graph, sim coupling, per-mode figure scaling, `main.tscn` edits, new autoloads,
+or refactors of `FaunaController` / `KnobPanel` (only the 8-line `PlaygroundKnobHost.wanderer()` addition).
+
+#### AR-WANDERER — reveal redesign delta  *(epic ivy-ydiy, stage ivy-ydiy.10; consumes SD-WANDERER amendment ivy-ydiy.9)*
+
+Supersedes the *hero-facing / `side` / `EXIT_PAUSE → SAYING`* parts of AR-WANDERER-1/2/4/6/7 above.
+Everything not listed here is unchanged. **Order below is the Programmer's order (ivy-ydiy.11): each
+step = write/rewrite its tests red, then code green.** Gate after every step: `run-tests`.
+
+**Shared facts.** `n` = house `normal` (unit XZ). `door_exterior` = router `houses[i]["door"]` (on the wall face;
+add alias key `door_exterior` in `_attach_houses`, keep `door`). `s = params.present_standoff()`. `P = door_exterior + n·s`.
+`yaw_of(n) = atan2(n.x, n.y)`. `stoop = door_exterior + n·door_stoop_m (0.5)`; `door_spot = door_exterior + n·0.3`.
+
+**1. `wanderer_params.gd` + `test_wanderer_params.gd`**
+- Add `@export var present_standoff_m := 2.5`, `@export var leg_turn_gate_deg := 90.0`; add `func present_standoff() -> float: return maxf(present_standoff_m, 1.0)` (single floor site; placement + brain + playground all call it). `to_dict/from_dict` are reflective — no edit.
+- Tests: production pins 2.5 / 90.0; `present_standoff()` for 0.3→1.0, 1.0→1.0, 2.5→2.5, 6→6; dict round-trip includes both; `reset_to_production`.
+
+**2. `wanderer_image_placement.gd` + `test_wanderer_image_placement.gd`**
+- `static func compute(door_exterior: Vector2, n: Vector2, params: WandererParams, aspect: float) -> Dictionary` (normalises `n`; zero `n` → `(0,1)`). Returns `{size, normal(=n), left: Vector2(n.y,-n.x), yaw, centre, corner, figure_xz(=P)}`. **No `side` key, never reads `params.hero_xz`.** Keep `quad_front_normal_xz`, `bottom_corners_world`; **delete `nearest_bottom_corner`** (only the old test uses it).
+- Tests — delete: `test_corner_at_head_exact`, `test_front_normal_faces_hero`. Rewrite `test_height_and_aspect`/`test_wide_clamp` to the new signature (H=7, W=H·aspect, 4:1 → W=16). Add: (a) worked example door (0,0), n (0,1), 4:3 ⇒ P=(0,2.5), corner (0,2.05,2.5), centre (4.667,5.55,2.5), yaw 0; (b) 16 azimuths × standoffs {0.3→1.0, 1.0, 2.5, 4}: `corner == (P.x, figure_height+0.05, P.y)`, `centre == corner + left·W/2 + UP·H/2`, front normal from `quad_front_normal_xz(yaw)` == n, quad local +X xz == `left`, basis Y == UP (yaw-only), **every quad corner has `dot(c.xz − door_exterior, n) == s ± 1e-4`**, min y ≥ 2.05 > 2.0 (figure AABB disjoint); (c) result identical for three different `hero_xz`; (d) no `side` key.
+
+**3. `wanderer_route_graph.gd` + `test_wanderer_route_graph.gd`**
+- `_attach_houses`: add `door_exterior` key. New pure static `leg_from_present(route: PackedVector2Array, present: Vector2, stoop: Vector2) -> PackedVector2Array` = `[present, stoop] + route[1:]` with < 0.01 m dedupe (**always insert `stoop`**: `route[1]` is the nearest graph node within `door_snap_m` of the stoop, not necessarily the stoop itself, so the spur is guaranteed straight along −n). `route()` unchanged.
+- Add tests: every classic house has `door_exterior == door`; `leg_from_present`: `[0]==P`, `[1]==stoop` (±1e-3), seg-0 dir·(−n) > 0.999, spur length = `s − 0.5`, every point in the first 2 m has `dot(pt − door_exterior, n) ≥ 0.5 − 1e-3`, tail identical to `route[k:]`, `route.size()<2` ⇒ `[P, stoop]`. Classic ×7: `P` outside own `cottage_exterior_rect` (eave clearance pin); neighbours **not** checked (non-goal; print count only).
+
+**4. `wanderer_brain.gd` + `test_wanderer_brain.gd`** (largest)
+- `enum State {…, SHOWING, EXIT_WALK}` (**EXIT_WALK = 7**, ordinals 0–6 untouched); `state_name(7)="EXIT_WALK"`.
+- New outputs: `var present_pos: Vector2`, `var door_exterior_pos: Vector2` (of the exited house, for QA). New `func preview_placement(aspect) -> Dictionary` (compute for `last_house`) and `func debug_begin_exit(house: int)` (sets `last_house = target_house = house`, `pos = door_spot`, enters `EXIT_PAUSE`; used by playground + tests). Private: `_stepped_out: bool`, `_leg_gate_open: bool`.
+- `INSIDE → EXIT_PAUSE` entry: `yaw = yaw_of(n)` **instantly** (was rate-limited), `_stepped_out=false`.
+- `EXIT_PAUSE` exit: `image_count()>0 → EXIT_WALK`; else `quote_count()>0 → SAYING`; else next leg (no-image path identical to today, at door spot).
+- `EXIT_WALK` entry: `present_pos = door_exterior + n·s`; `_route = [door_spot, present_pos]`, rebuild cum, `route_progress_m=0` (so `route_length_m == 2.2` here); `_stepped_out=true`. Tick = a shared `_advance_along_route(dt)->bool` helper extracted from `_tick_walking` (ease, `walk_phase`, `motion`, pos, yaw ← n) **minus** quote clock, `_leg_walk_t`, `_maybe_quote`, bubble fade. On arrival `pos = present_pos` exactly → `SAYING` if quotes else `SHOWING`.
+- `SHOWING` entry: `image_placement = compute(door_exterior, n, params, aspect)` using `last_house` (set at INSIDE exit); `yaw` already `yaw_of(n)`.
+- `_begin_next_leg()`: if `_stepped_out`: `_route = leg_from_present(graph.route(...), present_pos, stoop)`; clear flag. `_leg_gate_open=false`.
+- `_tick_walking`: while `!_leg_gate_open`: speed 0 (no `route_progress`, no `walk_phase`, `motion→0`), yaw turns toward the route tangent; open when `|Δyaw| ≤ deg_to_rad(leg_turn_gate_deg)`. Gate time still counts toward `quote_clock`/`_leg_walk_t`.
+- **Events:** types unchanged (`state`, `bubble`, `image`); new transitions `EXIT_PAUSE→EXIT_WALK→SAYING|SHOWING`; `image.placement` carries the new keys.
+- Tests — **rewrite**: `_brain()` helper (drop `hero` arg); `test_door_inside_exit_showing_durations` (EXIT_PAUSE 1.0 → EXIT_WALK → SAYING → SHOWING 5.0); `test_timeline_dt_invariance` (events incl. EXIT_WALK, dt 1/30 vs 1.0 identical); `test_skip_showing_without_images`; `test_skip_saying_without_quotes` (now EXIT_WALK→SHOWING). **Add:** enum==7 + names; EXIT_PAUSE first-frame `yaw == yaw_of(n)`; EXIT_WALK distance 2.2 ± 1e-3 on the ray (|cross(pos−door_spot, n)|<1e-4 every tick), yaw ≡ `yaw_of(n)` ±1e-4, time ∈ [2.5, 3.5], end speed ≤ 0.25·v, `quote_clock`/`_leg_walk_t` unchanged, no bubble; `present_pos == door_exterior + n·2.5` (and 1.0 with knob 0.3); no-images ⇒ no EXIT_WALK event and `SAYING` at `door_spot`; SHOWING `image_placement == compute(...)` with `figure_xz == pos`, diagonal-normal synthetic graph; next leg `route[0]==present_pos`, first 2 m never behind the wall plane, tail on graph; no-image leg starts at `door_spot`; **turn gate**: `pos` frozen at `present_pos` and `walk_phase` constant until `|Δyaw|≤90°`, gate ≤ 0.34 s, yaw rate ≤ 270°/s, `dt` invariant; 12-cycle soak (cycles==12, no event-queue growth, same node budget).
+
+**5. `wanderer_reveal_camera.gd` + `test_wanderer_reveal_camera.gd`**
+- **Delete** `compute_reveal_hero_side`, `compute_reveal_wide_from_hero`; keep `obstruction_rects`, `los_clear`, `eye_outside_cottages`, `_fit_distance`, `compute_bubble_phrase/walk`. Add `subject_in_frustum(eye, look, fov_y_rad, aspect, points) -> bool` (adds horizontal FOV; old vertical helper stays for bubbles).
+- `static func compute_reveal_front(placement: Dictionary, rects: Array, fov_y_rad: float, aspect: float) -> Dictionary` → `{eye, look, distance_m, try}`. Subject = feet `(P,0)`, head `(P,2)`, 4 image corners. `look` = bbox centre `(P + left·W/2 [shifted so bbox centred], y_mid)`. `eye = look.xz + n·d` at `eye.y = look.y`; because all points are coplanar at wall distance `s`, `d = max(Hspan·m/2/tan(fovy/2), Wspan·m/2/tan(fovx/2))`, `m = FRUSTUM_MARGIN`; optical axis ⟂ wall (looks along −n, back at the house). Constraint ladder (first that passes outside-rects ∧ `los_clear(eye, P)` ∧ `subject_in_frustum`): lateral shift ±{0,2,4…} along `left`, then eye_h {mid, 8, 12} (shorter horizontal reach via pitch), `try` = ladder index; last resort `try=-1` high look-down. **Risk:** doors may face the hero ring, so `+n` can land in `HERO_RECT`; assert zero fallbacks in tests (classic ×7, generated seeds 1 & 7); if that fails, escalate rather than loosen.
+- `static func compute_reveal_oblique(placement, rects, fov_y_rad, aspect, side: int = -1) -> Dictionary` — view azimuth exactly **45°** from `n` (horizontal view dir = `−(n·cos45 + left·side·sin45)`), default `side=-1` = figure side (looks down the gap). Subject adds `door_exterior` at y 0 and 2.2 so the wall is framed. Distance by growing `d` ×1.1 until `subject_in_frustum`; try `side` then `-side`, then raise eye; same rect/LOS constraints.
+- Tests — delete `test_hero_side_eye_outside_cottages`, `test_wide_los_to_figure`; rewrite `test_figure_head_and_image_top_in_frustum`; keep `test_phrase_bubble_eye_cleared`. Add: REVEAL ×(7 classic + 2 generated) × 4 aspects: eye outside `obstruction_rects`, `los_clear`, all subject points in frustum, view dir·(−n) > 0.99 when `try==0`, no fallback; WIDE: horizontal view azimuth vs `n` == 45° ± 1°, wall `door_exterior` + gap (image corner far end & near end) in frustum, outside rects.
+
+**6. `wanderer_controller.gd` + `test_wanderer_controller.gd`**
+- `get_framing_local()`: placement via `_brain.image_placement` if SHOWING else `_brain.preview_placement(aspect(0))`; drop use of `_brain.pos`; keep `hero_xz` key (BUBBLE-walk cam still uses it) but REVEAL/WIDE ignore it. Image node already driven from placement (`centre`, `size`, `yaw`) — verify no hero assumptions; `debug_dump` adds `present=(x,z)`.
+- Tests: during SHOWING image node `position/rotation.y/size` == placement; `get_framing_local()["placement"]` non-empty from `EXIT_WALK`/`SAYING`; `debug_advance_to("EXIT_WALK")` succeeds; 12-cycle node/texture stability unchanged.
+
+**7. `tools/run_ui_script.gd` + scripts**
+- `_ui_wanderer_framing_cam`: REVEAL → `compute_reveal_front(placement, rects, fov, aspect)`; WIDE → `compute_reveal_oblique(…)`; aspect from `world.get_viewport().get_visible_rect().size`; BUBBLE unchanged. `WANDERER_GOTO EXIT_WALK` already works (`state_name`). Update `wanderer_qa_screenshots.txt`, `wanderer_accept_classic.txt`, `wanderer_accept_generated.txt` (rename `*_reveal_hero_side.png` → `*_reveal_front.png`, WIDE → `*_reveal_oblique.png`); add `wanderer_reveal_stepout.txt`. Run `smoke.txt` + classic/generated scripts and **read** the PNGs.
+
+**8. Playground (`wanderer_playground.gd`, `wanderer_knob_spec.gd`, tests)**
+- Knob row `present_standoff_m` (range 0.5–6, step 0.1; below 1.0 shows the floor effect); `leg_turn_gate_deg` no knob. Remove the hero-azimuth slider and hero marker from the **image-reveal** preview (hero marker may stay for Circuit).
+- New stage props: house wall slab (3.5 m tall, 12 m wide) + **eave ledge** (box protruding 0.7 m at y 3.0–3.5, translucent) + door marker, rotated by new **"Door wall azimuth" slider 0–360°** (`n = (sin az, cos az)`, `door_exterior = (0,0)`); a ground ring/marker at `P`. **"Step out" button**: builds a 2-house synthetic graph from `door_exterior`/`n`, calls `brain.debug_begin_exit(0)` so the **real brain** runs `EXIT_PAUSE → EXIT_WALK → SAYING → SHOWING → leg`; pause/slow-mo apply. Manual "Show image reveal" now = static `compute(door_exterior, n, …)` with figure at `P` facing `n`. Camera presets add "Reveal front" / "Oblique 45°" (call the new camera functions, empty rects) alongside orbit.
+- Tests — **rewrite** `test_wanderer_playground_preview.gd`: for az {0,90,200,315} × standoff {0.3,1.0,2.5,4}: rendered corner of `_image_mi` within 0.01 of `(P.x, 2.05, P.y)`, `basis.z` xz == `n`, min wall distance of 4 rendered corners == `max(s,1)` ± 1e-3, `hero_xz` irrelevant. Extend `test_wanderer_playground_parity.gd`: new knob defaults == `production()`; Step-out drives the brain to `EXIT_WALK` (state==7) then SHOWING. Leakage tests unchanged.
+
+**Back-compat / non-goals.** Saved `WandererParams` dicts without the new keys load with defaults. No change to `world.gd`/`main.gd`/figure/content/bubble view. Non-goals: neighbour/tree/pond checks, side choice, lawn pathfinding for the spur, new gait, hero-facing, `hero_xz` removal from params (router bridging still needs it).
+
+**QA screenshot list** (`.tmp/wanderer_reveal/`, non-headless; before = prior commit's `reveal_hero_side.png` where reproducible, else say so): (1) `exit_pause_door.png` figure at door spot facing out; (2) `exit_walk_mid.png` side cam mid step-out; (3) `saying_at_present.png` BUBBLE cam, back to house; (4) `reveal_front_classic_{3 houses}.png` figure + image top-left, unmirrored marker, corner on head; (5) `reveal_oblique_classic_{same 3}.png` 45° gap vs wall, no eave clip; (6) `reveal_front_{3x4,16x9}.png` width extremes; (7) `reveal_front_generated.png`; (8) `showing_orbit70.png` figure unobscured; (9) `leg_start_turn_{0.2s,1.5s}.png` spur back along −n; (10) `noimage_exit.png` empty-content run: no step-out; (11) playground: standoff 1.0 / 2.5 / 4.0 front + ¾, az 0 & 135, eave ledge, mid step-out.
+
+**Hand-off → Gameplay Programmer (ivy-ydiy.11).**
+
+---
+
 ## SD-GRASS / SD-WIND — Village lawn grass & ambient wind  *(ivy-qg7)*
 
 Player intent: `DESIGN.md` § **Village wind & ground cover**. **Hybrid lawn (ivy-7ka):** procedural
@@ -1719,6 +2344,12 @@ removed (hero height scale only).
 / **~2.4 s** placement + **~215 ms** chunk buffer build; **`apply_village_mode_live`** wall **~4.8 s**
 (script harness; full UI switch can be longer — **ivy-6zz** loading budget). Classic has **no** grass
 visibility culling.
+
+**Generated density scale (ivy-ydiy.22):** `GRASS_GENERATED_DENSITY_SCALE` **0.5** — the generated
+lawn plants half the classic per-m² density at every radius (grid step ÷ √0.5, cap × 0.5), so
+**~139k** tufts / **~4.5M** tris at the high camera instead of ~280k / ~8.9M. With no distance cull
+or dissolve, grass was the dominant frame cost. Classic is unchanged. Profile with
+`tools/profile_birthday_fps.tscn` (grass / wanderer on-off breakdown).
 
 **Ground colour alignment (ivy-7ka.6):** `world_ground.gdshader` + `village_ground.gdshader` retuned toward
 blade root/mid sage; **±5% gust sheen** from `ivy_gust_at(world_xz)` × `ivy_wind_strength`.
