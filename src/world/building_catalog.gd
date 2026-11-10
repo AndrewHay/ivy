@@ -16,6 +16,8 @@ class Entry:
 	var village_mode: String
 	## The village wanderer appears only in entries with this set.
 	var wanderer: bool
+	## Retired entries stay loadable by id (scripts, tests) but get no picker button.
+	var in_picker: bool
 
 	func _init(
 			p_id: String,
@@ -24,7 +26,8 @@ class Entry:
 			p_eave_traversal: bool = false,
 			p_standalone_scene_path: String = "",
 			p_village_mode: String = "",
-			p_wanderer: bool = false) -> void:
+			p_wanderer: bool = false,
+			p_in_picker: bool = true) -> void:
 		id = p_id
 		label = p_label
 		scenario_path = p_scenario_path
@@ -32,6 +35,7 @@ class Entry:
 		standalone_scene_path = p_standalone_scene_path
 		village_mode = p_village_mode
 		wanderer = p_wanderer
+		in_picker = p_in_picker
 
 
 static func all() -> Array[Entry]:
@@ -49,7 +53,8 @@ static func all() -> Array[Entry]:
 			false,
 			"",
 			GameModes.GENERATED,
-			true),
+			true,
+			false),
 		Entry.new(
 			"test_fauna",
 			"Test fauna",

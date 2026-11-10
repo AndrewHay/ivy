@@ -118,6 +118,8 @@ func _ready() -> void:
 	# ─────────────────────────────────────────────────────────────────────────
 
 	for entry in BuildingCatalog.all():
+		if not entry.in_picker:
+			continue
 		var btn := Button.new()
 		btn.text = entry.label
 		btn.custom_minimum_size = Vector2(280, 48)

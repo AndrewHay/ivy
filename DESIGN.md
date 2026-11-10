@@ -213,9 +213,11 @@ Tracking: bead `ivy-ckq`.
 
 ## Village wanderer (presentation layer)
 
-The wanderer appears only in the **Birthday** scenario (picker entry `birthday`: the village
-cottage in the generated village). Every other scenario has no wanderer
-(`BuildingCatalog.Entry.wanderer`).
+**Status: retired (shelved for later).** The wanderer appears only in the **Birthday** scenario
+(catalog id `birthday`: the village cottage in the generated village), and Birthday is no longer
+in the picker (`Entry.in_picker = false`), so normal play has no wanderer. It stays loadable by
+id — `tools/run_ui_script.gd --building=birthday` and the GUT suites — and the wanderer
+playground still works. To bring it back, set `in_picker` true on the `birthday` entry.
 
 A small low-poly figure (2 m tall) walks the village paths at ~2 m/s (a brisk, playful pace) between randomly chosen
 cottages. At a door he pauses, goes inside (hidden ~10 s), comes out, pauses, then steps about

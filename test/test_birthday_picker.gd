@@ -32,8 +32,22 @@ func after_each() -> void:
 	VillagePresentationScale.fauna_world_scale = 1.0
 
 
-## Picking Birthday from the menu builds the generated village before the debug camera is
-## set up; the lawn-bounds clamp used to read the camera's null spec.
+## Birthday is retired from the menu (no button), but stays loadable by id.
+func test_birthday_has_no_picker_button() -> void:
+	var main := MainScene.instantiate()
+	add_child_autofree(main)
+	await get_tree().process_frame
+	var picker: Node = main.get_node("UI").get_node_or_null("BuildingPicker")
+	assert_not_null(picker)
+	var labels: Array[String] = []
+	for n in picker.find_children("*", "Button", true, false):
+		labels.append((n as Button).text)
+	assert_false("Birthday" in labels, "Birthday retired from the picker")
+	assert_true("Village cottage" in labels, "regular entries still listed")
+
+
+## Loading Birthday by id builds the generated village before the debug camera is set up;
+## the lawn-bounds clamp used to read the camera's null spec.
 func test_pressing_birthday_builds_village_without_script_errors() -> void:
 	WandererIntegration.set_gut_wanderer_test_active(true)
 	var main := MainScene.instantiate()
