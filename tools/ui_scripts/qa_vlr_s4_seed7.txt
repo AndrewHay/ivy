@@ -1,0 +1,10 @@
+# S4 fog — seed 7 (via --village-seed=7)
+WAIT 40000
+SPEED pause
+ADVANCE_DAYS 0.25
+CAMERA sun
+SCREENSHOT s4_camsun_clear.png
+ORBIT 0 48 4
+SCREENSHOT s4_edge_inward_village.png
+ORBIT_AIM_BACKDROP 0 52 8 5 0.5 0
+SCREENSHOT s4_edge_outward_haze.png

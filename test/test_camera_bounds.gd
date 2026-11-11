@@ -38,6 +38,15 @@ func test_constrain_orbit_shrinks_radius_when_eye_outside() -> void:
 	assert_lt(r["radius"], radius, "radius should shrink, not snap eye")
 
 
+func test_orbit_pivot_leaves_room_for_eye_radius() -> void:
+	var centre := Vector2(-7.0, -18.0)
+	var pivot := Vector3(30.0, 0.0, 10.0)
+	var r := CameraBounds.constrain_orbit(
+		pivot, 0.0, 0.1, 10.0, centre, 56.0, 2.0, 3.0, 12.0)
+	var eye := DebugCamera.solve(r["pivot"], r["yaw"], r["pitch"], r["radius"]).origin
+	assert_lte(Vector2(eye.x, eye.z).distance_to(centre), 54.05)
+
+
 func test_constrain_pivot_clamped_to_disc() -> void:
 	var centre := Vector2(0.0, 0.0)
 	var pivot := Vector3(80.0, 2.0, 0.0)

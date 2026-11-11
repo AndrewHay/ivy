@@ -1,20 +1,100 @@
 class_name HeroFog
 extends RefCounted
 
-## Depth fog in Godot is measured from the camera. HERO mode shifts begin/end each frame
-## by the anchor's depth along the camera forward axis so haze matches distance from a
-## fixed hero anchor instead. Exact on the view centre ray; approximate at screen edges
-## (peripheral points share one offset).
+const WorldFogParams = preload("res://src/world/world_fog_params.gd")
 
-enum CentreMode { CAMERA, HERO }
+## Fog models (ivy-jnee):
+## - CAMERA_DEPTH: legacy depth fog from camera (playground compare only).
+## - HERO_SHIFTED_DEPTH: depth begin/end shifted each frame by camera→hero on view axis (previous production).
+## - WORLD_AROUND_HERO: volumetric density in world XZ from hero; integrated along view in engine/tests.
 
-const DEFAULT_MODE := CentreMode.HERO
+enum FogModel {
+	CAMERA_DEPTH,
+	HERO_SHIFTED_DEPTH,
+	WORLD_AROUND_HERO,
+}
+
+enum CentreMode { CAMERA, HERO } ## Legacy alias for shifted depth modes.
+
+const DEFAULT_MODEL := FogModel.WORLD_AROUND_HERO
+const DEFAULT_MODE := CentreMode.HERO ## Maps to HERO_SHIFTED_DEPTH for old call sites.
+
+
+## Volumetric WORLD_AROUND_HERO needs Forward+; Compatibility falls back to hero-shifted depth.
+static func effective_fog_model(
+		requested: FogModel, rendering_method: String = "") -> FogModel:
+	if requested != FogModel.WORLD_AROUND_HERO:
+		return requested
+	var method := rendering_method
+	if method.is_empty():
+		method = RenderingServer.get_current_rendering_method()
+	if method != "forward_plus":
+		return FogModel.HERO_SHIFTED_DEPTH
+	return FogModel.WORLD_AROUND_HERO
+
+
+static func fog_model_from_centre_mode(mode: CentreMode) -> FogModel:
+	return FogModel.HERO_SHIFTED_DEPTH if mode == CentreMode.HERO else FogModel.CAMERA_DEPTH
 
 
 static func fog_amount(distance: float, begin: float, end: float) -> float:
 	if end <= begin:
 		return 1.0 if distance >= begin else 0.0
 	return clampf((distance - begin) / (end - begin), 0.0, 1.0)
+
+
+static func world_density_at_xz(point: Vector3, anchor: Vector3, params: WorldFogParams) -> float:
+	var d := Vector2(point.x - anchor.x, point.z - anchor.z).length()
+	return world_density_at_distance(d, params)
+
+
+static func world_density_at_distance(dist_from_hero: float, params: WorldFogParams) -> float:
+	if params == null:
+		return 0.0
+	if dist_from_hero <= params.clear_radius_m:
+		return 0.0
+	var span := maxf(params.thick_radius_m - params.clear_radius_m, 0.001)
+	var t := clampf((dist_from_hero - params.clear_radius_m) / span, 0.0, 1.0)
+	match params.falloff:
+		WorldFogParams.Falloff.LINEAR:
+			pass
+		WorldFogParams.Falloff.SMOOTH:
+			t = t * t * (3.0 - 2.0 * t)
+		WorldFogParams.Falloff.EXPONENTIAL:
+			t = 1.0 - exp(-3.5 * t)
+	return params.max_density * t
+
+
+static func optical_depth_along_ray(
+		camera_pos: Vector3,
+		world_point: Vector3,
+		anchor: Vector3,
+		params: WorldFogParams) -> float:
+	var steps := clampi(params.ray_steps, 2, 32)
+	var seg := world_point - camera_pos
+	var seg_len := seg.length()
+	if seg_len < 1e-4:
+		return world_density_at_xz(world_point, anchor, params) * 0.01
+	var max_d := params.max_ray_distance_m
+	var use_len := minf(seg_len, max_d)
+	var dir := seg / seg_len
+	var step := use_len / float(steps)
+	var depth := 0.0
+	for i in range(steps):
+		var t := (float(i) + 0.5) / float(steps)
+		var p := camera_pos + dir * (use_len * t)
+		depth += world_density_at_xz(p, anchor, params) * step
+	return depth
+
+
+## Haze fraction [0,1] from integrated density along the view ray (transmittance model).
+static func haze_along_view_ray(
+		camera_pos: Vector3,
+		world_point: Vector3,
+		anchor: Vector3,
+		params: WorldFogParams) -> float:
+	var od := optical_depth_along_ray(camera_pos, world_point, anchor, params)
+	return 1.0 - exp(-od)
 
 
 static func view_ray_depth_offset(camera: Transform3D, anchor: Vector3) -> float:
@@ -50,3 +130,22 @@ static func fog_amount_at_world_point(
 			return fog_amount(camera_pos.distance_to(point), begin, end)
 		_:
 			return fog_amount(anchor.distance_to(point), begin, end)
+
+
+static func haze_at_world_point(
+		model: FogModel,
+		camera_pos: Vector3,
+		point: Vector3,
+		anchor: Vector3,
+		begin: float,
+		end: float,
+		params: WorldFogParams) -> float:
+	match model:
+		FogModel.CAMERA_DEPTH:
+			return fog_amount_at_world_point(
+				camera_pos, point, anchor, begin, end, CentreMode.CAMERA)
+		FogModel.HERO_SHIFTED_DEPTH:
+			return fog_amount_at_world_point(
+				camera_pos, point, anchor, begin, end, CentreMode.HERO)
+		_:
+			return haze_along_view_ray(camera_pos, point, anchor, params)

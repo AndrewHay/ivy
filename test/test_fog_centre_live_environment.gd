@@ -4,6 +4,8 @@ const MainScene = preload("res://src/main/main.tscn")
 const SquareScenario = preload("res://assets/structures/scenarios/square.tres")
 const GameModes = preload("res://src/world/game_modes.gd")
 const HeroFog = preload("res://src/world/hero_fog.gd")
+const WorldFogParams = preload("res://src/world/world_fog_params.gd")
+const WorldFogVolume = preload("res://src/world/world_fog_volume.gd")
 
 
 func _boot_generated(seed: int) -> Node:
@@ -26,14 +28,35 @@ func _environment(main: Node) -> Environment:
 	return we.environment
 
 
-func test_fog_enabled_after_generated_rebuild() -> void:
+## Contract changed ivy-jnee: production uses world volumetric fog (depth fog off).
+func test_world_volumetric_fog_after_generated_rebuild() -> void:
 	var main := await _boot_generated(7)
+	var sky: SkySun = main.get_node("World").get_sky_sun()
+	for _i in range(8):
+		await get_tree().process_frame
+	sky.sync_depth_fog_from_active_camera()
 	var env := _environment(main)
-	assert_true(env.fog_enabled, "generated village must enable depth fog on Environment")
+	assert_true(env.fog_enabled, "world model uses fixed far depth wash (not camera-shifted)")
 	assert_eq(env.fog_mode, Environment.FOG_MODE_DEPTH)
+	assert_almost_eq(env.fog_depth_begin, 72.0, 1.0)
+	assert_true(env.volumetric_fog_enabled, "world model enables volumetric fog")
+	assert_eq(sky.get_fog_model(), HeroFog.FogModel.WORLD_AROUND_HERO)
+	var fv := sky.get_node_or_null("WorldHeroFog") as FogVolume
+	assert_not_null(fv, "WorldHeroFog volume should exist under SkySun")
+	assert_gte(env.volumetric_fog_length, 400.0, "fog must reach horizon without black cutoff")
+	var albedo := env.volumetric_fog_albedo
+	assert_gte(albedo.r + albedo.g + albedo.b, 0.5, "volumetric albedo must not be black")
+	assert_lte(env.volumetric_fog_sky_affect, 0.35, "sky affect capped to avoid over-darkening")
+	if fv.material is ShaderMaterial:
+		var sm := fv.material as ShaderMaterial
+		var cr: Variant = sm.get_shader_parameter("clear_radius")
+		assert_almost_eq(float(cr), WorldFogParams.DEFAULT_CLEAR_RADIUS_M, 0.5)
+		var contract := WorldFogVolume.validate_shader_contract(sm)
+		assert_true(contract["ok"], "fog volume shader: %s" % str(contract["issues"]))
 
 
-func test_applied_depth_begin_differs_camera_vs_hero_at_80m() -> void:
+## Legacy hero-shifted depth still available for playground comparison (not production default).
+func test_legacy_depth_shift_when_hero_shifted_mode() -> void:
 	var main := await _boot_generated(7)
 	var world: Node3D = main.get_node("World")
 	var sky: SkySun = world.get_sky_sun()
@@ -47,27 +70,16 @@ func test_applied_depth_begin_differs_camera_vs_hero_at_80m() -> void:
 	cam.global_transform = Transform3D(
 		Basis.looking_at(Vector3(hero.x, 1.2, hero.y) - eye, Vector3.UP), eye)
 	cam.make_current()
-	for _i in range(8):
-		await get_tree().process_frame
-
 	sky.set_fog_anchor(world.call("_hero_fog_anchor_world"))
-	sky.set_fog_centre_mode(HeroFog.CentreMode.CAMERA)
+	sky.set_fog_model(HeroFog.FogModel.CAMERA_DEPTH)
 	sky.sync_depth_fog_from_active_camera()
+	for _i in range(6):
+		await get_tree().process_frame
 	var env := _environment(main)
 	var cam_begin := env.fog_depth_begin
-	var cam_end := env.fog_depth_end
-
-	sky.set_fog_centre_mode(HeroFog.CentreMode.HERO)
+	sky.set_fog_model(HeroFog.FogModel.HERO_SHIFTED_DEPTH)
 	sky.sync_depth_fog_from_active_camera()
 	await get_tree().process_frame
 	var hero_begin := env.fog_depth_begin
-	var hero_end := env.fog_depth_end
-
-	var cam_dist := cam.global_position.distance_to(
-		Vector3(hero.x, pivot.y + 1.0, hero.y))
-	assert_gt(cam_dist, 70.0, "probe camera distance to hero")
 	assert_gt(hero_begin, cam_begin + 40.0,
-		"hero mode must shift fog_depth_begin by ~camera→hero depth (cam=%.2f hero=%.2f)"
-		% [cam_begin, hero_begin])
-	assert_gt(hero_end, cam_end + 40.0,
-		"hero mode must shift fog_depth_end (cam=%.2f hero=%.2f)" % [cam_end, hero_end])
+		"legacy shifted depth begin (playground compare only)")

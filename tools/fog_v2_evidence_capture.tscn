@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://fog_v2_cap"]
+
+[ext_resource type="Script" path="res://tools/fog_v2_evidence_capture.gd" id="1"]
+
+[node name="FogV2EvidenceCapture" type="Node"]
+script = ExtResource("1")

@@ -242,8 +242,27 @@ static func _forest_placement_script() -> Script:
 	return load("res://src/playground/forest_placement.gd") as Script
 
 
+static var _forest_cam_pivot: Vector3 = Vector3(INF, INF, INF)
+static var _forest_cam_rig_scale: float = -1.0
+
+
+static func set_production_forest_cam_ref(orbit_pivot: Vector3, rig_scale: float) -> void:
+	_forest_cam_pivot = orbit_pivot
+	_forest_cam_rig_scale = rig_scale
+
+
+static func clear_production_forest_cam_ref() -> void:
+	_forest_cam_pivot = Vector3(INF, INF, INF)
+	_forest_cam_rig_scale = -1.0
+
+
 static func _forest_production_params() -> Resource:
-	return (load("res://src/playground/forest_params.gd") as Script).call("production")
+	var p: Resource = (load("res://src/playground/forest_params.gd") as Script).call("production")
+	if _forest_cam_pivot.is_finite():
+		p.set("cam_orbit_pivot", _forest_cam_pivot)
+		if _forest_cam_rig_scale > 0.0:
+			p.set("cam_rig_scale", _forest_cam_rig_scale)
+	return p
 
 
 ## Classic horizon ring at layout origin (INV-15 bit-identical).

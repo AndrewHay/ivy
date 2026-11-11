@@ -1,0 +1,8 @@
+# S2 forest check — CamSun + wide (seed via --village-seed)
+WAIT 40000
+SPEED pause
+ADVANCE_DAYS 0.25
+CAMERA sun
+SCREENSHOT s2_camsun.png
+ORBIT 0 48 42
+SCREENSHOT s2_wide_orbit.png

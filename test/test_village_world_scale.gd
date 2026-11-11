@@ -253,9 +253,10 @@ func test_generated_pine_count_and_radii() -> void:
 		"Generated FarTreeline instance_count must match placement output")
 	assert_gte(placed, 24, "CamSun backdrop must place >=24 trees")
 	var ForestPlaygroundCamera = preload("res://src/playground/forest_playground_camera.gd")
+	var HeroFog = preload("res://src/world/hero_fog.gd")
 	var stats := ForestPlaygroundCamera.count_trees_visible_in_camsun(
 		VillageScatterPositions.forest_tree_xz(layout),
-		layout.fog_begin, layout.fog_end, true, 0.5)
+		layout.fog_begin, layout.fog_end, HeroFog.FogModel.WORLD_AROUND_HERO, 0.5)
 	assert_gte(stats["visible"], 12, "backdrop: >=12 CamSun trees at <=50%% hero haze")
 	var buf := treeline.multimesh.buffer
 	for i in range(treeline.multimesh.instance_count):
@@ -323,6 +324,7 @@ func test_forest_no_trunk_within_hero_keep_clear() -> void:
 
 func test_forest_backdrop_in_camsun_band() -> void:
 	const ForestPlaygroundCamera = preload("res://src/playground/forest_playground_camera.gd")
+	const HeroFog = preload("res://src/world/hero_fog.gd")
 	for seed_val in range(1, 11):
 		var layout := VillageLayout.generate(seed_val)
 		if layout.fallback:
@@ -330,7 +332,7 @@ func test_forest_backdrop_in_camsun_band() -> void:
 		var tag := "seed=%d" % seed_val
 		var pines := _compute_pine_xz(layout)
 		var stats := ForestPlaygroundCamera.count_trees_visible_in_camsun(
-			pines, layout.fog_begin, layout.fog_end, true, 0.5)
+			pines, layout.fog_begin, layout.fog_end, HeroFog.FogModel.WORLD_AROUND_HERO, 0.5)
 		assert_gte(stats["visible"], 10,
 			"%s: need >=10 visible backdrop trees (got %d)" % [tag, stats["visible"]])
 

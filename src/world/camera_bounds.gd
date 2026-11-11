@@ -33,6 +33,26 @@ static func _orbit_offset(yaw: float, pitch: float, radius: float) -> Vector3:
 
 
 ## Keeps pivot XZ inside the lawn and reduces orbit radius until the eye is inside (smooth zoom cap).
+static func clamp_pivot_xz_for_orbit(
+		pivot: Vector3,
+		centre: Vector2,
+		lawn_radius: float,
+		margin: float,
+		orbit_radius: float,
+		pitch: float) -> Vector3:
+	var allowed_eye := maxf(lawn_radius - margin, 0.0)
+	var horiz := orbit_radius * absf(cos(pitch))
+	var pivot_allowed := maxf(allowed_eye - horiz, 0.0)
+	var xz := Vector2(pivot.x, pivot.z)
+	var delta := xz - centre
+	var dist := delta.length()
+	if dist <= pivot_allowed or dist < 1e-6 or pivot_allowed <= 0.0:
+		return Vector3(pivot.x, pivot.y, pivot.z)
+	var dir := delta / dist
+	var clamped := centre + dir * pivot_allowed
+	return Vector3(clamped.x, pivot.y, clamped.y)
+
+
 static func constrain_orbit(
 		pivot: Vector3,
 		yaw: float,
@@ -43,7 +63,7 @@ static func constrain_orbit(
 		margin: float,
 		zoom_min: float,
 		zoom_max: float) -> Dictionary:
-	var p := clamp_eye_xz(pivot, centre, lawn_radius, margin)
+	var p := clamp_pivot_xz_for_orbit(pivot, centre, lawn_radius, margin, radius, pitch)
 	var r := clampf(radius, zoom_min, zoom_max)
 	pitch = DebugCamera.clamp_pitch(pitch, r, p.y)
 	for _attempt in range(80):

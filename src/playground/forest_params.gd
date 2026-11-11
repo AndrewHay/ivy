@@ -71,6 +71,10 @@ const CUSTOM_PRESET := "Custom"
 @export var backdrop_min_hero_dist_m: float = 9.0
 @export var backdrop_lawn_max_g_dist_m: float = 54.0
 
+## Production cam reference (unset = square-scenario default via ForestCamRef).
+@export var cam_orbit_pivot: Vector3 = Vector3(INF, INF, INF)
+@export var cam_rig_scale: float = -1.0
+
 
 static func _fresh() -> ForestParams:
 	var scr: Script = load("res://src/playground/forest_params.gd")

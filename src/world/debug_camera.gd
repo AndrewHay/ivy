@@ -218,6 +218,18 @@ func apply_scripted_snapshot(block: Dictionary) -> void:
 	if block.has("far"):
 		far = float(block["far"])
 	current = true
+	_clamp_scripted_eye_to_lawn()
+
+
+func _clamp_scripted_eye_to_lawn() -> void:
+	if not _lawn_bounds_active or lawn_bounds_diagnostic_opt_out:
+		return
+	var eye := global_transform.origin
+	var clamped := CameraBounds.clamp_free_camera_eye(
+		eye, _lawn_centre_xz, _lawn_radius, _lawn_margin)
+	if clamped.distance_squared_to(eye) < 1e-8:
+		return
+	global_transform.origin = clamped
 
 
 static func _transform_from_array(values: Array) -> Transform3D:
@@ -260,7 +272,7 @@ func clear_lawn_camera_bounds() -> void:
 
 
 func _enforce_lawn_orbit_bounds() -> void:
-	if not _lawn_bounds_active or script_driven or lawn_bounds_diagnostic_opt_out:
+	if not _lawn_bounds_active or lawn_bounds_diagnostic_opt_out:
 		return
 	# The village can be built before setup() assigns a spec (picker → generated village).
 	if spec == null and _orbit_pivot_override == null and not _has_origin and not _gliding:
@@ -277,8 +289,6 @@ func _enforce_lawn_orbit_bounds() -> void:
 		_origin = np
 	if _orbit_pivot_override != null:
 		_orbit_pivot_override = np
-	if _gliding:
-		_glide_to = CameraBounds.clamp_eye_xz(_glide_to, _lawn_centre_xz, _lawn_radius, _lawn_margin)
 
 
 func activate_for_planting() -> void:
@@ -403,9 +413,6 @@ func _rotate_by_key(keycode: Key) -> bool:
 
 
 func _begin_glide_to(world_point: Vector3) -> void:
-	if _lawn_bounds_active:
-		world_point = CameraBounds.clamp_eye_xz(
-			world_point, _lawn_centre_xz, _lawn_radius, _lawn_margin)
 	var from := _pivot()
 	if from.distance_squared_to(world_point) < 0.01:
 		_origin = world_point

@@ -11,7 +11,7 @@ var is_inside_cottage: Callable
 var grid_centre_xz: Vector2 = Vector2.ZERO
 ## Hero fringe / footprint reference (classic pivot; generated door stoop).
 var hero_reference_xz: Vector2 = Vector2.ZERO
-## When true, use generated blade budget (48k) and G-centred ring (ivy-3l6-C).
+## When true, use generated cap GRASS_MAX_INSTANCES_GENERATED (π·56²·density·1.15) and G-centred ring.
 var generated_grass: bool = false
 ## Pre-grown cottage rects for hot-path rejection (falls back to is_inside_cottage when empty).
 var cottage_exclusion_rects: Array[Rect2] = []

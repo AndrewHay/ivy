@@ -2,6 +2,8 @@ class_name SkySun
 extends Node3D
 
 const HeroFog = preload("res://src/world/hero_fog.gd")
+const WorldFogVolume = preload("res://src/world/world_fog_volume.gd")
+const WorldFogParams = preload("res://src/world/world_fog_params.gd")
 
 ## Presentation only. Drives the DirectionalLight3D and the procedural sky from
 ## `Solar`, applying the SD-TIME-4 render blend so the sun does not strobe at
@@ -44,6 +46,7 @@ const _SKY_HORIZON_TWILIGHT := Color(1.0, 0.52, 0.32)
 ## Warm cream fog (ivy-1ui): cool blue-grey fog made shaded plaster read as glassy glazing.
 const _FOG_DAY := Color(0.88, 0.86, 0.80)
 const _FOG_TWILIGHT := Color(0.96, 0.58, 0.40)
+const DEFAULT_HAZE_ALBEDO := _FOG_DAY
 
 ## Matches ProceduralSkyMaterial.sky_energy_multiplier in main.tscn.
 const _SKY_ENERGY_BASE := 1.4
@@ -56,9 +59,13 @@ var _sky_shader: ShaderMaterial
 var _base_energy: float = 1.2
 var _fog_nominal_begin: float = 9.5
 var _fog_nominal_end: float = 95.0
-var _fog_centre_mode: HeroFog.CentreMode = HeroFog.DEFAULT_MODE
+var _fog_model: HeroFog.FogModel = HeroFog.DEFAULT_MODEL
+var _fog_centre_mode: HeroFog.CentreMode = HeroFog.DEFAULT_MODE ## Legacy; playground compare modes.
 var _fog_anchor: Vector3 = Vector3.ZERO
 var _fog_anchor_valid: bool = false
+var _world_fog_params: WorldFogParams = WorldFogParams.production()
+var _world_fog_volume: FogVolume
+var _fog_presentation_key: int = -1
 
 
 func setup(s: Solar) -> void:
@@ -79,13 +86,35 @@ func setup(s: Solar) -> void:
 func set_fog_depth(begin: float, end: float) -> void:
 	_fog_nominal_begin = begin
 	_fog_nominal_end = end
-	_ensure_depth_fog_active()
-	_apply_depth_fog_range()
+	_apply_fog_presentation()
+
+
+func set_fog_model(model: HeroFog.FogModel) -> void:
+	_fog_model = model
+	if model == HeroFog.FogModel.CAMERA_DEPTH:
+		_fog_centre_mode = HeroFog.CentreMode.CAMERA
+	elif model == HeroFog.FogModel.HERO_SHIFTED_DEPTH:
+		_fog_centre_mode = HeroFog.CentreMode.HERO
+	_apply_fog_presentation()
+
+
+func get_fog_model() -> HeroFog.FogModel:
+	return _fog_model
+
+
+func get_world_fog_params() -> WorldFogParams:
+	return _world_fog_params
+
+
+func set_world_fog_params(params: WorldFogParams) -> void:
+	_world_fog_params = params if params != null else WorldFogParams.production()
+	_apply_fog_presentation()
 
 
 func set_fog_centre_mode(mode: HeroFog.CentreMode) -> void:
 	_fog_centre_mode = mode
-	_apply_depth_fog_range()
+	_fog_model = HeroFog.fog_model_from_centre_mode(mode)
+	_apply_fog_presentation()
 
 
 func get_fog_centre_mode() -> HeroFog.CentreMode:
@@ -103,12 +132,12 @@ func get_fog_nominal_end() -> float:
 func set_fog_anchor(anchor: Vector3) -> void:
 	_fog_anchor = anchor
 	_fog_anchor_valid = true
-	_apply_depth_fog_range()
+	_apply_fog_presentation()
 
 
-## Re-applies depth fog from the active viewport camera (call after camera moves or mode changes).
+## Re-applies fog from the active viewport camera (depth-shift modes only).
 func sync_depth_fog_from_active_camera() -> void:
-	_apply_depth_fog_range()
+	_apply_fog_presentation()
 
 
 func read_fog_environment_state() -> Dictionary:
@@ -124,35 +153,127 @@ func read_fog_environment_state() -> Dictionary:
 		"fog_depth_curve": e.fog_depth_curve,
 		"fog_aerial_perspective": e.fog_aerial_perspective,
 		"fog_sky_affect": e.fog_sky_affect,
+		"volumetric_fog_enabled": e.volumetric_fog_enabled,
+		"volumetric_fog_length": e.volumetric_fog_length,
+		"fog_model": _fog_model,
+		"world_clear_radius": _world_fog_params.clear_radius_m if _world_fog_params else 0.0,
+		"world_thick_radius": _world_fog_params.thick_radius_m if _world_fog_params else 0.0,
+		"world_max_density": _world_fog_params.max_density if _world_fog_params else 0.0,
 	}
 
 
-func _ensure_depth_fog_active() -> void:
+func _fog_presentation_key_now() -> int:
+	var p := _world_fog_params
+	return hash([
+		_fog_model, _fog_centre_mode, _fog_nominal_begin, _fog_nominal_end,
+		_fog_anchor_valid, _fog_anchor,
+		p.clear_radius_m if p else 0.0,
+		p.thick_radius_m if p else 0.0,
+		p.max_density if p else 0.0,
+		int(p.falloff) if p else 0,
+		p.sky_affect_cap if p else 0.0,
+	])
+
+
+func _apply_fog_presentation() -> void:
 	if _env == null or _env.environment == null:
 		return
+	var effective := HeroFog.effective_fog_model(_fog_model)
 	var e := _env.environment
+	match effective:
+		HeroFog.FogModel.WORLD_AROUND_HERO:
+			_apply_world_volumetric_fog(e)
+		HeroFog.FogModel.CAMERA_DEPTH:
+			_teardown_world_fog_volume()
+			e.volumetric_fog_enabled = false
+			e.fog_enabled = true
+			e.fog_mode = Environment.FOG_MODE_DEPTH
+			e.fog_depth_begin = _fog_nominal_begin
+			e.fog_depth_end = _fog_nominal_end
+		_:
+			_teardown_world_fog_volume()
+			e.volumetric_fog_enabled = false
+			e.fog_enabled = true
+			e.fog_mode = Environment.FOG_MODE_DEPTH
+			if not _fog_anchor_valid:
+				e.fog_depth_begin = _fog_nominal_begin
+				e.fog_depth_end = _fog_nominal_end
+				return
+			var cam := get_viewport().get_camera_3d()
+			if cam == null:
+				return
+			HeroFog.apply_depth_fog_to_environment(
+				e, cam.global_transform, _fog_anchor,
+				_fog_nominal_begin, _fog_nominal_end, HeroFog.CentreMode.HERO)
+	_fog_presentation_key = _fog_presentation_key_now()
+
+
+func _refresh_volumetric_tint(s_y: float, lit: float) -> void:
+	if _env == null or _env.environment == null:
+		return
+	if HeroFog.effective_fog_model(_fog_model) != HeroFog.FogModel.WORLD_AROUND_HERO:
+		return
+	var pale := pale_horizon_haze_color(s_y, lit)
+	_env.environment.fog_light_color = fog_color_for(s_y, lit)
+	_env.environment.volumetric_fog_albedo = _env.environment.fog_light_color
+	if _world_fog_volume != null and _fog_anchor_valid:
+		WorldFogVolume.apply_params(_world_fog_volume, _fog_anchor, _world_fog_params, pale)
+
+
+static func default_haze_albedo() -> Color:
+	return DEFAULT_HAZE_ALBEDO
+
+
+## Pale pink-cream used at the sky horizon — far ground should wash to this, not brown.
+static func pale_horizon_haze_color(s_y: float = 0.32, lit: float = 1.0) -> Color:
+	var horizon := sky_horizon_color_for(s_y, lit)
+	var fog := fog_color_for(s_y, lit)
+	return horizon.lerp(fog, 0.18)
+
+
+static func world_fog_glow_strength() -> float:
+	return 3.8
+
+
+func _apply_world_volumetric_fog(e: Environment) -> void:
+	var pale := pale_horizon_haze_color(0.32, 1.0)
+	if solar != null:
+		var s := solar.render_direction(0.0, 86400.0)
+		pale = pale_horizon_haze_color(s.y, lit_for(s.y))
+	# Fixed far depth wash (not camera-shifted) + volumetric hero density.
 	e.fog_enabled = true
 	e.fog_mode = Environment.FOG_MODE_DEPTH
-
-
-func _apply_depth_fog_range() -> void:
-	if _env == null or _env.environment == null:
-		return
-	_ensure_depth_fog_active()
-	if _fog_centre_mode == HeroFog.CentreMode.CAMERA:
-		_env.environment.fog_depth_begin = _fog_nominal_begin
-		_env.environment.fog_depth_end = _fog_nominal_end
-		return
+	e.fog_light_color = pale
+	e.fog_depth_begin = 72.0
+	e.fog_depth_end = 230.0
+	e.fog_sky_affect = 0.12
+	e.volumetric_fog_enabled = true
+	e.volumetric_fog_density = 0.0
+	e.volumetric_fog_length = 512.0
+	e.volumetric_fog_detail_spread = 2.0
+	e.volumetric_fog_gi_inject = 0.1
+	e.volumetric_fog_ambient_inject = 0.48
+	e.volumetric_fog_anisotropy = 0.15
+	e.volumetric_fog_temporal_reprojection_enabled = true
+	var cap := _world_fog_params.sky_affect_cap if _world_fog_params else 0.22
+	e.volumetric_fog_sky_affect = cap
+	e.volumetric_fog_albedo = pale
+	var glow := pale.lightened(0.1)
+	e.volumetric_fog_emission = Color(glow.r * 0.42, glow.g * 0.42, glow.b * 0.42)
 	if not _fog_anchor_valid:
-		_env.environment.fog_depth_begin = _fog_nominal_begin
-		_env.environment.fog_depth_end = _fog_nominal_end
 		return
-	var cam := get_viewport().get_camera_3d()
-	if cam == null:
-		return
-	HeroFog.apply_depth_fog_to_environment(
-		_env.environment, cam.global_transform, _fog_anchor,
-		_fog_nominal_begin, _fog_nominal_end, HeroFog.CentreMode.HERO)
+	if _world_fog_volume == null:
+		_world_fog_volume = WorldFogVolume.create_volume(
+			_fog_anchor, _world_fog_params, pale)
+		add_child(_world_fog_volume)
+	else:
+		WorldFogVolume.apply_params(_world_fog_volume, _fog_anchor, _world_fog_params, pale)
+
+
+func _teardown_world_fog_volume() -> void:
+	if _world_fog_volume != null:
+		_world_fog_volume.queue_free()
+		_world_fog_volume = null
 
 
 ## `seconds_per_game_day` comes from `SimClock.seconds_per_game_day()`.
@@ -181,7 +302,12 @@ func update(game_day: float, seconds_per_game_day: float) -> void:
 		_env.environment.ambient_light_color = ambient_light_color_for(s.y, lit)
 		_env.environment.ambient_light_energy = ambient_energy_for(lit)
 		_env.environment.fog_light_color = fog_color_for(s.y, lit)
-		_apply_depth_fog_range()
+		if _env.environment.volumetric_fog_enabled:
+			_env.environment.volumetric_fog_albedo = _env.environment.fog_light_color
+		if _fog_presentation_key != _fog_presentation_key_now():
+			_apply_fog_presentation()
+		else:
+			_refresh_volumetric_tint(s.y, lit)
 		if _sky_shader != null:
 			var tw := twilight_glow_for(s.y, lit)
 			_sky_shader.set_shader_parameter("sky_top_color", sky_top_color_for(s.y, lit))

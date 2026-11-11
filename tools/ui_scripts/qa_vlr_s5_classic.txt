@@ -1,0 +1,14 @@
+# S5 classic village — unbounded camera sanity
+WAIT 2000
+SPEED pause
+ADVANCE_DAYS 0.25
+VILLAGE_MODE classic_village 0
+WAIT 8000
+ORBIT 0 50 45
+SCREENSHOT s5_classic_wide_orbit50.png
+CAMERA sun
+SCREENSHOT s5_classic_camsun.png
+VILLAGE_MODE generated_village 7
+WAIT 35000
+ORBIT 0 52 40
+SCREENSHOT s5_regen_seed7_far_orbit.png

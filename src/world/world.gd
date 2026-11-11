@@ -266,6 +266,8 @@ func rebuild_backdrop() -> void:
 	if mode.is_generated and bk.has_method("set_village_seed"):
 		bk.call("set_village_seed", _village_seed)
 
+	_sync_production_forest_cam_ref()
+
 	# Keep the node named "VillageBackdrop" so main.gd L641 and fauna resolve it.
 	bk.name = "VillageBackdrop"
 	add_child(bk)
@@ -292,7 +294,7 @@ func rebuild_backdrop() -> void:
 		var layout: VillageLayout = (_village_backdrop as VillageBackdrop).get_layout()
 		if layout != null:
 			sky_sun.set_fog_depth(layout.fog_begin, layout.fog_end)
-			sky_sun.set_fog_centre_mode(HeroFog.DEFAULT_MODE)
+			sky_sun.set_fog_model(HeroFog.DEFAULT_MODEL)
 			sky_sun.set_fog_anchor(_hero_fog_anchor_world())
 
 	_apply_village_camera_lawn_bounds()
@@ -321,6 +323,15 @@ func _bind_wanderer() -> void:
 		_wanderer_controller.unbind()
 
 
+func _sync_production_forest_cam_ref() -> void:
+	const VillageScatterPositions = preload("res://src/world/village_scatter_positions.gd")
+	if _village_mode != GameModes.GENERATED:
+		VillageScatterPositions.clear_production_forest_cam_ref()
+		return
+	var scale := VillagePresentationScale.camera_rig_scale_for_mode(_village_mode)
+	VillageScatterPositions.set_production_forest_cam_ref(get_orbit_pivot(), scale)
+
+
 func get_village_lawn_camera_bounds() -> Dictionary:
 	if _village_mode != GameModes.GENERATED:
 		return {}
@@ -338,10 +349,16 @@ func get_village_lawn_camera_bounds() -> Dictionary:
 
 
 func _apply_village_camera_lawn_bounds() -> void:
+	var b := get_village_lawn_camera_bounds()
+	if _camera_rig is CameraRig:
+		var rig := _camera_rig as CameraRig
+		if b.is_empty():
+			rig.clear_lawn_camera_bounds()
+		else:
+			rig.set_lawn_camera_bounds(b["centre_xz"], b["radius"], b["margin"])
 	if not (_debug_camera is DebugCamera):
 		return
 	var dc := _debug_camera as DebugCamera
-	var b := get_village_lawn_camera_bounds()
 	if b.is_empty():
 		dc.clear_lawn_camera_bounds()
 		return
@@ -354,6 +371,10 @@ func _apply_village_presentation() -> void:
 	var cam_scale := VillagePresentationScale.camera_rig_scale_for_mode(_village_mode)
 	if _camera_rig != null:
 		_camera_rig.scale = Vector3(cam_scale, cam_scale, cam_scale)
+		if _camera_rig is CameraRig:
+			var lb := get_village_lawn_camera_bounds()
+			if not lb.is_empty():
+				(_camera_rig as CameraRig).clamp_all_preset_eyes()
 	if _fauna_controller != null:
 		_fauna_controller.apply_village_presentation_scale()
 	if _debug_camera is DebugCamera:

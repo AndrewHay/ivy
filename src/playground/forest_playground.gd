@@ -9,6 +9,9 @@ const PlaygroundCheckboxStyle = preload("res://src/playground/playground_checkbo
 const DebugCamera = preload("res://src/world/debug_camera.gd")
 const ForestPlaygroundCamera = preload("res://src/playground/forest_playground_camera.gd")
 const HeroFog = preload("res://src/world/hero_fog.gd")
+const WorldFogParams = preload("res://src/world/world_fog_params.gd")
+const WorldFogVolume = preload("res://src/world/world_fog_volume.gd")
+const SkySun = preload("res://src/world/sky_sun.gd")
 
 const _PINE_GLTF := "res://assets/backdrop/pieces/Pine_2.gltf"
 
@@ -16,6 +19,7 @@ const _PINE_GLTF := "res://assets/backdrop/pieces/Pine_2.gltf"
 @export var capture_seed: int = -1
 @export var capture_variant: int = -1
 @export var capture_preset: String = ""
+@export var force_show_ui: bool = false
 
 @onready var _world_env: WorldEnvironment = $WorldEnvironment
 @onready var _camera: Camera3D = $Camera3D
@@ -36,10 +40,13 @@ var _pivot := Vector3.ZERO
 var _mouse_orbit := false
 var _last_preset := "camsun"
 var _free_orbit := false
-var _fog_centre_hero := true
+var _fog_model: HeroFog.FogModel = HeroFog.FogModel.WORLD_AROUND_HERO
+var _world_fog_params: WorldFogParams = WorldFogParams.production()
+var _world_fog_volume: FogVolume
 var _fog_begin_m := -1.0
 var _fog_end_m := -1.0
 var _fog_marker: MeshInstance3D
+var _fog_model_option: OptionButton
 
 const _DRAG_RAD_PER_PIXEL := 0.3 * PI / 180.0
 const _KEY_RAD_PER_PRESS := 3.0 * PI / 180.0
@@ -53,7 +60,7 @@ func _ready() -> void:
 	_pond_snapshot = VillagePondShape.active()
 	var out_path := _parse_out_arg()
 	var capture_ui := _has_user_arg("--capture-ui")
-	_show_ui = capture_ui or (out_path.is_empty() and not script_driven)
+	_show_ui = force_show_ui or capture_ui or (out_path.is_empty() and not script_driven)
 	_allow_input = out_path.is_empty() and not script_driven
 	_setup_environment()
 	_apply_cli_overrides()
@@ -124,14 +131,45 @@ func _apply_playground_fog() -> void:
 		return
 	var fe := _fog_begin_end()
 	var env := _world_env.environment
-	var mode := HeroFog.CentreMode.HERO if _fog_centre_hero else HeroFog.CentreMode.CAMERA
-	if mode == HeroFog.CentreMode.CAMERA or _camera == null:
-		env.fog_depth_begin = fe.x
-		env.fog_depth_end = fe.y
-		return
-	HeroFog.apply_depth_fog_to_environment(
-		env, _camera.global_transform, ForestPlaygroundCamera.hero_fog_anchor_world(),
-		fe.x, fe.y, HeroFog.CentreMode.HERO)
+	var anchor := ForestPlaygroundCamera.hero_fog_anchor_world()
+	match _fog_model:
+		HeroFog.FogModel.WORLD_AROUND_HERO:
+			env.fog_enabled = false
+			env.volumetric_fog_enabled = true
+			env.volumetric_fog_density = 0.0
+			env.volumetric_fog_length = 192.0
+			env.volumetric_fog_sky_affect = _world_fog_params.sky_affect_cap
+			env.volumetric_fog_albedo = env.fog_light_color
+			var pale := SkySun.pale_horizon_haze_color(0.32, 1.0)
+			if _world_fog_volume == null:
+				_world_fog_volume = WorldFogVolume.create_volume(
+					anchor, _world_fog_params, pale)
+				add_child(_world_fog_volume)
+			else:
+				WorldFogVolume.apply_params(
+					_world_fog_volume, anchor, _world_fog_params, pale)
+		HeroFog.FogModel.CAMERA_DEPTH:
+			if _world_fog_volume != null:
+				_world_fog_volume.queue_free()
+				_world_fog_volume = null
+			env.volumetric_fog_enabled = false
+			env.fog_enabled = true
+			env.fog_mode = Environment.FOG_MODE_DEPTH
+			env.fog_depth_begin = fe.x
+			env.fog_depth_end = fe.y
+		_:
+			if _world_fog_volume != null:
+				_world_fog_volume.queue_free()
+				_world_fog_volume = null
+			env.volumetric_fog_enabled = false
+			env.fog_enabled = true
+			env.fog_mode = Environment.FOG_MODE_DEPTH
+			if _camera == null:
+				env.fog_depth_begin = fe.x
+				env.fog_depth_end = fe.y
+				return
+			HeroFog.apply_depth_fog_to_environment(
+				env, _camera.global_transform, anchor, fe.x, fe.y, HeroFog.CentreMode.HERO)
 
 
 func _apply_cli_overrides() -> void:
@@ -142,9 +180,14 @@ func _apply_cli_overrides() -> void:
 			_params.variant = int(arg.substr(10))
 		elif arg.begins_with("--preset="):
 			_params.apply_preset(arg.substr(9))
-		elif arg.begins_with("--fog-centre="):
-			var v := arg.substr(13).to_lower()
-			_fog_centre_hero = v != "camera"
+		elif arg.begins_with("--fog-model="):
+			var v := arg.substr(12).to_lower()
+			if v == "camera":
+				_fog_model = HeroFog.FogModel.CAMERA_DEPTH
+			elif v == "hero-shift":
+				_fog_model = HeroFog.FogModel.HERO_SHIFTED_DEPTH
+			else:
+				_fog_model = HeroFog.FogModel.WORLD_AROUND_HERO
 		elif arg.begins_with("--fog-begin="):
 			_fog_begin_m = float(arg.substr(12))
 		elif arg.begins_with("--fog-end="):
@@ -377,13 +420,35 @@ func _make_fog_panel() -> Control:
 	var title := Label.new()
 	title.text = "Fog"
 	col.add_child(title)
-	var hero_cb := CheckBox.new()
-	hero_cb.text = "Centre on hero (default)"
-	hero_cb.button_pressed = _fog_centre_hero
-	hero_cb.toggled.connect(func(on: bool) -> void:
-		_fog_centre_hero = on
+	_fog_model_option = OptionButton.new()
+	_fog_model_option.add_item("World fog around hero (new)", HeroFog.FogModel.WORLD_AROUND_HERO)
+	_fog_model_option.add_item("Camera depth fog (old production)", HeroFog.FogModel.CAMERA_DEPTH)
+	_fog_model_option.add_item("Hero-shifted depth fog (previous)", HeroFog.FogModel.HERO_SHIFTED_DEPTH)
+	_fog_model_option.select(int(_fog_model))
+	_fog_model_option.item_selected.connect(func(idx: int) -> void:
+		_fog_model = idx as HeroFog.FogModel
 		_apply_playground_fog())
-	col.add_child(hero_cb)
+	col.add_child(_fog_model_option)
+	var row_cr := _fog_spin_row("Clear radius (m)", _world_fog_params.clear_radius_m, 0.0, 60.0, 1.0,
+		func(v: float) -> void:
+			_world_fog_params.clear_radius_m = v
+			_apply_playground_fog())
+	col.add_child(row_cr)
+	var row_tr := _fog_spin_row("Thick radius (m)", _world_fog_params.thick_radius_m, 40.0, 120.0, 1.0,
+		func(v: float) -> void:
+			_world_fog_params.thick_radius_m = v
+			_apply_playground_fog())
+	col.add_child(row_tr)
+	var row_md := _fog_spin_row("Max density", _world_fog_params.max_density, 0.01, 0.6, 0.01,
+		func(v: float) -> void:
+			_world_fog_params.max_density = v
+			_apply_playground_fog())
+	col.add_child(row_md)
+	var row_sky := _fog_spin_row("Sky haze cap", _world_fog_params.sky_affect_cap, 0.0, 1.0, 0.05,
+		func(v: float) -> void:
+			_world_fog_params.sky_affect_cap = v
+			_apply_playground_fog())
+	col.add_child(row_sky)
 	var row_b := HBoxContainer.new()
 	var lb := Label.new()
 	lb.text = "Begin (m)"
@@ -413,6 +478,22 @@ func _make_fog_panel() -> Control:
 	row_e.add_child(se)
 	col.add_child(row_e)
 	return margin
+
+
+func _fog_spin_row(
+		label: String, value: float, min_v: float, max_v: float, step: float, on_change: Callable) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	var lb := Label.new()
+	lb.text = label
+	row.add_child(lb)
+	var sb := SpinBox.new()
+	sb.min_value = min_v
+	sb.max_value = max_v
+	sb.step = step
+	sb.value = value
+	sb.value_changed.connect(on_change)
+	row.add_child(sb)
+	return row
 
 
 func _make_camera_panel() -> Control:

@@ -1,0 +1,52 @@
+# ivy-vlr QA accept — generated village (seed via --village-seed=N)
+# Run: --scenario=res://assets/structures/scenarios/square.tres
+#      --village-mode=generated_village --village-seed=N
+#      --outdir=res://.tmp/vlr/qa/seedN/
+WAIT 40000
+SPEED pause
+ADVANCE_DAYS 0.25
+# S2 forest behind hero
+CAMERA sun
+SCREENSHOT s2_camsun.png
+ORBIT 0 48 42
+SCREENSHOT s2_wide_orbit.png
+# S3 grass camera-independence (three viewpoints)
+CAMERA sun
+SCREENSHOT s3_grass_camsun.png
+ORBIT 120 30 6
+SCREENSHOT s3_grass_orbit30m.png
+ORBIT 45 46 28
+SCREENSHOT s3_grass_high_oblique.png
+# S4 fog — village centre vs lawn edge
+CAMERA sun
+SCREENSHOT s4_camsun_clear.png
+ORBIT 0 48 4
+SCREENSHOT s4_edge_inward_village.png
+ORBIT_AIM_BACKDROP 0 52 8 5 0.5 0
+SCREENSHOT s4_edge_outward_haze.png
+ORBIT 180 48 4
+SCREENSHOT s4_edge_opposite_inward.png
+# S5 camera presets (bounds-clamped orbit radii)
+CAMERA shade
+SCREENSHOT s5_camera_shade.png
+CAMERA top
+SCREENSHOT s5_camera_top.png
+CAMERA silhouette
+SCREENSHOT s5_camera_silhouette.png
+ORBIT 270 52 12
+SCREENSHOT s5_orbit_max_radius.png
+# S6 plaza + kit variety
+CAMERA top
+SCREENSHOT s6_plaza_top.png
+ORBIT 135 42 18
+SCREENSHOT s6_wide_kit_variety.png
+# S7 regression — pond/top + z-fight pair (CamSun still)
+CAMERA top
+SCREENSHOT s7_pond_top_a.png
+WAIT 1000
+SCREENSHOT s7_pond_top_b.png
+CAMERA sun
+SCREENSHOT s7_camsun_paths.png
+# S8 edge-of-world outward
+ORBIT_AIM_BACKDROP 18 52 4 6 0.8 90
+SCREENSHOT s8_disc_edge_outward.png

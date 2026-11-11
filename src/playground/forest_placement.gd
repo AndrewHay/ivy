@@ -2,7 +2,7 @@ class_name ForestPlacement
 extends RefCounted
 
 const ForestParams = preload("res://src/playground/forest_params.gd")
-const ForestPlaygroundCamera = preload("res://src/playground/forest_playground_camera.gd")
+const ForestCamRef = preload("res://src/world/forest_cam_ref.gd")
 const _SCATTER_SCRIPT := "res://src/world/village_scatter_positions.gd"
 
 
@@ -144,7 +144,7 @@ static func _forest_tree_backdrop(layout: VillageLayout, params: ForestParams) -
 		st = _lcg_step(st)
 		var bearing := lerpf(
 			-params.backdrop_phi_half_rad, params.backdrop_phi_half_rad, _lcg_f01(st))
-		var pt := _layout_from_camsun_polar(cd, bearing)
+		var pt := _layout_from_camsun_polar(cd, bearing, params)
 		var w := _backdrop_weight(pt, g, params)
 		if w <= 0.0:
 			continue
@@ -165,14 +165,17 @@ static func _forest_tree_backdrop(layout: VillageLayout, params: ForestParams) -
 	return _transforms_from_xz(accepted, params, st, params.backdrop_tree_scale_mul)
 
 
-static func debug_cam_horiz_dist(layout_pt: Vector2) -> float:
-	return _camsun_cam_horizontal_dist(layout_pt)
+static func debug_cam_horiz_dist(layout_pt: Vector2, params: ForestParams = null) -> float:
+	var prm := params if params != null else ForestParams.production()
+	return _camsun_cam_horizontal_dist(layout_pt, prm)
 
 
-static func _layout_from_camsun_polar(cam_dist: float, bearing: float) -> Vector2:
-	var cam := ForestPlaygroundCamera.camsun_position()
-	var off := ForestPlaygroundCamera.backdrop_origin()
-	var fwd := ForestPlaygroundCamera.camsun_forward()
+static func _layout_from_camsun_polar(
+		cam_dist: float, bearing: float, params: ForestParams) -> Vector2:
+	var pivot := ForestCamRef.resolve_orbit_pivot(params)
+	var cam := ForestCamRef.camsun_eye(pivot, ForestCamRef.resolve_rig_scale(params))
+	var off := ForestCamRef.backdrop_origin(pivot)
+	var fwd := ForestCamRef.camsun_forward()
 	var right := Vector3(1.0, 0.0, 0.0)
 	var rel := fwd * cam_dist * cos(bearing) + right * cam_dist * sin(bearing)
 	var wp_x := cam.x + rel.x
@@ -181,13 +184,14 @@ static func _layout_from_camsun_polar(cam_dist: float, bearing: float) -> Vector
 
 
 static func _backdrop_weight(p: Vector2, g: Vector2, params: ForestParams) -> float:
-	var d := _camsun_cam_horizontal_dist(p)
+	var d := _camsun_cam_horizontal_dist(p, params)
 	if d < params.backdrop_cam_dist_lo_m - 0.5 or d > params.backdrop_cam_dist_hi_m + 0.5:
 		return 0.0
-	var off := ForestPlaygroundCamera.backdrop_origin()
-	var cam := ForestPlaygroundCamera.camsun_position()
+	var pivot := ForestCamRef.resolve_orbit_pivot(params)
+	var off := ForestCamRef.backdrop_origin(pivot)
+	var cam := ForestCamRef.camsun_eye(pivot, ForestCamRef.resolve_rig_scale(params))
 	var wp := Vector2(p.x + off.x, p.y + off.z)
-	var fwd := ForestPlaygroundCamera.camsun_forward()
+	var fwd := ForestCamRef.camsun_forward()
 	var rel := Vector3(wp.x - cam.x, 0.0, wp.y - cam.z)
 	if rel.length() < 0.5:
 		return 0.0
@@ -212,7 +216,7 @@ static func _top_up_tree_backdrop(
 	while cd <= params.backdrop_cam_dist_hi_m and accepted.size() < target:
 		var bearing := -params.backdrop_phi_half_rad
 		while bearing <= params.backdrop_phi_half_rad and accepted.size() < target:
-			var p := _layout_from_camsun_polar(cd, bearing)
+			var p := _layout_from_camsun_polar(cd, bearing, params)
 			if _backdrop_weight(p, g, params) > 0.0:
 				_try_accept_backdrop(p, accepted, g, layout, path_segments, params, sep)
 			bearing += 0.07
@@ -312,10 +316,11 @@ static func _transforms_from_xz(
 	return out
 
 
-static func _camsun_cam_horizontal_dist(layout_pt: Vector2) -> float:
-	var off := ForestPlaygroundCamera.backdrop_origin()
+static func _camsun_cam_horizontal_dist(layout_pt: Vector2, params: ForestParams) -> float:
+	var pivot := ForestCamRef.resolve_orbit_pivot(params)
+	var off := ForestCamRef.backdrop_origin(pivot)
 	var wp := Vector2(layout_pt.x + off.x, layout_pt.y + off.z)
-	var cam := ForestPlaygroundCamera.camsun_position()
+	var cam := ForestCamRef.camsun_eye(pivot, ForestCamRef.resolve_rig_scale(params))
 	return Vector2(wp.x - cam.x, wp.y - cam.z).length()
 
 
