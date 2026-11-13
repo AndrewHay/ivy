@@ -38,6 +38,30 @@ static func forest() -> PlaygroundKnobHost:
 	return h
 
 
+static func hills() -> PlaygroundKnobHost:
+	var h := _fresh()
+	var spec := load("res://src/playground/hills_knob_spec.gd")
+	h._knob_spec_script = spec
+	h._params_script = load("res://src/playground/hills_params.gd")
+	h.variant_labels = spec.VARIANT_LABELS
+	h.variant_descriptions = spec.VARIANT_DESCRIPTIONS
+	h.variant_help = spec.VARIANT_HELP
+	h.preset_help = "Preset applies a full hills recipe."
+	return h
+
+
+static func village_terrain() -> PlaygroundKnobHost:
+	var h := _fresh()
+	var spec := load("res://src/playground/village_terrain_knob_spec.gd")
+	h._knob_spec_script = spec
+	h._params_script = load("res://src/playground/village_terrain_params.gd")
+	h.variant_labels = spec.VARIANT_LABELS
+	h.variant_descriptions = spec.VARIANT_DESCRIPTIONS
+	h.variant_help = spec.VARIANT_HELP
+	h.preset_help = spec.PRESET_HELP
+	return h
+
+
 static func wanderer() -> PlaygroundKnobHost:
 	var h := _fresh()
 	var spec := load("res://src/playground/wanderer_knob_spec.gd")

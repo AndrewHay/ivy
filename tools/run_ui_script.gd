@@ -175,6 +175,40 @@ func _ready() -> void:
 				sim.advance_ticks(ticks)
 			for _f in range(3):
 				await get_tree().process_frame
+		elif line.begins_with("SUN_SHADOW "):
+			var mode := line.substr(11).strip_edges().to_lower()
+			var world := main.get_node_or_null("World")
+			var sky: SkySun = world.get_sky_sun() if world != null and world.has_method("get_sky_sun") else null
+			var sun := sky.get_node_or_null("Sun") as DirectionalLight3D if sky != null else null
+			if sun == null:
+				printerr("[ui-script] FAILED step ", step, ": no Sun for SUN_SHADOW")
+				get_tree().quit(1)
+				return
+			sun.shadow_enabled = mode != "off" and mode != "0" and mode != "false"
+			for _f in range(4):
+				await get_tree().process_frame
+			print("[ui-script]   SUN_SHADOW ", "on" if sun.shadow_enabled else "off")
+		elif line.begins_with("FOG_VOLUMETRIC "):
+			var mode := line.substr(15).strip_edges().to_lower()
+			var world := main.get_node_or_null("World")
+			var sky: SkySun = world.get_sky_sun() if world != null and world.has_method("get_sky_sun") else null
+			if sky == null:
+				printerr("[ui-script] FAILED step ", step, ": no SkySun for FOG_VOLUMETRIC")
+				get_tree().quit(1)
+				return
+			var we := sky.get_node_or_null("WorldEnvironment") as WorldEnvironment
+			if we == null or we.environment == null:
+				printerr("[ui-script] FAILED step ", step, ": no Environment")
+				get_tree().quit(1)
+				return
+			var on := mode != "off" and mode != "0" and mode != "false"
+			we.environment.volumetric_fog_enabled = on
+			var fv := sky.get_node_or_null("WorldHeroFog") as FogVolume
+			if fv != null:
+				fv.visible = on
+			for _f in range(4):
+				await get_tree().process_frame
+			print("[ui-script]   FOG_VOLUMETRIC ", "on" if on else "off")
 		elif line.begins_with("CAMERA "):
 			# Select one of the four canonical cameras by name or index (W-002, W-027).
 			# Names: sun=0, shade=1, top=2, silhouette=3.

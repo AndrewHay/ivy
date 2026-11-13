@@ -7,6 +7,9 @@ var _lawn_bounds_active: bool = false
 var _lawn_centre_xz: Vector2 = Vector2.ZERO
 var _lawn_radius: float = 0.0
 var _lawn_margin: float = CameraBounds.LAWN_EYE_MARGIN_M
+## WP7/AR-VT-GAP-5: optional callable (xz: Vector2) -> float giving terrain_y + clearance.
+## Null = no floor (flat/classic).
+var _terrain_floor_fn: Callable = Callable()
 
 ## Four canonical Camera3Ds with authored transforms that are never written at runtime.
 ## select(index) only toggles `current` on the Camera3D children — AR-SCENE-3.
@@ -29,6 +32,13 @@ func set_lawn_camera_bounds(centre_xz: Vector2, lawn_radius: float, margin: floa
 
 func clear_lawn_camera_bounds() -> void:
 	_lawn_bounds_active = false
+	_terrain_floor_fn = Callable()
+
+
+## WP7/AR-VT-GAP-5: set callable (xz: Vector2) -> float returning terrain_y + clearance.
+## Pass Callable() to clear (no floor = flat/classic).
+func set_terrain_floor_fn(fn: Callable) -> void:
+	_terrain_floor_fn = fn
 
 
 func clamp_preset_eye(index: int) -> void:
@@ -40,8 +50,12 @@ func clamp_preset_eye(index: int) -> void:
 	var cam := cameras[index] as Camera3D
 	if cam == null:
 		return
+	var eye := cam.global_position
+	var floor_y := -INF
+	if _terrain_floor_fn.is_valid():
+		floor_y = _terrain_floor_fn.call(Vector2(eye.x, eye.z))
 	var clamped := CameraBounds.clamp_free_camera_eye(
-		cam.global_position, _lawn_centre_xz, _lawn_radius, _lawn_margin)
+		eye, _lawn_centre_xz, _lawn_radius, _lawn_margin, floor_y)
 	cam.global_position = clamped
 
 

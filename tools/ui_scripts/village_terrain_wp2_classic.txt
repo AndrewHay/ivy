@@ -1,0 +1,14 @@
+# WP2 classic village evidence — classic backdrop still uses LawnGround (INV-15)
+# Run with: --village-mode=classic
+# --outdir=res://.tmp/village_terrain/wp2/classic
+
+WAIT 500
+
+CAMERA sun
+SCREENSHOT classic_camsun.png
+
+ORBIT 0 30 8
+SCREENSHOT classic_overview.png
+
+ORBIT 0 45 3
+SCREENSHOT classic_edge_north.png

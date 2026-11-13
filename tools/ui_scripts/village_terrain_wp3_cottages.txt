@@ -1,0 +1,22 @@
+# WP3 cottage pad Y-bake evidence captures
+# Shows cottages sitting on terrain pads (not floating/buried) after WP3 wiring.
+# Run with: --village-mode=generated_village --village-seed=7
+# AR-VT-GAP-2 / AC-VT6 / WP3
+
+WAIT 200
+
+# CamSun: canonical sunrise view across village
+CAMERA sun
+SCREENSHOT wp3_camsun.png
+
+# Low raking view across lawn: best shows cottages on terrain vs floating at y=0
+ORBIT 45 30 1.5
+SCREENSHOT wp3_rake_cottages.png
+
+# Close street-level view through cottages
+ORBIT 135 18 1
+SCREENSHOT wp3_street_level.png
+
+# Wide overview showing all cottages
+ORBIT 0 45 20
+SCREENSHOT wp3_overview.png

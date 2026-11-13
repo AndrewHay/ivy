@@ -1,0 +1,22 @@
+# WP5+WP6 terrain evidence — grass/scatter Y bake, path stones Y bake
+# Run with: --village-mode=generated_village --village-seed=<N>
+# --outdir=res://.tmp/village_terrain/wp5/<seed>
+# AR-VT-WIRE / WP5 / WP6
+
+WAIT 500
+
+# CamSun canonical view
+CAMERA sun
+SCREENSHOT camsun.png
+
+# Low raking view across lawn — shows grass sitting on terrain surface
+ORBIT 45 30 1
+SCREENSHOT rake_low.png
+
+# Close-up of grass and stones on a slope (orbit near hamlet edge)
+ORBIT 200 15 1.5
+SCREENSHOT grass_stones_slope.png
+
+# High overview showing whole lawn with terrain relief
+ORBIT 0 50 30
+SCREENSHOT overview.png

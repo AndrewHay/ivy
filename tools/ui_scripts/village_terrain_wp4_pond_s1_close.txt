@@ -1,0 +1,10 @@
+# WP4 pond close-up: seed 1 pond is visible NE of village center.
+# Aim from behind the pond toward village at az=20 (slightly NE side).
+SPEED pause
+ADVANCE_DAYS 0.25
+ORBIT 20 14 6
+SCREENSHOT wp4_s1_pond_close_h6.png
+ORBIT 20 12 3
+SCREENSHOT wp4_s1_pond_close_h3.png
+ORBIT 350 14 5
+SCREENSHOT wp4_s1_pond_close_az350.png

@@ -1,0 +1,22 @@
+# WP4 pond basin evidence captures
+# Shows pond with corrected water_y (AR-VT-GAP-1) and per-vertex bank Y.
+# Run with: --village-mode=generated_village --village-seed=7
+# AR-VT-GAP-1 / AC-VT3 / WP4
+
+WAIT 200
+
+# CamSun: shows village context including pond area
+CAMERA sun
+SCREENSHOT wp4_camsun.png
+
+# Pond oblique: low angle looking across the water basin
+ORBIT 200 15 2
+SCREENSHOT wp4_pond_oblique.png
+
+# Pond close-up: water level in context of bank ring and terrain
+ORBIT 220 10 1.5
+SCREENSHOT wp4_pond_close.png
+
+# Wide shot showing pond + surrounding cottage terrain
+ORBIT 45 35 3
+SCREENSHOT wp4_wide.png

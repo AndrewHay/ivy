@@ -4,8 +4,8 @@
 ## (b) Scatter_Path_* multimeshes exist and are non-empty (S3 stones present).
 ## (c) Scatter_Petal_* multimeshes exist (S3 petals present).
 ## (d) FarTreeline exists with 33 instances (generated pine_count).
-## (e) LawnGround exists with radius ≈ 30 m.
-## (f) HillRing exists with inner radius ≈ 30 m.
+## (e) LawnTerrain exists (displaced mesh; WP2 replaced flat LawnGround for generated).
+## (f) HillTerrain exists with rolling annulus.
 ## (g) 7 sets of Cottage_* multimeshes are present.
 ## (h) No collision objects.
 ## (i) Determinism: same seed → identical cottage MultiMesh buffers.
@@ -22,6 +22,24 @@ extends GutTest
 const GeneratedBackdropScene = preload("res://src/world/generated_village_backdrop.tscn")
 
 const DEFAULT_TEST_SEED := 12345
+
+var _shared_bd: GeneratedVillageBackdrop = null
+
+
+func before_all() -> void:
+	_shared_bd = GeneratedBackdropScene.instantiate() as GeneratedVillageBackdrop
+	_shared_bd.set_village_seed(DEFAULT_TEST_SEED)
+	add_child(_shared_bd)
+
+
+func after_all() -> void:
+	if _shared_bd != null:
+		_shared_bd.free()
+		_shared_bd = null
+
+
+func _shared_generated() -> GeneratedVillageBackdrop:
+	return _shared_bd
 
 
 func _make_generated(seed: int) -> GeneratedVillageBackdrop:
@@ -49,7 +67,7 @@ func test_ready_without_error() -> void:
 
 func test_has_scatter_path_nodes() -> void:
 	## S3: paths are non-empty, so Scatter_Path_* multimeshes must exist.
-	var bd := _make_generated(DEFAULT_TEST_SEED)
+	var bd := _shared_generated()
 	var path_nodes: Array[String] = []
 	_collect_matching_names(bd, "Scatter_Path_", path_nodes)
 	assert_gt(path_nodes.size(), 0,
@@ -58,7 +76,7 @@ func test_has_scatter_path_nodes() -> void:
 
 func test_has_scatter_petal_nodes() -> void:
 	## S3: path stones exist, so path-side petals must appear.
-	var bd := _make_generated(DEFAULT_TEST_SEED)
+	var bd := _shared_generated()
 	var petal_nodes: Array[String] = []
 	_collect_matching_names(bd, "Scatter_Petal_", petal_nodes)
 	assert_gt(petal_nodes.size(), 0,
@@ -68,7 +86,7 @@ func test_has_scatter_petal_nodes() -> void:
 # ── (c) FarTreeline with 33 instances ────────────────────────────────────────
 
 func test_far_treeline_instance_count() -> void:
-	var bd := _make_generated(DEFAULT_TEST_SEED)
+	var bd := _shared_generated()
 	var treeline := _find_multimesh(bd, "FarTreeline")
 	assert_not_null(treeline, "FarTreeline must exist in generated backdrop")
 	if treeline == null:
@@ -83,49 +101,45 @@ func test_far_treeline_instance_count() -> void:
 	assert_gte(placed, 24, "backdrop places >=24 trees")
 
 
-# ── (d) LawnGround radius ≈ 30 m ─────────────────────────────────────────────
+# ── (d) LawnTerrain exists (WP2: replaced flat LawnGround for generated) ─────
 
 func test_lawn_ground_radius() -> void:
-	var bd := _make_generated(DEFAULT_TEST_SEED)
-	var lawn := bd.get_node_or_null("LawnGround") as MeshInstance3D
-	assert_not_null(lawn, "LawnGround must exist in generated backdrop")
+	## WP2: generated backdrop now uses LawnTerrain (displaced mesh). Verify it exists
+	## and that its vertices span roughly GENERATED_LAWN_RADIUS about hamlet_centre_xz.
+	var bd := _shared_generated()
+	var lawn := bd.get_node_or_null("LawnTerrain") as MeshInstance3D
+	assert_not_null(lawn, "LawnTerrain must exist in generated backdrop (WP2)")
 	if lawn == null or lawn.mesh == null:
 		return
 	var arrays := lawn.mesh.surface_get_arrays(0)
 	var verts := arrays[Mesh.ARRAY_VERTEX] as PackedVector3Array
-	var g := VillageLayout.VILLAGE_GREEN_G
+	var g := bd.get_layout().hamlet_centre_xz
 	var max_r := 0.0
 	for v: Vector3 in verts:
 		max_r = maxf(max_r, Vector2(v.x, v.z).distance_to(g))
-	assert_almost_eq(max_r, VillageLayout.GENERATED_LAWN_RADIUS, 0.01,
-		"Generated LawnGround vertex radius must match GENERATED_LAWN_RADIUS about G")
+	var expected_r := VillageLayout.GENERATED_LAWN_RADIUS
+	## Allow up to one cell (2 m) slack for grid clipping at the disc edge.
+	assert_gte(max_r, expected_r - 2.0,
+		"LawnTerrain vertices must reach within 2 m of GENERATED_LAWN_RADIUS (%s)" % expected_r)
 
 
-# ── (e) HillRing inner radius ≈ 30 m ─────────────────────────────────────────
+# ── (e) HillTerrain + HillForest (ivy-ska0) ───────────────────────────────────
 
-func test_hill_ring_inner_radius() -> void:
-	var bd := _make_generated(DEFAULT_TEST_SEED)
-	var hill := bd.get_node_or_null("HillRing") as MeshInstance3D
-	assert_not_null(hill, "HillRing must exist in generated backdrop")
-	if hill == null or hill.mesh == null:
-		return
-	var arrays := hill.mesh.surface_get_arrays(0)
-	var verts := arrays[Mesh.ARRAY_VERTEX] as PackedVector3Array
-	var g := VillageLayout.VILLAGE_GREEN_G
-	var inner_r := INF
-	for v: Vector3 in verts:
-		if absf(v.y) < 0.1:
-			inner_r = minf(inner_r, Vector2(v.x, v.z).distance_to(g))
-	if inner_r == INF:
-		inner_r = 0.0
-	assert_almost_eq(inner_r, VillageLayout.GENERATED_HILL_INNER, 0.5,
-		"Generated HillRing inner radius must match GENERATED_HILL_INNER")
+func test_hill_terrain_and_forest_exist() -> void:
+	var bd := _shared_generated()
+	var hill := bd.get_node_or_null("HillTerrain") as MeshInstance3D
+	assert_not_null(hill, "HillTerrain must exist in generated backdrop")
+	assert_not_null(hill.mesh, "HillTerrain mesh")
+	var hf := bd.get_node_or_null("HillForest") as MultiMeshInstance3D
+	assert_not_null(hf, "HillForest must exist when generated rolling hills")
+	if hf != null and hf.multimesh != null:
+		assert_gt(hf.multimesh.instance_count, 0, "HillForest instances > 0")
 
 
 # ── (f) Cottage multimeshes (7 cottage types produce Cottage_* nodes) ─────────
 
 func test_cottage_multimeshes_present() -> void:
-	var bd := _make_generated(DEFAULT_TEST_SEED)
+	var bd := _shared_generated()
 	var cottage_nodes: Array[String] = []
 	_collect_matching_names(bd, "Cottage_", cottage_nodes)
 	assert_gt(cottage_nodes.size(), 0,
@@ -135,7 +149,7 @@ func test_cottage_multimeshes_present() -> void:
 # ── (g) No collision objects ──────────────────────────────────────────────────
 
 func test_no_collision_objects() -> void:
-	var bd := _make_generated(DEFAULT_TEST_SEED)
+	var bd := _shared_generated()
 	var collision_nodes: Array[String] = []
 	_collect_collision_names(bd, collision_nodes)
 	assert_eq(collision_nodes.size(), 0,
@@ -186,7 +200,7 @@ func test_different_seeds_different_cottage_buffers() -> void:
 # ── (j) Generated layout fields (3l6-A) ───────────────────────────────────────
 
 func test_generated_hamlet_fields() -> void:
-	var bd := _make_generated(DEFAULT_TEST_SEED)
+	var bd := _shared_generated()
 	var layout := bd.get_layout()
 	assert_not_null(layout, "get_layout() must return a non-null VillageLayout")
 	if layout == null:
@@ -202,7 +216,7 @@ func test_generated_hamlet_fields() -> void:
 # ── (l) INV-20: world-scale fields match generated preset ────────────────────
 
 func test_inv20_world_scale_fields() -> void:
-	var bd := _make_generated(DEFAULT_TEST_SEED)
+	var bd := _shared_generated()
 	var layout := bd.get_layout()
 	assert_not_null(layout, "get_layout() must return a VillageLayout")
 	if layout == null:
@@ -220,7 +234,7 @@ func test_inv20_world_scale_fields() -> void:
 
 func test_inv7_no_stone_inside_cottage() -> void:
 	## No Scatter_Path_* stone transform should be inside any cottage rect (margin 0).
-	var bd := _make_generated(DEFAULT_TEST_SEED)
+	var bd := _shared_generated()
 	var layout := bd.get_layout()
 	if layout == null or layout.paths.is_empty():
 		pending("No paths generated — skip INV-7")
@@ -240,7 +254,7 @@ func test_inv7_no_stone_inside_cottage() -> void:
 
 func test_inv9_no_stone_inside_hero_keepout() -> void:
 	## No stone may have |p| < 4.5 m (the reject radius in _reject_path_stone_xz).
-	var bd := _make_generated(DEFAULT_TEST_SEED)
+	var bd := _shared_generated()
 	var layout := bd.get_layout()
 	if layout == null or layout.paths.is_empty():
 		pending("No paths generated — skip INV-9")
@@ -278,7 +292,7 @@ func test_inv9_hero_edges_end_near_ring() -> void:
 
 func test_inv9_generated_hero_path_starts_at_stoop() -> void:
 	## Generated (rev2): no 6.5 m ring clip; hero spur starts near hero door stoop.
-	var bd := _make_generated(DEFAULT_TEST_SEED)
+	var bd := _shared_generated()
 	var layout := bd.get_layout()
 	if layout == null or layout.fallback or layout.paths.is_empty():
 		pending("No generated paths — skip INV-9′")
@@ -303,7 +317,7 @@ func test_inv9_generated_hero_path_starts_at_stoop() -> void:
 
 func test_inv10_stone_count_in_range() -> void:
 	## Total stone count after dedup and reject must be ∈ [70, 360].
-	var bd := _make_generated(DEFAULT_TEST_SEED)
+	var bd := _shared_generated()
 	var layout := bd.get_layout()
 	if layout == null or layout.paths.is_empty():
 		pending("No paths generated — skip INV-10")
@@ -325,7 +339,7 @@ func test_inv10_stone_count_in_range() -> void:
 func test_export_fauna_anchors_includes_path_petals() -> void:
 	## S3: paths are non-empty so export_fauna_anchors must return path-side petals.
 	FaunaIntegration.set_gut_fauna_test_active(true)
-	var bd := _make_generated(DEFAULT_TEST_SEED)
+	var bd := _shared_generated()
 	var layout := bd.get_layout()
 	assert_false(layout == null or layout.paths.is_empty(),
 		"Generated layout must have non-empty paths in S3")
@@ -343,7 +357,7 @@ func test_export_fauna_anchors_includes_path_petals() -> void:
 
 func test_generated_grass_shader_anchor_plaza_g() -> void:
 	var saw := false
-	var bd := _make_generated(DEFAULT_TEST_SEED)
+	var bd := _shared_generated()
 	var layout := bd.get_layout()
 	var expected_anchor := Vector2(bd.global_position.x, bd.global_position.z) + layout.hamlet_centre_xz
 	for mmi_node in _collect_nodes_of_type(bd, MultiMeshInstance3D):

@@ -4,7 +4,7 @@
 ## (b) Classic builder equivalence: LawnGround r≈20, HillRing inner≈20/outer≈140/h≈7.5,
 ##     FarTreeline count=22 radii∈[19,28].
 ## (c) Generated fields == INV-20 preset for seeds 1..5 (pure data).
-## (d) Generated builder outputs for seed=1: LawnGround r≈30, HillRing inner≈30,
+## (d) Generated builder outputs for seed=1: LawnTerrain r≈30 (WP2: displaced mesh), HillRing inner≈30,
 ##     FarTreeline count=33 radii∈[34.2,50.4].
 ## (e) Bush filler range: last 10 of bush_common_positions in [bush_filler_inner, bush_filler_outer].
 ## (f) INV-20: pine_inner >= max outer-cottage corner distance; no pine inside grown rect (seeds 1..5).
@@ -127,20 +127,19 @@ func test_classic_lawn_radius_in_mesh() -> void:
 func test_classic_hill_ring_in_mesh() -> void:
 	var bd := VillageBackdropScene.instantiate()
 	add_child_autofree(bd)
-	var node := bd.get_node_or_null("HillRing") as MeshInstance3D
-	assert_not_null(node, "HillRing must exist in classic backdrop")
+	var node := bd.get_node_or_null("HillTerrain") as MeshInstance3D
+	assert_not_null(node, "HillTerrain must exist in classic backdrop")
 	if node == null:
 		return
 	var verts := _mesh_verts(node.mesh)
-	assert_gt(verts.size(), 0, "HillRing must have vertices")
-	# Inner ring: vertices at y≈0 with XZ radius ≈ hill_inner=20
-	var inner_r := _min_xz_at_y(verts, 0.0, 0.1)
+	assert_gt(verts.size(), 0, "HillTerrain must have vertices")
+	var y_lawn := VillageBackdrop.LAWN_GROUND_Y_OFFSET
+	var inner_r := _min_xz_at_y(verts, y_lawn, 0.15)
 	assert_almost_eq(inner_r, 20.0, 0.1,
-		"Classic HillRing inner radius must be ≈ 20.0 m (builder read hill_inner)")
-	# Outer ring: vertices at y≈7.5 with XZ radius ≈ 140
-	var outer_r := _max_xz_at_y(verts, 7.5, 0.1)
+		"Classic HillTerrain inner radius must be ≈ 20.0 m (builder read hill_inner)")
+	var outer_r := _max_xz_at_y(verts, y_lawn + 7.5, 0.15)
 	assert_almost_eq(outer_r, 140.0, 0.1,
-		"Classic HillRing outer radius must be ≈ 140.0 m (unchanged)")
+		"Classic HillTerrain outer radius must be ≈ 140.0 m (unchanged)")
 
 
 func test_classic_pine_count_and_radii() -> void:
@@ -202,34 +201,48 @@ func test_generated_world_fields_seeds_1_to_5() -> void:
 # ── (d) Generated builder outputs for seed=1 ─────────────────────────────────
 
 func test_generated_lawn_radius_in_mesh() -> void:
+	## WP2: generated backdrop now uses LawnTerrain (displaced mesh) instead of flat LawnGround.
+	## Vertex radius must reach within 2 m of GENERATED_LAWN_RADIUS (grid-clipped disc).
 	var bd := _GenBackdrop.new()
 	bd.test_seed = 1
 	add_child_autofree(bd)
-	var node := bd.get_node_or_null("LawnGround") as MeshInstance3D
-	assert_not_null(node, "LawnGround must exist in generated backdrop")
+	var node := bd.get_node_or_null("LawnTerrain") as MeshInstance3D
+	assert_not_null(node, "LawnTerrain must exist in generated backdrop (WP2)")
 	if node == null:
 		return
 	var verts := _mesh_verts(node.mesh)
-	assert_gt(verts.size(), 0, "LawnGround must have vertices")
-	var g := VillageLayout.VILLAGE_GREEN_G
+	assert_gt(verts.size(), 0, "LawnTerrain must have vertices")
+	var g := bd.get_layout().hamlet_centre_xz
 	var max_r := _max_xz_radius_about(g, verts)
-	assert_almost_eq(max_r, VillageLayout.GENERATED_LAWN_RADIUS, 0.01,
-		"Generated LawnGround vertex radius must match GENERATED_LAWN_RADIUS about G")
+	var expected_r := VillageLayout.GENERATED_LAWN_RADIUS
+	assert_gte(max_r, expected_r - 2.0,
+		"LawnTerrain vertices must reach within 2 m of GENERATED_LAWN_RADIUS (grid disc clip)")
 
 
 func test_generated_hill_inner_in_mesh() -> void:
 	var bd := _GenBackdrop.new()
 	bd.test_seed = 1
 	add_child_autofree(bd)
-	var node := bd.get_node_or_null("HillRing") as MeshInstance3D
-	assert_not_null(node, "HillRing must exist in generated backdrop")
+	const HillsParams = preload("res://src/playground/hills_params.gd")
+	var node := bd.get_node_or_null("HillTerrain") as MeshInstance3D
+	assert_not_null(node, "HillTerrain must exist in generated backdrop")
 	if node == null:
 		return
 	var verts := _mesh_verts(node.mesh)
 	var g := VillageLayout.VILLAGE_GREEN_G
-	var inner_r := _min_xz_at_y_about(g, verts, 0.0, 0.1)
-	assert_almost_eq(inner_r, VillageLayout.GENERATED_HILL_INNER, 0.1,
-		"Generated HillRing inner radius must match GENERATED_HILL_INNER about G")
+	var prod := HillsParams.production()
+	var y_lawn := VillageBackdrop.LAWN_GROUND_Y_OFFSET
+	var inner_r := _min_xz_at_y_about(g, verts, y_lawn, 0.25)
+	var layout := bd.get_layout()
+	## The mesh builder skirts ~6 m inside the lawn so the meadow shader seam is covered
+	## (inner = maxf(lawn_r - 6.0, lawn_r * 0.88) ≈ lawn_r - 6.0 = 50.0 m for lawn_r=56).
+	## rework5: step formula changed from iterative (~2.55m) to direct computation
+	## (~5.4m for outer=310m). A larger step means the innermost vertex can be up to one
+	## step inside the inner boundary. Tolerance = 8.0 covers step up to 8 m.
+	var expected_inner := layout.lawn_radius - 6.0   # mesh builder inner formula
+	assert_almost_eq(inner_r, expected_inner, 8.0,
+		"Generated HillTerrain inner skirt at %.2f; expected near lawn_r - 6.0 = %.1f (seam skirt)" \
+		% [inner_r, expected_inner])
 
 
 func test_generated_pine_count_and_radii() -> void:

@@ -1636,6 +1636,7 @@ static func _build_layout(
 	var layout := VillageLayout.new()
 	layout.is_generated = true
 	layout.fallback = false
+	layout.generation_seed = norm
 	layout.hamlet_centre_xz = g
 	layout.plaza_side_m = plaza_side
 	layout.plaza_rect = _Layout.plaza_rect_at(g, plaza_side)

@@ -3877,6 +3877,647 @@ wire backdrop, add **`test_village_grass_scatter.gd`**. Then **ivy-qg7.5** (`adv
 
 ---
 
+## SD-HILLS — Rolling hill forest backdrop *(ivy-ska0)*
+
+**Contracts:** G7 + `DESIGN.md` § *Algorithm playgrounds*, `.cursor/rules/algorithm-playgrounds.mdc`,
+Game Director handoff on bead **ivy-ska0** (vision, perf budget, acceptance split). **Builds on:**
+`VillageBackdrop._add_hill_ring` / `_add_hill_annulus` (flat annulus, visual-only),
+`ForestPlacement` + `ForestParams` + `test_forest_backdrop_safety.gd`,
+`VillageLayout._derive` sub-stream salts, `HeroFog` + layout `fog_begin`/`fog_end`,
+`CameraBounds` lawn disc R≈56 m. **Next handoff:** Gameplay Architect. **This section specifies; it
+does not implement.**
+
+### SD-HILLS-1 — System goal (design terms)
+
+Replace the **single linear ramp** `HillRing` (inner `layout.hill_inner` → outer 140 m, 0→7.5 m) with a
+**seeded rolling heightfield annulus** and a **second MultiMesh** of Pine_2 instances scattered on
+slopes **outside** the production CamSun backdrop band. From every allowed camera the player sees
+**layered forested ridges** that **fall off in contrast with hero-centred fog**, not a flat y≈0
+horizon wedge. Hills are **read-only scenery**: no collision, no sim coupling, no change to lawn
+gameplay or backdrop forest placement.
+
+**Inputs:** `VillageLayout` (generated seeds), `HillsParams` (production defaults), hero fog anchor,
+existing `FarTreeline` backdrop tree XZ set (exclusion). **Outputs:** one or two `MeshInstance3D`
+hill terrain nodes, one `MultiMeshInstance3D` hill-forest node, deterministically rebuilt each
+village load.
+
+### SD-HILLS-2 — `HillsParams` schema
+
+Resource: `src/playground/hills_params.gd` (mirror `ForestParams` API).  
+`const SCHEMA := "hills_playground.v1"` · `PRESET_PRODUCTION := "Production"` ·
+`duplicate_params()`, `reset_to_production()`, `to_dict()` / `from_dict()`, `to_json_block()`,
+`presets()`, `apply_preset(name)`, `matches_preset()`.
+
+**Static:** `HillsParams.production()` returns a fresh resource with every field at **production
+default** (parity target). Playground and `VillageBackdrop` call the **same** static builders with
+this resource — no demo fork.
+
+| Group | Field | Prod default | Playground min | Playground max | Rule |
+|-------|--------|--------------|----------------|----------------|------|
+| Stage | `variant` | `0` | — | — | `0` = rolling hills (production), `1` = flat legacy (`_add_hill_annulus` ramp), `2` = high-ridges A/B only. |
+| Stage | `layout_seed` | `7` | 1 | 999999999 | `VillageLayout.generate(seed)`; −1 not used. |
+| Annulus | `r_inner_m` | **58.0** | 56.0 | 62.0 | Terrain inner edge from **G**; default 2 m beyond `lawn_radius` (56). |
+| Annulus | `r_outer_m` | **135.0** | 110.0 | 160.0 | Terrain outer edge from G. |
+| Annulus | `grid_cells` | **128** | 64 | 192 | Samples per radial/azimuthal axis (see SD-HILLS-3). |
+| Annulus | `azimuth_segs` | **128** | 64 | 192 | Angular segments for mesh topology. |
+| Seam | `toe_width_m` | **4.0** | 2.0 | 8.0 | Radial distance over which height blends from lawn ground Y to undulating field at `r_inner_m`. |
+| Seam | `toe_max_lift_m` | **0.12** | 0.0 | 0.25 | Cap on blended height at `r = lawn_radius` (mechanical lawn sanctity). |
+| Ridge layers | `layer_count` | **3** | 2 | 4 | Summed ridged-noise layers (see SD-HILLS-3). |
+| Layer *i* | `layer_amplitude_m[i]` | **8.0, 11.0, 13.0** | 4.0 each | 14.0 each | Peak-scale per layer (applied with radial envelopes). |
+| Layer *i* | `layer_wavelength_m[i]` | **110.0, 95.0, 75.0** | 40.0 | 180.0 | Feature scale in world XZ. |
+| Layer *i* | `layer_phase_deg[i]` | **seed-derived** | 0 | 360 | Per-layer phase offset; production derives from terrain LCG (SD-HILLS-4). |
+| Envelope | `near_ridge_peak_m` | **7.5** | 4.0 | 14.0 | Target crest band 70–90 m from G (multiplier on layers 0–1). |
+| Envelope | `far_ridge_peak_m` | **12.0** | 8.0 | 16.0 | Target crest band 95–120 m (layer 2 weight). |
+| Envelope | `radial_bias_power` | **1.35** | 0.5 | 2.5 | Shapes amplitude vs radius (peaks mid-annulus, low at inner/outer lip). |
+| Forest | `tree_count` | **320** | 0 | 500 | Hill MultiMesh target (excludes `FarTreeline`). |
+| Forest | `forest_r_min_m` | **62.0** | 58.0 | 70.0 | No hill-tree base closer to G (backdrop band protection). |
+| Forest | `forest_r_max_m` | **132.0** | 110.0 | 155.0 | Outer scatter limit (inside `r_outer_m`). |
+| Forest | `min_sep_m` | **3.2** | 2.0 | 6.0 | Trunk spacing on hills. |
+| Forest | `slope_max_deg` | **38.0** | 20.0 | 50.0 | Reject sites above this surface slope. |
+| Forest | `slope_prefer_deg` | **18.0** | 5.0 | 35.0 | Weight peak for accept probability (Gaussian around this slope). |
+| Forest | `hemisphere_boost_phi` | **0.55** | 0.0 | 1.2 | Half-angle (rad) about **+Z** (CamSun forward) for **1.30×** accept weight (GD: 120–140%). |
+| Forest | `hemisphere_boost` | **1.30** | 1.0 | 1.5 | CamSun hemisphere density multiplier. |
+| Forest | `hemisphere_lo` | **0.90** | 0.6 | 1.1 | Non-forward hemisphere multiplier (GD: 80–100%). |
+| Forest | `backdrop_exclusion_m` | **2.0** | 1.5 | 4.0 | Min XZ distance from any production backdrop tree position. |
+| Forest | `lcg_seed` | **−1** | — | — | −1 = derive from layout (SD-HILLS-4); override for playground only. |
+| Forest | `scale_min` / `scale_max` | **0.95 / 1.25** | 0.7 | 1.6 | Hill-tree scale (slightly smaller than backdrop `backdrop_tree_scale_mul`). |
+| Tint | `ridge_fog_tint_on` | **true** | — | — | Per-vertex / tree modulate vs fog (SD-HILLS-6). |
+| Tint | `ridge_near_albedo_mul` | **1.0** | 0.7 | 1.2 | Multiplier at low fog haze (nearer ridges). |
+| Tint | `ridge_far_albedo_mul` | **0.72** | 0.5 | 1.0 | Multiplier at high fog haze (far crests). |
+| Tint | `ridge_far_tint_blue` | **0.08** | 0.0 | 0.2 | Additive blue shift at max haze (shader uniform). |
+| Preview | `fog_begin_m` / `fog_end_m` | **layout** | 5.0 | 120.0 | Playground overrides; production reads `layout.fog_begin` / `fog_end`. |
+
+**Presets (initial):** `Production` (variant 0, all prod defaults), `Flat legacy` (variant 1),
+`High ridges` (variant 2: +25% amplitudes, `layer_count` 4). Custom → `ForestParams`-style
+`Custom` preset name when `matches_preset` fails.
+
+### SD-HILLS-3 — Heightfield generation contract
+
+**Geometry:** displaced **annulus mesh** centred on `layout.hamlet_centre_xz` (**G**). Replaces
+`_add_hill_ring()` output; node name **`HillTerrain`** (implementer updates tests that still assert
+`HillRing` geometry — see mechanical plan). `cast_shadow = OFF`. Material: shared lawn ground
+material instance + optional fog-tint shader branch when `ridge_fog_tint_on`.
+
+**Base height reference:** `y_lawn = VillageBackdrop.LAWN_GROUND_Y_OFFSET` (−0.03 m) — all
+displayed hill heights are **offset above this plane**, not above y=0, so the main world ground
+mesh does not silhouette.
+
+**Sampling function** `HillsHeightfield.sample_y(xz: Vector2, layout, params) -> float`:
+
+1. **Polar:** `r = |xz − G|`, `φ = atan2(xz.x − G.x, xz.y − G.y)` (Godot XZ).
+2. **Outside annulus:** if `r < r_inner_m − toe_width_m` or `r > r_outer_m` → return `y_lawn`.
+3. **Undulating core** (for `r ∈ [r_inner_m, r_outer_m]`):
+
+   ```
+   u = (r − r_inner_m) / (r_outer_m − r_inner_m)     // 0..1 radial
+   env(u) = sin(PI * u) ** radial_bias_power          // peaks mid-annulus
+   h_core = 0
+   for i in layer_count:
+       ridge = abs(sin(2π * r / layer_wavelength_m[i] + φ_layer[i]))
+                * (1.0 - ridge_sharpness * (1 - ridge))   // ridge_sharpness prod 0.15
+       band_w = layer_band_weight(i, r)                  // peaks near 70–90 m / 95–120 m per GD
+       h_core += layer_amplitude_m[i] * env(u) * ridge * band_w
+   ```
+
+4. **Seam blend** (for `r < r_inner_m` but `r ≥ lawn_radius`):
+
+   ```
+   t = clamp((r − lawn_radius) / toe_width_m, 0, 1)
+   t = smoothstep(0, 1, t)
+   h = lerp(y_lawn, y_lawn + h_core, t)
+   h = min(h, y_lawn + toe_max_lift_m)   // at r = lawn_radius
+   ```
+
+5. **Inner lip at `r_inner_m`:** `h` must equal `y_lawn + h_core(r_inner_m)` continuously (no crease
+   > 0.05 m vs previous mesh ring).
+
+**Mesh build:** for each grid cell, sample `sample_y`; stitch triangles; `generate_normals()`.
+Triangle budget: `azimuth_segs * grid_cells * 2` ≤ **24k** (GD budget). Optional **variant split:**
+near mesh `r ∈ [r_inner, r_mid]` + far mesh `[r_mid, r_outer]` (≤2 instances) if needed for
+material LOD — not required for v1 if single mesh stays under budget.
+
+**Variant 1 (flat legacy):** ignore layers; call existing `_add_hill_annulus(..., inner_y: y_lawn,
+outer_y: y_lawn + 7.5)` with `r_inner = layout.hill_inner`, `outer = 140` — parity reference for
+before/after A/B only.
+
+### SD-HILLS-4 — Determinism and seed salts
+
+Production **must not** consume raw `layout.seed` directly for hill noise. Use
+`VillageLayout._derive(layout.seed, salt)` pattern (two LCG steps on `(seed ^ salt)`):
+
+| Stream | Proposed salt constant | Drives |
+|--------|------------------------|--------|
+| `HILLS_TERRAIN_SALT` | `0xB1175C3` | Layer phases, optional micro-wavelength ±3% jitter |
+| `HILLS_FOREST_SALT` | `0xF0E557A` | Forest LCG start when `lcg_seed == -1` |
+
+**Gameplay Architect:** add both salts next to `PLACEMENT_SALT` / `PATHGRAPH_SALT` in
+`village_layout.gd` (names as above). Playground parity seeds: **1, 7, 12, 240424020** (match
+`test_forest_parity.gd`).
+
+Same `layout_seed` + production `HillsParams` ⇒ identical height samples at fixed probe points
+and identical hill-forest XZ hash in game and playground (SD-HILLS-8).
+
+### SD-HILLS-5 — Hill-forest scatter algorithm
+
+**Entry:** `HillsForestPlacement.hill_forest_transforms(layout, hills_params, heightfield,
+backdrop_trees_xz: Array[Vector2]) -> Array[Transform3D]`
+
+**Target count:** `params.tree_count`. Asset: same Pine_2 mesh/surfaces as `FarTreeline`
+(MultiMesh only).
+
+**Sampling loop** (Knuth LCG via `VillageScatterPositions.lcg_step` / `lcg_f01`, same as
+`ForestPlacement`):
+
+1. Draw uniform `r ∈ [forest_r_min_m, forest_r_max_m]`, `φ ∈ [−π, π]`, candidate `p = G + (sin φ, cos φ) * r`.
+2. **Accept weight** `w = hemisphere_weight(φ) * slope_weight(p) * edge_falloff(r)` where
+   `hemisphere_weight` applies `hemisphere_boost` if `φ` within `hemisphere_boost_phi` of CamSun
+   forward azimuth, else `hemisphere_lo`.
+3. Probabilistic accept: `lcg_f01 < w / w_max` (`w_max` = 1.45, same pattern as forest).
+4. **Shared exclusions** — single function `HillsForestPlacement.site_ok_hill(p, layout, params,
+   backdrop_trees_xz)` implementing the **same rules** as `ForestPlacement._site_ok` **plus**:
+
+   | Check | Rule |
+   |-------|------|
+   | Cottages | `VillageLayout.inside_cottages(..., 0.45)` → reject |
+   | Pond / plaza blocks | `VillageScatterPositions.blocks_scatter_at(p)` → reject |
+   | Paths | `min_xz_dist_to_path_segments(p, layout.path_polylines()) < 0.55` → reject |
+   | CamSun corridor | `ForestPlacement.forest_blocks_camsun_view(p, ForestParams.production())` → reject |
+   | Lawn disc | `p.distance_to(G) < layout.lawn_radius + 0.01` → reject |
+   | Backdrop band occupancy | `∃ backdrop tree q : |p−q| < backdrop_exclusion_m` → reject |
+   | Backdrop distance band | `p` in CamSun-forward **lawn backdrop** XZ band 40–55 m from CamSun eye → reject (reuse `ForestParams` backdrop lo/hi logic on horizontal cam distance, not G distance) |
+   | Hero | `p.distance_to(HERO_DOOR_STOOP) < 9.0` → reject |
+   | Slope | surface slope at `p` from heightfield `> slope_max_deg` → reject |
+   | Separation | any accepted trunk `< min_sep_m` → reject |
+
+5. **Transform:** `y = sample_y(p)`, yaw uniform `[0, 2π)`, scale uniform `[scale_min, scale_max]`,
+   basis Y up (micro-tilt optional **non-goal** v1).
+
+**Top-up:** if accepted `< target after `target * 200` attempts, relax only `slope_prefer` weight
+(not exclusions), then fill lowest-slope vacant rings outward — must never violate exclusion table.
+
+### SD-HILLS-6 — Ridge-band and fog tinting rules
+
+**Goal (fuzzy):** nearer ridges read **darker/clearer**; farther crests **paler/bluer** through
+existing hero-centred volumetric fog — tint **supports** fog, does not replace it.
+
+**Terrain:** when `ridge_fog_tint_on`, vertex shader or multiplicative vertex color:
+
+```
+haze = HeroFog.world_haze_at(world_pos, fog_begin, fog_end, FogModel.WORLD_AROUND_HERO)
+mul = lerp(ridge_near_albedo_mul, ridge_far_albedo_mul, haze)
+albedo_rgb *= mul
+albedo_rgb += Vector3(0, 0, ridge_far_tint_blue) * haze
+```
+
+Use the **same** fog anchor as `ForestPlaygroundCamera.hero_fog_anchor_world()` in production.
+
+**Hill trees:** apply the same `mul` to instance `instance_color` (MultiMesh) OR material albedo
+if instance color unsupported — must match terrain trend monotonic in `haze` along outward rays.
+
+**Ridge bands (art direction, not extra geometry):** layer weights `layer_band_weight` already bias
+height so **70–90 m** and **95–120 m** crests exist; tint is **distance-based**, not a separate
+post pass. QA fuzzy: compare edge_outward stills seeds 1/7/12 before/after.
+
+### SD-HILLS-7 — `VillageBackdrop` integration
+
+**Call site:** replace `_add_hill_ring()` in `_ready` build order with:
+
+```
+var hills := HillsParams.production()
+_add_hill_terrain(layout, hills)      # MeshInstance3D HillTerrain
+_add_hill_forest(layout, hills)       # MultiMeshInstance3D HillForest (new)
+```
+
+Order **unchanged** relative to lawn/pond/scatter: hills still **after** lawn ground, **before or
+after** `FarTreeline` is acceptable if draw order keeps backdrop trees **in front** of hill crests
+along CamSun ray (implementer: sort render priority / build hill forest first, backdrop second, or
+y-order so backdrop trunks occlude correctly).
+
+**Classic / `authored()` layout:** use `r_inner = layout.hill_inner` (20 m), `r_outer = 140`,
+defaults scaled — or gate rolling hills to `layout.is_generated` only (GD epic targets generated
+seeds **1/7/12**; classic may keep flat variant 1 until zero-cost — **non-goal** if costly).
+
+**Production forest unchanged:** `FarTreeline` still uses `VillageScatterPositions` / variant 0
+backdrop; hill forest is **additive** instance budget.
+
+### SD-HILLS-8 — Playground spec *(feel-judged; G7)*
+
+**Scene:** `scenes/playground/hills_playground.tscn` + `src/playground/hills_playground.gd`  
+(structure mirrors `forest_playground.tscn`: Stage offset via `ForestPlaygroundCamera.backdrop_origin()`,
+layout generate, fog preview, no sim/HUD).
+
+**UI:** `HillsKnobSpec` table drives sliders (like `ForestKnobSpec`); live rebuild next frame on any
+knob change. **Variant** dropdown: `0` Production hills, `1` Flat legacy, `2` High ridges.
+
+**Camera presets** (reuse `ForestPlaygroundCamera` where possible):
+
+| Preset | Definition |
+|--------|------------|
+| CamSun | `apply_camsun` |
+| Edge outward | Match `tools/fog_v2_evidence_capture.gd` `edge_outward` (lawn margin eye, look 150 m outward) |
+| Edge inward | Same tool `edge_inward` |
+| CamTop | Generated rig top / `apply_wide` or CamTop from forest playground |
+| Free orbit | `DebugCamera` pattern from forest playground |
+
+**Controls:** Presets dropdown, **Reset to production**, **Copy-out** JSON (`hills_playground.v1`
+schema, all knobs + variant), pause / slow-mo optional (not required v1).
+
+**Parity:** `HillsParams.production()` + `layout_seed` ⇒ same probe heights + forest hash as main
+village backdrop build (shared static builders).
+
+**Human sign-off:** playground only; agents attach before/after PNGs under `.tmp/` for seeds 1/7/12.
+
+### SD-HILLS-9 — Performance budget (measurement contract)
+
+Incremental over current backdrop (GD table — mechanical):
+
+| Metric | Budget |
+|--------|--------|
+| Hill terrain `MeshInstance3D` | ≤ 2 |
+| Hill terrain triangles | ≤ 24k total |
+| Hill forest MultiMesh | 1 |
+| Hill forest `instance_count` | target 320, hard cap 500 |
+| New draw surfaces | ≤ +4 |
+| Total backdrop tris | still < 120k (`test_village_backdrop.gd`) |
+| Per-tree `Node3D` | 0 |
+| Shadows | terrain OFF; hill trees OFF (match FarTreeline) |
+
+Probe: `tools/hills_budget_probe.gd` (or extend `tools/count_budget.gd`) logs counts after build
+on seed 7.
+
+### SD-HILLS-10 — Acceptance mapping (mechanical vs fuzzy)
+
+| ID | Statement | Tier |
+|----|-----------|------|
+| AC-H1 | Seeds 1/7/12: hill terrain mesh exists, `instance_count` hill forest > 0 | Mechanical |
+| AC-H2 | No sample on lawn disc (`r ≤ lawn_radius`, 8×8 grid) has `sample_y > y_lawn + 0.15` | Mechanical |
+| AC-H3 | No hill-forest position fails `site_ok_hill` (cottage/path/pond/hero/corridor/backdrop/lawn) | Mechanical |
+| AC-H4 | `test_production_backdrop_visible_in_camsun` unchanged (≥12 trees in view) | Mechanical |
+| AC-H5 | `test_village_backdrop` triangle count < 120k after hills | Mechanical |
+| AC-H6 | CamSun + edge_outward geometry probe: max terrain ray hit angle > 2° at horizon sample (not flat ramp) | Mechanical |
+| AC-H7 | Playground loads; parity hash/probes for seeds 1/7/12/240424020 | Mechanical |
+| AC-H8 | Budget probe within SD-HILLS-9 table | Mechanical |
+| AC-H9 | Before/after PNGs linked `.tmp/` camsun + edge_outward per seed | Mechanical (capture) |
+| AC-H10 | Layered ridges read darker→paler through fog at lawn edge | **Fuzzy** (human) |
+| AC-H11 | No obvious infinite tabletop / single flat ramp horizon | **Fuzzy** (human) |
+| AC-H12 | User playground review sign-off | **Fuzzy** (human) |
+
+**Proposed tests (Gameplay Programmer):**
+
+- `test/test_hills_heightfield.gd` — AC-H2, seam continuity, determinism probes.
+- `test/test_hills_forest_safety.gd` — AC-H3 (generalize `test_forest_backdrop_safety.gd`).
+- `test/test_hills_parity.gd` — AC-H7 (hash heights + forest XZ).
+- `test/test_hills_horizon_probe.gd` — AC-H6.
+- `test/test_hills_playground_scene.gd` — scene load + rebuild.
+- Extend `test_village_world_scale.gd` / `test_generated_village_backdrop.gd` for `HillTerrain` radii.
+
+### SD-HILLS-11 — Example scenarios
+
+1. **Seed 7, CamSun:** player sees backdrop pines at 40–55 m; beyond them layered hills with
+   scattered pine silhouettes; fog softens far crests.
+2. **Seed 1, edge outward:** camera at lawn rim facing outward; rolling ridgelines fill former flat
+   wedge; no terrain spike on lawn.
+3. **Playground variant 1:** designer toggles flat legacy to compare pre–ivy-ska0 ramp vs rolling
+   production on same seed.
+
+### SD-HILLS-12 — Non-goals
+
+Same as Game Director ivy-ska0 non-goals: no walkable hills, no mixed species, no grass/bushes on
+hills, no shrinking CamSun backdrop, no collision, no agent-finalized look without human playground
+sign-off.
+
+### SD-HILLS-13 — Handoff to Gameplay Architect
+
+Plan: (a) `HillsParams` + `HillsKnobSpec` + static builders
+`HillsHeightfield` / `HillsForestPlacement`, (b) `VillageBackdrop` wiring and salt constants,
+(c) playground scene parity with `forest_playground` patterns, (d) shader hook for fog tint with
+production-safe default off-path, (e) GUT tests AC-H1–H9. Preserve: MultiMesh-only trees,
+`ForestPlacement` backdrop untouched, determinism via `_derive`, INV no collision on backdrop.
+
+---
+
+## AR-HILLS — Rolling hill forest backdrop architecture *(ivy-ska0)*
+
+**Consumes:** SD-HILLS-1..13, Game Director / Systems Designer handoffs on bead **ivy-ska0**, G7 /
+`.cursor/rules/algorithm-playgrounds.mdc`. **Builds on:** `VillageBackdrop._add_hill_ring` /
+`_add_hill_annulus` / `LAWN_GROUND_Y_OFFSET` / `_lawn_ground_material()` /
+`_create_scatter` / `_add_multimesh`, `VillageScatterPositions` → `ForestPlacement` (production
+`FarTreeline`), `ForestParams` + `ForestKnobSpec` + `forest_playground.gd` patterns,
+`ForestPlaygroundCamera` (CamSun / fog anchor), `HeroFog.haze_at_world_point` +
+`WorldFogParams.production()`, `VillageLayout._derive` salts, `tools/fog_v2_evidence_capture.gd`
+edge camera specs. **Next handoff:** Gameplay Programmer. **This section plans; it does not
+implement.**
+
+### AR-HILLS-1 — System goal (implementation terms)
+
+Generated villages (`layout.is_generated`) replace the flat `HillRing` mesh with a **seeded
+heightfield annulus** (`HillTerrain`) and an **additive** `HillForest` MultiMesh of Pine_2 on slopes
+outside the CamSun backdrop band. Classic `authored()` keeps **variant 1 flat legacy** geometry via
+the same builders (zero gameplay change, INV-15). All placement + mesh generation lives in **`static`
+RefCounted helpers** under `src/playground/`; `VillageBackdrop` only orchestrates calls with
+`HillsParams.production()`. Playground uses the **identical** helpers — no demo fork. Production
+`FarTreeline` continues to call `VillageScatterPositions.forest_tree_positions` →
+`ForestPlacement` variant 0; hill forest never mutates backdrop transforms.
+
+### AR-HILLS-2 — Decision 1: classic vs generated gate = **`is_generated` only**
+
+- **Generated (`layout.is_generated`):** `HillsParams.production()` variant `0` → rolling
+  `HillTerrain` + `HillForest` with `r_inner_m` / `r_outer_m` from params (defaults **58 / 135** m
+  about **G**), not `layout.hill_inner` (56 m ring start on the old ramp).
+- **Classic (`authored()`):** skip rolling hills; builders emit **variant 1** flat annulus
+  (`_add_hill_annulus` equivalent) with `r_inner = layout.hill_inner` (20 m), `outer = 140`,
+  `0 → y_lawn + 7.5` — **bit-identical** to current `HillRing` except node rename optional for
+  tests (see backward-compat).
+- **Playground:** variant dropdown `0 / 1 / 2` per SD-HILLS-2 on **generated** layouts only; classic
+  layout seed in playground is non-goal v1 unless trivial.
+
+This matches GD epic scope (seeds **1 / 7 / 12**) without re-tuning classic cottage fog reads.
+
+### AR-HILLS-3 — Decision 2: fog ridge tint = **CPU `HillsFogTint` + per-vertex COLOR + MultiMesh `use_colors`**
+
+**Rejected: new globals or live volumetric in terrain shader.** `village_ground.gdshader` has no fog
+anchor; volumetric `WORLD_AROUND_HERO` cannot be replicated cheaply in GLSL without duplicating
+`HeroFog.optical_depth_along_ray` (CPU-only today).
+
+**Chosen (production + playground):**
+
+1. **`HillsFogTint`** (`src/playground/hills_fog_tint.gd`, static `RefCounted`): wraps
+   `HeroFog.haze_at_world_point(fog_model, camera_pos, world_pt, anchor, begin, end,
+   WorldFogParams.production())` with **fixed reference camera** =
+   `ForestPlaygroundCamera.camsun_position()` for terrain/tree bake (same anchor as
+   `ForestPlaygroundCamera.hero_fog_anchor_world()`). Playground may pass current `Camera3D`
+   origin each rebuild for interactive preview; production village bakes once at build time.
+2. **Terrain:** when `ridge_fog_tint_on`, `SurfaceTool` sets **vertex COLOR** =
+   `HillsFogTint.albedo_color_for_haze(haze, params)` at each sample; HillTerrain uses a **duplicate**
+   `ShaderMaterial` from `_lawn_ground_material()` with `shader` swap to
+   `village_ground_hills.gdshader` (fork of `village_ground.gdshader`) that multiplies patch albedo by
+   `COLOR.rgb` in `fragment()` — **production lawn disk untouched** (original shader, no COLOR).
+3. **Hill trees:** `_add_multimesh_hill_forest` sets `MultiMesh.use_colors = true` and per-instance
+   `instance_color` from the same `HillsFogTint` at trunk base XZ; `material_override` duplicates
+   Pine_2 surface 0 `StandardMaterial3D` with `vertex_color_use_as_albedo = true` (hill forest node
+   only; `FarTreeline` unchanged, `use_colors` false).
+
+**Tests** assert monotonic haze vs G-distance on outward rays using `HillsFogTint`, not GLSL.
+
+SD-HILLS-6 cites `HeroFog.world_haze_at` — **does not exist**; implementers must use
+`HeroFog.haze_at_world_point` / shared `HillsFogTint` (see **AR-HILLS-11** gaps).
+
+### AR-HILLS-4 — Decision 3: heightfield module = **pure static `HillsHeightfield`**
+
+- **`HillsHeightfield.sample_y(xz, layout, params, terrain_state) -> float`** — SD-HILLS-3 formula;
+  `terrain_state` = `VillageLayout._derive(layout.seed, HILLS_TERRAIN_SALT)` when not overridden.
+- **`HillsHeightfield.layer_band_weight(i, r, layout, params) -> float`** — implement GD crest bands:
+  layer 0–1 weight peak when `r` from G ∈ **[70, 90]** m; layer 2 when **r ∈ [95, 120]** m (smooth
+  Gaussian bumps); **not** in `HillsParams` table — hardcode band centres/widths as private constants
+  unless SD adds knobs.
+- **`ridge_sharpness`** prod **0.15** — private constant in `hills_heightfield.gd` (missing from
+  SD-HILLS-2 schema; see gaps).
+- **`HillsHeightfield.build_annulus_mesh(layout, params) -> ArrayMesh`** — grid
+  `grid_cells × azimuth_segs`, triangle count ≤ 24k; centre **G** =
+  `layout.hamlet_centre_xz`; writes normals + optional vertex colors via `HillsFogTint`.
+- **`HillsHeightfield.sample_slope_deg(xz, layout, params, terrain_state, eps_m := 0.4) -> float`**
+  — central difference on `sample_y` for forest scatter.
+- **Variant 1:** delegate to extracted **`HillsHeightfield.build_flat_legacy_mesh(layout)`** wrapping
+  existing `_add_hill_annulus` topology (rename node **`HillTerrain`** or keep dual name for one
+  release — prefer **`HillTerrain`** + update tests).
+- **Variant 2:** production params with `layer_count = 4`, amplitudes ×1.25 (SD preset); fourth layer
+  uses amplitude **11.0** default if array short.
+
+**Phase / wavelength:** `layer_phase_deg[i]` = `(lcg_f01(terrain_state) * 360)` per layer from
+derived LCG stream; optional ±3% wavelength jitter per SD-HILLS-4 on second LCG draw per layer.
+
+### AR-HILLS-5 — Decision 4: hill forest = **`HillsForestPlacement` beside `ForestPlacement`**
+
+- **Do not** extend `ForestPlacement` — backdrop variant 0 stays isolated.
+- **`hill_forest_transforms(layout, params, terrain_state, backdrop_trees_xz) -> Array[Transform3D]`**
+  — SD-HILLS-5 loop; LCG start =
+  `params.lcg_seed` if `>= 0` else `VillageLayout._derive(layout.seed, HILLS_FOREST_SALT)`.
+- **`site_ok_hill(p, layout, params, backdrop_trees_xz) -> bool`** — SD exclusion table; delegate
+  cottage/path/plaza to same calls as `ForestPlacement._site_ok` / `_site_ok_backdrop`; **lawn** rule
+  `p.distance_to(G) < layout.lawn_radius + 0.01`; backdrop band reject via
+  `ForestPlacement._camsun_cam_horizontal_dist(p, ForestParams.production())` ∈
+  `[backdrop_cam_dist_lo_m, backdrop_cam_dist_hi_m]` **and** forward hemisphere check from
+  `_backdrop_weight` pattern; CamSun corridor via
+  `ForestPlacement.forest_blocks_camsun_view(p, ForestParams.production())`.
+- **`hemisphere_weight(φ)`** — CamSun forward = **+Z** in layout space (match
+  `ForestPlaygroundCamera.camsun_forward()`); compare `φ` to `atan2` of forward.
+- **`slope_weight(p)`** — `exp(-0.5 * ((slope - slope_prefer_deg) / 12°)²)` (SD silent; architect
+  default).
+- **`edge_falloff(r)`** — smoothstep from `forest_r_min_m` and `forest_r_max_m` (10% soften at edges).
+- **`w_max`** = **1.45** (reuse forest constant).
+- **Top-up:** only relax slope Gaussian width, never exclusions.
+
+**Transform Y:** `sample_y(p)`; yaw uniform; scale uniform; basis Y = up (no micro-tilt v1).
+
+### AR-HILLS-6 — Decision 5: `VillageBackdrop` build order and layering
+
+**`_ready` order (edit):**
+
+```
+_layout = _make_layout()
+… pond, paths unchanged …
+_add_village_lawn_ground()
+_add_hill_terrain(HillsParams.production())     # NEW — before scatter so terrain sits “behind”
+_setup_multimesh_scatter(path_stones)            # FarTreeline unchanged inside
+_add_hill_forest(HillsParams.production())      # NEW — after FarTreeline
+```
+
+Remove bare `_add_hill_ring()` call.
+
+**Nodes:**
+
+| Name | Type | Shadow | Material |
+|------|------|--------|----------|
+| `HillTerrain` | `MeshInstance3D` | OFF | `village_ground_hills.gdshader` instance (generated rolling) or lawn shader (classic flat) |
+| `FarTreeline` | `MultiMeshInstance3D` | ON (unchanged) | native glTF |
+| `HillForest` | `MultiMeshInstance3D` | OFF | duplicated Pine_2 + vertex color |
+
+**Depth / occlusion:** Backdrop pines at 40–55 m CamSun distance must visually sit **in front of**
+distant hill crests. Godot depth buffer handles overlap; enforce **no hill-tree** within
+`backdrop_exclusion_m` of any backdrop XZ and **no tall scatter** inside backdrop cam-distance band
+(site_ok_hill). Build **hill forest before FarTreeline** in the tree above so FarTreeline draws later
+(sibling order tie-breaker only; exclusions are the real guard).
+
+**`VillageBackdrop` private hooks:**
+
+```gdscript
+func _add_hill_terrain(params: HillsParams) -> void
+func _add_hill_forest(params: HillsParams) -> void
+func _hill_backdrop_trees_xz() -> Array[Vector2]  # VillageScatterPositions.forest_tree_xz(_layout)
+```
+
+Extract **`VillageBackdrop.build_hills_stage(layout, params) -> Dictionary`** returning
+`{terrain_mesh, forest_transforms, probe: Dictionary}` for parity tests (optional static on
+`HillsHeightfield` + `HillsForestPlacement` preferred — backdrop calls those directly).
+
+### AR-HILLS-7 — Module layout, files, and public APIs
+
+| File | New/Edit | Responsibility |
+|------|----------|----------------|
+| `src/world/village_layout.gd` | **edit** | `const HILLS_TERRAIN_SALT := 0xB1175C3`, `const HILLS_FOREST_SALT := 0xF0E557A` next to existing salts. |
+| `src/playground/hills_params.gd` | **new** | `HillsParams : Resource` — SD-HILLS-2 fields; mirror `ForestParams` API (`production()`, `duplicate_params`, dict/JSON, presets, `matches_preset`). |
+| `src/playground/hills_knob_spec.gd` | **new** | `HillsKnobSpec` static table → `KnobPanel` (reuse `knob_panel.gd`). |
+| `src/playground/hills_heightfield.gd` | **new** | Static height sampling + mesh build + legacy flat variant. |
+| `src/playground/hills_forest_placement.gd` | **new** | Scatter + `site_ok_hill`. |
+| `src/playground/hills_fog_tint.gd` | **new** | CPU haze → color for terrain verts + tree instances. |
+| `src/render/shaders/village_ground_hills.gdshader` | **new** | Copy `village_ground.gdshader`; `ALBEDO *= COLOR.rgb` in fragment when vertex color set. |
+| `src/world/village_backdrop.gd` | **edit** | Wire AR-HILLS-6; keep `_add_hill_annulus` as package-level helper for legacy mesh; update header shadow comment (`HillTerrain`). |
+| `src/playground/hills_playground.gd` | **new** | Controller mirroring `forest_playground.gd` (Stage, fog volume, camera presets, rebuild debounce, `--out=` CLI). |
+| `scenes/playground/hills_playground.tscn` | **new** | WorldEnvironment, DirectionalLight, Camera, Stage, CanvasLayer + KnobPanel. |
+| `tools/hills_budget_probe.gd` | **new** | Instantiates generated backdrop seed 7; logs terrain tris, `HillForest.instance_count`, MeshInstance3D + MultiMesh surface counts. |
+| `tools/hills_evidence_capture.gd` | **new** (optional) | Thin wrapper: seeds 1/7/12, `camsun` + `edge_outward` specs copied from `fog_v2_evidence_capture._shot_specs`, writes `.tmp/hills/after/`. |
+
+**Signature summary (implementer-facing):**
+
+```gdscript
+# hills_params.gd
+class_name HillsParams
+const SCHEMA := "hills_playground.v1"
+static func production() -> HillsParams
+func effective_fog_begin(layout: VillageLayout) -> float
+func effective_fog_end(layout: VillageLayout) -> float
+
+# hills_heightfield.gd
+class_name HillsHeightfield
+static func terrain_seed(layout: VillageLayout, params: HillsParams) -> int
+static func sample_y(xz: Vector2, layout: VillageLayout, params: HillsParams, terrain_seed: int) -> float
+static func sample_slope_deg(xz: Vector2, layout: VillageLayout, params: HillsParams, terrain_seed: int) -> float
+static func build_mesh(layout: VillageLayout, params: HillsParams) -> ArrayMesh
+
+# hills_forest_placement.gd
+class_name HillsForestPlacement
+static func hill_forest_transforms(
+    layout: VillageLayout,
+    params: HillsParams,
+    terrain_seed: int,
+    backdrop_trees_xz: Array[Vector2]) -> Array[Transform3D]
+static func site_ok_hill(
+    p: Vector2, layout: VillageLayout, params: HillsParams,
+    backdrop_trees_xz: Array[Vector2]) -> bool
+
+# hills_fog_tint.gd
+class_name HillsFogTint
+static func reference_camera_pos() -> Vector3
+static func haze_at(
+    world: Vector3, layout: VillageLayout, fog_begin: float, fog_end: float,
+    camera_pos: Vector3, model: HeroFog.FogModel) -> float
+static func color_for_world(world: Vector3, params: HillsParams, layout: VillageLayout,
+    fog_begin: float, fog_end: float, camera_pos: Vector3) -> Color
+```
+
+**`VillageBackdrop._add_multimesh` extension:** add optional `instance_colors: PackedColorArray`
+parameter; when non-empty, set `mm.use_colors = true` and fill buffer (pattern from `leaf_renderer.gd`).
+
+### AR-HILLS-8 — Playground architecture
+
+Mirror **`forest_playground.gd`** responsibilities:
+
+- `_rebuild_layout_and_stage()`: `VillageLayout.generate(_params.layout_seed)`, Stage position =
+  `ForestPlaygroundCamera.backdrop_origin()`, rebuild lawn disc reference, **`HillsHeightfield.build_mesh`**
+  + **`HillsForestPlacement.hill_forest_transforms`** with live params; optional small
+  `FarTreeline` preview **off** by default (non-goal clutter) unless needed for CamSun compare —
+  **architect:** include **thin** backdrop preview using `ForestPlacement.forest_tree_xz` as wireframe
+  markers or full MultiMesh at reduced opacity is **non-goal**; QA uses main game captures.
+- Fog: same `WorldFogVolume` + `HeroFog.FogModel.WORLD_AROUND_HERO` path as forest playground;
+  `fog_begin_m` / `fog_end_m` overrides from params when `> 0`.
+- Cameras: `ForestPlaygroundCamera.apply_camsun`, edge outward/inward transforms from
+  `fog_v2_evidence_capture._shot_specs` logic (factor shared static on `ForestPlaygroundCamera` or
+  duplicate minimum), free orbit via `DebugCamera`.
+- UI: `KnobPanel` + `HillsKnobSpec.all_knobs()`, presets Production / Flat legacy / High ridges,
+  Copy-out JSON schema `hills_playground.v1`.
+- CLI: `--out=`, `--seed=`, `--variant=`, `--preset=`, `--camera=` (match forest playground).
+
+**Parity (SD-HILLS-8):** for each seed in `[1, 7, 12, 240424020]`, assert probe heights at fixed
+XZ grid and hash of sorted hill-forest XZ equal between `build_mesh` + `hill_forest_transforms` and
+`VillageBackdrop` generated instance after `_ready` (subclass or test harness with `generate` layout).
+
+### AR-HILLS-9 — Test plan (Gameplay Programmer; test-first)
+
+| Test file | Maps to | Notes |
+|-----------|---------|-------|
+| `test/test_hills_params.gd` | schema | defaults == `HillsParams.production()`; dict round-trip; presets. |
+| `test/test_hills_heightfield.gd` | AC-H2 | lawn grid sanctity; seam continuity at `r_inner_m`; determinism probes; variant 1 matches legacy heights at sample points. |
+| `test/test_hills_forest_safety.gd` | AC-H3 | every accepted position passes `site_ok_hill`; generalize patterns from `test_forest_backdrop_safety.gd`. |
+| `test/test_hills_parity.gd` | AC-H7, SD-HILLS-8 | seeds 1/7/12/240424020; shared builders vs backdrop. |
+| `test/test_hills_horizon_probe.gd` | AC-H6 | geometry ray from edge_outward eye; max terrain elevation angle > 2°. |
+| `test/test_hills_playground_scene.gd` | playground load | headless instantiate; rebuild; variant 0 default. |
+| **edit** `test/test_village_world_scale.gd` | radii | `HillRing` → `HillTerrain`; assert inner sample radius ≈ `HillsParams.production().r_inner_m` for generated (not `GENERATED_HILL_INNER` 56 unless toe blends). |
+| **edit** `test/test_generated_village_backdrop.gd` | AC-H1 | node name `HillTerrain`; hill forest child exists when generated. |
+| **keep green** `test_village_backdrop.gd` | AC-H5 | total tris < 120k; update comments if HillTerrain replaces HillRing. |
+| **keep green** `test_production_backdrop_visible_in_camsun` | AC-H4 | unchanged backdrop path. |
+
+**`run-ui-script`:** not primary — use main-game capture tooling + playground CLI like
+`fog_v2_evidence_capture.gd`. Optional smoke after integration: no new multi-step HUD flow.
+
+**Budget (AC-H8, SD-HILLS-9):** `tools/hills_budget_probe.gd` prints table; wire into QA notes at
+implement close.
+
+### AR-HILLS-10 — Screenshot and evidence procedure
+
+**Step 0 (before any code change):** Non-headless Godot. Generated seeds **1, 7, 12**; shots
+**`camsun`** + **`edge_outward`** using `tools/fog_v2_evidence_capture.gd` shot definitions (or
+`hills_evidence_capture.gd` once added) with output under **`.tmp/hills/before/`** (full workspace
+paths in bead notes). macOS: `--headless` produces no PNG.
+
+**After implementation:** Same harness → **`.tmp/hills/after/`**; link before/after pairs in QA bead
+notes. Run **`hills_budget_probe.gd`**; record instance counts, draw surfaces, triangle totals.
+
+### AR-HILLS-11 — SD spec gaps / contradictions (return to Systems Designer if blocking)
+
+| Item | Issue | Architect resolution |
+|------|--------|----------------------|
+| `HeroFog.world_haze_at` | Not in `hero_fog.gd` | Use `HillsFogTint` + `haze_at_world_point` (AR-HILLS-3). |
+| `ridge_sharpness` | Used in SD-HILLS-3 formula, not in `HillsParams` | Private const `0.15` in `HillsHeightfield`; optional future knob. |
+| `layer_band_weight` | Referenced but undefined | Implement GD bands in AR-HILLS-4; constants unless SD amends schema. |
+| `layout.hill_inner` (56) vs `r_inner_m` (58) | Two inner radii | Generated rolling uses **params**; `layout.hill_inner` only for **classic flat** variant. |
+| SD-HILLS-9 shadows | “hill trees OFF (match FarTreeline)” but FarTreeline is **ON** | **HillForest OFF**; **FarTreeline ON** unchanged (GD perf). |
+| `test_generated_village_backdrop` comment “30 m” | Stale; asserts `GENERATED_HILL_INNER` 56 | Update test to `HillTerrain` + `r_inner_m` when implementing. |
+| `edge_falloff` / `slope_weight` | Undefined | Architect defaults in AR-HILLS-5. |
+| High-ridges preset | `layer_count` 4 with 3 default amplitudes | Pad 4th amplitude in preset apply. |
+| Hill forest shadows OFF vs backdrop ON | Visual hierarchy | Accept; backdrop trees keep shadow read. |
+
+Non-blocking: file as SD clarifications; implementer proceeds with architect table above.
+
+### AR-HILLS-12 — Risks, backward-compat, non-goals
+
+**Risks.** (R1) **Triangle budget** — grid 128×128×2 > 24k → cap `grid_cells * azimuth_segs` in
+builder or assert in test. (R2) **Backdrop double-stack** — mitigate via `site_ok_hill` +
+`backdrop_exclusion_m` + cam-distance band. (R3) **Tint bake vs live volumetric fog** — CPU tint is
+approximate; fuzzy QA owns look; disable tint knob if mismatch. (R4) **Classic regression** —
+generated gate + variant 1 path must preserve classic `HillRing` radii/y for `authored()`. (R5)
+**Headless MultiMesh buffer** — reuse existing `mm.buffer` pattern in `_add_multimesh`. (R6)
+**Pine material vertex color** — verify Forward+ albedo path on duplicated `StandardMaterial3D`.
+
+**Backward-compat.** Classic village render unchanged; `FarTreeline` placement unchanged;
+`ForestPlacement` / `ForestParams` untouched; no collision layers; `VillageScatterPositions` public
+API unchanged (optional: expose `forest_tree_xz` already used internally). Generated: `HillRing` node
+renamed **`HillTerrain`** — update tests only. `layout.hill_inner` field retained for flat classic.
+
+**Non-goals (architect).** Walkable hills; camera bounds change; hill physics; mixed tree species;
+grass/bushes on hills; shrinking/replacing CamSun backdrop; real-time terrain streaming;
+agent-chosen final look; editing `ForestPlacement` backdrop variant 0; new tree assets; coupling to
+sim save state; **classic rolling hills** unless zero-cost (deferred).
+
+### AR-HILLS-13 — Handoff to Gameplay Programmer (ivy-ska0 implement stage)
+
+Implement **test-first** in this order:
+
+0. **Evidence:** capture BEFORE PNGs seeds 1/7/12 → `.tmp/hills/before/` (AR-HILLS-10 step 0).
+1. **`HillsParams` + `HillsKnobSpec`** + `test_hills_params.gd`.
+2. **`VillageLayout` salts** + `HillsHeightfield` (`sample_y`, legacy variant 1) + `test_hills_heightfield.gd`.
+3. **`HillsForestPlacement`** + `test_hills_forest_safety.gd`.
+4. **`HillsFogTint` + `village_ground_hills.gdshader`** (tint optional off path).
+5. **`VillageBackdrop` wiring** (`_add_hill_terrain`, `_add_hill_forest`, multimesh colors) + extend
+   `test_generated_village_backdrop.gd` / `test_village_world_scale.gd`; green `test_village_backdrop.gd`.
+6. **`test_hills_parity.gd`**, `test_hills_horizon_probe.gd`.
+7. **`hills_playground` scene + script** + `test_hills_playground_scene.gd`.
+8. **`tools/hills_budget_probe.gd`**; AFTER PNGs → `.tmp/hills/after/` + budget log in bead notes.
+
+Cite **`AR-HILLS-*`** and **`SD-HILLS-*`** in close notes. Preserve MultiMesh-only trees,
+`ForestPlacement` backdrop untouched, determinism via `_derive`, INV no collision on backdrop.
+
+---
+
 ## SD-PLAY-GRASS — Grass wind playground spec *(ivy-6w1, epic ivy-dl6)*
 
 **Contracts:** G7 + `DESIGN.md` § *Algorithm playgrounds* (ratified 2026-11-06),
@@ -5775,4 +6416,690 @@ targeted `-gtest=`. Test-first per slice. **File the camera/fauna-LOD follow-up 
 not implemented here. Do **not** redesign the generation math (owned by SD) or expand scope
 (AR-VG-NONGOAL). Hand the implement bead's `--notes` (tests + classic
 equivalence evidence + the 200-seed sweep result + screenshot paths) to the Code Reviewer (ivy-80z.4).
+
+---
+
+## SD-VILLAGE-TERRAIN — In-village lawn terrain height *(ivy-82zn)*
+
+**2026-11-13:** Production rolling relief ~2× original (`base_amplitude_m` **0.68**, `knoll_height_m` **0.72**; path quiet floor **0.72**; `_open_lawn_relief_scale` removed from compose; hero soft-edge skips pad skirts); path/pad/cap invariants unchanged.
+
+**Contracts:** G7 + `DESIGN.md` § *Algorithm playgrounds*, `.cursor/rules/algorithm-playgrounds.mdc`,
+Game Director handoff on bead **ivy-82zn** (`.tmp/ivy-82zn-gd-handoff.md`: vision, perf budget,
+acceptance split, open-question defaults). **Builds on:** `VillageLayout._derive` sub-stream salts
+(SD-VILLAGE-GEN-2), `VillageBackdrop` build order (`_add_village_lawn_ground` / `_add_village_pond` /
+`_setup_multimesh_scatter`), `LAWN_GROUND_Y_OFFSET` (−0.03 m) + `World/Ground` plane at y=0,
+`HillsHeightfield.sample_y` (rim interface only — **do not edit `hills_*.gd` internals**, ivy-ska0 is
+being retuned to a 2×-farther **north-only** wedge), `HillsNoise.fbm_height_01`, `VillagePondSite`
+scale constants, `CameraBounds` lawn disc, `VillageScatterPositions`. **Supersedes** spike **ivy-bqx**
+(do not implement ivy-bqx separately). **Next handoff:** Gameplay Architect (ivy-82zn.3). **This
+section specifies; it does not implement.**
+
+> **Open-question defaults (assumed pending human answer — GD "recommended").** Each is wired as a
+> playground knob so the human can overturn it without a code change: **(A1)** wanderer follows
+> `sample_y` **on path polylines only**, off-path figures stay at datum; **(A2)** caps = max rise
+> **+0.8 m**, pond depression **−0.6 m**, max path slope **8°**; **(A3)** terrain **on by default** for
+> generated seeds (`variant = 0`, `base_amplitude_m > 0`) with a `variant = 1` flat-legacy switch for
+> opt-out/parity; **(A4)** ivy-bqx formally superseded and closed when this epic ships. These are
+> flagged again in **SD-VILLAGE-TERRAIN-12**.
+
+### SD-VILLAGE-TERRAIN-1 — System goal (design terms)
+
+Replace the **flat lawn** (`World/Ground` plane at y=0 + `LawnGround` disc at `LAWN_GROUND_Y_OFFSET`,
+all scatter rooted at y=0.0) inside the generated village disc `r ≤ layout.lawn_radius` (≈56 m, centre
+**G** = `layout.hamlet_centre_xz`) with a **deterministic, gentle heightfield**: a low-amplitude
+procedural base field plus **layout-anchored stamps** (hero sanctum flat, cottage pads, pond basin,
+optional plaza plateau, optional knolls). A single sampler `VillageTerrain.sample_y(xz)` is the
+**single source of truth** for every lawn placement Y — mesh, grass, stones, cottages, pond banks,
+scatter, fauna, and (opt-in) wanderer. Terrain is **presentation + placement only**: no collision, no
+nav mesh, no change to ivy growth, planting band, or sim. Classic / authored layouts stay **byte-flat**
+(INV-15). From every allowed camera the lawn reads as a **soft lived-in clearing**, with a **continuous
+rim** to the outer hills and **unobstructed east/west sun horizons** for CamSun.
+
+**Inputs:** `VillageLayout` (generated seed: `hamlet_centre_xz`, `lawn_radius`, `cottages`,
+`pond_center`, `plaza_rect`, `path_polylines()`, `HERO_DOOR_STOOP`), `VillageTerrainParams`
+(production defaults), the terrain LCG salt (SD-VILLAGE-TERRAIN-5). **Outputs:** one displaced lawn
+`MeshInstance3D` (**`LawnTerrain`**, single source of visible lawn surface inside the disc), baked Y
+on all lawn scatter transforms, pond water/bank Y, and (opt-in) wanderer path-vertex Y.
+Deterministically rebuilt each village load.
+
+### SD-VILLAGE-TERRAIN-2 — `VillageTerrainParams` schema
+
+Resource: `src/playground/village_terrain_params.gd` (mirror `HillsParams` / `ForestParams` API).
+`const SCHEMA := "village_terrain_playground.v1"` · `PRESET_PRODUCTION := "Production"` ·
+`duplicate_params()`, `reset_to_production()`, `to_dict()` / `from_dict()`, `to_json_block()`,
+`presets()`, `apply_preset(name)`, `matches_preset()`. Static `VillageTerrainParams.production()`
+returns a fresh resource with every field at production default (parity target). Playground **and**
+`VillageBackdrop` call the **same** static builders with this resource — no demo fork.
+
+**Datum convention.** `Y_BASE := 0.0` (the current `World/Ground` plane and today's scatter-root
+plane). `sample_y(xz) = Y_BASE + h(xz)` where `h` is the composed relative displacement (0 everywhere
+for flat legacy → byte-parity with today). The cosmetic `LAWN_GROUND_Y_OFFSET` (−0.03 m) becomes a
+constant sub-surface offset below `sample_y`, not an independent plane.
+
+| Group | Field | Prod default | PG min | PG max | Rule |
+|-------|-------|--------------|--------|--------|------|
+| Stage | `variant` | `0` | — | — | `0` = rolling (production), `1` = flat legacy (`sample_y ≡ 0.0`, parity), `2` = high relief (A/B only, ×1.6 amplitudes). |
+| Stage | `layout_seed` | `7` | 1 | 999999999 | `VillageLayout.generate(seed)`. |
+| Base | `base_amplitude_m` | **0.64** | 0.0 | 0.8 | Peak magnitude of zero-mean base noise (`h ∈ ≈[−a,+a]`). `0.0` ⇒ flat base. **2026-11-13 bold gentle relief:** long λ `base_feature_m=48`, 2 fBm octaves, wide knolls (`knoll_radius_m=12`); path quiet floor 0.52 when `base_feature_m≥40`. |
+| Base | `base_feature_m` | **26.0** | 12.0 | 48.0 | Primary wavelength of `fbm_height_01`. |
+| Base | `noise_octaves` | **3** | 1 | 5 | fbm octaves. |
+| Base | `noise_persistence` | **0.5** | 0.3 | 0.7 | fbm persistence. |
+| Base | `warp_strength` | **0.25** | 0.0 | 0.6 | Domain warp (breaks grid feel). |
+| Base | `center_bias_gain` | **1.0** | 0.5 | 1.6 | `>1` lifts relief toward G (knoll-y green), `<1` dishes toward G. |
+| Base | `dir_bias_gain` | **0.0** | 0.0 | 0.5 | Optional azimuthal lift (independent of outer-hill north retune). |
+| Base | `dir_bias_phi_deg` | **0.0** | 0.0 | 360.0 | Azimuth of directional lift. |
+| Seam | `rim_blend_m` | **5.0** | 3.0 | 8.0 | Radial width over which base `h → 0` at `r = lawn_radius` (C0 rim). |
+| Seam | `rim_eps_m` | **0.05** | — | — | Mechanical rim tolerance vs outer `HillsHeightfield.sample_y` (SD-VILLAGE-TERRAIN-6). |
+| Caps | `max_rise_m` | **0.8** | 0.2 | 1.2 | Hard clamp on positive `h` (A2). |
+| Caps | `max_depression_m` | **0.6** | 0.2 | 1.0 | Hard clamp on negative `h` (covers pond). |
+| Caps | `max_path_slope_deg` | **8.0** | 4.0 | 12.0 | Mechanical ceiling on `sample_slope_deg` sampled along every path polyline (A2; human-approved 2026-11-11). |
+| Hero | `hero_flat_r_m` | **7.0** | 5.0 | 9.0 | Flat-disc radius about `HERO_DOOR_STOOP`, `h_target = 0` (sim/planting sanctity). |
+| Hero | `hero_skirt_m` | **3.0** | 1.5 | 5.0 | Smooth blend from flat disc to surrounding field. |
+| Pads | `pad_margin_m` | **0.6** | 0.2 | 1.5 | Grow `cottage_exterior_rect` before flattening. |
+| Pads | `pad_skirt_m` | **1.6** | 0.8 | 3.0 | Pad-edge blend width (sets edge slope). |
+| Pads | `pad_edge_slope_max_deg` | **8.0** | 4.0 | 12.0 | Mechanical cap on pad skirt slope (foundation readability). |
+| Pond | `pond_depth_m` | **−0.6** | −1.0 | −0.2 | Basin floor relative to local field (negative). |
+| Pond | `pond_floor_scale` | **1.0** | 0.6 | 1.4 | Floor radius = `MEAN_WATER_RADIUS_M × scale`. |
+| Pond | `pond_rim_extra_m` | **1.5** | 0.5 | 3.5 | Rim radius = `BANK_OUTER_M + extra` (where basin returns to field). |
+| Pond | `pond_lip_rise_m` | **0.12** | 0.0 | 0.3 | Raised lip at rim for bank scatter read. |
+| Pond | `pond_lip_sigma_m` | **1.2** | 0.5 | 2.5 | Lip Gaussian width. |
+| Pond | `pond_skirt_m` | **2.0** | 1.0 | 4.0 | Blend of basin stamp into base beyond rim. |
+| Pond | `pond_water_inset_m` | **0.10** | 0.03 | 0.30 | Water surface sits this far **below** the lip (water below lip, above floor). |
+| Plaza | `plaza_relief_m` | **0.0** | −0.3 | 0.3 | Plaza plateau offset vs local field (neutral default; must not block CamSun). |
+| Plaza | `plaza_skirt_m` | **2.0** | 1.0 | 4.0 | Plaza blend width. |
+| Knoll | `knoll_count` | **2** | 0 | 5 | Seeded additive mounds (A3 relief character). |
+| Knoll | `knoll_height_m` | **0.70** | 0.1 | 1.0 | Peak per mound (clamped by `max_rise_m`). |
+| Knoll | `knoll_radius_m` | **7.0** | 4.0 | 12.0 | Mound footprint radius. |
+| Knoll | `knoll_min_sep_m` | **10.0** | 6.0 | 20.0 | Min centre-to-centre spacing. |
+| Knoll | `knoll_hero_clear_m` | **12.0** | 8.0 | 20.0 | No mound centre within this of `HERO_DOOR_STOOP`. |
+| Knoll | `knoll_sun_corridor_half_deg` | **35.0** | 15.0 | 60.0 | Reject mound centres whose azimuth-from-G is within this of the sun east/west azimuths (SD-VILLAGE-TERRAIN-7 §camera/sun). |
+| Mesh | `terrain_mesh_step_m` | **2.0** | 1.0 | 3.5 | Lawn mesh cell size (resolution vs tri budget). |
+| Mesh | `normal_eps_m` | **0.35** | 0.1 | 0.6 | Central-difference step for `sample_normal`. |
+| Consumer | `wanderer_follow_terrain` | **true** | — | — | A1 — path-polyline vertices use `sample_y`; off-path figure Y stays datum. |
+| Consumer | `camera_ground_clearance_m` | **0.35** | 0.1 | 1.0 | Free/orbit eye `y` floored at `sample_y(eye.xz) + clearance` (anti-knoll-clip). |
+| Material | `rim_tint_match_on` | **true** | — | — | Lawn shader matches outer-hill rim albedo (fuzzy, pairs with ivy-ska0.1 tint tokens). |
+
+**Presets (initial):** `Production` (variant 0, all defaults), `Flat legacy` (variant 1), `High relief`
+(variant 2: `base_amplitude_m` 0.92, `knoll_count` 4, `knoll_height_m` 0.88 — A/B only). Non-matching
+edits fall to a `Custom` preset name (`HillsParams` pattern).
+
+### SD-VILLAGE-TERRAIN-3 — Sampling API & height composition contract
+
+Static class `VillageTerrain` (`src/playground/village_terrain.gd`, mirrors `HillsHeightfield`):
+
+```
+VillageTerrain.terrain_seed(layout, params) -> int           # _derive(norm, VILLAGE_TERRAIN_SALT)
+VillageTerrain.sample_y(xz, layout, params, t_seed) -> float # single source of truth, lawn placement Y
+VillageTerrain.sample_normal(xz, layout, params, t_seed, eps=normal_eps_m) -> Vector3
+VillageTerrain.sample_slope_deg(xz, layout, params, t_seed, eps=0.4) -> float
+VillageTerrain.build_mesh(layout, params) -> ArrayMesh       # displaced LawnTerrain
+VillageTerrain.knoll_centres(layout, params, t_seed) -> Array[Vector2]   # deterministic, for probes
+```
+
+**Flat legacy / classic gate.** If `params.variant == 1` **or** `not layout.is_generated`, `sample_y`
+returns `Y_BASE` (0.0) for all `xz` — byte-parity with today (INV-15). All following steps apply only
+to `variant == 0/2` on generated layouts.
+
+**`sample_y(xz)` composition** (polar `r = |xz − G|`, `φ = atan2(xz.x − G.x, xz.y − G.y)`):
+
+1. **Outside disc:** if `r ≥ lawn_radius` → return `Y_BASE` (rim datum; outside is the hills' domain,
+   SD-VILLAGE-TERRAIN-6).
+2. **Base field + knolls** (relative displacement `h`):
+
+   ```
+   n01   = HillsNoise.fbm_height_01(xz, t_seed, base_feature_m, noise_octaves,
+                                    noise_persistence, warp_strength)     // 0..1
+   h     = (n01 - 0.5) * 2.0 * base_amplitude_m                           // ≈[-a, +a]
+   bias  = lerp(1.0, center_bias_gain, 1.0 - clamp(r / lawn_radius, 0, 1))
+   dir   = 1.0 + dir_bias_gain * cos(deg_to_rad(dir_bias_phi_deg) - φ)
+   h    *= bias * dir
+   for c in knoll_centres(layout, params, t_seed):                       // additive mounds
+       h += knoll_height_m * fer(|xz - c|, 0.0, knoll_radius_m)
+   h     = clamp(h, -max_depression_m, max_rise_m)
+   h    *= rim_taper(r)                                                   // → 0 at r = lawn_radius
+   ```
+
+3. **Stamps** applied in ascending priority (**last wins where they overlap**), each as
+   *flatten-toward-target-by-weight* `h = lerp(h, h_target, w)`:
+   `base/knolls  <  plaza  <  pond basin  <  cottage pads  <  hero sanctum`.
+   Stamp targets and weights are defined in SD-VILLAGE-TERRAIN-4. The pond basin stamp may drive `h`
+   below `−max_depression_m` only down to `pond_depth_m` (which is within the cap at default).
+4. **Final safety clamp:** `h = clamp(h, -max_depression_m - 0.05, max_rise_m + 0.05)`.
+5. Return `Y_BASE + h`.
+
+**Smooth falloff primitives** (the only blend functions used; keep in one helper so playground =
+production):
+
+```
+smooth(t)             = t*t*(3 - 2*t)                       // C1 smoothstep, t in [0,1]
+rim_taper(r)          = 1 - smooth(clamp((r - (lawn_radius - rim_blend_m)) / rim_blend_m, 0, 1))
+# radial flat-core-then-skirt weight (1 inside r_core, 0 at/after r_skirt)
+fer(d, r_core, r_skirt):
+    if r_skirt <= r_core: return 1.0 if d <= r_core else 0.0
+    return 1 - smooth(clamp((d - r_core) / (r_skirt - r_core), 0, 1))
+# rectangle version: sdf = signed dist to rect (neg inside); fer_rect = fer(sdf, 0, skirt)
+```
+
+**`sample_normal` / `sample_slope_deg`:** central differences on `sample_y` (identical pattern to
+`HillsHeightfield._vertex_normal` / `sample_slope_deg`). `sample_normal` returns `Vector3.UP` where
+degenerate.
+
+### SD-VILLAGE-TERRAIN-4 — Stamp definitions (exact)
+
+All stamps return `(h_target, w)`; applied per step 3 above.
+
+**Knoll placement** `knoll_centres()` (deterministic, seeded; used by both field and probes). Draw up
+to `knoll_count` centres with a `VillageScatterPositions.lcg_step` / `lcg_f01` stream seeded from the
+knoll sub-salt (SD-VILLAGE-TERRAIN-5). For each candidate `p = G + (sin φ, cos φ)·r`,
+`r ∈ [0.25·lawn_radius, 0.85·lawn_radius]`, `φ ∈ [−π, π]`, reject if any hold:
+`|p − HERO_DOOR_STOOP| < knoll_hero_clear_m`; `layout.inside_any_cottage(p, 1.0)`;
+`|p − pond_center| < BANK_OUTER_M + knoll_radius_m`; `min_xz_dist_to_path(p) < knoll_radius_m·0.5`;
+azimuth-from-G within `knoll_sun_corridor_half_deg` of either sun horizon azimuth; within
+`knoll_min_sep_m` of an accepted centre. Cap attempts at `knoll_count·200`; accept fewer rather than
+relax clearances.
+
+**Hero sanctum** (priority = highest): `w = fer(|xz − HERO_DOOR_STOOP|, hero_flat_r_m, hero_flat_r_m +
+hero_skirt_m)`, `h_target = 0.0`. Inside `r < hero_flat_r_m`, `w = 1` ⇒ `h ≡ 0` exactly (datum), so
+the ivy wall, planting band and `ground_y_min` are untouched.
+
+**Cottage pads** (priority 4): for each `spec in layout.cottages`, `rect =
+VillageBackdrop.cottage_exterior_rect(spec).grow(pad_margin_m)`. Pad target = base field at the
+cottage centre evaluated **before any pad stamp** (`h_pad = h_base_only(centre)`), so pads settle into
+local relief rather than snapping to 0. `w = fer_rect(xz, rect, pad_skirt_m)`, `h_target = h_pad`. Pads
+with overlapping skirts resolve by the single `lerp` chain in cottage order (`layout.cottages`), which
+is deterministic. **Edge-slope guarantee:** `pad_skirt_m` must satisfy `pad_skirt_m ≥ Δh_max /
+tan(pad_edge_slope_max_deg)` where `Δh_max` is the largest pad-to-neighbour height step; implementer
+widens the skirt locally (or lowers amplitude) if the probe (AC-VT5) fails.
+
+**Production parity (2026-11):** `VillageTerrain` caches per-layout cottage pad datums with
+neighbour Δh relaxation and **per-cottage** `pad_skirt_m` from local Δh (≈5–8 m vs one global ≈26 m skirt),
+preserving partition-of-unity blend + AC-VT5; open-lawn span floor seed 7 raised to **0.48 m** in
+`test_production_open_lawn_relief_floor_seed7`.
+
+**Pond basin** (priority 3): `d = |xz − pond_center|`, `r_floor = MEAN_WATER_RADIUS_M·pond_floor_scale`,
+`r_rim = BANK_OUTER_M + pond_rim_extra_m`.
+
+```
+t      = clamp(d / r_rim, 0, 1)
+basin  = pond_depth_m * (1 - smooth(t))                               // deepest at centre, → 0 at rim
+lip    = pond_lip_rise_m * exp(-((d - r_rim)^2) / (2 * pond_lip_sigma_m^2))
+h_target = h_base_only(pond_center) + basin + lip                    // basin relative to local field
+w        = fer(d, r_floor, r_rim + pond_skirt_m)
+```
+
+**Water surface Y** (consumer, SD-VILLAGE-TERRAIN-7): `water_y = sample_y(pond_center) +
+(pond_lip_rise_m - pond_water_inset_m)` — strictly below the lip crest and above the floor, replacing
+the fixed `POND_WATER_Y_OFFSET`. Bank ring vertices follow `sample_y` per-vertex (replacing fixed
+`POND_BANK_Y_OFFSET`).
+
+**Plaza** (priority 2, present only if `layout.plaza_rect` valid): `rect = layout.plaza_rect`,
+`w = fer_rect(xz, rect, plaza_skirt_m)`, `h_target = h_base_only(plaza_centre) + plaza_relief_m`.
+Default `plaza_relief_m = 0` ⇒ a gentle flattening that never adds a CamSun-blocking crest.
+
+### SD-VILLAGE-TERRAIN-5 — Determinism and seed salts
+
+Production must not consume raw `layout.generation_seed` for terrain noise; use the `_derive` pattern
+(two LCG steps on `(seed ^ salt)`), identical to SD-VILLAGE-GEN-2 / SD-HILLS-4.
+
+| Stream | Proposed salt constant | Drives |
+|--------|------------------------|--------|
+| `VILLAGE_TERRAIN_SALT` | `0x7E44A1` | Base-field fbm phase/seed. |
+| `VILLAGE_TERRAIN_KNOLL_SALT` | `0x7E44A1 ^ 0x5B` | Knoll placement LCG start. |
+
+**Gameplay Architect:** add both constants beside `HILLS_TERRAIN_SALT` / `HILLS_FOREST_SALT` in
+`village_layout.gd`. `terrain_seed(layout, params)` uses `layout.generation_seed` when `> 0` else
+`params.layout_seed` (same convention as `HillsHeightfield.terrain_seed`). Parity probe seeds: **1, 7,
+12** (+ `240424020` to match `test_forest_parity.gd`). Same seed + `VillageTerrainParams.production()`
+⇒ identical `sample_y` grid hash and identical `knoll_centres` in game and playground.
+
+### SD-VILLAGE-TERRAIN-6 — Rim join to outer hills (interface only)
+
+The lawn field owns `r < lawn_radius`; the outer `HillsHeightfield` owns `r ≥ lawn_radius`. The join is
+**C0 by construction and verified, never by editing hill internals**:
+
+- **Taper:** `rim_taper(r)` forces lawn base `h → 0` over `[lawn_radius − rim_blend_m, lawn_radius]`,
+  so `VillageTerrain.sample_y(rim) = Y_BASE = 0.0` at every azimuth.
+- **Outer value at the rim:** `HillsHeightfield.sample_y` returns `y_lawn` (−0.03 m) for
+  `r < r_inner_m` and its toe forces `y_lawn` at `r = lawn_radius`; with the north-only retune the
+  outer field is `y_lawn` at the rim for **all** azimuths (and stays `y_lawn` out to its far
+  `r_inner_m` except in the north wedge). So the seam is azimuth-independent.
+- **Contract (mechanical, AC-VT8):** on the circle `r = lawn_radius` (≥64 azimuth samples), `|
+  VillageTerrain.sample_y(xz) − HillsHeightfield.sample_y(xz, layout, HillsParams.production(),
+  hills_t_seed)| ≤ rim_eps_m (0.05 m)`; the 0.03 m datum offset is within tolerance. Max inward radial
+  gradient over the 2 m just inside the rim ≤ **0.12 m/m** (no inward cliff).
+- **No double-count:** the lawn field is **0** outside the disc and the hills field is **`y_lawn`**
+  inside it, so the two never both add relief at the same `xz`. The lawn stage reads
+  `HillsHeightfield.sample_y` **only** for this parity test; it does not call or modify `hills_*.gd`
+  builders. A later datum-unification (shared `GROUND_DATUM_Y` so even 0.03 m vanishes) is a GA
+  nice-to-have, not required for v1.
+
+### SD-VILLAGE-TERRAIN-7 — Per-consumer contracts (query + tolerance)
+
+Every lawn placement Y comes from `VillageTerrain.sample_y`; all baked **once at build**, never
+per-frame.
+
+| Consumer | Query | Contract / tolerance |
+|----------|-------|----------------------|
+| **Lawn surface** (`LawnTerrain` MeshInstance3D, replaces flat `LawnGround`/`World/Ground` read inside disc) | mesh vertices displaced to `sample_y`; normals from `sample_normal` (or `generate_normals`) | **The displaced mesh is the single visual truth.** `village_ground.gdshader` already derives `v_world_pos` from `MODEL_MATRIX·VERTEX`, so it follows the displaced vertices with **no separate height derivation** — do **not** add a shader heightfield. Optional cosmetic under-disk sits at `sample_y − 0.03` only if z-fighting recurs. |
+| **Cottages** (`VillageBackdrop.cottage_transform`) | `y = sample_y(centre)`; optional foundation yaw/normal from `sample_normal(centre)` | Origin Y = pad target; walls stay vertical (no batter). **AC-VT6:** no cottage origin buried `> 0.1 m` or floating `> 0.15 m` vs its pad target. Door tilt cap: pad interior flatness keeps base-plane level within `pad_edge_slope_max_deg`. |
+| **Path stones** (`VillageScatterPositions.path_stone_transforms`) | per-stone `y = sample_y(cx, cz)`; optional `up = sample_normal` | **AC-VT4:** stone origin within **±0.08 m** of `sample_y`; no stone with `> 0.15 m` air gap to the mesh below. XZ graph unchanged (stones stay on the same polylines). |
+| **Path slope** (polyline sampling) | `sample_slope_deg` stepped ≤1 m along each `path_polyline()` | **AC-VT7:** max sampled slope ≤ `max_path_slope_deg` (8°, A2). If exceeded, implementer widens local skirts / lowers amplitude — path XZ is **not** re-routed (that is a non-goal/stretch). |
+| **Pond water** (`PondWater`) | `water_y` per SD-VILLAGE-TERRAIN-4 | Water strictly below lip crest, above floor. **AC-VT3:** 0 grass blades in water volume (extend `test_no_grass_inside_pond_water`). |
+| **Pond bank ring** (`PondBank`) | per-vertex `y = sample_y(vertex_xz)` | Bank conforms to basin lip; bank slope reads as a bowl (fuzzy); no vertex below water_y. |
+| **Grass blades** (`VillageScatterPositions.grass_blade_positions`, ~48k) | root `y = sample_y(p)`, blade basis tilted by `sample_normal(p)` | Baked at scatter build. **AC-VT9 (perf):** build-time ≤ **+15%** vs flat baseline — use a cached coarse `sample_y` LUT (≈1 m bilinear grid over the disc) to amortize 48k samples. 0 per-frame resample. |
+| **Bushes / flowers / petals / clover** | transform `y = sample_y(xz)` at build | Within ±0.05 m of surface; pond-margin instances respect `SCATTER_CLEARANCE_M` on the lip. |
+| **Fauna anchors** (bees etc.) | anchor Y from `sample_y` | Height feel follows surface; no mechanical tolerance (fuzzy). |
+| **Wanderer** (`wanderer_controller` figure root, path graph) | **A1:** path-polyline vertices `y = sample_y`; figure root interpolates `sample_y` along the segment it walks | **AC-VT10:** along any path, figure `y ≥ sample_y − 0.05 m` (no sinking) when `wanderer_follow_terrain`. Off-path stays datum. Interpolate Y linearly between polyline vertices to avoid foot-slide. |
+| **Camera** (`CameraBounds`) | free/orbit eye `y` floored at `sample_y(eye.xz) + camera_ground_clearance_m` | **AC-VT11:** `test_camera_rig_lawn_bounds` still passes; no eye below terrain. XZ clamp unchanged. |
+| **CamSun / sun horizons** | sun east/west azimuths from `SkySun` (GA wires exact constants) | **AC-VT12 (+ fuzzy):** `test_production_backdrop_visible_in_camsun` unchanged; no terrain silhouette within `knoll_sun_corridor_half_deg` of either sun-horizon azimuth rises enough to cross the sun sightline near the horizon. Knoll placement + `max_rise_m` enforce this. |
+| **HeroFog anchor** | unchanged (hero-centred) | Terrain does not move the fog anchor. |
+
+### SD-VILLAGE-TERRAIN-8 — Mesh resolution, shader-vs-mesh truth, perf budget
+
+- **Lawn mesh:** Cartesian grid clipped to the disc (reuse `HillsHeightfield._append_cartesian_quads`
+  pattern), cell = `terrain_mesh_step_m` (2.0 m). Disc area `π·56² ≈ 9.85k m²` ⇒ ≈2.5k cells ⇒ **≈5k
+  tris** (target ≤ **8k**, hard cap **16k**, well under GD's ≤32k). `cast_shadow = OFF` to match
+  current lawn.
+- **Shader vs mesh:** **mesh is the only truth.** `village_ground.gdshader` reads world-space position
+  from the displaced vertices; no height is recomputed in the shader, so stones/cottages/grass
+  (sampling `sample_y`) and the ground surface cannot disagree. This is the single-sampling-API
+  mitigation for the GD "shader vs mesh displacement mismatch" risk.
+- **Budget (measure on seed 7 after full backdrop build; new `tools/village_terrain_budget_probe.gd`
+  or extend `count_budget`):**
+
+| Metric | Budget |
+|--------|--------|
+| `LawnTerrain` MeshInstance3D | 1 (replaces flat lawn) |
+| Lawn terrain tris | ≤ 8k target, ≤ 16k hard |
+| New draw surfaces | ≤ +2 vs flat lawn |
+| Grass build time | ≤ +15% vs flat baseline (LUT-amortized) |
+| Frame time (CamSun, mid lawn) | ≤ +5% vs flat baseline, same grass count |
+| Runtime CPU | 0 per-frame full-disc resample |
+| Total backdrop tris | still passes `test_triangle_budget_under_120k` |
+
+### SD-VILLAGE-TERRAIN-9 — Playground spec *(feel-judged; G7)*
+
+**Scene:** `scenes/playground/village_terrain_playground.tscn` + `src/playground/
+village_terrain_playground.gd` (structure mirrors `hills_playground` / `forest_playground`: generate
+layout, build `LawnTerrain` + lawn scatter/pond/cottage proxies, fog preview, **no** sim clock / HUD /
+save state; global state restored on exit).
+
+- **Knobs:** `VillageTerrainKnobSpec` table drives sliders for **every** field in
+  SD-VILLAGE-TERRAIN-2; changes apply **next frame**; defaults == production.
+- **Variants:** `0 — Rolling (production)`, `1 — Flat lawn (pre-terrain)`, `2 — High relief (A/B)`.
+- **Camera presets:** CamSun; **Edge outward** (`fog_v2_evidence_capture` `edge_outward`); **Edge
+  inward**; **CamTop**; **Hero door approach** (eye on hero path looking at stoop); **Pond oblique**;
+  **Free orbit** (`DebugCamera`). Pause / slow-mo not required (static heightfield).
+- **Presets / Reset to production / Copy-out JSON** (`village_terrain_playground.v1`, all knobs +
+  variant).
+- **Parity (required):** `VillageTerrainParams.production()` + seed ⇒ identical `sample_y` grid hash +
+  `knoll_centres` as the main `VillageBackdrop` build (`test_village_terrain_parity.gd`, AC-VT7-par).
+- **Human sign-off:** playground only; agents attach before/after PNGs under `.tmp/` for seeds 1/7/12.
+
+### SD-VILLAGE-TERRAIN-10 — Acceptance mapping (mechanical vs fuzzy)
+
+| ID | Statement | Tier | Test / probe |
+|----|-----------|------|--------------|
+| AC-VT1 | Classic / authored layout + `variant 1`: `sample_y ≡ 0.0`; generated byte-flat where flat today (INV-15) | Mechanical | `test_village_terrain_flat_parity.gd` |
+| AC-VT2 | Seeds 1/7/12: `sample_y` grid hash + `knoll_centres` deterministic game vs playground export | Mechanical | `test_village_terrain_parity.gd` |
+| AC-VT-HERO | `|sample_y| ≤ 0.02 m` for all samples with `r < hero_flat_r_m` (7 m) from stoop | Mechanical | `test_village_terrain_heightfield.gd` |
+| AC-VT5 | Each cottage pad interior `|h − h_centre| ≤ 0.05 m`; max pad-skirt slope ≤ `pad_edge_slope_max_deg` | Mechanical | `test_village_terrain_pads.gd` |
+| AC-VT3 | Pond water below lip; **0** grass blades in water volume | Mechanical | extend `test_no_grass_inside_pond_water.gd` |
+| AC-VT4 | Path stone origins within ±0.08 m of `sample_y`; no `> 0.15 m` air gap | Mechanical | `test_village_terrain_paths.gd` |
+| AC-VT7 | Max `sample_slope_deg` along every path polyline ≤ `max_path_slope_deg` (8°) | Mechanical | `test_village_terrain_stones.gd` |
+| AC-VT6 | No cottage origin buried `> 0.1 m` / floating `> 0.15 m` vs pad target (per-cottage) | Mechanical | `test_village_terrain_intrusion.gd` |
+| AC-VT8 | Rim circle `r = lawn_radius`: `|Δ sample_y vs HillsHeightfield| ≤ 0.05 m`; inward gradient ≤ 0.12 m/m | Mechanical | `test_village_terrain_rim.gd` |
+| AC-VT11 | `test_camera_rig_lawn_bounds` still passes; eye never below terrain | Mechanical | existing + clearance assert |
+| AC-VT12 | `test_production_backdrop_visible_in_camsun` unchanged; no mound crosses sun-horizon corridor sightline | Mechanical | existing + `test_village_terrain_sun_corridor.gd` |
+| AC-VT10 | Wanderer `y ≥ sample_y − 0.05 m` along paths when follow enabled | Mechanical | `test_village_terrain_wanderer.gd` |
+| AC-VT9 | Budget probe within SD-VILLAGE-TERRAIN-8 table (tris, surfaces, grass build Δ, frame Δ) | Mechanical | `tools/village_terrain_budget_probe.gd` |
+| AC-VT-CAP | Playground loads; live rebuild; copy-out JSON round-trips; production parity | Mechanical | `test_village_terrain_playground_scene.gd` |
+| AC-VT-PNG | Before/after PNGs linked under `.tmp/` (CamSun + edge_outward + hero approach + pond) seeds 1/7/12 | Mechanical (capture) | run-ui-script |
+| AC-VTF1 | Cosy **gentle** relief — not ski slopes (A/B vs flat) | **Fuzzy** | human playground |
+| AC-VTF2 | Paths, pond, hero door read at a glance on seeds 1/7/12 | **Fuzzy** | human stills |
+| AC-VTF3 | CamSun + edge-outward: no silhouette blocking east/west sun; hero door hero-readable | **Fuzzy** | human stills |
+| AC-VTF4 | Rim **colour** continuity with outer hills (pair with ivy-ska0.1) | **Fuzzy** | human stills |
+
+### SD-VILLAGE-TERRAIN-11 — Example scenarios
+
+1. **Seed 7, hero door approach:** the camera walks the hero path; the ground under the stoop is dead
+   flat for 7 m (ivy wall and planting unaffected), then gently rolls out toward two low knolls between
+   cottages; path stones sit flush on the slope.
+2. **Seed 1, pond oblique:** the pond sits in a believable bowl — water surface a hand's-width below a
+   soft raised lip, bank clover on the lip, no grass in the water, cottages on level pads just beyond.
+3. **Playground variant toggle:** the designer flips `0 Rolling → 1 Flat` on seed 12 to compare
+   pre/post terrain, then raises `center_bias_gain` to lift the green toward G and copies the JSON out
+   for the human to judge cosiness — CamSun preset confirms the east/west sun horizon stays clear.
+
+### SD-VILLAGE-TERRAIN-12 — Assumptions pending human answers
+
+All default-on via knobs; human can overturn in the playground without a code change:
+
+1. **A1 — Wanderer Y:** follows `sample_y` on **path polylines only** (`wanderer_follow_terrain = true`);
+   off-path figures stay at datum.
+2. **A2 — Caps:** `max_rise_m = 0.8`, `max_depression_m = 0.6` (pond floor), `max_path_slope_deg = 8`.
+3. **A3 — Rollout:** terrain **on by default** for generated seeds (`variant 0`, `base_amplitude_m
+   0.35`); `variant 1` is the flat opt-out/legacy switch.
+4. **A4 — ivy-bqx:** formally superseded by this epic; close ivy-bqx when ivy-82zn ships.
+
+### SD-VILLAGE-TERRAIN-13 — Risks
+
+1. **CamSun horizon blockage** by a mound N/W of hero → mitigated by `knoll_sun_corridor_half_deg`
+   rejection + `max_rise_m` + AC-VT12 probe.
+2. **Grass/water regression** at the pond lip → mechanical AC-VT3 first; bank vertices follow
+   `sample_y`.
+3. **Wanderer foot-slide** if Y follows terrain but XZ graph is planar → interpolate Y between polyline
+   vertices; follow is opt-in (A1).
+4. **Seam double-count** with the outer-hill retune → interface-only rim test (AC-VT8); lawn field is 0
+   outside the disc, hills are `y_lawn` inside it.
+5. **Shader-vs-mesh mismatch** → single displaced mesh is the only truth; shader derives world pos from
+   vertices (SD-VILLAGE-TERRAIN-8).
+6. **Grass build cost** blow-out at 48k blades → cached coarse `sample_y` LUT (AC-VT9).
+
+### SD-VILLAGE-TERRAIN-14 — Non-goals
+
+Hand-painted heightmap / Terrain3D workflow; physics collision / walkable nav mesh; classic-mode
+terrain changes; slope-cost path re-routing (stretch, documented); cottage-kit batter/slope-cut meshes;
+editing `ivy-ska0` `hills_*.gd` internals (rim read is interface-only); terrain-driven sim/growth
+changes; agent-finalized look without human playground sign-off.
+
+### SD-VILLAGE-TERRAIN-15 — Handoff to Gameplay Architect (ivy-82zn.3)
+
+Plan: (a) `VillageTerrainParams` + `VillageTerrainKnobSpec` + static `VillageTerrain`
+(`sample_y`/`sample_normal`/`sample_slope_deg`/`build_mesh`/`knoll_centres`), reusing
+`HillsNoise.fbm_height_01` and the `fer`/`smooth` primitives; (b) `village_layout.gd` salt constants
+`VILLAGE_TERRAIN_SALT` / `VILLAGE_TERRAIN_KNOLL_SALT`; (c) `VillageBackdrop` wiring — replace the flat
+`_add_village_lawn_ground` with a displaced `LawnTerrain`, and route `cottage_transform`, path-stone,
+pond water/bank, grass, bush/scatter and fauna Y through `sample_y` (baked at build, LUT for grass);
+(d) `CameraBounds` ground-clearance floor and opt-in wanderer path-vertex Y; (e)
+`village_terrain_playground` scene with parity test; (f) GUT tests + budget probe AC-VT1–VT12. Preserve:
+INV-15 flat classic/legacy parity, single-sampling-API truth, determinism via `_derive`, no
+collision/sim coupling, `hills_*.gd` untouched. Build order and file map are the Architect's to detail
+(AR-VILLAGE-TERRAIN); this SD fixes the contracts, formulas, tolerances, and test IDs above.
+
+## AR-VILLAGE-TERRAIN — In-village lawn terrain height architecture *(ivy-82zn)*
+
+**Consumes:** SD-VILLAGE-TERRAIN-1..15, Game Director handoff on bead **ivy-82zn**
+(`.tmp/ivy-82zn-gd-handoff.md`), G7 / `.cursor/rules/algorithm-playgrounds.mdc`. **Builds on (verified
+against source):** `VillageBackdrop._ready` build order (`src/world/village_backdrop.gd:97`),
+`VillageBackdrop.cottage_transform` (static, `:114`) / `cottage_exterior_rect` (static, `:121`) /
+`_build_cottages` (`:161`), `_add_village_lawn_ground` + `LAWN_GROUND_Y_OFFSET` (−0.03, `:688/:697`),
+`_add_village_pond` + `POND_WATER_Y_OFFSET` (0.012) / `POND_BANK_Y_OFFSET` (0.008) +
+`_add_pond_water_surface` / `_add_pond_polygon_ring` (`:726/:744`), `_setup_multimesh_scatter`
+(`:268`) → `_setup_hybrid_grass` → `_add_grass_blade_chunks` (`:340`), `_add_multimesh` with the
+`instance_colors`/16-float-stride path (`:451`, headless `mm.buffer`), `_create_paths_from_transforms`;
+`VillageLayout` (`hamlet_centre_xz`, `lawn_radius` = `GENERATED_LAWN_RADIUS` 56.0, `cottages`,
+`pond_center`, `plaza_rect`, `path_polylines()`, `HERO_DOOR_STOOP` = `(0, 2.59)`, `VILLAGE_GREEN_G` =
+`(0, −18.0)`, `is_generated`, `generation_seed`, `_derive`, salts block `:18`), `HillsHeightfield`
+patterns (`terrain_seed`/`sample_y`/`sample_slope_deg`/`_vertex_normal`/`build_mesh` +
+`_append_cartesian_quads` disc clip, `src/playground/hills_heightfield.gd`), `HillsNoise.fbm_height_01`
+(`world_xz, seed, base_feature_m, octaves, persistence, warp_strength → 0..1`), `HillsParams` Resource
+API, `VillagePondSite` (`MEAN_WATER_RADIUS_M` 2.625, `BANK_OUTER_M` 4.875, `SCATTER_CLEARANCE_M` 0.15)
++ `VillagePondShape` (`at`/`set_active`/`water_render_outline_xz`/`bank_outer_outline_xz`/
+`build_water_surface_mesh(y)`), `VillageScatterPositions` (`lcg_step`/`lcg_f01`/`grass_blade_positions`/
+`path_stone_transforms`/`forest_tree_xz`/`pond_center_xz`), `CameraBounds.clamp_free_camera_eye`
+(`src/world/camera_bounds.gd:91`, static), `World.rebuild_backdrop` + `_apply_village_camera_lawn_bounds`
+(`src/world/world.gd:244/:351`, backdrop repositioned to pivot `(x,0,z)`),
+`wanderer_controller._apply_figure` (`_figure_root.position.y` hard 0.0, `:203`), `main.tscn`
+`World/Ground` (512×512 `PlaneMesh` at y=0 + `world_ground.gdshader` + `WorldBoundaryShape3D` collision
+layer 2), `hills_playground.gd` capture `_capture_done_fn` quit seam (`:54`). **Supersedes** ivy-bqx.
+**Hard boundary:** `hills_*.gd` internals are **not** edited — only `HillsHeightfield.sample_y` is read
+for the rim parity test (ivy-ska0 is concurrently retuned to a north-only 2×-far wedge). **Next
+handoff:** Gameplay Programmer (ivy-82zn.4 → WP beads ivy-82zn.4.1..4.9). **This section plans; it does
+not implement.**
+
+### AR-VT-GOAL — System goal (implementation terms)
+
+For generated layouts only (`layout.is_generated` and `params.variant != 1`), replace the flat lawn
+read inside `r ≤ layout.lawn_radius` with a displaced **`LawnTerrain`** mesh and bake every lawn
+placement Y from one pure static sampler `VillageTerrain.sample_y`. Classic / authored / `variant 1`
+stays **byte-flat** (INV-15): the sampler returns `Y_BASE = 0.0` everywhere, the flat `LawnGround`
+disc at −0.03 and all y=0 scatter are emitted exactly as today, and the `World/Ground` plane is
+untouched. All sampling is in **layout-local XZ** (the space of `hamlet_centre_xz` and every
+cottage/scatter transform origin); the backdrop node is repositioned to the hero pivot by `World`, so
+world XZ = `backdrop.global_position.xz + local_xz` (used only where a world-space query is needed —
+the `World/Ground` discard and the hills rim test). No collision, no nav mesh, no sim/growth coupling.
+
+### AR-VT-DECIDE-1 — Visible-surface ownership: `World/Ground` disc-discard (**key integration decision**)
+
+The current visible lawn is the `main.tscn` `World/Ground` 512×512 plane at **y=0** (`world_ground.gdshader`);
+`VillageBackdrop`'s `LawnGround` disc sits −0.03 **below** it as a far read. A displaced lawn that dips
+below 0 (base field ±`base_amplitude_m` 0.56, pond −0.6) would be **occluded** by that flat plane, and
+flat-ish regions would **z-fight** it. SD-VILLAGE-TERRAIN-7 asserts "LawnTerrain … replaces flat
+`LawnGround`/`World/Ground` read inside disc" but gives **no mechanism** — resolved here:
+
+- **Edit `world_ground.gdshader`** (the only shared-shader edit this epic needs; `village_ground.gdshader`
+  is left alone — it already derives `v_world_pos` from `MODEL_MATRIX·VERTEX` and follows displaced
+  vertices, confirmed). Add uniforms `village_disc_center_xz : vec2 = (0,0)` and
+  `village_disc_radius : float = 0.0`; in `fragment()`, `if (village_disc_radius > 0.0 &&
+  distance(world_xz, village_disc_center_xz) < village_disc_radius) discard;`.
+- **`World` sets them**, not `VillageBackdrop` (ownership: `World` owns `World/Ground`). Add
+  `World._apply_village_ground_disc()` called right after `_apply_village_camera_lawn_bounds()` in
+  `rebuild_backdrop`/activation: when the backdrop is generated and not `variant 1`, set
+  `center = backdrop.global_position.xz + layout.hamlet_centre_xz`, `radius = layout.lawn_radius`; else
+  `radius = 0.0` (→ byte-identical classic/flat, INV-15).
+- **Collision unchanged:** the `WorldBoundaryShape3D` at y=0 (layer 2) stays — terrain is
+  presentation-only, hero sanctum is flat at y=0 anyway.
+- **Node naming:** the displaced generated node is **`LawnTerrain`** (`village_ground.gdshader`,
+  `cast_shadow` OFF); the flat path keeps node name **`LawnGround`** byte-for-byte. `_add_village_lawn_ground`
+  branches on `variant`/`is_generated`. Update `test_generated_village_backdrop.gd` to expect
+  `LawnTerrain`; classic tests keep `LawnGround`.
+- **Playground** has no `World/Ground`, so it builds only `LawnTerrain`; no discard needed there.
+
+### AR-VT-DECIDE-2 — Composition split: `_compose_base` vs `_apply_stamps` (**resolves undefined `h_base_only`**)
+
+SD step-3 stamp targets reference `h_base_only(centre)` / `h_base_only(pond_center)` but SD only defines
+the full `sample_y`. Define a private `VillageTerrain._compose_base(xz, layout, params, t_seed) -> float`
+= SD-VILLAGE-TERRAIN-3 steps 1–2 only (outside-disc gate → `Y_BASE`; `fbm_height_01` → `h`; `center_bias`
+× `dir_bias`; additive `knoll_centres` via `fer`; `clamp(-max_depression, max_rise)`; `× rim_taper(r)`),
+**no stamps**. Then `sample_y = Y_BASE + _apply_stamps(_compose_base(xz), xz, …)`, where `_apply_stamps`
+runs the ascending-priority `lerp(h, h_target, w)` chain (`base < plaza < pond < pads < hero`), and every
+stamp `h_target` that needs the local field calls `_compose_base(centre)` (pads/pond/plaza all do). This
+is the single helper both the mesh builder and all consumers use — the "single sampling API" truth.
+
+### AR-VT-DECIDE-3 — Datum, flat-parity gate, mesh builder
+
+- `const Y_BASE := 0.0`. Gate first: `if params.variant == 1 or not layout.is_generated: return Y_BASE`
+  (byte-parity). `terrain_seed` mirrors `HillsHeightfield.terrain_seed`: `_derive(generation_seed if > 0
+  else params.layout_seed, VILLAGE_TERRAIN_SALT)`; knoll stream from `VILLAGE_TERRAIN_KNOLL_SALT`.
+- `VillageTerrain.build_mesh(layout, params) -> ArrayMesh`: reuse the `HillsHeightfield._append_cartesian_quads`
+  pattern with `inner = 0`, `outer = lawn_radius`, `step = terrain_mesh_step_m` (2.0), accept cells with
+  ≥1 corner inside the disc, vertices displaced to `sample_y`, per-vertex normal from `sample_normal`
+  (fallback `generate_normals`), `set_color(Color.WHITE)` for shader parity, `cast_shadow` OFF. Disc area
+  π·56² ⇒ ≈2.5k cells ⇒ ≈5k tris (target ≤8k, hard cap 16k — assert in test). Flat/classic path returns
+  today's 72-seg `LawnGround` fan at −0.03, byte-identical.
+
+### AR-VT-FILES — Module layout, files, public APIs
+
+| File | New/Edit | Responsibility |
+|------|----------|----------------|
+| `src/world/village_layout.gd` | **edit** | `const VILLAGE_TERRAIN_SALT := 0x7E44A1`, `const VILLAGE_TERRAIN_KNOLL_SALT := 0x7E44A1 ^ 0x5B` beside `HILLS_TERRAIN_SALT`/`HILLS_FOREST_SALT` (`:18`). |
+| `src/playground/village_terrain_params.gd` | **new** | `VillageTerrainParams : Resource`, SD-VILLAGE-TERRAIN-2 fields; mirror `HillsParams` API (`SCHEMA := "village_terrain_playground.v1"`, `production()`, `duplicate_params()`, `reset_to_production()`, `to_dict`/`from_dict`/`to_json_block`, `presets()`/`apply_preset`/`matches_preset`). |
+| `src/playground/village_terrain_knob_spec.gd` | **new** | `VillageTerrainKnobSpec.all_knobs()` static table → reuse `knob_panel.gd`. |
+| `src/playground/village_terrain.gd` | **new** | `VillageTerrain` static (see signatures); `_compose_base`, `_apply_stamps`, `fer`/`smooth`/`fer_rect`/`rim_taper` helpers, `build_mesh`, LUT. |
+| `src/render/shaders/world_ground.gdshader` | **edit** | Add `village_disc_center_xz`/`village_disc_radius` uniforms + circular `discard` (AR-VT-DECIDE-1). |
+| `src/world/world.gd` | **edit** | `_apply_village_ground_disc()` sets the two uniforms from the generated layout; called with `_apply_village_camera_lawn_bounds`. |
+| `src/world/village_backdrop.gd` | **edit** | Terrain init after `_make_layout` (store `_terrain_params`/`_terrain_seed`); `_add_village_lawn_ground` → `LawnTerrain` (generated) / `LawnGround` (flat); Y-bake in `_build_cottages`, `_add_village_pond`, scatter, path stones; `sample_terrain_y(local_xz) -> float` public helper for wanderer/camera. Static `cottage_transform(spec)` **unchanged**. |
+| `src/world/camera_bounds.gd` | **edit** | `clamp_free_camera_eye(…, floor_y := -INF)` optional arg → `eye.y = max(eye.y, floor_y)` before the existing `[0.05,120]` clamp. |
+| `src/presentation/wanderer/wanderer_controller.gd` | **edit** | When `wanderer_follow_terrain`, `_apply_figure` sets `_figure_root.position.y` by interpolating `backdrop.sample_terrain_y` along the walked segment. |
+| `scenes/playground/village_terrain_playground.tscn` + `src/playground/village_terrain_playground.gd` | **new** | G7 scene (AR-VT-PLAYGROUND). |
+| `tools/village_terrain_budget_probe.gd` | **new** | Seed 7 generated build: `LawnTerrain` tris, surface count, grass build Δ, frame Δ. |
+
+**Signatures (implementer-facing):**
+
+```gdscript
+# village_terrain.gd
+class_name VillageTerrain
+static func terrain_seed(layout: VillageLayout, params: VillageTerrainParams) -> int
+static func sample_y(xz: Vector2, layout: VillageLayout, params: VillageTerrainParams, t_seed: int) -> float
+static func sample_normal(xz: Vector2, layout: VillageLayout, params: VillageTerrainParams, t_seed: int, eps := 0.35) -> Vector3
+static func sample_slope_deg(xz: Vector2, layout: VillageLayout, params: VillageTerrainParams, t_seed: int, eps := 0.4) -> float
+static func build_mesh(layout: VillageLayout, params: VillageTerrainParams) -> ArrayMesh
+static func knoll_centres(layout: VillageLayout, params: VillageTerrainParams, t_seed: int) -> Array[Vector2]
+static func build_sample_lut(layout: VillageLayout, params: VillageTerrainParams, t_seed: int, cell_m := 1.0) -> Dictionary   # coarse grid over disc bbox
+static func lut_sample(lut: Dictionary, xz: Vector2) -> float                                                                  # bilinear; grass only
+static func _compose_base(xz, layout, params, t_seed) -> float                                                                 # private (AR-VT-DECIDE-2)
+```
+
+### AR-VT-WIRE — `VillageBackdrop` build order and per-consumer wiring
+
+`_ready` gains a terrain-init step first (sampler is pure, needs only layout+params+seed):
+
+```
+_layout = _make_layout()
+VillagePondShape.set_active(...)
+_terrain_params = VillageTerrainParams.production(); _terrain_seed = VillageTerrain.terrain_seed(_layout, _terrain_params)   # NEW
+_apply_subtree(self)
+_build_cottages()                       # EDIT: bake pad Y
+path_stones = VillageScatterPositions.path_stone_transforms(...)
+_lift_transforms_y(path_stones)         # NEW: bake stone Y before _create_paths_from_transforms
+_create_paths_from_transforms(path_stones)
+_add_village_lawn_ground()              # EDIT: LawnTerrain (generated) / LawnGround (flat)
+_add_village_pond()                     # EDIT: water_y + per-vertex bank
+_add_hill_terrain(HillsParams.production())   # unchanged (hills)
+_setup_multimesh_scatter(path_stones)   # EDIT: bake grass/scatter Y (+ grass LUT)
+_add_hill_forest(HillsParams.production())    # unchanged (hills)
+```
+
+| Consumer | Wiring | AC |
+|----------|--------|----|
+| `LawnTerrain` | `VillageTerrain.build_mesh`, `village_ground.gdshader`, disc-discard on `World/Ground` | — |
+| Cottages | `_build_cottages`: `xf = cottage_transform(spec); xf.origin.y = sample_y(centre)` (static `cottage_transform` stays y=0) | VT5/VT6 |
+| Path stones | `_lift_transforms_y`: `t.origin.y = sample_y(t.origin.xz)` (classic → 0, byte-identical); optional `up = sample_normal` | VT4/VT7 |
+| Pond water | `_add_pond_water_surface("PondWater", water_y, …)`, `water_y` per AR-VT-GAP-1 | VT3 |
+| Pond bank | `_add_pond_polygon_ring` gains a per-vertex `y_fn: Callable`; generated → `sample_y(vertex_xz)`, classic → `POND_BANK_Y_OFFSET` | VT3 (fuzzy bowl) |
+| Grass (~48k) | build `lut = build_sample_lut(…,1.0)` once; per blade `origin.y = lut_sample(lut,p)`, basis tilt from `sample_normal(p)`; 0 per-frame resample | VT9 |
+| Bush/flower/petal/clover | per-instance `origin.y = sample_y(xz)` at build | VT3 margin |
+| Fauna anchors | anchor Y from `sample_y` (fuzzy) | — |
+| Wanderer | opt-in `sample_terrain_y` interpolated along segment | VT10 |
+| Camera (free/orbit) | `clamp_free_camera_eye(…, floor_y = sample_terrain_y(eye.xz)+camera_ground_clearance_m)` | VT11 |
+
+### AR-VT-SEAM — Rim join to outer hills (interface only)
+
+Lawn owns `r < lawn_radius`, hills own `r ≥ lawn_radius`. `rim_taper(r)` forces lawn `h → 0` over
+`[lawn_radius − rim_blend_m, lawn_radius]`, so `sample_y(rim) = Y_BASE = 0.0` at every azimuth.
+Verified: `HillsHeightfield.sample_y` at `r = lawn_radius` returns `y_lawn` (−0.03) via its toe
+(`t = 0` at the rim), so `|0.0 − (−0.03)| = 0.03 ≤ rim_eps_m` (0.05) at all azimuths (AC-VT8). The lawn
+stage **reads** `HillsHeightfield.sample_y` only in `test_village_terrain_rim.gd`; it never calls or
+edits `hills_*.gd` builders. No double-count: lawn is 0 outside the disc, hills are `y_lawn` inside it.
+
+### AR-VT-PLAYGROUND — G7 scene (production parity, no demo fork)
+
+`scenes/playground/village_terrain_playground.tscn` + `village_terrain_playground.gd`, mirroring
+`hills_playground.gd` / `forest_playground.gd`: `VillageLayout.generate(params.layout_seed)`, build
+`LawnTerrain` + lawn scatter/pond/cottage proxies + fog preview via the **same** `VillageTerrain`
+static builders (no fork); **no** sim clock / HUD / save state; global state restored on exit.
+
+- **Knobs:** `VillageTerrainKnobSpec.all_knobs()` covers every SD-VILLAGE-TERRAIN-2 field; changes apply
+  next frame; defaults == production.
+- **Variants:** `0 Rolling (production)`, `1 Flat lawn`, `2 High relief`.
+- **Camera presets:** CamSun, Edge outward, Edge inward, CamTop, Hero door approach, Pond oblique, Free
+  orbit (`DebugCamera`).
+- **Presets / Reset to production / Copy-out JSON** (`village_terrain_playground.v1`).
+- **Capture + quit-hook seam (required):** copy `hills_playground`'s `_capture_done_fn` pattern — the
+  default calls `get_tree().quit(...)` after the PNG save; tests **replace** it so the GUT runner never
+  quits. `hills_playground` hung precisely because an earlier capture path never called
+  `get_tree().quit()`; the quit **must** flow through the replaceable `_capture_done_fn`, invoked from
+  `_capture_png` after `save_png`. CLI `--out=`/`--seed=`/`--variant=`/`--preset=`/`--camera=`.
+- **Parity:** `test_village_terrain_parity.gd` — `VillageTerrainParams.production()` + seed ⇒ identical
+  `sample_y` grid hash + `knoll_centres` between playground and `VillageBackdrop`.
+
+### AR-VT-TESTS — Test plan (test-first)
+
+| Test file | Maps to | Asserts |
+|-----------|---------|---------|
+| `test/test_village_terrain_params.gd` | schema | defaults == `production()`; dict/JSON round-trip; presets; `matches_preset`. |
+| `test/test_village_terrain_flat_parity.gd` | AC-VT1 | `variant 1` **and** `authored()`: `sample_y ≡ 0.0` on a grid; `LawnGround`/scatter byte-flat (INV-15). |
+| `test/test_village_terrain_parity.gd` | AC-VT2 | seeds 1/7/12/240424020: `sample_y` grid hash + `knoll_centres` equal game vs playground. |
+| `test/test_village_terrain_heightfield.gd` | AC-VT-HERO | `|sample_y| ≤ 0.02` for `r < hero_flat_r_m` (7 m) of `HERO_DOOR_STOOP`; caps respected; mesh tris ≤ 8k (hard 16k). |
+| `test/test_village_terrain_pads.gd` | AC-VT5 | each pad interior `|h − h_centre| ≤ 0.05`; max skirt slope ≤ `pad_edge_slope_max_deg`. |
+| `test/test_village_terrain_intrusion.gd` | AC-VT6 | no cottage origin buried > 0.1 m / floating > 0.15 m vs pad target. |
+| `test/test_village_terrain_paths.gd` | AC-VT4/VT7 | stone origins ±0.08 m of `sample_y`, no > 0.15 m gap; max path `sample_slope_deg` ≤ `max_path_slope_deg`. |
+| extend `test/test_no_grass_inside_pond_water.gd` | AC-VT3 | water below lip, above floor; 0 grass blades in water volume at `water_y`. |
+| `test/test_village_terrain_rim.gd` | AC-VT8 | rim circle ≥64 azimuths: `|VillageTerrain.sample_y − HillsHeightfield.sample_y| ≤ 0.05`; inward gradient ≤ 0.12 m/m over 2 m. |
+| `test/test_village_terrain_wanderer.gd` | AC-VT10 | figure `y ≥ sample_y − 0.05` along paths when follow on; off-path datum. |
+| `test/test_village_terrain_sun_corridor.gd` | AC-VT12 | no `knoll_centres` azimuth within `knoll_sun_corridor_half_deg` of either sun horizon; keep `test_production_backdrop_visible_in_camsun`. |
+| `test/test_village_terrain_playground_scene.gd` | AC-VT-CAP | headless load; live rebuild; copy-out JSON round-trip; parity; `_capture_done_fn` replaced (no quit). |
+| extend `test/test_camera_rig_lawn_bounds.gd` | AC-VT11 | eye never below terrain floor; XZ clamp unchanged. |
+| `tools/village_terrain_budget_probe.gd` | AC-VT9 | tris/surfaces/grass-build-Δ/frame-Δ within SD-VILLAGE-TERRAIN-8; still passes `test_triangle_budget_under_120k`. |
+| **run-ui-script** (AC-VT-PNG) | capture | before/after PNGs (CamSun + edge_outward + hero approach + pond) seeds 1/7/12 under `.tmp/` — **non-headless** (macOS `--headless` yields no PNG). |
+
+Headless note: `_add_multimesh` writes `mm.buffer` with **16 floats/instance when `use_colors`**, 12
+otherwise (`:470`); grass/scatter here add **no** instance colors, so stride stays 12 — do not regress
+that buffer in the Y-bake edit.
+
+### AR-VT-PLAN — Phased work packages (dependency order; bead ids)
+
+| WP | Bead | Scope | Depends on |
+|----|------|-------|------------|
+| WP1 | **ivy-82zn.4.1** | `VillageTerrainParams` + `VillageTerrainKnobSpec` + `VillageTerrain` (`terrain_seed`/`_compose_base`/`_apply_stamps`/`sample_y`/`sample_normal`/`sample_slope_deg`/`knoll_centres`) + salts + unit tests (VT1/VT2/VT-HERO) | ivy-82zn.3 |
+| WP2 | **ivy-82zn.4.2** | `build_mesh` + `LawnTerrain`/`LawnGround` branch + `world_ground.gdshader` discard + `World._apply_village_ground_disc` + rim test (VT8) | WP1 |
+| WP3 | **ivy-82zn.4.3** | cottage pad Y bake in `_build_cottages` + intrusion probe (VT5/VT6) | WP2 |
+| WP4 | **ivy-82zn.4.4** | pond `water_y` (AR-VT-GAP-1) + per-vertex bank Y + grass-in-water (VT3) | WP2 |
+| WP5 | **ivy-82zn.4.5** | grass LUT + grass/bush/flower/petal/clover/fauna Y bake (VT9) | WP2 |
+| WP6 | **ivy-82zn.4.6** | path-stone Y bake + path-slope cap (VT4/VT7) | WP2 |
+| WP7 | **ivy-82zn.4.7** | wanderer path-vertex Y (opt-in) + camera ground clearance (VT10/VT11) | WP2 |
+| WP8 | **ivy-82zn.4.8** | `village_terrain_playground` scene+script + knob spec + parity + quit-hook seam (VT-CAP/VT2) | WP1 |
+| WP9 | **ivy-82zn.4.9** | budget probe + sun-corridor + before/after PNG evidence (VT9/VT12/VT-PNG) | WP8 |
+
+Each WP leaves classic byte-flat and is independently testable. `ivy-82zn.4` stays the implement
+umbrella (depends only on ivy-82zn.3 → unblocked once this GA bead closes); WP3–WP7 fan out from WP2.
+
+### AR-VT-INV — Invariants
+
+- **INV-15:** `variant 1` and all authored/classic layouts are byte-identical (sampler ≡ 0, `LawnGround`
+  node + −0.03 disc + y=0 scatter unchanged, `World/Ground` discard off).
+- **Single sampling API:** mesh, scatter, stones, cottages, pond, wanderer, camera all read the one
+  `VillageTerrain.sample_y`; the mesh is the only visual truth (`village_ground.gdshader` follows verts).
+- **Determinism:** noise/knolls via `_derive(…, VILLAGE_TERRAIN_SALT / _KNOLL_SALT)` only — never raw
+  `generation_seed`.
+- **No sim coupling:** hero sanctum flat at exactly y=0 (`w=1` inside `hero_flat_r_m`), collision plane
+  at y=0 unchanged, no nav/physics on slopes.
+- **Hills untouched:** `hills_*.gd` read-only (rim test).
+
+### AR-VT-GAPS — SD contradictions found and resolved
+
+| Id | SD item | Problem | Resolution (cite id in code comment) |
+|----|---------|---------|--------------------------------------|
+| **AR-VT-GAP-1** | SD-VILLAGE-TERRAIN-4 `water_y = sample_y(pond_center) + (pond_lip_rise − pond_water_inset)` | `sample_y(pond_center)` is the **basin floor** (basin = `pond_depth` at d=0), so `water_y ≈ floor + 0.02` → pond nearly empty, contradicting SD-VILLAGE-TERRAIN-11 §2 and SD-VILLAGE-TERRAIN-7 ("below lip, above floor"). | `water_y = Y_BASE + _compose_base(pond_center) + (pond_lip_rise_m − pond_water_inset_m)` — referenced to the **local base field**, not the stamped floor: ≈0.10 m below lip crest, ≈0.62 m above floor at defaults. |
+| **AR-VT-GAP-2** | SD-VILLAGE-TERRAIN-7 cottages via `cottage_transform` | `cottage_transform(spec)` is **static** with y hard-coded 0.0 and is also used by static `cottage_door` + tests — cannot take `layout/params/seed`. | Keep static signature byte-identical; lift pad Y in `_build_cottages` (`xf.origin.y = sample_y(centre)`). |
+| **AR-VT-GAP-3** | SD-VILLAGE-TERRAIN-7 "LawnTerrain replaces World/Ground read" | No mechanism; flat y=0 `World/Ground` plane occludes basins / z-fights ±0.35 field. | `world_ground.gdshader` circular `discard` + `World._apply_village_ground_disc` (AR-VT-DECIDE-1). |
+| **AR-VT-GAP-4** | SD-VILLAGE-TERRAIN-4 `h_base_only(centre)` | Referenced but undefined. | Private `_compose_base` = steps 1–2, no stamps (AR-VT-DECIDE-2). |
+| **AR-VT-GAP-5** | SD-VILLAGE-TERRAIN-7 camera clearance | `CameraBounds` is static + terrain-unaware. | Optional `floor_y` arg on `clamp_free_camera_eye`; caller passes `sample_terrain_y(eye.xz)+camera_ground_clearance_m`. |
+| **AR-VT-GAP-6** | SD-VILLAGE-TERRAIN-7 "no bank vertex below `water_y`" | The bank ring's **inner** edge is the shoreline (at `MEAN_WATER_RADIUS`) and dips below the field, hence below `water_y`, by construction. | Soft/tuning, not a formula break: bank follows `sample_y` per-vertex; the flat water disc at `water_y` hides the sub-surface inner edge; programmer picks `pond_floor_scale`/water-outline so the waterline vertex ≈ `water_y`; QA owns the bowl read (fuzzy). |
+
+### AR-VT-RISK — Risks and mitigations
+
+1. **`World/Ground` seam / double-surface** at the rim (AR-VT-GAP-3) → discard radius = `lawn_radius`;
+   hills inner skirt already overlaps `[≈49,56]` at `y_lawn`, matching today's seam within 0.03 m.
+2. **Local vs world XZ mix-up** (backdrop repositioned to pivot) → sampler is layout-local; only the
+   `World/Ground` discard and the hills rim test convert to world via `global_position`.
+3. **Grass build blow-out** at 48k → coarse 1 m `sample_y` LUT (`build_sample_lut`/`lut_sample`), bake
+   once; AC-VT9.
+4. **CamSun horizon blockage** by a knoll N/W → `knoll_sun_corridor_half_deg` reject + `max_rise_m` +
+   AC-VT12.
+5. **Pond regressions** at the lip → AR-VT-GAP-1 water_y + per-vertex bank + AC-VT3 first.
+6. **Classic byte-drift** → `variant 1`/`authored()` gate returns early everywhere; `LawnGround` node +
+   stride-12 buffer + `World/Ground` discard-off all preserved; covered by AC-VT1.
+7. **ivy-ska0 concurrent retune** moving the hills toe → rim is an interface read only (AC-VT8); no
+   `hills_*.gd` edits.
+
+### AR-VT-NONGOAL — Non-goals (prevent redesign)
+
+Hand-paint / Terrain3D; physics collision / nav on slopes; classic-mode terrain; slope-cost path
+re-routing (stretch); cottage-kit batter meshes; editing `hills_*.gd` internals or the north-wedge
+retune; terrain-driven sim/growth; changing static `cottage_transform` / `path_stone_transforms`
+XZ/seed logic; agent-finalized look without human playground sign-off; new abstractions beyond
+`VillageTerrain`/`VillageTerrainParams`/`VillageTerrainKnobSpec`.
+
+### AR-VT-HANDOFF — Handoff to Gameplay Programmer (ivy-82zn.4)
+
+Implement **test-first** through WP1→WP9 (ivy-82zn.4.1..4.9) in dependency order; WP0 evidence = capture
+BEFORE PNGs (seeds 1/7/12; CamSun + edge_outward + hero approach + pond) to `.tmp/village_terrain/before/`
+(non-headless) at the start of WP2. Cite **`AR-VT-*`** and **`SD-VILLAGE-TERRAIN-*`** ids in code
+comments and close notes (especially `AR-VT-GAP-1` on the pond `water_y`). Preserve: INV-15 byte-flat
+classic/`variant 1`, single-sampling-API truth, determinism via `_derive`, no collision/sim coupling,
+`hills_*.gd` untouched, the `_add_multimesh` stride-12 buffer for colorless scatter, and the playground
+`_capture_done_fn` quit seam. Fuzzy acceptance (AC-VTF1..4) is QA + human in the playground — agents
+supply screenshots and the parity/budget probes, not the verdict.
 

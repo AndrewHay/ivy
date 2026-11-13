@@ -1,4 +1,7 @@
 // World/Ground procedural lawn (main.tscn plane) — SD-GRASS-2 far read + SD-WIND-2 gust sheen.
+// WP2 / AR-VT-DECIDE-1: village_disc_center_xz + village_disc_radius uniforms discard the flat
+// plane inside the generated lawn disc so the displaced LawnTerrain mesh is unoccluded.
+// When village_disc_radius = 0 (classic / variant-1 / no backdrop) → no discard → INV-15.
 shader_type spatial;
 render_mode blend_mix, depth_draw_opaque, cull_back, diffuse_lambert, specular_disabled;
 
@@ -8,6 +11,10 @@ uniform vec3 color_lo : source_color = vec3(0.22, 0.34, 0.16);
 uniform vec3 color_hi : source_color = vec3(0.30, 0.42, 0.21);
 uniform float noise_scale : hint_range(0.01, 1.0) = 0.08;
 uniform float roughness : hint_range(0.0, 1.0) = 0.9;
+// Disc-discard uniforms (AR-VT-DECIDE-1 / WP2). Set by World._apply_village_ground_disc().
+// Default radius 0.0 means no discard (classic / flat paths unaffected — INV-15).
+uniform vec2 village_disc_center_xz = vec2(0.0, 0.0);
+uniform float village_disc_radius = 0.0;
 
 varying vec3 v_world_pos;
 
@@ -34,6 +41,11 @@ void vertex() {
 
 void fragment() {
 	vec2 world_xz = v_world_pos.xz;
+	// Discard inside generated lawn disc so displaced LawnTerrain is unoccluded (AR-VT-DECIDE-1).
+	// village_disc_radius = 0 → condition false → no discard for classic paths (INV-15).
+	if (village_disc_radius > 0.0 && distance(world_xz, village_disc_center_xz) < village_disc_radius) {
+		discard;
+	}
 	float n = noise(world_xz * noise_scale);
 	n = mix(n, noise(world_xz * noise_scale * 3.1 + vec2(5.7, 2.3)), 0.35);
 	vec3 col = mix(color_lo, color_hi, n);

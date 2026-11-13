@@ -200,7 +200,14 @@ func _apply_figure() -> void:
 		_figure_root.visible = false
 		return
 	_figure_root.visible = true
-	_figure_root.position = Vector3(_brain.pos.x, 0.0, _brain.pos.y)
+	# WP7 / AR-VT-WIRE: interpolate terrain Y along path polylines (A1 — opt-in).
+	# Off-path states (DOOR_PAUSE, INSIDE, EXIT_PAUSE, SAYING, SHOWING) stay at datum y=0.
+	var terrain_y := 0.0
+	var on_path := (_brain.state == WandererBrain.State.WALKING \
+		or _brain.state == WandererBrain.State.EXIT_WALK)
+	if on_path and _backdrop != null and _backdrop.has_method("sample_terrain_y"):
+		terrain_y = _backdrop.call("sample_terrain_y", _brain.pos)
+	_figure_root.position = Vector3(_brain.pos.x, terrain_y, _brain.pos.y)
 	_figure_root.rotation.y = _brain.yaw
 	var pose := WandererFigure.pose(_params.walk_variant, _params, _brain.walk_phase, _brain.motion)
 	WandererFigure.apply_pose(_figure, pose, _params)

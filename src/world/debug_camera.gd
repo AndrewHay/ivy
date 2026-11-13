@@ -79,6 +79,9 @@ var lawn_bounds_diagnostic_opt_out: bool = false
 var _lawn_centre_xz: Vector2 = Vector2.ZERO
 var _lawn_radius: float = 0.0
 var _lawn_margin: float = CameraBounds.LAWN_EYE_MARGIN_M
+## WP7/AR-VT-GAP-5: optional callable (xz: Vector2) -> float giving terrain_y + clearance.
+## Null = no floor (flat/classic).
+var _terrain_floor_fn: Callable = Callable()
 
 
 func _ready() -> void:
@@ -225,11 +228,20 @@ func _clamp_scripted_eye_to_lawn() -> void:
 	if not _lawn_bounds_active or lawn_bounds_diagnostic_opt_out:
 		return
 	var eye := global_transform.origin
+	var floor_y := -INF
+	if _terrain_floor_fn.is_valid():
+		floor_y = _terrain_floor_fn.call(Vector2(eye.x, eye.z))
 	var clamped := CameraBounds.clamp_free_camera_eye(
-		eye, _lawn_centre_xz, _lawn_radius, _lawn_margin)
+		eye, _lawn_centre_xz, _lawn_radius, _lawn_margin, floor_y)
 	if clamped.distance_squared_to(eye) < 1e-8:
 		return
 	global_transform.origin = clamped
+
+
+## WP7/AR-VT-GAP-5: set callable (xz: Vector2) -> float returning terrain_y + clearance.
+## Pass Callable() to clear (no floor = flat/classic).
+func set_terrain_floor_fn(fn: Callable) -> void:
+	_terrain_floor_fn = fn
 
 
 static func _transform_from_array(values: Array) -> Transform3D:

@@ -1,0 +1,39 @@
+# WP2 terrain wiring evidence — generated village terrain screenshots
+# Run with: --village-mode=generated_village --village-seed=<N>
+# --scenario=res://assets/structures/scenarios/square.tres
+# --outdir=res://.tmp/village_terrain/wp2/<seed>
+# AR-VT-HANDOFF / WP2
+
+WAIT 500
+
+# CamSun canonical view
+CAMERA sun
+SCREENSHOT camsun.png
+
+# CamTop overview
+ORBIT 0 50 45
+SCREENSHOT overview.png
+
+# Edge toward north (where hills are)
+ORBIT 0 50 3
+SCREENSHOT edge_north.png
+
+# Edge toward east
+ORBIT 90 50 3
+SCREENSHOT edge_east.png
+
+# Raking low view across lawn — shows terrain relief
+ORBIT 45 30 1
+SCREENSHOT rake_low.png
+
+# Low raking from another angle
+ORBIT 200 25 1
+SCREENSHOT rake_south.png
+
+# Overview from high angle
+ORBIT 0 20 15
+SCREENSHOT high_view.png
+
+# Rim join area — north (where hills have relief)
+ORBIT 0 48 5
+SCREENSHOT rim_join_north.png

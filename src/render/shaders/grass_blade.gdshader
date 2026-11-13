@@ -82,9 +82,6 @@ void fragment() {
 	vec3 sheen_col = col * vec3(1.03, 1.04, 0.99);
 	col = mix(col, sheen_col, min(g * h * 0.10, 0.05));
 	col = min(col, vec3(0.78));
-	vec3 cam = (INV_VIEW_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
-	float dist = distance(v_world_pos, cam);
-	col = mix(col, GROUND_MEAN, smoothstep(10.0, 18.0, dist));
 	ALBEDO = col;
 	ROUGHNESS = 0.94;
 	vec3 up = normalize((MODEL_MATRIX * vec4(0.0, 1.0, 0.0, 0.0)).xyz);

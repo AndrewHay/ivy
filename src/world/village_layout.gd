@@ -18,6 +18,11 @@ extends RefCounted
 const PLACEMENT_SALT := 0x5011A9
 const PATHGRAPH_SALT := 0x9A7B3
 const STONES_SALT    := 0x5739C1
+const HILLS_TERRAIN_SALT := 0xB1175C3
+const HILLS_FOREST_SALT := 0xF0E557A
+## Terrain salt streams for VillageTerrain (AR-VT-FILES / SD-VILLAGE-TERRAIN-5).
+const VILLAGE_TERRAIN_SALT := 0x7E44A1
+const VILLAGE_TERRAIN_KNOLL_SALT := 0x7E44A1 ^ 0x5B
 ## Classic authored graph: 7 door nodes 0..6, hero stoop index 7 (INV-15; unchanged).
 const CLASSIC_HAMLET_COUNT := 7
 const CLASSIC_HERO_NODE := 7
@@ -256,6 +261,8 @@ var cottage_rings: Array = []
 var hamlet_centre_xz: Vector2 = Vector2.ZERO
 ## True for VillageLayout.generate() success paths (not authored() fallback).
 var is_generated: bool = false
+## Normalised generate() input seed (0 for authored / fallback).
+var generation_seed: int = 0
 ## Array of Array[Vector2] polylines (one per cottage door → hero).
 var paths: Array = []
 ## Parallel to `paths`: "plaza" | "hero" | "primary" | "secondary" | "door" (v3 generated); classic may use "door" per radial path or stay empty.
@@ -364,6 +371,7 @@ static func _generate_legacy_lattice(seed: int) -> VillageLayout:
 			layout.plaza_rect = plaza_rect_at(green_g, plaza_side)
 			layout.plaza_keep_clear = plaza_cottage_keep_clear_rect(green_g, plaza_side)
 			layout.is_generated = true
+			layout.generation_seed = norm
 			layout.path_kinds = []
 			# World-scale preset (SD-VILLAGE-GEN-6 / INV-20): fixed values, not per-seed.
 			layout.lawn_radius = GENERATED_LAWN_RADIUS

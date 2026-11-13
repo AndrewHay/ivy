@@ -1,0 +1,13 @@
+# WP4 pond-aimed orbit: the classic pond center sits at world (0.5, 12.0).
+# The orbit pivot is near x=-7 (generated village). Pond is ~14m from pivot.
+# Use az~30 degrees (northeast of pivot) with large radius so camera is behind pond.
+SPEED pause
+ADVANCE_DAYS 0.25
+ORBIT 30 20 4
+SCREENSHOT wp4_pond_aim_az030_h4.png
+ORBIT 30 20 1
+SCREENSHOT wp4_pond_aim_az030_h1.png
+ORBIT 15 20 3
+SCREENSHOT wp4_pond_aim_az015_h3.png
+ORBIT 45 18 2
+SCREENSHOT wp4_pond_aim_az045_h2.png

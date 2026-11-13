@@ -1,0 +1,20 @@
+# WP4 pond hunt: full orbit to find pond water in generated village seed 7.
+# 16 angles at eye-level and high.
+SPEED pause
+ADVANCE_DAYS 0.25
+ORBIT 0 16 9
+SCREENSHOT wp4_orbit_high_000.png
+ORBIT 90 16 9
+SCREENSHOT wp4_orbit_high_090.png
+ORBIT 180 16 9
+SCREENSHOT wp4_orbit_high_180.png
+ORBIT 270 16 9
+SCREENSHOT wp4_orbit_high_270.png
+ORBIT 0 10 1
+SCREENSHOT wp4_orbit_eye_000.png
+ORBIT 90 10 1
+SCREENSHOT wp4_orbit_eye_090.png
+ORBIT 180 10 1
+SCREENSHOT wp4_orbit_eye_180.png
+ORBIT 270 10 1
+SCREENSHOT wp4_orbit_eye_270.png

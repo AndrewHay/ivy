@@ -1,0 +1,38 @@
+# WP2 village terrain evidence captures — seed 7
+# Tests: CamSun view, edge views (north/east), raking low view, rim join, seeds 1 and 12
+# AR-VT-WIRE / AR-VT-HANDOFF
+
+# Generated village mode, seed 7
+WAIT 200
+
+# CamSun canonical view (seed 7)
+CAMERA sun
+SCREENSHOT seed7_camsun.png
+
+# CamShade (opposite side)
+CAMERA shade
+SCREENSHOT seed7_camshade.png
+
+# Edge north: orbit looking across the rim join toward north hills
+ORBIT 0 50 3
+SCREENSHOT seed7_edge_north.png
+
+# Edge east: orbit looking across the rim toward east
+ORBIT 90 50 3
+SCREENSHOT seed7_edge_east.png
+
+# Low raking view across lawn
+ORBIT 45 35 1
+SCREENSHOT seed7_rake_low.png
+
+# Closer raking view across center
+ORBIT 135 20 1
+SCREENSHOT seed7_rake_center.png
+
+# Overview
+ORBIT 0 50 35
+SCREENSHOT seed7_overview.png
+
+# Pond oblique
+ORBIT 200 15 3
+SCREENSHOT seed7_pond_oblique.png

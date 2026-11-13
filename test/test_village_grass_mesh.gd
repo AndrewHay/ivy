@@ -75,6 +75,14 @@ func test_grass_blade_dissolve_keep_anchor_not_camera() -> void:
 	assert_lt(k_mid, 1.0, "Between start and end → partial keep")
 
 
+func test_grass_blade_no_near_camera_ground_mean_wash() -> void:
+	var text := _read_shader("res://src/render/shaders/grass_blade.gdshader")
+	var frag := _extract_shader_function_body(text, "fragment")
+	assert_false(
+		frag.contains("mix(col, GROUND_MEAN, smoothstep(10.0, 18.0, dist)"),
+		"near-camera GROUND_MEAN wash fights hero-fog clear band (ivy-ska0.2)")
+
+
 func test_grass_blade_shader_anchor_dissolve_contract() -> void:
 	## Was per-camera (ivy-k9r0); ivy-j68r uses anchor_xz so coverage does not follow the camera.
 	var f := FileAccess.open("res://src/render/shaders/grass_blade.gdshader", FileAccess.READ)

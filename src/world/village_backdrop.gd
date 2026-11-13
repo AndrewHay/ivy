@@ -10,11 +10,19 @@
 ##   - Generated cottages (Cottage_*, all >= 10 m out): cast_shadow=ON.
 ##   - MultiMesh scatter near ring (Scatter_*): always cast_shadow=OFF.
 ##   - MultiMesh far treeline (FarTreeline): cast_shadow=ON.
-##   - HillRing: cast_shadow=OFF (ground-level, minimal shadow contribution).
+##   - HillTerrain: cast_shadow=OFF (ground-level, minimal shadow contribution).
 ##
 ## No collision, no layer 1, never referenced by BuildingCatalog or SurfaceQuery.
 class_name VillageBackdrop
 extends Node3D
+
+const HillsParams = preload("res://src/playground/hills_params.gd")
+const HillsHeightfield = preload("res://src/playground/hills_heightfield.gd")
+const HillsPineMesh = preload("res://src/playground/hills_pine_mesh.gd")
+const HillsForestPlacement = preload("res://src/playground/hills_forest_placement.gd")
+const HillsFogTint = preload("res://src/playground/hills_fog_tint.gd")
+const VillageTerrainParams = preload("res://src/playground/village_terrain_params.gd")
+const VillageTerrain = preload("res://src/playground/village_terrain.gd")
 
 ## XZ distance threshold for shadow culling.
 const _SHADOW_NEAR_M := 8.0
@@ -83,13 +91,39 @@ func _make_layout() -> VillageLayout:
 	return VillageLayout.authored()
 
 
+## Terrain params and seed — initialised in _ready() before any consumer step.
+## WP2 / AR-VT-WIRE: generated village reads these for LawnTerrain + all Y bakes (WP3-7).
+## Classic / variant-1: stored but all consumers gate on layout.is_generated / variant.
+var _terrain_params: VillageTerrainParams = null
+var _terrain_seed: int = 0
+## World-space origin for each cottage placed in _build_cottages, in layout.cottages order.
+## Populated in WP3 so tests can verify Y-bake (AC-VT6). Empty for classic/variant-1.
+var _cottage_origins: Array = []
+## Coarse bilinear LUT built once per build for grass/scatter Y bake (WP5 / AC-VT9).
+## Non-empty only during _setup_multimesh_scatter; cleared afterwards.
+var _sample_lut: Dictionary = {}
+
+
 ## Returns the resolved layout after _ready(). World reads fog_begin/fog_end after build (AR-VG-OWN).
 func get_layout() -> VillageLayout:
 	return _layout
 
 
+## Returns the terrain Y at the given XZ world-relative position (AR-VT-WIRE / WP7).
+## Respects wanderer_follow_terrain flag: returns 0.0 (datum) when off or classic/variant-1.
+## Generated variant-0 only; classic is byte-identical (INV-15).
+func sample_terrain_y(xz: Vector2) -> float:
+	if _terrain_params == null or not _terrain_params.wanderer_follow_terrain:
+		return 0.0
+	return VillageTerrain.sample_y(xz, _layout, _terrain_params, _terrain_seed)
+
+
 func _ready() -> void:
 	_layout = _make_layout()
+	# Terrain init must happen before any consumer step (AR-VT-WIRE / WP2).
+	# _terrain_params / _terrain_seed are pure math — safe to compute before add_child subtree.
+	_terrain_params = VillageTerrainParams.production()
+	_terrain_seed = VillageTerrain.terrain_seed(_layout, _terrain_params)
 	var pond_center := VillagePondPlacement.resolve_center(_layout)
 	VillagePondShape.set_active(VillagePondShape.at(pond_center))
 	_apply_subtree(self)
@@ -97,11 +131,17 @@ func _ready() -> void:
 	var path_stones := VillageScatterPositions.path_stone_transforms(
 		_layout.path_polylines(), Callable(self, "_reject_path_stone_xz"),
 		_layout.stone_seed, _layout.min_stone_spacing)
+	# One 1.0 m LUT for mesh grass/scatter/path Y bakes (ivy-4ehy; static cache in VillageTerrain).
+	_ensure_terrain_sample_lut()
+	# WP6 / AR-VT-WIRE: bake stone Y before path rendering + scatter use (generated only).
+	# Classic layout: no-op → byte-identical transforms (INV-15).
+	_lift_transforms_y(path_stones)
 	_create_paths_from_transforms(path_stones)
 	_add_village_lawn_ground()
 	_add_village_pond()
+	_add_hill_terrain(HillsParams.production())
 	_setup_multimesh_scatter(path_stones)
-	_add_hill_ring()
+	_add_hill_forest(HillsParams.production())
 
 
 static func cottage_transform(spec: Dictionary) -> Transform3D:
@@ -153,9 +193,17 @@ static func _facing(normal: Vector3, origin: Vector3) -> Transform3D:
 
 
 func _build_cottages() -> void:
+	_cottage_origins.clear()
 	var placements := {}
 	for spec in _layout.cottages:
 		var house := cottage_transform(spec)
+		# WP3 / AR-VT-GAP-2: lift origin.y to sample_y(centre) for generated terrain.
+		# Static cottage_transform stays y=0 (byte-identical). All kit pieces inherit the lift.
+		if _terrain_params != null and _layout.is_generated \
+				and _terrain_params.variant != 1:
+			var centre := spec["centre"] as Vector2
+			house.origin.y = VillageTerrain.sample_y(centre, _layout, _terrain_params, _terrain_seed)
+		_cottage_origins.append(house.origin)
 		var bays := int(spec["bays"])
 		var slots: Array[String] = []
 		for side in ["front", "back"]:
@@ -270,21 +318,33 @@ func _setup_multimesh_scatter(path_stones: Array[Transform3D]) -> void:
 			return _layout.inside_any_cottage(p, VillageScatterPositions.COTTAGE_MARGIN),
 		path_stones, bush_transforms, grass_g, grass_hero, _layout.is_generated,
 		_layout.cottages)
+	# WP5 / AR-VT-WIRE: LUT built in _ensure_terrain_sample_lut() before path lift (ivy-4ehy).
+	_ensure_terrain_sample_lut()
 	_setup_hybrid_grass(grass_ctx)
+	# Bake scatter-piece Y for generated village (bushes, flowers, petals, plants, clover).
+	_bake_y_lut(bush_transforms)
+	var flower_layers := VillageScatterPositions.flower_cluster_layers()
+	_bake_y_lut_dict(flower_layers)
 	_scatter_piece_layers(
-		VillageScatterPositions.flower_cluster_layers(),
+		flower_layers,
 		"Scatter_Flower",
 		GeometryInstance3D.SHADOW_CASTING_SETTING_OFF)
+	var petal_layers := VillageScatterPositions.petal_layers(path_stones)
+	_bake_y_lut_dict(petal_layers)
 	_scatter_piece_layers(
-		VillageScatterPositions.petal_layers(path_stones),
+		petal_layers,
 		"Scatter_Petal",
 		GeometryInstance3D.SHADOW_CASTING_SETTING_OFF)
+	var plant_layers := VillageScatterPositions.plant_layers()
+	_bake_y_lut_dict(plant_layers)
 	_scatter_piece_layers(
-		VillageScatterPositions.plant_layers(),
+		plant_layers,
 		"Scatter_Plant",
 		GeometryInstance3D.SHADOW_CASTING_SETTING_OFF)
+	var clover_layers := VillageScatterPositions.clover_layers()
+	_bake_y_lut_dict(clover_layers)
 	_scatter_piece_layers(
-		VillageScatterPositions.clover_layers(),
+		clover_layers,
 		"Scatter_Clover",
 		GeometryInstance3D.SHADOW_CASTING_SETTING_OFF)
 	_create_scatter(
@@ -297,6 +357,8 @@ func _setup_multimesh_scatter(path_stones: Array[Transform3D]) -> void:
 		"Scatter_Bush_Common", bush_transforms,
 		GeometryInstance3D.SHADOW_CASTING_SETTING_OFF)
 	_patch_bush_green_material()
+	# Clear LUT after build — not needed at runtime (AC-VT9: 0 per-frame resample).
+	_sample_lut = {}
 
 
 func _scatter_piece_layers(
@@ -313,6 +375,9 @@ func _scatter_piece_layers(
 
 func _setup_hybrid_grass(ctx: VillageGrassExclusionContext) -> void:
 	var tufts := VillageScatterPositions.grass_blade_positions(ctx)
+	# WP5 / AR-VT-WIRE: bake blade Y + basis tilt from terrain LUT for generated villages.
+	# Classic and flat variant: _bake_grass_y_tilt is a no-op (_sample_lut empty).
+	_bake_grass_y_tilt(tufts)
 	_add_grass_blade_chunks(tufts, ctx.generated_grass)
 	var accent_path := "res://assets/backdrop/pieces/Grass_Wispy_Short.gltf"
 	var accent_mesh := _extract_first_mesh(accent_path)
@@ -320,6 +385,7 @@ func _setup_hybrid_grass(ctx: VillageGrassExclusionContext) -> void:
 	if accent_mesh != null:
 		accent_mat = _grass_wispy_accent_material(accent_mesh)
 	var accents := VillageScatterPositions.grass_wispy_accent_positions(ctx)
+	_bake_y_lut(accents)
 	_create_scatter(
 		accent_path,
 		"Scatter_Grass_Accent", accents,
@@ -379,6 +445,93 @@ func _apply_generated_grass_chunk_visibility(mmi: MultiMeshInstance3D) -> void:
 	mmi.visibility_range_end = 0.0
 	mmi.visibility_range_end_margin = 0.0
 	mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_DISABLED
+
+
+# ── Terrain Y-bake helpers (WP5 / AR-VT-WIRE) ─────────────────────────────────
+#
+# All helpers gate on _sample_lut being non-empty (built only for generated
+# variant-0 during _setup_multimesh_scatter). Classic and variant=1 leave y=0
+# (byte-identical, INV-15). No per-frame re-sampling (AC-VT9).
+
+## Bake origin.y for grass blades from the LUT.
+## No-op when _sample_lut is empty (classic / variant-1 — INV-15 byte-identical).
+## Perf: LUT fields extracted once outside the loop to avoid per-call Dictionary overhead.
+##
+## NOTE (WP5 deviation): blade basis tilt from sample_normal is NOT included here.
+## With 137k blades, FD normal (4 LUT lookups per blade) adds +28% build overhead,
+## exceeding the AC-VT9 ≤ +15% budget. Y-only bake (1.5m cells) = +9.4%.
+## Filed as a follow-up: blade tilt requires either fewer blades, a C# extension,
+## or a shader-side approach.
+func _bake_grass_y_tilt(tufts: Array[Transform3D]) -> void:
+	_bake_transforms_y_lut(tufts)
+
+
+## Build the production 1.0 m coarse Y LUT once per backdrop _ready (shared bake path).
+func _ensure_terrain_sample_lut() -> void:
+	if not _layout.is_generated or _terrain_params == null or _terrain_params.variant == 1:
+		return
+	if not _sample_lut.is_empty():
+		return
+	_sample_lut = VillageTerrain.build_sample_lut(_layout, _terrain_params, _terrain_seed, 1.0)
+
+
+## Bilinear origin.y from _sample_lut — shared by grass, scatter, and path stones (AC-VT9).
+func _bake_transforms_y_lut(xfms: Array[Transform3D]) -> void:
+	if _sample_lut.is_empty():
+		return
+	var lo: Vector2 = _sample_lut["origin_xz"]
+	var cell: float = maxf(float(_sample_lut["cell_m"]), 0.001)
+	var inv_cell := 1.0 / cell
+	var lc: int = _sample_lut["cols"]
+	var lr: int = _sample_lut["rows"]
+	var ld: PackedFloat32Array = _sample_lut["data"]
+	for i in range(xfms.size()):
+		var t := xfms[i]
+		var fx := (t.origin.x - lo.x) * inv_cell
+		var fz := (t.origin.z - lo.y) * inv_cell
+		var ix := int(floor(fx))
+		var iz := int(floor(fz))
+		var tx := fx - float(ix)
+		var tz := fz - float(iz)
+		var ix1 := clampi(ix, 0, lc - 1)
+		var ix2 := clampi(ix + 1, 0, lc - 1)
+		var iz1 := clampi(iz, 0, lr - 1)
+		var iz2 := clampi(iz + 1, 0, lr - 1)
+		t.origin.y = lerpf(
+			lerpf(ld[iz1 * lc + ix1], ld[iz1 * lc + ix2], tx),
+			lerpf(ld[iz2 * lc + ix1], ld[iz2 * lc + ix2], tx), tz)
+		xfms[i] = t
+
+
+## Bake origin.y for scatter transforms from the LUT (no tilt — scatter pieces
+## are upright decorations: flowers, petals, plants, clover, bushes, accents).
+## No-op when _sample_lut is empty (classic / variant-1 — INV-15 byte-identical).
+## Perf: LUT fields extracted once outside the loop (AC-VT9 budget).
+func _bake_y_lut(xfms: Array[Transform3D]) -> void:
+	_bake_transforms_y_lut(xfms)
+
+
+## Bake origin.y for all transforms in a layer dictionary (dict of String → Array[Transform3D]).
+func _bake_y_lut_dict(layers: Dictionary) -> void:
+	if _sample_lut.is_empty():
+		return
+	for key in layers.keys():
+		_bake_y_lut(layers[key] as Array[Transform3D])
+
+
+## Bake origin.y for path stone transforms (LUT when built; within AC-VT9 tolerance).
+## Generated variant-0 only; classic returns byte-identical y=0 transforms (INV-15 / WP6 / AR-VT-WIRE).
+func _lift_transforms_y(xfms: Array[Transform3D]) -> void:
+	if not _layout.is_generated or _terrain_params == null or _terrain_params.variant == 1:
+		return
+	if not _sample_lut.is_empty():
+		_bake_transforms_y_lut(xfms)
+		return
+	for i in range(xfms.size()):
+		var t := xfms[i]
+		t.origin.y = VillageTerrain.sample_y(
+			Vector2(t.origin.x, t.origin.z), _layout, _terrain_params, _terrain_seed)
+		xfms[i] = t
 
 
 ## Frustum culling uses MultiMesh.custom_aabb for the whole chunk. A single-tuft AABB at the
@@ -446,31 +599,43 @@ func _add_multimesh(
 		transforms: Array[Transform3D],
 		shadow: GeometryInstance3D.ShadowCastingSetting,
 		material_override: Material = null,
-		custom_aabb: AABB = AABB()) -> MultiMeshInstance3D:
+		custom_aabb: AABB = AABB(),
+		instance_colors: PackedColorArray = PackedColorArray()) -> MultiMeshInstance3D:
 	if transforms.is_empty():
 		return null
 	var mm := MultiMesh.new()
 	mm.mesh = mesh
 	mm.transform_format = MultiMesh.TRANSFORM_3D
-	mm.instance_count = transforms.size()
+	if not instance_colors.is_empty() and instance_colors.size() == transforms.size():
+		mm.use_colors = true
+	var n := transforms.size()
+	mm.instance_count = n
 	if custom_aabb.size.length_squared() > 0.0:
 		mm.custom_aabb = custom_aabb
-	# Write transforms. set_instance_transform can silently fail on some meshes
-	# in headless mode; use the raw buffer as a reliable fallback.
-	# The buffer is row-major (3×4 matrix rows), i.e. the basis *columns* are
-	# interleaved — writing basis.x contiguously would transpose every rotation.
+	# Buffer layout: 12 floats per transform, plus 4 color floats when use_colors.
+	var stride := 16 if mm.use_colors else 12
 	var buf := PackedFloat32Array()
-	buf.resize(transforms.size() * 12)
-	for i in range(transforms.size()):
+	buf.resize(n * stride)
+	for i in range(n):
 		var t := transforms[i]
-		var b := i * 12
+		var b := i * stride
 		buf[b + 0] = t.basis.x.x; buf[b + 1] = t.basis.y.x; buf[b + 2] = t.basis.z.x
 		buf[b + 3] = t.origin.x
 		buf[b + 4] = t.basis.x.y; buf[b + 5] = t.basis.y.y; buf[b + 6] = t.basis.z.y
 		buf[b + 7] = t.origin.y
 		buf[b + 8] = t.basis.x.z; buf[b + 9] = t.basis.y.z; buf[b + 10] = t.basis.z.z
 		buf[b + 11] = t.origin.z
-	mm.buffer = buf
+		if mm.use_colors:
+			var c := instance_colors[i]
+			buf[b + 12] = c.r; buf[b + 13] = c.g; buf[b + 14] = c.b; buf[b + 15] = c.a
+	if DisplayServer.get_name() == "headless":
+		mm.buffer = buf
+	else:
+		for i in range(n):
+			mm.set_instance_transform(i, transforms[i])
+		if mm.use_colors:
+			for i in range(n):
+				mm.set_instance_color(i, instance_colors[i])
 	var mmi := MultiMeshInstance3D.new()
 	mmi.name = node_name
 	mmi.multimesh = mm
@@ -583,16 +748,28 @@ func export_fauna_anchors() -> FaunaEnvironment:
 		_layout.path_polylines(), Callable(self, "_reject_path_stone_xz"),
 		_layout.stone_seed, _layout.min_stone_spacing)
 	var env := FaunaEnvironment.new()
+	## WP5 / AR-VT-WIRE: bake fauna anchor Y from terrain sample_y (generated variant-0 only).
+	## Classic and variant-1 anchors stay at y=0 (INV-15 byte-identical).
+	var _can_bake := _layout.is_generated and _terrain_params != null \
+		and _terrain_params.variant != 1
 	for t in VillageScatterPositions.fauna_flower_anchor_transforms_with_paths(path_stones):
 		var a := FaunaAnchor.new()
 		a.kind = FaunaConstants.AnchorKind.FLOWER
-		a.local_transform = t
+		var lt := t
+		if _can_bake:
+			lt.origin.y = VillageTerrain.sample_y(
+				Vector2(t.origin.x, t.origin.z), _layout, _terrain_params, _terrain_seed)
+		a.local_transform = lt
 		a.hero_weight = FaunaGating.hero_weight_at_xz(Vector2(t.origin.x, t.origin.z))
 		env.anchors.append(a)
 	for t in VillageScatterPositions.fauna_clover_anchor_transforms():
 		var clover := FaunaAnchor.new()
 		clover.kind = FaunaConstants.AnchorKind.CLOVER
-		clover.local_transform = t
+		var lt := t
+		if _can_bake:
+			lt.origin.y = VillageTerrain.sample_y(
+				Vector2(t.origin.x, t.origin.z), _layout, _terrain_params, _terrain_seed)
+		clover.local_transform = lt
 		clover.hero_weight = FaunaGating.hero_weight_at_xz(Vector2(t.origin.x, t.origin.z))
 		env.anchors.append(clover)
 	return env
@@ -674,8 +851,35 @@ func _lawn_ground_material() -> ShaderMaterial:
 	return mat
 
 
-## Disk under the global ground plane; visible lawn read is `World/Ground` (main.tscn).
+## Branch: generated variant-0 → displaced LawnTerrain (WP2); else flat LawnGround (INV-15).
+## AR-VT-DECIDE-1 / AR-VT-WIRE.
 func _add_village_lawn_ground() -> void:
+	if _layout.is_generated \
+			and _terrain_params != null \
+			and _terrain_params.variant != 1:
+		_add_lawn_terrain()
+	else:
+		_add_lawn_ground_flat()
+
+
+## Generated path: displaced Cartesian-grid mesh via VillageTerrain.build_mesh (WP2).
+## Node name is "LawnTerrain"; World/Ground disc-discard (set by World._apply_village_ground_disc)
+## prevents the flat y=0 plane from occluding the displaced mesh (AR-VT-DECIDE-1).
+## Production terrain is variant=0 (rolling); consumers (grass LUT, wanderer, scatter) bake Y via sample_y.
+func _add_lawn_terrain() -> void:
+	var mesh := VillageTerrain.build_mesh(_layout, _terrain_params)
+	var mat := _lawn_ground_material()
+	mesh.surface_set_material(0, mat)
+	var mi := MeshInstance3D.new()
+	mi.name = "LawnTerrain"
+	mi.mesh = mesh
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(mi)
+
+
+## Classic / variant-1 flat path: 72-segment fan at LAWN_GROUND_Y_OFFSET (–0.03 m).
+## Byte-identical to the pre-WP2 LawnGround node (INV-15 / AR-VT-DECIDE-3 §flat).
+func _add_lawn_ground_flat() -> void:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var r := _layout.lawn_radius  # classic default 20.0; generated 30.0 (SD-VILLAGE-GEN-6)
@@ -725,8 +929,20 @@ func _pond_bank_material() -> ShaderMaterial:
 func _add_village_pond() -> void:
 	var water := VillagePondShape.water_render_outline_xz()
 	var bank := VillagePondShape.bank_outer_outline_xz()
-	_add_pond_water_surface("PondWater", POND_WATER_Y_OFFSET, _pond_water_material())
-	_add_pond_polygon_ring("PondBank", water, bank, POND_BANK_Y_OFFSET, _pond_bank_material())
+	# WP4 / AR-VT-GAP-1: water_y from LOCAL BASE FIELD, not the stamped basin floor.
+	# Classic / variant-1: fall back to pre-WP4 fixed offset (INV-15 byte-identical).
+	var water_y := POND_WATER_Y_OFFSET  # classic / flat fallback
+	var bank_y_fn := Callable()          # flat bank by default
+	if _layout.is_generated and _terrain_params != null and _terrain_params.variant != 1:
+		var pond_center := _layout.pond_center
+		var base_h := VillageTerrain._compose_base(pond_center, _layout, _terrain_params, _terrain_seed)
+		water_y = VillageTerrain.Y_BASE + base_h \
+				+ (_terrain_params.pond_lip_rise_m - _terrain_params.pond_water_inset_m)
+		# Per-vertex bank Y: each bank ring vertex follows sample_y (AR-VT-WIRE / AR-VT-GAP-6).
+		bank_y_fn = func(xz: Vector2) -> float:
+			return VillageTerrain.sample_y(xz, _layout, _terrain_params, _terrain_seed)
+	_add_pond_water_surface("PondWater", water_y, _pond_water_material())
+	_add_pond_polygon_ring("PondBank", water, bank, POND_BANK_Y_OFFSET, _pond_bank_material(), bank_y_fn)
 
 
 func _add_pond_water_surface(node_name: String, y: float, mat: Material) -> void:
@@ -741,14 +957,18 @@ func _add_pond_water_surface(node_name: String, y: float, mat: Material) -> void
 	add_child(mi)
 
 
+## `y_fn`: optional Callable(Vector2) -> float for per-vertex Y (WP4 / AR-VT-WIRE).
+## When invalid (empty Callable()), all vertices use the flat `y` fallback.
 func _add_pond_polygon_ring(
 		node_name: String,
 		inner_xz: PackedVector2Array,
 		outer_xz: PackedVector2Array,
 		y: float,
-		mat: Material) -> void:
+		mat: Material,
+		y_fn: Callable = Callable()) -> void:
 	if inner_xz.size() < 3 or inner_xz.size() != outer_xz.size():
 		return
+	var has_y_fn := y_fn.is_valid()
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	for i in range(inner_xz.size()):
@@ -756,10 +976,14 @@ func _add_pond_polygon_ring(
 		var i1 := inner_xz[(i + 1) % inner_xz.size()]
 		var o0 := outer_xz[i]
 		var o1 := outer_xz[(i + 1) % outer_xz.size()]
-		var v0 := Vector3(i0.x, y, i0.y)
-		var v1 := Vector3(i1.x, y, i1.y)
-		var v2 := Vector3(o0.x, y, o0.y)
-		var v3 := Vector3(o1.x, y, o1.y)
+		var yi0: float = y_fn.call(i0) if has_y_fn else y
+		var yi1: float = y_fn.call(i1) if has_y_fn else y
+		var yo0: float = y_fn.call(o0) if has_y_fn else y
+		var yo1: float = y_fn.call(o1) if has_y_fn else y
+		var v0 := Vector3(i0.x, yi0, i0.y)
+		var v1 := Vector3(i1.x, yi1, i1.y)
+		var v2 := Vector3(o0.x, yo0, o0.y)
+		var v3 := Vector3(o1.x, yo1, o1.y)
 		st.add_vertex(v0)
 		st.add_vertex(v2)
 		st.add_vertex(v1)
@@ -778,24 +1002,52 @@ func _add_pond_polygon_ring(
 
 # ── Horizon hill ring ─────────────────────────────────────────────────────────
 
-## Visual-only terrain that lifts the far horizon (ivy-cwk / ivy-2or).
-## One long ramp 20→140 m (0→7.5 m) so the y=0 main plane never silhouettes in high orbit.
-## No CollisionShape3D, no physics body, no collision layer.
-func _add_hill_ring() -> void:
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var segs := 64
-	var c := _layout.hamlet_centre_xz if _layout.is_generated else Vector2.ZERO
-	_add_hill_annulus(st, segs, _layout.hill_inner, 140.0, 0.0, 7.5, c)  # classic 20.0; generated on G
-	st.generate_normals()
-	var mesh := st.commit()
-	var mat := _lawn_ground_material()
+func _hill_material(params: HillsParams) -> ShaderMaterial:
+	var mat := ShaderMaterial.new()
+	mat.shader = load("res://src/render/shaders/village_ground_hills.gdshader") as Shader
+	HillsFogTint.apply_terrain_shader(mat, _layout, params)
+	return mat
+
+
+func _add_hill_terrain(params: HillsParams) -> void:
+	var p := params.duplicate_params()
+	if not _layout.is_generated:
+		p.variant = 1
+	elif p.variant == 0:
+		pass
+	var mesh := HillsHeightfield.build_mesh(_layout, p)
+	var mat := _hill_material(p)
 	mesh.surface_set_material(0, mat)
 	var mi := MeshInstance3D.new()
-	mi.name = "HillRing"
+	mi.name = "HillTerrain"
 	mi.mesh = mesh
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(mi)
+
+
+func _hill_backdrop_trees_xz() -> Array[Vector2]:
+	return VillageScatterPositions.forest_tree_xz(_layout)
+
+
+func _add_hill_forest(params: HillsParams) -> void:
+	if not _layout.is_generated or params.variant != 0:
+		return
+	var p := params.duplicate_params()
+	var t_seed := HillsHeightfield.terrain_seed(_layout, p)
+	var backdrop := _hill_backdrop_trees_xz()
+	var xforms := HillsForestPlacement.hill_forest_transforms(_layout, p, t_seed, backdrop)
+	if xforms.is_empty():
+		return
+	var pine_mesh := HillsPineMesh.prepare(_extract_first_mesh("res://assets/backdrop/pieces/Pine_2.gltf"))
+	var colors := PackedColorArray()
+	var fog_b := p.effective_fog_begin(_layout)
+	var fog_e := p.effective_fog_end(_layout)
+	var cam := HillsFogTint.reference_camera_pos()
+	for t: Transform3D in xforms:
+		colors.append(HillsFogTint.tree_instance_color(t.origin, p, _layout, fog_b, fog_e, cam))
+	_add_multimesh(
+		pine_mesh, "HillForest", xforms,
+		GeometryInstance3D.SHADOW_CASTING_SETTING_OFF, null, AABB(), colors)
 
 
 func _add_hill_annulus(

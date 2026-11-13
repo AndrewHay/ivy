@@ -1,0 +1,11 @@
+# WP4 pond visual: try seed 1 for pond visibility at 4 high angles.
+SPEED pause
+ADVANCE_DAYS 0.25
+ORBIT 0 16 9
+SCREENSHOT wp4_s1_high_000.png
+ORBIT 90 16 9
+SCREENSHOT wp4_s1_high_090.png
+ORBIT 180 16 9
+SCREENSHOT wp4_s1_high_180.png
+ORBIT 270 16 9
+SCREENSHOT wp4_s1_high_270.png

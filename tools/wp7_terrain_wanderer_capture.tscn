@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://c255uhxc6wy6a"]
+
+[ext_resource type="Script" path="res://tools/wp7_terrain_wanderer_capture.gd" id="1_wp7capture"]
+
+[node name="WP7Capture" type="Node"]
+script = ExtResource("1_wp7capture")

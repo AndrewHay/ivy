@@ -298,6 +298,7 @@ func rebuild_backdrop() -> void:
 			sky_sun.set_fog_anchor(_hero_fog_anchor_world())
 
 	_apply_village_camera_lawn_bounds()
+	_apply_village_ground_disc()
 	_apply_village_presentation()
 	_bind_wanderer()
 
@@ -348,21 +349,69 @@ func get_village_lawn_camera_bounds() -> Dictionary:
 	}
 
 
+## Set village_disc_center_xz / village_disc_radius on World/Ground/GroundMesh's shader so the
+## flat y=0 plane does not occlude the displaced LawnTerrain inside the generated lawn disc.
+## Called from rebuild_backdrop() alongside _apply_village_camera_lawn_bounds (AR-VT-DECIDE-1).
+## When no generated terrain is active (classic / variant-1) sets radius = 0 → no discard (INV-15).
+func _apply_village_ground_disc() -> void:
+	var ground_mesh := get_node_or_null("Ground/GroundMesh") as MeshInstance3D
+	if ground_mesh == null:
+		return
+	var mat := ground_mesh.get_surface_override_material(0) as ShaderMaterial
+	if mat == null:
+		return
+	# Default: no discard
+	mat.set_shader_parameter("village_disc_radius", 0.0)
+	mat.set_shader_parameter("village_disc_center_xz", Vector2.ZERO)
+	if not (_village_backdrop is VillageBackdrop):
+		return
+	var backdrop := _village_backdrop as VillageBackdrop
+	var layout := backdrop.get_layout()
+	if layout == null or not layout.is_generated:
+		return
+	# Check if terrain is active (variant != 1)
+	var terrain_params = backdrop.get("_terrain_params")
+	if terrain_params != null and terrain_params.get("variant") == 1:
+		return
+	# World-space disc centre: backdrop repositioned to pivot (see World.rebuild_backdrop).
+	var world_centre := Vector2(backdrop.global_position.x, backdrop.global_position.z) \
+		+ layout.hamlet_centre_xz
+	mat.set_shader_parameter("village_disc_center_xz", world_centre)
+	mat.set_shader_parameter("village_disc_radius", layout.lawn_radius)
+
+
 func _apply_village_camera_lawn_bounds() -> void:
 	var b := get_village_lawn_camera_bounds()
+	# WP7/AR-VT-GAP-5: build terrain floor callable if generated backdrop has terrain.
+	var floor_fn := Callable()
+	if not b.is_empty() and (_village_backdrop is VillageBackdrop):
+		var backdrop := _village_backdrop as VillageBackdrop
+		if backdrop.has_method("sample_terrain_y"):
+			var tp = backdrop.get("_terrain_params")
+			if tp != null:
+				var clearance: float = tp.get("camera_ground_clearance_m") if tp.get("camera_ground_clearance_m") != null else 0.35
+				var backdrop_origin := Vector2(
+					backdrop.global_position.x, backdrop.global_position.z)
+				floor_fn = func(xz: Vector2) -> float:
+					var local_xz := xz - backdrop_origin
+					return backdrop.call("sample_terrain_y", local_xz) + clearance
 	if _camera_rig is CameraRig:
 		var rig := _camera_rig as CameraRig
 		if b.is_empty():
 			rig.clear_lawn_camera_bounds()
+			rig.set_terrain_floor_fn(Callable())
 		else:
 			rig.set_lawn_camera_bounds(b["centre_xz"], b["radius"], b["margin"])
+			rig.set_terrain_floor_fn(floor_fn)
 	if not (_debug_camera is DebugCamera):
 		return
 	var dc := _debug_camera as DebugCamera
 	if b.is_empty():
 		dc.clear_lawn_camera_bounds()
+		dc.set_terrain_floor_fn(Callable())
 		return
 	dc.set_lawn_camera_bounds(b["centre_xz"], b["radius"], b["margin"])
+	dc.set_terrain_floor_fn(floor_fn)
 
 
 ## Camera rig scale, debug-camera zoom, and fauna ring/LOD scale — generated only (ivy-0ka).

@@ -1,0 +1,21 @@
+# WP4 pond basin evidence v2 — finding the pond for seed 7
+# The pond in generated seed 7 is at a position that needs different orbit angles.
+# Run with: --scenario=res://assets/structures/scenarios/square.tres
+#   --village-mode=generated_village --village-seed=7
+
+WAIT 200
+
+# Top-down view to locate the pond
+ORBIT 0 5 40
+SCREENSHOT wp4_topdown.png
+
+# From higher angle to see full layout
+ORBIT 30 25 25
+SCREENSHOT wp4_high_angled.png
+
+# Try different angles to find the pond
+ORBIT 300 15 2
+SCREENSHOT wp4_angle300.png
+
+ORBIT 60 15 2
+SCREENSHOT wp4_angle60.png

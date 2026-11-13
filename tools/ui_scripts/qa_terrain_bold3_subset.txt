@@ -1,0 +1,18 @@
+# Bold relief before/after subset: seeds 7 + 1 daytime key angles
+SPEED pause
+WAIT 2500
+VILLAGE_MODE generated_village 7
+WAIT 3500
+CAMERA sun
+SCREENSHOT s7_camsun.png
+ORBIT 45 35 1
+SCREENSHOT s7_terrain_rake.png
+ORBIT 0 50 42
+SCREENSHOT s7_top.png
+ADVANCE_DAYS 1.25
+VILLAGE_MODE generated_village 1
+WAIT 3500
+CAMERA sun
+SCREENSHOT s1_day_camsun.png
+ORBIT 0 50 42
+SCREENSHOT s1_day_top.png

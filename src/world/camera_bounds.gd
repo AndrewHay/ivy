@@ -88,6 +88,13 @@ static func constrain_orbit(
 	}
 
 
+## AR-VT-GAP-5: optional floor_y prevents eye from going below/into terrain knolls.
+## Caller passes sample_terrain_y(eye.xz) + camera_ground_clearance_m.
+## Default -INF = no floor (existing behaviour for flat/classic villages).
 static func clamp_free_camera_eye(
-		eye: Vector3, centre: Vector2, lawn_radius: float, margin: float = LAWN_EYE_MARGIN_M) -> Vector3:
-	return clamp_eye_xz(eye, centre, lawn_radius, margin)
+		eye: Vector3, centre: Vector2, lawn_radius: float, margin: float = LAWN_EYE_MARGIN_M,
+		floor_y: float = -INF) -> Vector3:
+	var e := eye
+	if floor_y > -INF:
+		e.y = maxf(e.y, floor_y)
+	return clamp_eye_xz(e, centre, lawn_radius, margin)
