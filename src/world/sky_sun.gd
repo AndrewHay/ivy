@@ -2,6 +2,7 @@ class_name SkySun
 extends Node3D
 
 const HeroFog = preload("res://src/world/hero_fog.gd")
+const HillsFogTint = preload("res://src/playground/hills_fog_tint.gd")
 const WorldFogVolume = preload("res://src/world/world_fog_volume.gd")
 const WorldFogParams = preload("res://src/world/world_fog_params.gd")
 
@@ -218,6 +219,10 @@ func _refresh_volumetric_tint(s_y: float, lit: float) -> void:
 	_env.environment.volumetric_fog_albedo = _env.environment.fog_light_color
 	if _world_fog_volume != null and _fog_anchor_valid:
 		WorldFogVolume.apply_params(_world_fog_volume, _fog_anchor, _world_fog_params, pale)
+	var world_root := get_parent()
+	if world_root != null and _sun != null:
+		var sun_dir := (-_sun.global_basis.z).normalized()
+		HillsFogTint.refresh_horizon_on_world(world_root, s_y, lit, sun_dir)
 
 
 static func default_haze_albedo() -> Color:
@@ -232,7 +237,7 @@ static func pale_horizon_haze_color(s_y: float = 0.32, lit: float = 1.0) -> Colo
 
 
 static func world_fog_glow_strength() -> float:
-	return 3.8
+	return 0.0
 
 
 func _apply_world_volumetric_fog(e: Environment) -> void:
@@ -244,17 +249,18 @@ func _apply_world_volumetric_fog(e: Environment) -> void:
 	e.fog_enabled = true
 	e.fog_mode = Environment.FOG_MODE_DEPTH
 	e.fog_light_color = pale
-	e.fog_depth_begin = 72.0
-	e.fog_depth_end = 230.0
-	e.fog_sky_affect = 0.12
+	# Far wash only: keep begin beyond hero volumetric band to avoid aerial froxel rings.
+	e.fog_depth_begin = 200.0
+	e.fog_depth_end = 520.0
+	e.fog_sky_affect = 0.10
 	e.volumetric_fog_enabled = true
 	e.volumetric_fog_density = 0.0
-	e.volumetric_fog_length = 512.0
-	e.volumetric_fog_detail_spread = 2.0
+	e.volumetric_fog_length = 768.0
+	e.volumetric_fog_detail_spread = 4.0
 	e.volumetric_fog_gi_inject = 0.1
-	e.volumetric_fog_ambient_inject = 0.48
+	e.volumetric_fog_ambient_inject = 0.32
 	e.volumetric_fog_anisotropy = 0.15
-	e.volumetric_fog_temporal_reprojection_enabled = true
+	e.volumetric_fog_temporal_reprojection_enabled = false
 	var cap := _world_fog_params.sky_affect_cap if _world_fog_params else 0.22
 	e.volumetric_fog_sky_affect = cap
 	e.volumetric_fog_albedo = pale

@@ -1,0 +1,71 @@
+# QA accept: hills north wedge + in-village terrain (ivy-768t / ivy-82zn.7)
+# Seeds 7 (primary), 1, 12 + production default; compass horizons + terrain views.
+SPEED pause
+WAIT 2500
+
+# ── Seed 7 (primary) ───────────────────────────────────────────────────────
+VILLAGE_MODE generated_village 7
+WAIT 3500
+CAMERA sun
+SCREENSHOT s7_camsun.png
+CAMERA shade
+SCREENSHOT s7_camshade.png
+
+# North: hills visible beyond village (south rim, look north)
+ORBIT 0 50 3
+SCREENSHOT s7_horizon_north.png
+# South: no hills ring (north rim, look south)
+ORBIT 180 50 3
+SCREENSHOT s7_horizon_south.png
+# East sunrise corridor
+ORBIT 270 50 3
+SCREENSHOT s7_horizon_east.png
+# West sunset corridor
+ORBIT 90 50 3
+SCREENSHOT s7_horizon_west.png
+
+# Seam / lawn edge (low, northward)
+ORBIT 0 48 1.2
+SCREENSHOT s7_seam_low.png
+# Raking relief readability
+ORBIT 45 35 1
+SCREENSHOT s7_terrain_rake.png
+ORBIT 135 22 1
+SCREENSHOT s7_terrain_rake2.png
+# Top-down wedge check
+ORBIT 0 50 42
+SCREENSHOT s7_top.png
+# Pond
+ORBIT 200 18 3
+SCREENSHOT s7_pond.png
+
+# Dusk (evening sun)
+ADVANCE_DAYS 0.75
+CAMERA sun
+SCREENSHOT s7_dusk_camsun.png
+ORBIT 270 50 3
+SCREENSHOT s7_dusk_east_horizon.png
+
+# ── Seed 1 ─────────────────────────────────────────────────────────────────
+VILLAGE_MODE generated_village 1
+WAIT 3500
+CAMERA sun
+SCREENSHOT s1_camsun.png
+ORBIT 0 50 3
+SCREENSHOT s1_horizon_north.png
+ORBIT 270 50 3
+SCREENSHOT s1_horizon_east.png
+ORBIT 90 50 3
+SCREENSHOT s1_horizon_west.png
+ORBIT 0 50 42
+SCREENSHOT s1_top.png
+
+# ── Seed 12 (many cottages / pond stress) ───────────────────────────────────
+VILLAGE_MODE generated_village 12
+WAIT 3500
+CAMERA sun
+SCREENSHOT s12_camsun.png
+ORBIT 0 50 3
+SCREENSHOT s12_horizon_north.png
+ORBIT 200 16 2.5
+SCREENSHOT s12_pond_close.png

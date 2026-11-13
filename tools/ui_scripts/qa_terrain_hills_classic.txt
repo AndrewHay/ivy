@@ -1,0 +1,9 @@
+# Classic flat village — no terrain/hills regression on legacy mode
+SPEED pause
+WAIT 2500
+VILLAGE_MODE classic_village
+WAIT 3000
+CAMERA sun
+SCREENSHOT classic_camsun.png
+ORBIT 0 50 3
+SCREENSHOT classic_horizon_north.png

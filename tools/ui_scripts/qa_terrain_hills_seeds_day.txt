@@ -1,0 +1,15 @@
+# Daylight horizon补 capture after dusk left sim clock dark (seeds 1/12)
+SPEED pause
+ADVANCE_DAYS 1.25
+VILLAGE_MODE generated_village 1
+WAIT 3500
+CAMERA sun
+SCREENSHOT s1_day_camsun.png
+ORBIT 270 50 3
+SCREENSHOT s1_day_horizon_east.png
+ORBIT 0 50 42
+SCREENSHOT s1_day_top.png
+VILLAGE_MODE generated_village 12
+WAIT 3500
+CAMERA sun
+SCREENSHOT s12_day_camsun.png

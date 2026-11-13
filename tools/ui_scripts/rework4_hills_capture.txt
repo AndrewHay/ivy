@@ -1,0 +1,27 @@
+# rework4 hills capture: seeds 1, 7, 12 from CamSun + silhouette + top
+SPEED pause
+WAIT 3000
+VILLAGE_MODE generated_village 1
+WAIT 3000
+CAMERA sun
+SCREENSHOT seed1_camsun.png
+CAMERA silhouette
+SCREENSHOT seed1_silhouette.png
+CAMERA top
+SCREENSHOT seed1_top.png
+VILLAGE_MODE generated_village 7
+WAIT 3000
+CAMERA sun
+SCREENSHOT seed7_camsun.png
+CAMERA silhouette
+SCREENSHOT seed7_silhouette.png
+CAMERA top
+SCREENSHOT seed7_top.png
+VILLAGE_MODE generated_village 12
+WAIT 3000
+CAMERA sun
+SCREENSHOT seed12_camsun.png
+CAMERA silhouette
+SCREENSHOT seed12_silhouette.png
+CAMERA top
+SCREENSHOT seed12_top.png

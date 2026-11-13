@@ -1,0 +1,15 @@
+# QA ivy-ska0: CamSun rig presets on generated seed 7 (midday-ish boot wait).
+SPEED pause
+WAIT 3000
+VILLAGE_MODE generated_village 7
+WAIT 3000
+CAMERA sun
+SCREENSHOT seed7_camsun_rig.png
+CAMERA shade
+SCREENSHOT seed7_camshade.png
+CAMERA top
+SCREENSHOT seed7_camtop.png
+CAMERA silhouette
+SCREENSHOT seed7_camsilhouette.png
+CAMERA sun
+SCREENSHOT seed7_camsun_rig.png

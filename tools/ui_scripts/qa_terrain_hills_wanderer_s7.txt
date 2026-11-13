@@ -1,0 +1,16 @@
+# Wanderer on terrain paths — seed 7 (boot via --village-mode=generated_village --village-seed=7)
+SPEED pause
+WAIT 3000
+WANDERER_SEED 11
+WANDERER_ADVANCE 6
+WANDERER_DUMP
+WANDERER_CAM 7 1.6 1.0 -90
+SCREENSHOT s7_wanderer_walk_a.png
+WANDERER_ADVANCE 0.4
+WANDERER_CAM 7 1.6 1.0 -90
+SCREENSHOT s7_wanderer_walk_b.png
+WANDERER_GOTO DOOR_PAUSE
+WANDERER_ADVANCE 0.3
+WANDERER_DUMP
+WANDERER_CAM 9 2.5 1.0 0
+SCREENSHOT s7_wanderer_door_pause.png

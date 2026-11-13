@@ -53,16 +53,37 @@ static func world_density_at_distance(dist_from_hero: float, params: WorldFogPar
 		return 0.0
 	if dist_from_hero <= params.clear_radius_m:
 		return 0.0
-	var span := maxf(params.thick_radius_m - params.clear_radius_m, 0.001)
-	var t := clampf((dist_from_hero - params.clear_radius_m) / span, 0.0, 1.0)
-	match params.falloff:
+	var pad := maxf(params.clear_onset_pad_m, 8.0)
+	var onset := _falloff01(
+		dist_from_hero, params.clear_radius_m, params.clear_radius_m + pad,
+		WorldFogParams.Falloff.SMOOTH)
+	if onset <= 0.0:
+		return 0.0
+	var outer := maxf(params.outer_radius_m, params.thick_radius_m + 1.0)
+	if dist_from_hero >= outer:
+		return 0.0
+	var rise := _falloff01(
+		dist_from_hero, params.clear_radius_m, params.thick_radius_m, params.falloff)
+	var fall := 1.0 - _falloff01(
+		dist_from_hero, params.thick_radius_m, outer, WorldFogParams.Falloff.SMOOTH)
+	return params.max_density * onset * rise * fall
+
+
+static func _falloff01(
+		d: float, begin: float, end: float, kind: WorldFogParams.Falloff) -> float:
+	if d <= begin:
+		return 0.0
+	if d >= end:
+		return 1.0
+	var span := maxf(end - begin, 0.001)
+	var t := clampf((d - begin) / span, 0.0, 1.0)
+	match kind:
 		WorldFogParams.Falloff.LINEAR:
-			pass
+			return t
 		WorldFogParams.Falloff.SMOOTH:
-			t = t * t * (3.0 - 2.0 * t)
-		WorldFogParams.Falloff.EXPONENTIAL:
-			t = 1.0 - exp(-3.5 * t)
-	return params.max_density * t
+			return t * t * (3.0 - 2.0 * t)
+		_:
+			return 1.0 - exp(-3.5 * t)
 
 
 static func optical_depth_along_ray(

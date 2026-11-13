@@ -1,0 +1,6 @@
+# Classic (non-generated) village still boots with flat legacy hills.
+SPEED pause
+WAIT 2500
+VILLAGE_MODE classic_village
+WAIT 2500
+SCREENSHOT classic_village_boot.png

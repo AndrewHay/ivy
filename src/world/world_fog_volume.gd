@@ -60,7 +60,9 @@ static func apply_params(
 		var sm := fv.material as ShaderMaterial
 		sm.set_shader_parameter("hero_anchor", anchor)
 		sm.set_shader_parameter("clear_radius", params.clear_radius_m)
+		sm.set_shader_parameter("clear_onset_pad", params.clear_onset_pad_m)
 		sm.set_shader_parameter("thick_radius", params.thick_radius_m)
+		sm.set_shader_parameter("outer_radius", params.outer_radius_m)
 		sm.set_shader_parameter("max_density", maxf(params.max_density, 0.0))
 		sm.set_shader_parameter("falloff_kind", int(params.falloff))
 		var cols := pale_shader_colors(haze_color)

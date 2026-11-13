@@ -21,14 +21,39 @@ func test_fog_amount_linear_ramp() -> void:
 func test_world_density_monotonic() -> void:
 	var p: WorldFogParams = WorldFogParams.production()
 	assert_eq(HeroFog.world_density_at_distance(10.0, p), 0.0, "clear zone")
-	assert_almost_eq(
-		HeroFog.world_density_at_distance(p.thick_radius_m + 5.0, p),
-		p.max_density, 0.02, "outside thick band")
+	var at_peak := HeroFog.world_density_at_distance(
+		(p.clear_radius_m + p.thick_radius_m) * 0.55, p)
+	assert_gt(at_peak, p.max_density * 0.35, "mid-rise band should build noticeable density")
 	var mid := (p.clear_radius_m + p.thick_radius_m) * 0.5
 	var hi := mid + 8.0
 	assert_gt(
 		HeroFog.world_density_at_distance(hi, p),
 		HeroFog.world_density_at_distance(mid, p))
+
+
+func test_world_density_soft_onset_past_clear_radius() -> void:
+	var p: WorldFogParams = WorldFogParams.production()
+	var at_clear := HeroFog.world_density_at_distance(p.clear_radius_m, p)
+	var just_out := HeroFog.world_density_at_distance(p.clear_radius_m + 4.0, p)
+	var mid_onset := HeroFog.world_density_at_distance(
+		p.clear_radius_m + p.clear_onset_pad_m * 0.5, p)
+	assert_eq(at_clear, 0.0, "interior clear disk stays fog-free")
+	assert_gt(just_out, 0.0, "density should ramp smoothly past clear (no hard step)")
+	assert_gt(mid_onset, just_out, "onset ramp monotonic inside pad band")
+
+
+func test_world_density_fades_to_zero_at_outer_radius() -> void:
+	var p: WorldFogParams = WorldFogParams.production()
+	var mid := (p.thick_radius_m + p.outer_radius_m) * 0.5
+	assert_gt(
+		HeroFog.world_density_at_distance(mid, p),
+		HeroFog.world_density_at_distance(p.outer_radius_m + 10.0, p),
+		"density should decay between thick and outer radii")
+	assert_lt(HeroFog.world_density_at_distance(p.outer_radius_m + 20.0, p), 0.001,
+		"beyond outer_radius density ~0 (no froxel hard ring)")
+	var peak := HeroFog.world_density_at_distance(p.thick_radius_m, p)
+	assert_gt(peak, 0.0, "peak band exists")
+	assert_lt(peak, p.max_density + 0.001, "no density plateau above max")
 
 
 func test_density_at_point_independent_of_camera() -> void:

@@ -439,6 +439,11 @@ func _make_fog_panel() -> Control:
 			_world_fog_params.thick_radius_m = v
 			_apply_playground_fog())
 	col.add_child(row_tr)
+	var row_or := _fog_spin_row("Outer radius (m)", _world_fog_params.outer_radius_m, 120.0, 400.0, 5.0,
+		func(v: float) -> void:
+			_world_fog_params.outer_radius_m = v
+			_apply_playground_fog())
+	col.add_child(row_or)
 	var row_md := _fog_spin_row("Max density", _world_fog_params.max_density, 0.01, 0.6, 0.01,
 		func(v: float) -> void:
 			_world_fog_params.max_density = v

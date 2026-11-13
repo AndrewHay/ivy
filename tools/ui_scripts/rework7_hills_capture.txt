@@ -1,0 +1,67 @@
+# rework7 hills capture: validates MAJOR-1..4 fixes visually.
+# seeds 1/7/12 CamSun; seed7 edge_outward + seam; east/west horizons per seed;
+# top view seed 7.
+SPEED pause
+WAIT 3000
+
+# ── Seed 1 ─────────────────────────────────────────────────────────────────
+VILLAGE_MODE generated_village 1
+WAIT 3000
+CAMERA sun
+SCREENSHOT seed1_camsun.png
+
+# East horizon (MAJOR-4 fix): camera on west side looking east — flat meadow expected
+ORBIT 270 50 3
+SCREENSHOT seed1_east_horizon.png
+
+# West horizon: camera on east side looking west — flat meadow expected
+ORBIT 90 50 3
+SCREENSHOT seed1_west_horizon.png
+
+# Top view
+ORBIT 0 50 40
+SCREENSHOT seed1_top.png
+
+# ── Seed 7 ─────────────────────────────────────────────────────────────────
+VILLAGE_MODE generated_village 7
+WAIT 3000
+CAMERA sun
+SCREENSHOT seed7_camsun.png
+
+# Edge outward north: camera on south side at low height, north hills visible beyond center
+ORBIT 0 50 3
+SCREENSHOT seed7_edge_outward.png
+
+# Seam close-up: very low, looking north from inside toward seam zone
+ORBIT 0 50 1
+SCREENSHOT seed7_seam.png
+
+# East horizon (MAJOR-4): flat meadow, no hill-green
+ORBIT 270 50 3
+SCREENSHOT seed7_east_horizon.png
+
+# West horizon
+ORBIT 90 50 3
+SCREENSHOT seed7_west_horizon.png
+
+# Top view
+ORBIT 0 50 40
+SCREENSHOT seed7_top.png
+
+# ── Seed 12 ────────────────────────────────────────────────────────────────
+VILLAGE_MODE generated_village 12
+WAIT 3000
+CAMERA sun
+SCREENSHOT seed12_camsun.png
+
+# East horizon
+ORBIT 270 50 3
+SCREENSHOT seed12_east_horizon.png
+
+# West horizon
+ORBIT 90 50 3
+SCREENSHOT seed12_west_horizon.png
+
+# Top view
+ORBIT 0 50 40
+SCREENSHOT seed12_top.png

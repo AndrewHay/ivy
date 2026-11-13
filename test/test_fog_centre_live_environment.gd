@@ -38,7 +38,8 @@ func test_world_volumetric_fog_after_generated_rebuild() -> void:
 	var env := _environment(main)
 	assert_true(env.fog_enabled, "world model uses fixed far depth wash (not camera-shifted)")
 	assert_eq(env.fog_mode, Environment.FOG_MODE_DEPTH)
-	assert_almost_eq(env.fog_depth_begin, 72.0, 1.0)
+	assert_gte(env.fog_depth_begin, 180.0, "depth wash starts past hero volumetric band")
+	assert_gte(env.fog_depth_end, 400.0, "depth wash reaches horizon")
 	assert_true(env.volumetric_fog_enabled, "world model enables volumetric fog")
 	assert_eq(sky.get_fog_model(), HeroFog.FogModel.WORLD_AROUND_HERO)
 	var fv := sky.get_node_or_null("WorldHeroFog") as FogVolume

@@ -1,0 +1,13 @@
+# QA ivy-ska0 accept: generated seed 7 rig cameras + classic regression boot.
+SPEED pause
+WAIT 2500
+VILLAGE_MODE generated_village 7
+WAIT 2500
+CAMERA shade
+SCREENSHOT seed7_camshade.png
+CAMERA top
+SCREENSHOT seed7_camtop.png
+CAMERA silhouette
+SCREENSHOT seed7_camsilhouette.png
+CAMERA sun
+SCREENSHOT seed7_camsun_rig.png

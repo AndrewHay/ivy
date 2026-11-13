@@ -1,0 +1,26 @@
+# ivy-ska0.2 fog seam verification (seeds 7 + 1)
+SPEED pause
+WAIT 2500
+
+VILLAGE_MODE generated_village 7
+WAIT 3500
+CAMERA sun
+SCREENSHOT s7_camsun.png
+ORBIT 270 50 3
+SCREENSHOT s7_day_horizon_east.png
+ORBIT 0 50 3
+SCREENSHOT s7_horizon_north.png
+ORBIT 0 50 42
+SCREENSHOT s7_top.png
+ADVANCE_DAYS 0.75
+ORBIT 270 50 3
+SCREENSHOT s7_dusk_east_horizon.png
+
+VILLAGE_MODE generated_village 1
+WAIT 3500
+CAMERA sun
+SCREENSHOT s1_camsun.png
+ORBIT 270 50 3
+SCREENSHOT s1_day_horizon_east.png
+ORBIT 0 50 42
+SCREENSHOT s1_top.png

@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://hills_rework_capture"]
+
+[ext_resource type="Script" path="res://tools/hills_rework_capture.gd" id="1"]
+
+[node name="HillsReworkCapture" type="Node"]
+script = ExtResource("1")
