@@ -1,0 +1,38 @@
+<!-- Generated for Claude Code by semantic-memory from semantic-memory/assets/rules/agent-pipeline.mdc.
+     Edit the source and re-run the semantic-memory install; local edits
+     here are overwritten. -->
+
+# Agent Pipeline Rule
+
+Use this stage order for feature delivery unless the user explicitly overrides it:
+
+1. Game Director
+2. Systems Designer
+3. Gameplay Architect
+4. Gameplay Programmer
+5. Code Reviewer
+6. Gameplay Fixer
+7. QA Playtester
+
+Requirements:
+- Each stage must consume the previous stage's output before proceeding.
+- Each stage output must include: inputs used, produced artifacts, and next handoff.
+- Do not skip Code Reviewer before Gameplay Fixer.
+- Do not skip QA Playtester before declaring work complete.
+- If a stage finds blockers, send the work back to the earliest stage that can resolve the blocker.
+
+Handoff quality bar:
+- Concrete, testable statements over vague intent.
+- Include explicit non-goals to prevent scope creep.
+- Keep scope aligned to the current phase objectives.
+- Preserve core loop clarity and player feedback.
+
+## Retrieval order (parent and subagent prompts)
+
+When launching a subagent or starting a pipeline stage that needs codebase context:
+
+1. **`search_project_memory` (`project="ivy"`)** — at least one task-specific query before any wholesale doc read.
+2. **Read only cited files** — `.gd` sources, or targeted sections via `fetch_document_section`. Do not open `TECHNICAL_INDEX.md`, `DESIGN.md`, or `IMPLEMENTATION.md` whole unless search fails twice or Postgres is unreachable.
+3. **Pass parent search results into the subagent prompt** — paste a short summary of what the parent already found so the subagent does not repeat or skip retrieval.
+
+Do **not** use `## Read first\n- TECHNICAL_INDEX.md` in Task prompts; use the retrieval order above instead.

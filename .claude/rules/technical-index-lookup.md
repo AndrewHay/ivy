@@ -1,0 +1,22 @@
+<!-- Generated for Claude Code by semantic-memory from semantic-memory/assets/rules/technical-index-lookup.mdc.
+     Edit the source and re-run the semantic-memory install; local edits
+     here are overwritten. -->
+
+# Technical Index Lookup Rule
+
+Before reading game source files to understand the codebase, find files for a task, or learn the overall technical design:
+
+1. **Call `search_project_memory` first** (`project="ivy"`) with a natural-language query about the system, file, or contract you need. When `semantic-memory.md` also applies, search wins — do not open large docs wholesale first.
+2. **Read only the specific files search cites** (or `outline_document` / `fetch_document_section` for a cited doc). Do not blindly read every file in the repository.
+3. **Fall back to `TECHNICAL_INDEX.md`** only if search is empty after two tries, or Postgres is unreachable. It contains a complete file index, system cross-reference, and signal flow — use it to identify which files to open next, not as a default first read.
+
+This applies whenever you need to:
+- Find which files implement a specific system or feature
+- Understand which files to modify for a change
+- Get an overview of the project architecture or technical design
+- Identify test files for a given system
+- Understand signal flow or system dependencies
+
+If search and the Technical Index together do not identify the right files, then explore the codebase more broadly.
+
+For game design intent or detailed system contracts, prefer search → `fetch_document_section` on `DESIGN.md` or `IMPLEMENTATION.md` rather than reading either file whole.

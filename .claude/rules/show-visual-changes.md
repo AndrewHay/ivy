@@ -1,0 +1,38 @@
+<!-- Generated for Claude Code by semantic-memory from .cursor/rules/show-visual-changes.mdc.
+     Edit the source and re-run the semantic-memory install; local edits
+     here are overwritten. -->
+
+# Show Visual Changes
+
+If a change affects what the game renders — geometry, materials, lighting, camera
+framing, UI, particle/plant density, colour, etc. — or a task asks what something
+currently looks like, capture screenshot(s) and **link** them in the response before
+asking the user to make a decision or declaring the work done. Don't describe an
+appearance in prose alone when a screenshot is possible.
+
+- **New thing** (didn't exist before, or the user is just asking "what does this
+  look like"): capture and link one current-state screenshot.
+- **Change to an existing thing**: capture BEFORE (pre-change state) and AFTER
+  (post-change state), and **link both**, clearly labelled (e.g. "Before" / "After"),
+  so the user can open and compare. If the "before" state can't be reproduced (e.g.
+  destructive or already-landed change), say so explicitly instead of silently linking
+  only an AFTER shot.
+
+## Mechanics
+
+- Screenshots must land under `.tmp/` (e.g. `.tmp/wall_archetypes/dense.png`) —
+  never `/tmp` — so they stay inside the workspace the user can browse, and use the
+  `take-screenshot` / `run-ui-script` skills or a purpose-built capture tool under
+  `tools/` when neither skill's camera options fit.
+- `--headless` produces no image on macOS; screenshots need a real, non-headless
+  Godot run (see `.claude/skills/take-screenshot/SKILL.md`).
+- After capture, put **clickable markdown links** in the chat response for every
+  PNG — use `[label](absolute-or-workspace path)` with the **full path string** (no
+  elided prefixes). Do **not** rely on inline `![]()` embeds alone; the user compares
+  by opening linked files. You may still read PNGs yourself to verify capture quality.
+- Before/after pairs must **always** be two separate labelled links, not one image or
+  prose-only comparison.
+- If a straight-on / specific camera angle doesn't exist yet for the surface in
+  question, it's fine to add a throwaway `Camera3D` in a one-off tool script rather
+  than blocking on building permanent camera infrastructure — say that's what you
+  did.

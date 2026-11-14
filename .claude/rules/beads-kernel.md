@@ -1,0 +1,60 @@
+<!-- Generated for Claude Code by semantic-memory from semantic-memory/assets/rules/beads-kernel.mdc.
+     Edit the source and re-run the semantic-memory install; local edits
+     here are overwritten. -->
+
+# Beads Kernel
+
+This project uses **bd (beads)** for durable work tracking. Run `bd prime` when
+context is missing or after compaction.
+
+## Orchestrator (main chat)
+
+1. `bd ready` — find unblocked work
+2. `bd show <id>` — read acceptance criteria, design, notes
+3. `bd update <id> --claim` — take one bead atomically
+4. Spawn a role subagent when the bead's stage label calls for it (see
+   `agent-pipeline.md` and `beads-acceptance.md` on game projects)
+5. Close only beads this role is allowed to close; file follow-ups with
+   `bd create` + `bd dep add`
+
+## Rules
+
+- Track ALL shared project work in bd — not markdown TODO queues or
+  `work-items/WORK_ITEMS.md` for new work
+- Do not use TodoWrite or markdown task lists as the source of truth
+- Use `bd remember "…"` for durable project memory — not MEMORY.md files
+- Do not auto-close beads unless the work and its evidence are complete
+- Do not push or `bd dolt push` unless the user explicitly asks
+
+## Commit per bead (profile: commit-per-bead)
+
+When a bead is finished, commit it locally. Never push.
+
+1. Close the bead only after its work and evidence are complete, and the quality
+   gates (tests/lint/build) pass.
+2. Check `git branch --show-current` and `git status --short`. Do not commit on
+   `main`/`master` — ask first. If the tree has changes unrelated to this bead,
+   stage only this bead's files; if they cannot be separated, skip the commit
+   and tell the user.
+3. Stage explicit paths (`git add <paths>`), never `git add -A` or `git add .`.
+4. Commit with `git commit -m "<bead-id>: <bead title>"`.
+5. Never use `--amend`, `--force`, or `--no-verify`. If a hook fails, fix the
+   cause and make a new commit.
+6. `.beads` state syncs through Dolt, not git: `bd dolt push` stays manual.
+7. At session close, report the commit hashes and propose (do not run)
+   `git push` and `bd dolt push`.
+
+## Quick reference
+
+```bash
+bd prime
+bd ready
+bd show <id>
+bd update <id> --claim
+bd create --title="…" --acceptance="…" --type=task
+bd dep add <child> <parent>   # child depends on parent (parent blocks child)
+bd close <id> --reason="…"
+```
+
+For gameplay pipeline stages and fuzzy acceptance, see `beads-acceptance.md`
+(game projects) and `PIPELINE.md`.
