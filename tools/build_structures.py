@@ -79,7 +79,9 @@ from cottage_layout import (  # noqa: E402
     PIECE_WALL_WINDOW,
     ROOF_BY_BAYS,
     all_wall_slots,
+    KIT_EXTERIOR_LOCAL,
     cottage_derived,
+    cottage_facing_angle,
     cottage_kit_piece_names,
     cottage_slot,
     piece_for_slot,
@@ -940,8 +942,14 @@ def opening_center_local(ap):
 
 
 def cottage_facing_matrix(normal: Vector, origin: Vector) -> Matrix:
-    ang = math.atan2(normal.x, normal.y)
+    """Place a kit piece so its exterior (local -Y) faces ``normal`` (ivy-b1e.15)."""
+    ang = cottage_facing_angle(normal.x, normal.y)
     return Matrix.Translation(origin) @ Matrix.Rotation(ang, 4, "Z")
+
+
+def cottage_wall_outward(xf: Matrix) -> Vector:
+    """World-space outward normal of a wall placed with ``cottage_wall_matrix``."""
+    return xf.to_3x3() @ Vector((KIT_EXTERIOR_LOCAL[0], KIT_EXTERIOR_LOCAL[1], 0.0))
 
 
 def cottage_house_rotation(cfg) -> Matrix:
@@ -957,8 +965,7 @@ def cottage_wall_matrix(cfg, side: str, bay: int) -> Matrix:
 
 
 def cottage_outward_yaw(cfg, side: str, bay: int) -> float:
-    xf = cottage_wall_matrix(cfg, side, bay)
-    n = xf.to_3x3() @ Vector((0.0, 1.0, 0.0))
+    n = cottage_wall_outward(cottage_wall_matrix(cfg, side, bay))
     return math.degrees(math.atan2(n.x, -n.y))
 
 
@@ -976,7 +983,7 @@ def enumerate_cottage_apertures(cfg, d):
             continue
         kind = "door" if "Door" in piece else "wide_win"
         xf = cottage_wall_matrix(cfg, side, bay)
-        n = xf.to_3x3() @ Vector((0.0, 1.0, 0.0))
+        n = cottage_wall_outward(xf)
         wall_loc = xf.translation + n * EXT_OFFSET
         yaw = cottage_outward_yaw(cfg, side, bay)
         aid = f"{cfg['name']}_ground_{kind}_{side_letter[side]}_{bay}"
@@ -999,7 +1006,9 @@ def enumerate_cottage_apertures(cfg, d):
 
 def place_cottage_sim_wall_slab(cfg, side: str, bay: int, collection, clay, prefix: str, world_offset: Vector):
     xf = Matrix.Translation(world_offset) @ cottage_wall_matrix(cfg, side, bay)
-    center = xf @ Vector((0.0, EXT_OFFSET + TARGET_T / 2.0, WALL_H / 2.0))
+    # Local +Y points into the house; the slab runs from the exterior face
+    # (EXT_OFFSET outside the grid line) TARGET_T inward.
+    center = xf @ Vector((0.0, TARGET_T / 2.0 - EXT_OFFSET, WALL_H / 2.0))
     return place_clay_box(
         f"{prefix}{PIECE_WALL}_{side}_{bay}",
         center,

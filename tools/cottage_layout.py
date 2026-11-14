@@ -2,7 +2,8 @@
 
 House-local frame matches ``VillageBackdrop`` (ivy-2or): ridge along +X,
 footprint x ∈ [-bays, bays], y ∈ [-depth_half, depth_half] in Blender XY
-(Z up).  Wall kit pieces face local +Y after ``_facing`` rotation.
+(Z up).  Wall kit pieces show their exterior (local -Y) outward after the
+``cottage_facing_angle`` rotation; local +Y points into the house.
 """
 
 from __future__ import annotations
@@ -42,6 +43,26 @@ def cottage_slot(side: str, bay: int, bays: int, depth_half: float = COTTAGE_DEP
         pos = (half_len, -1.0 + 2.0 * bay, 0.0)
         yaw = 90.0
     return pos, yaw
+
+
+# Kit wall pieces carry their 0.09 m timber trim (exterior) on local -Y and
+# their plaster / top beam (0.31 m, interior) on local +Y.
+KIT_EXTERIOR_LOCAL = (0.0, -1.0)
+
+
+def cottage_outward_normal(yaw_deg: float) -> Tuple[float, float]:
+    """House-local outward wall normal for a ``cottage_slot`` yaw."""
+    yr = math.radians(yaw_deg)
+    return (math.sin(yr), -math.cos(yr))
+
+
+def cottage_facing_angle(nx: float, ny: float) -> float:
+    """Z rotation (radians) that turns kit-local -Y (exterior) onto (nx, ny).
+
+    Kit-local +Y then points into the house, matching the aperture frame
+    used by ``wall_world_matrix`` (y into the room).
+    """
+    return math.atan2(nx, -ny)
 
 
 def all_wall_slots(bays: int) -> List[Tuple[str, int]]:

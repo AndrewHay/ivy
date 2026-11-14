@@ -15,9 +15,19 @@ _REPO = Path(__file__).resolve().parent.parent
 _CONFIGS_PATH = _REPO / "tools" / "structure_configs.json"
 
 
-_CONST_LINES = (130, 144)  # NATIVE_T … DOOR_HERO_OUTSET (0-based slice indices)
-_VALIDATE_LINES = (160, 279)
-_LAYOUT_LINES = (430, 544)
+def _block(start_prefix: str, end_prefix: str) -> tuple:
+    """0-based slice of build_structures.py from the line starting with
+    ``start_prefix`` up to (not including) the next line starting with
+    ``end_prefix``. Marker-based so edits elsewhere in the file don't break it."""
+    source = (_REPO / "tools" / "build_structures.py").read_text().splitlines()
+    start = next(i for i, line in enumerate(source) if line.startswith(start_prefix))
+    end = next(i for i, line in enumerate(source[start:], start) if line.startswith(end_prefix))
+    return start, end
+
+
+_CONST_LINES = _block("NATIVE_T =", "APERTURE_SPECS =")  # NATIVE_T … DOOR_HERO_OUTSET
+_VALIDATE_LINES = _block("_REQUIRED_KEYS =", "def load_structure_configs")
+_LAYOUT_LINES = _block("def cfg_derived", "def apply_transform")
 
 
 def _exec_build_constants(ns: dict) -> None:
