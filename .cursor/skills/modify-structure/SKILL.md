@@ -52,10 +52,21 @@ Blender: **4.2.1 LTS** at `/Applications/Blender.app`.
 | Export GLBs from blend | `tools/export_structures.py` | **Implemented** |
 | Rebuild sim from hero | `tools/rebuild_sim_from_hero.py` | **Implemented** |
 | JSON-only build (legacy) | `tools/build_structures.py` | Exists — stomps GLBs |
+| Growth surface from hero | `tools/build_growth_surface.py` | **Implemented** (`ivy-b1e.14`); not yet switched on for any committed structure (ivy: `ivy-b1e.7`, others: `ivy-b1e.8`) |
 | SDF bake | `tools/bake_mesh_sdf.py` | Exists |
+| Growth-surface audit (SG-9) | `tools/audit_growth_surface.tscn` | Exists |
 | Director gates | `tools/measure_structure_gates.py` | Exists |
 
 Canonical blends live at `assets/structures/{name}.blend` (committed to git).
+
+**Growth surface (AR-MESH-20).** For a structure that has gone through `tools/build_growth_surface.py`,
+the Blender-exported `{name}_sim.glb` is only a scaffold (floor and mid-floor slabs, roof cap, roof
+cone, corner columns, interior faces, aperture panels); every wall, roof, gable, chimney and shutter
+solid is rebuilt from the hero, so the `.blend`'s `Sim_{name}` collection no longer matches the
+shipped sim GLB. Settings are the optional `growth_surface` block in `tools/structure_configs.json`
+(see `STRUCTURES.md`). The tool fails rather than guessing: on a failure, read the message (and the
+`--report` JSON for slots) and fix the hero or declare an `envelope` / `exempt` / `fill` entry — never
+hand-edit the sim GLB.
 
 ---
 
@@ -112,12 +123,22 @@ python3 tools/rebuild_sim_from_hero.py assets/structures/{name}.blend assets/str
 # 2. Export GLBs (rebuild already exports; run again if hero changed without rebuild)
 python3 tools/export_structures.py assets/structures/{name}.blend assets/structures {name}
 
-# 3. SDF bake
+# 2b. Only for a structure already switched to the growth-surface builder (AR-MESH-20):
+#     hero + scaffold -> final sim GLB (idempotent; exit 1 lists every failure, nothing written)
+python3 tools/build_growth_surface.py assets/structures/{name}_hero.glb assets/structures/{name}_sim.glb assets/structures/{name}_sim.glb --structure {name} --report .tmp/{name}_growth_surface.json
+
+# 3. SDF bake (9 to 13 minutes for the cottage once it goes through 2b)
 python3 tools/bake_mesh_sdf.py assets/structures/{name}_sim.glb assets/structures/{name}_sim.sdf
 
-# 4. Director gates
+# 4. Director gates and the growth-surface audit
 python3 tools/measure_structure_gates.py {name}
+/Applications/Godot.app/Contents/MacOS/Godot --headless res://tools/audit_growth_surface.tscn -- --structures={name}
 ```
+
+To try a growth-surface candidate without touching committed assets, write 2b's output and the bake
+under `.tmp/` and audit it with explicit paths: `-- --id={name}_candidate
+--collision=res://.tmp/.../{name}_sim.glb --hero=res://assets/structures/{name}_hero.glb
+--sdf=res://.tmp/.../{name}_sim.sdf`.
 
 Bootstrap a canonical blend (one structure per invocation):
 

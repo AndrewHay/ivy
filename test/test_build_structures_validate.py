@@ -16,8 +16,8 @@ _CONFIGS_PATH = _REPO / "tools" / "structure_configs.json"
 
 
 _CONST_LINES = (130, 144)  # NATIVE_T … DOOR_HERO_OUTSET (0-based slice indices)
-_VALIDATE_LINES = (160, 279)
-_LAYOUT_LINES = (430, 544)
+_VALIDATE_LINES = (160, 283)
+_LAYOUT_LINES = (434, 548)
 
 
 def _exec_build_constants(ns: dict) -> None:
@@ -28,6 +28,9 @@ def _exec_build_constants(ns: dict) -> None:
 
 def _load_validate_config():
     """Import validate_config without pulling in Blender (bpy)."""
+    import sys
+
+    sys.path.insert(0, str(_REPO / "tools"))  # validate_config imports build_growth_surface
     source = (_REPO / "tools" / "build_structures.py").read_text().splitlines()
     ns: dict = {"Path": Path}
     _exec_build_constants(ns)
@@ -147,6 +150,44 @@ class TestValidateConfigCommittedConfigs(unittest.TestCase):
 
     def test_tower_has_merge_straight_runs(self):
         self.assertTrue(self.configs["tower"].get("merge_straight_runs"))
+
+
+class TestValidateConfigGrowthSurface(unittest.TestCase):
+    """Optional growth_surface block (IMPLEMENTATION.md AR-MESH-20.3, ivy-b1e.14)."""
+
+    @classmethod
+    def setUpClass(cls):
+        with open(_CONFIGS_PATH, "r") as fh:
+            cls.configs = json.load(fh)
+
+    def _ivy(self, block):
+        cfg = dict(self.configs["ivy"])
+        cfg["growth_surface"] = block
+        return cfg
+
+    def test_cottage_block_accepted(self):
+        validate_config("ivy", self._ivy({"envelope": ["WindowShutters"], "seals": "hero", "wall_t": 0.45}))
+
+    def test_ring_block_accepted(self):
+        validate_config("tower", _minimal_tower_cfg(growth_surface={"exempt": ["Corner"], "fill": []}))
+
+    def test_unknown_key_in_block_rejected(self):
+        with self.assertRaises(ValueError) as ctx:
+            validate_config("ivy", self._ivy({"envelop": ["WindowShutters"]}))
+        self.assertIn("growth_surface", str(ctx.exception))
+        self.assertIn("envelop", str(ctx.exception))
+
+    def test_bad_values_rejected(self):
+        for block, needle in (({"wall_t": 0.1}, "wall_t"), ({"seals": "glass"}, "seals"),
+                              ({"fill": [{"name": "a", "min": [0, 0, 0], "max": [0, 1, 1]}]}, "fill")):
+            with self.assertRaises(ValueError) as ctx:
+                validate_config("ivy", self._ivy(block))
+            self.assertIn(needle, str(ctx.exception))
+
+    def test_block_must_be_an_object(self):
+        with self.assertRaises(ValueError) as ctx:
+            validate_config("tower", _minimal_tower_cfg(growth_surface=["Corner"]))
+        self.assertIn("growth_surface", str(ctx.exception))
 
 
 class TestResolveWallPlacements(unittest.TestCase):

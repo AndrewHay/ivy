@@ -6,8 +6,16 @@ extends Node3D
 ##   Godot --headless res://tools/audit_growth_surface.tscn -- \
 ##       [--structures=ivy,tower,square,surface_wall] [--samples=2000] [--seed=1] [--json-dir=res://.tmp/audit]
 ##
-## Builds each playable mesh structure the way the game does (StructureBody from the scenario's
-## collision and hero GLBs, MeshSdf from its baked volume), runs tools/growth_surface_audit.gd,
+## or, for a candidate that is not wired into a scenario (e.g. tools/build_growth_surface.py output
+## under .tmp/; AR-MESH-20.9):
+##
+##   Godot --headless res://tools/audit_growth_surface.tscn -- --id=ivy_candidate \
+##       --collision=res://.tmp/x/ivy_sim.glb --hero=res://assets/structures/ivy_hero.glb \
+##       --sdf=res://.tmp/x/ivy_sim.sdf [--samples=...] [--seed=...] [--json-dir=...]
+##
+## --collision, --hero and --sdf go together and replace --structures; --id names the report
+## (default "custom"). Builds each structure the way the game does (StructureBody from the
+## collision and hero GLBs, MeshSdf from the baked volume), runs tools/growth_surface_audit.gd,
 ## prints the report (gates: IMPLEMENTATION.md SD-MESH-19.4; --samples is the class W count, class R
 ## gets half of it) and exits 1 when any structure fails SG-9 (a)-(c), 2 on a usage or asset error.
 
@@ -20,18 +28,48 @@ const DEFAULT_STRUCTURES := "ivy,tower,square,surface_wall"
 
 
 func _parse_args() -> Dictionary:
-	var out := {"structures": DEFAULT_STRUCTURES, "samples": "2000", "seed": "1", "json_dir": ""}
+	var out := {"structures": "", "samples": "2000", "seed": "1", "json_dir": "",
+		"id": "", "collision": "", "hero": "", "sdf": ""}
+	var keys := ["structures", "samples", "seed", "json-dir", "id", "collision", "hero", "sdf"]
 	for arg in OS.get_cmdline_user_args():
-		if arg.begins_with("--structures="):
-			out["structures"] = arg.substr(13)
-		elif arg.begins_with("--samples="):
-			out["samples"] = arg.substr(10)
-		elif arg.begins_with("--seed="):
-			out["seed"] = arg.substr(7)
-		elif arg.begins_with("--json-dir="):
-			out["json_dir"] = arg.substr(11)
-		else:
+		var matched := false
+		for key in keys:
+			var prefix: String = "--%s=" % key
+			if arg.begins_with(prefix):
+				out[String(key).replace("-", "_")] = arg.substr(prefix.length())
+				matched = true
+				break
+		if not matched:
 			out["error"] = "unknown argument: %s" % arg
+	var explicit := 0
+	for key in ["collision", "hero", "sdf"]:
+		if not String(out[key]).is_empty():
+			explicit += 1
+	if explicit != 0 and explicit != 3:
+		out["error"] = "--collision, --hero and --sdf must be given together"
+	elif explicit == 3 and not String(out["structures"]).is_empty():
+		out["error"] = "--structures cannot be combined with --collision/--hero/--sdf"
+	elif explicit == 0 and not String(out["id"]).is_empty():
+		out["error"] = "--id needs --collision, --hero and --sdf"
+	out["explicit"] = explicit == 3
+	if String(out["structures"]).is_empty():
+		out["structures"] = DEFAULT_STRUCTURES
+	if String(out["id"]).is_empty():
+		out["id"] = "custom"
+	return out
+
+
+## [[id, collision_glb, hero_glb, sdf_path], ...], or a String error.
+func _targets(args: Dictionary) -> Variant:
+	if bool(args["explicit"]):
+		return [[args["id"], args["collision"], args["hero"], args["sdf"]]]
+	var out: Array = []
+	for structure_id in String(args["structures"]).split(",", false):
+		var scenario_path := SCENARIO_DIR + structure_id + ".tres"
+		if not ResourceLoader.exists(scenario_path):
+			return "no scenario %s" % scenario_path
+		var scenario: Resource = load(scenario_path)
+		out.append([structure_id, scenario.get("collision_glb"), scenario.get("hero_glb"), scenario.get("sdf_path")])
 	return out
 
 
@@ -41,18 +79,18 @@ func _ready() -> void:
 		printerr("[audit] ", args["error"])
 		get_tree().quit(2)
 		return
+	var targets: Variant = _targets(args)
+	if targets is String:
+		printerr("[audit] ", targets)
+		get_tree().quit(2)
+		return
 	var summary: Array = []
 	var all_pass := true
-	for structure_id in String(args["structures"]).split(",", false):
-		var scenario_path := SCENARIO_DIR + structure_id + ".tres"
-		if not ResourceLoader.exists(scenario_path):
-			printerr("[audit] no scenario %s" % scenario_path)
-			get_tree().quit(2)
-			return
-		var scenario: Resource = load(scenario_path)
-		var collision_glb: String = scenario.get("collision_glb")
-		var hero_glb: String = scenario.get("hero_glb")
-		var sdf_path: String = scenario.get("sdf_path")
+	for target in targets:
+		var structure_id: String = target[0]
+		var collision_glb: String = target[1]
+		var hero_glb: String = target[2]
+		var sdf_path: String = target[3]
 		if hero_glb.is_empty() or not FileAccess.file_exists(collision_glb) \
 				or not FileAccess.file_exists(hero_glb) or not FileAccess.file_exists(sdf_path):
 			printerr("[audit] %s: missing collision, hero or sdf asset" % structure_id)

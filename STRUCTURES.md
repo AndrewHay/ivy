@@ -122,9 +122,49 @@ These appear in the building picker (`BuildingCatalog`) or dev tooling. Each has
   assets/_local/medieval_village_megakit/glTF assets/structures --no-render --emit-blend --force ivy
 
 python3 tools/rebuild_sim_from_hero.py assets/structures/ivy.blend assets/structures ivy
+# Growth surface from the hero (AR-MESH-20; see below). Not yet run on committed structures:
+# ivy-b1e.7 (cottage) and ivy-b1e.8 (the rest) switch each one over.
+python3 tools/build_growth_surface.py assets/structures/ivy_hero.glb assets/structures/ivy_sim.glb \
+  .tmp/gs/ivy_sim.glb --structure ivy --report .tmp/gs/ivy_report.json
 python3 tools/bake_mesh_sdf.py assets/structures/ivy_sim.glb assets/structures/ivy_sim.sdf
 python3 tools/measure_structure_gates.py ivy tower
 ```
+
+### Growth-surface builder (`tools/build_growth_surface.py`)
+
+Turns every node of the hero GLB into closed solids in world space and writes the sim GLB that the
+SDF baker and `StructureBody` read (IMPLEMENTATION.md AR-MESH-20.3, `ivy-b1e.14`). Pure Python,
+standard library only; self-test `python3 tools/test_build_growth_surface.py`.
+
+```bash
+python3 tools/build_growth_surface.py <hero.glb> <scaffold_sim.glb> <out_sim.glb> \
+  [--structure <id>] [--report <report.json>] [--config <structure_configs.json>]
+```
+
+- The Blender-built `*_sim.glb` is only a **scaffold**: `FloorSlab`, `MidFloorSlab`, `RoofCap`,
+  `RoofCone`, `CornerColumn_`, `Interior_` and (unless `seals` is `hero`) the `Panel_` of each
+  aperture are copied from it; its wall, roof, gable, chimney and shutter pieces are discarded. The
+  `.blend`'s `Sim_{name}` collection therefore no longer matches the shipped sim GLB once a structure
+  goes through the tool.
+- Per hero island: closed → kept; planar sheet facing out → extruded `wall_t` inward (holes become
+  reveals); planar sheet facing in → dropped; open trim → each boundary loop capped (planar) or
+  skirted to its backing sheet 2 mm inside the slab (not planar); solids wholly inside a slab →
+  dropped. Shutters listed under `envelope` become one box extended back to the wall; hero `_Seal_`
+  nodes become the aperture panel when `seals` is `hero`. Solids that meet overlap by at least 1 mm.
+- Settings: optional `growth_surface` block of the structure in `tools/structure_configs.json`,
+  validated by `validate_config`: `wall_t` (≥ 0.24, default 0.45), `envelope` and `exempt` (substrings
+  of the hero node name after `{id}_hero_`), `seals` (`hero` / `scaffold`, default `scaffold`), `fill`
+  (`[{"name", "min", "max"}]` boxes in glTF world coordinates). Absent block → defaults.
+- It **fails** (exit 1, nothing written) instead of substituting a box: an island no rule covers, a
+  result that is not closed, a boundary loop more than 5 mm out of plane with no backing sheet, a hero
+  node that is not exempt and produced no solid, an envelope with no wall behind it, a config entry
+  that matches no node, or an ivy-reachable slot narrower than 0.10 m between parallel proxy faces
+  (`--report` lists each slot's position, width, extent and the two nodes; close it with a `fill` box
+  or an `envelope`). Exit 2: usage or input error.
+- Output: one node per solid, named `{id}_sim_{hero tail}_iNN` (scaffold copies keep their name plus
+  `_i00`), no node transforms. Running it on its own output as the scaffold gives a byte-identical GLB.
+- Audit a candidate under `.tmp/` without touching a scenario with the explicit-path form of the audit
+  below (`--collision`, `--hero`, `--sdf`, `--id`).
 
 ### Growth-surface audit (SG-9 a–c)
 
@@ -140,6 +180,15 @@ sees (SD-OPEN-28, `ivy-b1e.2`). It measures and reports; it fixes nothing. Run i
 All arguments are optional: `--structures` (default: all four), `--samples` (default 2000 class W hero
 samples per structure, plus 1000 class R), `--seed` (default 1), `--json-dir` (writes one JSON report per structure). Exit code 0
 when every structure passes, 1 when any fails SG-9 (a)–(c), 2 on a usage or missing-asset error.
+
+A candidate that no scenario points at (for example a `tools/build_growth_surface.py` output) is audited
+with explicit paths instead of `--structures`; the three paths go together and `--id` names the report:
+
+```bash
+/Applications/Godot.app/Contents/MacOS/Godot --headless res://tools/audit_growth_surface.tscn -- \
+  --id=ivy_candidate --collision=res://.tmp/gs/ivy_sim.glb --hero=res://assets/structures/ivy_hero.glb \
+  --sdf=res://.tmp/gs/ivy_sim.sdf --json-dir=res://.tmp/audit
+```
 
 | Gate | What it measures | Ratified pass (DESIGN.md SG-9, IMPLEMENTATION.md SD-MESH-19) |
 |---|---|---|

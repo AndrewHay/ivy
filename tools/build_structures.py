@@ -181,6 +181,7 @@ _OPTIONAL_KEYS = {
     "windows": (list,),
     "brick_side": (str,),
     "chimney_bay": (int,),
+    "growth_surface": (dict,),  # tools/build_growth_surface.py settings (AR-MESH-20.3)
 }
 
 
@@ -199,6 +200,9 @@ def validate_config(name, cfg):
             f"{where}: unknown key(s) {sorted(unknown)} — likely a typo. "
             f"Allowed keys: {sorted(allowed)}"
         )
+    if "growth_surface" in cfg:  # stdlib-only module next to this file; also run by that tool
+        from build_growth_surface import validate_growth_surface
+        validate_growth_surface(where, cfg["growth_surface"])
     if layout == "cottage":
         for key in ("name", "scene_offset", "bays", "door", "chimney_bay"):
             if key not in cfg:
