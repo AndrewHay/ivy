@@ -11,7 +11,11 @@ const IvyParams = preload("res://src/params/ivy_params.gd")
 const SG9C_SURFACE_PHI_TOL := 0.01
 const SG9C_INSIDE_DEPTH := 0.10
 const SG9C_RAY_SAMPLES := 400  ## Matches offline audit ray budget (ivy-b1e.3).
-const SG9C_MIN_VALID_SAMPLES := 175  ## square_sim yields fewer band-valid hits until SDF sign is fixed.
+const SG9C_MIN_VALID_SAMPLES := 350
+## An inward probe only counts where the solid is at least this thick behind the face:
+## roof tiles, cone rims and sills are thinner than SG9C_INSIDE_DEPTH, so 0.10 m "in"
+## is already out the other side (ivy-b1e.3).
+const SG9C_MIN_SOLID_THICKNESS := 0.20
 
 const _PLAYABLE_SCENARIOS: Array[String] = [
 	"res://assets/structures/scenarios/ivy.tres",
@@ -26,8 +30,10 @@ func _make_scenario_fixture(scenario_path: String) -> Dictionary:
 	assert_not_null(scenario, scenario_path)
 	if not FileAccess.file_exists(scenario.collision_glb):
 		return {"skip": true, "id": scenario.scenario_id}
+	# Freed by the caller before the next scenario: the playable structures overlap in
+	# world space, so a body left alive answers the next structure's rays (ivy-b1e.3).
 	var body := StructureBody.new()
-	add_child_autofree(body)
+	add_child(body)
 	body.build(scenario.collision_glb, "")
 	await get_tree().physics_frame
 	var sdf := MeshSdf.new()
@@ -44,7 +50,25 @@ func _make_scenario_fixture(scenario_path: String) -> Dictionary:
 		body.face_material,
 		IvyParams.new()
 	)
-	return {"skip": false, "id": scenario.scenario_id, "sq": sq, "sdf": sdf}
+	return {"skip": false, "id": scenario.scenario_id, "sq": sq, "sdf": sdf, "body": body}
+
+
+func _free_fixture(fixture: Dictionary) -> void:
+	var body: Node = fixture.get("body")
+	if body != null and is_instance_valid(body):
+		remove_child(body)
+		body.free()
+	await get_tree().physics_frame
+
+
+## True when no other collision face lies within SG9C_MIN_SOLID_THICKNESS behind the hit,
+## i.e. the inward probe is still inside the piece it entered.
+func _solid_behind(sq: SurfaceQuery, position: Vector3, normal: Vector3) -> bool:
+	var back := sq.raycast(
+		position - normal * SG9C_MIN_SOLID_THICKNESS,
+		position - normal * 0.002
+	)
+	return not back.hit
 
 
 func _in_sdf_band(phi: float, band: float) -> bool:
@@ -155,7 +179,9 @@ func _audit_sg9c(sq: SurfaceQuery, sdf: MeshSdf) -> Dictionary:
 			continue
 		worst_surface = maxf(worst_surface, refined.abs_phi)
 		face_samples.append(refined)
-		var p_in: Vector3 = refined.position - refined.normal * SG9C_INSIDE_DEPTH
+		if not _solid_behind(sq, hit.position, refined.normal):
+			continue
+		var p_in: Vector3 = hit.position - refined.normal * SG9C_INSIDE_DEPTH
 		var phi_in: float = sq.signed_distance(p_in)
 		if not _in_sdf_band(phi_in, sdf.band):
 			continue
@@ -179,6 +205,7 @@ func test_sg9c_sdf_agrees_with_collision_mesh_on_all_playable_structures() -> vo
 		var sdf: MeshSdf = fixture.sdf
 		var report: Dictionary = _audit_sg9c(sq, sdf)
 		var sid: String = fixture.id
+		await _free_fixture(fixture)
 		print(
 			"[SG-9c] %s — face samples: %d, worst |Φ|: %.4f m, inside probes: %d, worst Φ@%.2f m: %.4f"
 			% [

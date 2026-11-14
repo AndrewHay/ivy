@@ -126,6 +126,31 @@ python3 tools/bake_mesh_sdf.py assets/structures/ivy_sim.glb assets/structures/i
 python3 tools/measure_structure_gates.py ivy tower
 ```
 
+### Growth-surface audit (SG-9 a–c)
+
+Judges each structure's growth surface (collision proxy + baked SDF) against the hero mesh the player
+sees (SD-OPEN-28, `ivy-b1e.2`). It measures and reports; it fixes nothing. Run it after any change to a
+`*_sim.glb`, `*_hero.glb` or `*_sim.sdf`:
+
+```bash
+/Applications/Godot.app/Contents/MacOS/Godot --headless res://tools/audit_growth_surface.tscn -- \
+  --structures=ivy,tower,square,surface_wall --json-dir=res://.tmp/audit
+```
+
+All arguments are optional: `--structures` (default: all four), `--samples` (default 2000 hero samples
+per structure), `--seed` (default 1), `--json-dir` (writes one JSON report per structure). Exit code 0
+when every structure passes, 1 when any fails SG-9 (a)–(c), 2 on a usage or missing-asset error.
+
+| Gate | What it measures | Provisional pass (DESIGN.md SG-9) |
+|---|---|---|
+| (a) | Signed gap `g` between hero and proxy on area-uniform samples of the hero's ivy-reachable exterior. `g > 0`: hero recessed behind the proxy, ivy floats. `g < 0`: hero proud, ivy clips. Reported overall, per node category and for the worst nodes. | p95 `\|g\|` ≤ 0.03 m and max `\|g\|` ≤ 0.05 m |
+| (b) | Hero recesses and proud features ≥ 0.05 m deep and ≥ 0.15 m wide (up to 1 m across), found on depth maps ray-cast from each side and from above, with the proxy's depth at the same place. | every listed feature within 0.03 m of the hero's depth |
+| (c) | The baked SDF against the collision mesh: raw `\|Φ\|` at the face (no search along the normal) and `Φ` 0.10 m inside wherever at least 0.20 m of solid lies behind the face. | max `\|Φ\|` ≤ 0.01 m and every inside probe negative |
+
+The thresholds are constants at the top of `tools/growth_surface_audit.gd`; `ivy-b1e.4` ratifies them.
+`test/test_growth_surface_audit.gd` proves the audit is falsifiable: a bounding-box proxy over a ribbed
+hero wall fails (a) and (b), and a proxy that carries the ribs passes both.
+
 ## Procedural picker fixtures (no Blender asset)
 
 | ID | Label | Implementation | Purpose |
