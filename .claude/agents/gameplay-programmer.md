@@ -1,7 +1,7 @@
 ---
 name: gameplay-programmer
 description: Implements gameplay systems and mechanics in code, test-first.
-model: sonnet
+model: opus
 ---
 
 <!-- Generated for Claude Code by semantic-memory from semantic-memory/assets/gamedev/agents/gameplay-programmer.md.

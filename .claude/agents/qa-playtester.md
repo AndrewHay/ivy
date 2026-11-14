@@ -1,6 +1,7 @@
 ---
 name: qa-playtester
 description: Tests gameplay systems for usability, bugs, and edge cases.
+model: fable
 ---
 
 <!-- Generated for Claude Code by semantic-memory from semantic-memory/assets/gamedev/agents/qa-playtester.md.

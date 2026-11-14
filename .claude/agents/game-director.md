@@ -1,6 +1,7 @@
 ---
 name: game-director
 description: Defines the vision, player fantasy, and high-level gameplay goals for features or systems.
+model: fable
 ---
 
 <!-- Generated for Claude Code by semantic-memory from semantic-memory/assets/gamedev/agents/game-director.md.

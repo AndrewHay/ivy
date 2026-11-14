@@ -1,7 +1,7 @@
 ---
 name: gameplay-architect
 description: Translates gameplay systems into practical implementation plans within the game codebase.
-model: opus
+model: fable
 ---
 
 <!-- Generated for Claude Code by semantic-memory from semantic-memory/assets/gamedev/agents/gameplay-architect.md.
