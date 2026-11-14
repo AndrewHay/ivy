@@ -1,7 +1,7 @@
 ---
 name: code-reviewer
 description: Reviews gameplay code for bugs, regressions, edge cases, and maintainability.
-model: fable
+model: opus
 disallowedTools: Write, Edit, NotebookEdit
 ---
 
