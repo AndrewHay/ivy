@@ -520,6 +520,9 @@ Evaluated on its merits, adopted **with a co-registration constraint**:
   reads it, or the ivy will visibly sit off the geometry the player sees — the exact "does not
   conform to the geometry" failure SG-7(b) is written to catch. Ledges, corners and rooflines the
   reviewer expects ivy to follow must be present in the proxy.
+  **Superseded 2026-11-13 (SD-OPEN-28):** "~`h`" is no longer the pass line. The growth surface is
+  held to SD-MESH-19: walls p95 ≤ 0.01 m, p99 ≤ 0.03 m, 0.05 m worst case, with relief
+  ≥ 0.05 m × ≥ 0.15 m represented.
 
 Owner/asset-pipeline decision, since it changes the W-091 deliverable shape → SD-OPEN-22.
 
@@ -709,6 +712,209 @@ Three consequences, all of which want stating before someone meets them at 3 a.m
 `shell_bounds(margin)` is what sets all of this, so an asset with a large empty courtyard inside its
 AABB pays for volume it never uses. That is a reason to prefer compact phase A geometry, not a
 reason to change the allocation rule.
+
+### SD-MESH-19 — Growth-surface fidelity contract (SD-OPEN-28, SG-9; ratified 2026-11-13, `ivy-b1e.4`)
+
+Supersedes the "~`h`" deviation allowance in SD-MESH-12 and the 0.05 m SD-OPEN-22 budget as the
+*pass* line. Inputs: owner ruling 2026-11-13 (tighter gates; the 0.05 m grid stays), the `ivy-b1e.2`
+audit baseline, `adhesion_range` 0.15 m, `d_contact` 0.02 m, 0.03 m segments, `stem_radius_base`
+0.006 m, SDF pitch `h` = 0.05 m. No growth parameter changes here.
+
+**Why the numbers are what they are.** Stems sit 0–1.4 cm (median 0.4 cm) off the growth surface.
+Nothing in the simulation needs a larger gap than that, so any hero-to-growth-surface gap the player
+can see is an asset defect, not a tolerance. Flat wall should measure 0.
+
+#### SD-MESH-19.1 — Definitions
+
+| Term | Definition |
+|---|---|
+| **Growth surface** | The collision proxy and the baked SDF taken together. Both must carry the relief: `nearest()` ray-refines against collision, the field and adhesion read the SDF. |
+| **Reference surface** | The hero's ivy-reachable exterior **after closing** (SD-MESH-19.3): what the growth surface is judged against. On a flat wall it is the hero face itself. |
+| **Signed gap `g`** | Distance from a reference-surface sample to the proxy along the proxy's outward normal. `g > 0`: hero recessed behind the proxy, ivy **floats**. `g < 0`: hero proud, ivy **clips**. |
+| **Class W** (walls and flats) | Every ivy-reachable hero sample that is not class R: walls, bays, gables, chimneys, shutters, panels, roof caps, slabs, reveals, anything uncategorised. |
+| **Class R** (tiled roof field) | Hero nodes the audit classifies `roof` (profiled tile fields). Reported and gated separately from W. |
+| **Feature** | A hero recess or proud step found by the audit's depth-map pass, with a depth, two widths and an opening area (actual opening, not its bounding box). |
+
+#### SD-MESH-19.2 — Which relief the growth surface must carry
+
+| Relief | Rule |
+|---|---|
+| Depth or height **≥ 0.05 m**, both widths **≥ 0.15 m**, opening area **≥ 0.0225 m²** (0.15 × 0.15) | **Must be represented.** Listed by gate (b). Proxy depth within 0.03 m of the hero's. Applies equally to recesses and proud steps. Features wider than 1 m in both directions are judged by gate (a) alone. |
+| Depth 0.03–0.05 m, or ≥ 0.05 m deep but narrower than 0.15 m, or under the area floor | **Not listed by (b); still bound by (a).** The proxy may carry it or close it, whichever keeps class W inside its percentiles and the 0.05 m worst case. |
+| Depth **< 0.03 m** (brick and stone texture, mortar joints, board grain, plaques) | **Ignored micro-relief.** A render normal-map concern. Never listed by (b). Still counted by (a), so a hero with real geometric relief of 1–3 cm over more than 5 % of a structure's class W area fails (a) and is an asset problem to escalate, not a threshold to relax. |
+| Slot or gap **narrower than 0.10 m** (`2·h`, and the SD-MESH-3 hard floor) at any depth | **Closed.** The growth surface bridges it flush with the surrounding face. Ivy must never thread it. Hero surface inside such a slot is not ivy-reachable and is excluded from (a). Shutter slat gaps are this case: the shutter's growth surface is the envelope over its slats, not the frame's bounding box. |
+| Slot 0.10–0.15 m wide | Asset author's choice: close it or represent it. If represented it must pass (a) and (c). |
+
+Area floor rationale: the baseline's only listed features under 0.0225 m² are the four tower corner
+shafts (0.013–0.016 m², 3.1 m deep, seen from above only). The smallest cottage features a player
+can see (0.026–0.040 m², 0.05–0.09 m deep) stay listed.
+
+**What counts** (when it clears the sizes above): timber frames and the frame-to-infill step, beams,
+door and window reveals down to the sealed panel, sills, lintels and ledges including their
+undersides, gable steps and verges, chimney bodies and their steps, shutters (as a slat envelope),
+eave and soffit undersides where reachable, and the **envelope** of a quoin column or corner pier
+(SD-OPEN-27's faceted corner proxy stands).
+
+**What stays exempt:** sealed door and window leaves and their frames (SD-OPEN-26); aperture seals;
+geometry below ground (`y < 0`); hero-only corner trim and seal ornament (SD-OPEN-27 clauses that
+SD-OPEN-28 kept); per-stone quoin and brick mouldings under 0.03 m; hero surface with less than
+0.25 m of clear air in front or not open to the sky by the audit's reach test; slots under 0.10 m.
+Analytic structures (`TowerSdf`, `WallSdf`) have no hero relief and are out of scope.
+
+#### SD-MESH-19.3 — Closing and fillet: how ivy eases through inside corners
+
+The reference surface is the hero solid **closed by a ball of radius `r_close` = 0.05 m** (one SDF
+cell). Closing leaves flat faces and convex (outside) edges untouched, fills slots narrower than
+`2·r_close` = 0.10 m, and rounds every concave (inside) edge to radius 0.05 m.
+
+| Quantity | Value | Why |
+|---|---|---|
+| Nominal inside-corner fillet radius | **0.05 m** | Equals `h`, so the SDF can hold it. A quarter turn at this radius is 0.08 m of path, about 2.6 segments, so a stem turns the corner over several segments instead of kinking. |
+| Accepted effective radius | **0.025–0.075 m** | Below 0.025 m the corner is a kink; above 0.075 m two fillets consume the whole floor of a minimum 0.15 m recess and the corner gap (0.41·r) exceeds 0.03 m. |
+| Gap a 0.05 m fillet adds at a 90° inside corner | max 0.021 m; over 0.01 m only within 0.02 m of the corner line | Inside the 0.03 m p99 line by construction. It does consume p95 budget: 0.04 m² per metre of concave edge. |
+| Convex edges | Sharp in collision; the trilinear SDF rounds them by at most `h/2` | Bounded by gate (c)'s 0.025 m cap. |
+
+The fillet is a property of the growth surface as the simulation reads it. Whether it is modelled
+into the collision mesh, produced by the SDF, or both, is the Architect's choice (`ivy-b1e.5`),
+provided gate (c) holds between the two.
+
+#### SD-MESH-19.4 — SG-9 gates, final numbers
+
+Sampling: seeded, area-uniform, **stratified by class**: at least 2,000 class W samples and, where a
+structure has class R area, at least 1,000 class R samples. A p99 needs the count; the baseline run
+had only 827 class W samples on the cottage. A sample with no proxy within the 0.60 m search reach
+counts as `|g|` = 0.60 m and is also reported as a count; the count must be 0 in both classes.
+
+| Gate | Statistic | Pass |
+|---|---|---|
+| **(a) W** | `\|g\|` over class W, per structure | **p95 ≤ 0.01 m, p99 ≤ 0.03 m, max ≤ 0.05 m** (owner ruling) |
+| **(a) W, per category** | median `\|g\|` of every node category with ≥ 30 samples | **≤ 0.01 m.** Stops a small category (a shutter, one bay type) hiding inside the pooled percentiles while sitting wholly off the wall. |
+| **(a) R** | signed `g` over class R | Clip side: **p95 of `−g` ≤ 0.01 m** (tiles do not bury stems). Float side: **p95 of `g` ≤ 0.05 m, max `\|g\|` ≤ 0.10 m**. Reported separately, always with the signed median. The growth surface of a tile field is its crest envelope (SD-MESH-19.3 closing), not the tile troughs. Float-side numbers are provisional until the cottage roof is re-measured (`ivy-b1e.7`); see escalations. |
+| **(b)** | every listed feature (SD-MESH-19.2 row 1) | present in the proxy, depth within **0.03 m** of the hero's |
+| **(c) face** | raw `\|Φ\|` read at sampled collision-face points, **no search along the normal**, ≥ 3,000 samples | **p95 ≤ 0.01 m, max ≤ 0.025 m** (owner ruling; grid stays 0.05 m) |
+| **(c) inside** | `Φ` 0.10 m inside every face with ≥ 0.20 m of solid behind it | **every probe negative** (0 failures) |
+| **(d)** | relief test article growth probe | SD-MESH-19.5 |
+
+A structure passes SG-9 only if every row passes. Reports always carry the distributions (median,
+p95, p99, max, float and clip shares, per category), not the verdict alone.
+
+`test/slow/test_sg9_sdf_collision.gd` currently searches ±0.10 m along the normal and so passes where
+the raw read fails. It must assert gate (c) exactly as written above (`ivy-b1e.12`). SG-2(a)'s
+"near-zero on the surface" is this gate.
+
+**Baseline against the final gates** (`ivy-b1e.2`, 2,000 samples, seed 1, baker v5; W/R not yet split):
+
+| Structure | (a) | (b) | (c) face p95 / max | (c) inside |
+|---|---|---|---|---|
+| `ivy` | fails every W line (wall median +0.144 m); roof half missing | 42 of 69 missing | 0.0083 / 0.0273, max fails | 86 fail (gable sheets) |
+| `tower` | p95 0; max 0.123 fails; p99 marginal (1.0 % over 0.03 m) | passes once the area floor drops the four shafts | 0.0050 / 0.0223, passes | 2 fail (cone rim) |
+| `square` | passes (max 0.048) | passes | 0.0024 / 0.0139, passes | passes |
+| `surface_wall` | p99 and max fail (3.4 % over 0.03 m, max 0.174) | passes | 0.0022 / 0.0146, passes | passes |
+
+**Headroom.** Gate (c) p95 has 1.2× headroom on the worst structure (0.0083 against 0.01) and the
+cap about 1.1× on the tower (0.0223 against 0.025); an exact analytic box read trilinearly gives a
+0.015 max. That is under the 2× line and was escalated: the owner ruled on 2026-11-13 that the
+0.05 m grid stays and these are the numbers. The minimum represented depth (0.05 m) is one cell, so
+its headroom comes from the collision mesh, which is exact, and not from the SDF; feature M1 on the
+test article exists to prove a one-cell recess is reached. Budgets: no grid change, so the
+SD-MESH-11 asset size and SD-MESH-18 load figures are unchanged by this contract.
+
+#### SD-MESH-19.5 — Relief test article (SG-9(d))
+
+A synthetic structure built from boxes, so every distance below is checked against exact analytic
+geometry and not against the proxy under test. Id `relief_article`; not a player-facing building.
+The **hero** is the geometry below with sharp edges. Its growth surface is produced from that hero
+by the same pipeline as any structure (`ivy-b1e.5`), which makes the article that pipeline's first
+customer.
+
+Frame: `x` right, `y` up, metres. Front face is the plane `z = 0`, facing `+z`. Ground at `y = 0`.
+
+| Id | Part | x | y | z | Size / purpose |
+|---|---|---|---|---|---|
+| WALL | Body | −1.80 … 1.80 | 0 … 3.00 | −0.45 … 0 | 3.6 × 3.0 × 0.45 m. 0.45 m thick so 0.25 m of solid stays behind N1 (clears the 0.24 m floor, SD-MESH-17). |
+| R1–R4 | Vertical ribs | centres −1.575, −1.125, −0.675, −0.225; each 0.15 wide | 0 … 3.00 | 0 … 0.10 | Timber studs, 0.10 m proud at 0.45 m centres. Clear bays 0.30 m wide, 0.10 m deep. 0.15 m width sits in the SD-MESH-3 degraded band: a baker warning is expected, an abort is not. |
+| H1 | Horizontal rail | −1.65 … −0.15 | 1.425 … 1.575 | 0 … 0.10 | Splits the three bays into six panels 0.30 × 1.425 m. Climbing ivy must go out over it and back in: ledge top and ledge underside. |
+| N1 | Niche | 0.30 … 0.90 | 0.60 … 1.50 | −0.20 … 0 | 0.60 × 0.90 m, 0.20 m deep. The "≥ 0.15 m-deep niche". |
+| M1 | Minimum recess | 1.20 … 1.36 | 0.60 … 0.90 | −0.06 … 0 | 0.16 × 0.30 m, 0.06 m deep. Just above every floor in SD-MESH-19.2: must be represented and reached. |
+| S1 | Narrow slot | 1.50 … 1.54 | 1.50 … 2.50 | −0.10 … 0 | 0.04 m wide, 0.10 m deep. Under the 0.10 m slot floor: must be closed, never threaded, never listed. |
+| U1 | Micro-relief plaque | 0.30 … 0.90 | 2.00 … 2.60 | 0 … 0.02 | 0.02 m proud. Under 0.03 m: must not be listed by (b); the proxy may ignore it. |
+
+Flat control zones: `x` −0.15 … 0.30 and 0.90 … 1.20 (full height), and the back, top and end faces.
+
+**Recess footprints** for the probe: the six panels, N1 and M1. A footprint's **floor zone** is the
+part of its floor at least 0.075 m from every side wall of that recess (0.15 m wide in a panel).
+
+**Audit on the article** (hero = article, same tool): (a) W, (b) and (c) pass. (b) lists N1, M1 and
+the rib-and-rail relief (as six panels or as ribs plus rail, whichever the depth maps report), and
+lists neither S1 nor U1. Hero samples inside S1 are classified not reachable.
+
+**Growth probe.** Default `IvyParams`, no overrides. One fixed seed, recorded. 30 game-days. Four
+seed anchors, all at `y` = 0.10 on the front: A1 `x` = −0.90 (foot of the middle bay; must climb
+the panel and cross H1), A2 `x` = 0.075 (flat zone; lateral runners cross R4 and reach N1),
+A3 `x` = 0.60 (below N1; climbs over the sill into the niche), A4 `x` = 1.28 (below M1). Distances
+are to the analytic article, sharp-edged. A stem node "is in" a footprint when its projection on the
+wall plane is inside it.
+
+| Id | Criterion | Pass |
+|---|---|---|
+| D0 | Enough evidence | ≥ 20 crossings of a rib or the rail (a stem with attached nodes on both sides), ≥ 5 stems with nodes in N1's floor zone, ≥ 1 in M1's. Fewer is **inconclusive and counts as a fail of the probe**: fix anchors or run length, do not relax D1–D4. |
+| D1 | Stems reach the recess floor | Of stem nodes in floor zones, **≥ 95 % within `d_contact` = 0.02 m** of the floor plane. |
+| D2 | Stems do not span an opening | No stem node in any footprint farther than **0.05 m** from the nearest article surface. |
+| D3 | Nothing inside solid | **Zero** tip end positions with analytic `Φ < 0`; no stem node deeper than 0.01 m inside. |
+| D4 | Slot not threaded | Zero stem nodes inside S1 deeper than 0.02 m behind `z = 0`. |
+| D5 | Determinism | Two runs give identical fingerprints (SG-6 discipline). |
+| D6 | Falsifiability | The same probe on a bounding-box proxy of the article (one box, `z` −0.45 … 0.10, no recesses) **fails** D1 or D2. |
+
+Reported, not gated: the turn angle between consecutive segments along stems passing an inside
+corner (p95 and max), the distance-to-surface histogram per feature, and front and oblique
+screenshots. Whether the curves read as natural is the human SG-7(b) read, not the probe's.
+
+#### SD-MESH-19.6 — Failure modes and expected behaviour
+
+| Case | Expected |
+|---|---|
+| Proxy is a bounding box over relief | Fails (a) W and (b); on the article fails D1/D2. Never waived. |
+| Proxy carries relief, SDF does not (or the reverse) | Fails (c) face. Stems would be pulled toward a surface the ray cannot find. |
+| Single-sided sheet in the proxy (cottage gables) | Fails (c) inside and is already inadmissible under SD-MESH-13.1. Fix the asset. |
+| Proxy missing over part of the hero (cottage west roof) | Counted at 0.60 m, fails the class's percentiles, and the non-zero "no proxy in reach" count fails by itself. |
+| Hero has a slot under 0.10 m | Closed in the growth surface; samples inside are excluded; ivy crosses it flush. |
+| Hero has 1–3 cm geometric relief over a large area | Fails (a) p95. Escalate to the Director with the measured share; do not exempt a category. |
+| Sharp-edge trilinear error on a clean asset exceeds the (c) cap | Report the measured max and escalate; a finer pitch for that asset (SD-MESH-16 header pitch) is an owner decision. |
+| Probe yields too few crossings | Inconclusive = fail (D0). |
+
+#### SD-MESH-19.7 — Example scenarios
+
+1. **Cottage long wall.** The player plants at the foot of a timber-framed wall. Today the ivy
+   climbs a box face 14 cm in front of the plaster. Under this contract the growth surface has the
+   plaster as its floor and the beams as 0.10 m steps: the stem climbs the plaster, turns out over
+   a rail on a 5 cm fillet, crosses its face and eases back onto the plaster above. Gate (a) W reads
+   p95 ≤ 0.01 m.
+2. **Louvred shutter.** Slat gaps are a few centimetres wide. The growth surface is the slat
+   envelope, so ivy lies across the slats' outer edges, 0–1.4 cm off them, and never dives between
+   slats or hovers 7.6 cm out at the frame's bounding box.
+3. **Tiled roof.** Ivy coming over the eave lies on the tile crests and spans each trough (class R),
+   so tiles never swallow a stem; the audit reports the trough float separately from the walls.
+
+#### SD-MESH-19.8 — Escalated, not decided here
+
+- **Director / owner — tile roofs (class R).** Recommended default: ivy rides the tile crests, float
+  over troughs gated at p95 0.05 m. The owner ruled only that tiles are reported separately. Confirm
+  on the cottage captures once the roof proxy exists (`ivy-b1e.7`); if troughs are deeper than
+  0.05 m, decide between a finer pitch on roofs and accepting the float.
+- **Director — real geometric micro-relief.** If any hero turns out to have 1–3 cm modelled relief
+  over more than 5 % of class W, (a) p95 cannot pass with a flat proxy. Not seen on the four
+  baseline structures' clean categories (tower and square p95 = 0).
+- **Architect (`ivy-b1e.5`) — `SurfaceQuery.effective_contact`** adds `h/2` (0.025 m) to
+  `contact_distance` on MeshSdf structures (`growth_step.gd`). It looks like padding for the SDF bias
+  fixed in `ivy-b1e.3`. D1 is written against the nominal 0.02 m; decide whether the padding goes.
+- **Architect — field shell (0.09 m) against 0.05–0.15 m relief**, and how relief reaches both the
+  collision mesh and the SDF.
+
+#### SD-MESH-19.9 — Non-goals
+
+Choosing the generation tool or method; changing adhesion or growth parameters; a finer SDF pitch;
+unsealing doors or windows; following individual roof tiles, bricks or quoin stones; analytic
+structures; editing the audit tool or tests (that is `ivy-b1e.12`); building the article (`ivy-b1e.6`).
 
 ### SD-MESH — example scenarios
 

@@ -141,13 +141,16 @@ All arguments are optional: `--structures` (default: all four), `--samples` (def
 per structure), `--seed` (default 1), `--json-dir` (writes one JSON report per structure). Exit code 0
 when every structure passes, 1 when any fails SG-9 (a)–(c), 2 on a usage or missing-asset error.
 
-| Gate | What it measures | Provisional pass (DESIGN.md SG-9) |
+| Gate | What it measures | Ratified pass (DESIGN.md SG-9, IMPLEMENTATION.md SD-MESH-19) |
 |---|---|---|
-| (a) | Signed gap `g` between hero and proxy on area-uniform samples of the hero's ivy-reachable exterior. `g > 0`: hero recessed behind the proxy, ivy floats. `g < 0`: hero proud, ivy clips. Reported overall, per node category and for the worst nodes. | p95 `\|g\|` ≤ 0.03 m and max `\|g\|` ≤ 0.05 m |
-| (b) | Hero recesses and proud features ≥ 0.05 m deep and ≥ 0.15 m wide (up to 1 m across), found on depth maps ray-cast from each side and from above, with the proxy's depth at the same place. | every listed feature within 0.03 m of the hero's depth |
-| (c) | The baked SDF against the collision mesh: raw `\|Φ\|` at the face (no search along the normal) and `Φ` 0.10 m inside wherever at least 0.20 m of solid lies behind the face. | max `\|Φ\|` ≤ 0.01 m and every inside probe negative |
+| (a) W | Signed gap `g` between hero and proxy on area-uniform samples of the hero's ivy-reachable exterior, walls and every other non-tile surface (≥ 2,000 samples). `g > 0`: hero recessed behind the proxy, ivy floats. `g < 0`: hero proud, ivy clips. Reported overall, per node category and for the worst nodes. | p95 `\|g\|` ≤ 0.01 m, p99 ≤ 0.03 m, max ≤ 0.05 m; median `\|g\|` ≤ 0.01 m in every category with ≥ 30 samples; no sample without proxy in reach |
+| (a) R | The same gap on tiled roof fields (category `roof`, ≥ 1,000 samples where present), reported separately. | tiles proud by more than 0.01 m on ≤ 5 % of samples; float p95 ≤ 0.05 m, max `\|g\|` ≤ 0.10 m (float side provisional); no sample without proxy in reach |
+| (b) | Hero recesses and proud features ≥ 0.05 m deep, ≥ 0.15 m wide both ways and ≥ 0.0225 m² in opening area (up to 1 m across), found on depth maps ray-cast from each side and from above, with the proxy's depth at the same place. Relief under 0.03 m and slots narrower than 0.10 m are never listed. | every listed feature within 0.03 m of the hero's depth |
+| (c) | The baked SDF against the collision mesh: raw `\|Φ\|` at the face (no search along the normal) and `Φ` 0.10 m inside wherever at least 0.20 m of solid lies behind the face. | face p95 ≤ 0.01 m and max ≤ 0.025 m; every inside probe negative |
 
-The thresholds are constants at the top of `tools/growth_surface_audit.gd`; `ivy-b1e.4` ratifies them.
+These numbers were ratified on 2026-11-13 (`ivy-b1e.4`, owner ruling). **The tool does not enforce them
+yet:** the constants at the top of `tools/growth_surface_audit.gd` are still the provisional ones (p95
+0.03 m, no p99, no W/R split, (c) on max 0.01 m) until `ivy-b1e.12` lands.
 `test/test_growth_surface_audit.gd` proves the audit is falsifiable: a bounding-box proxy over a ribbed
 hero wall fails (a) and (b), and a proxy that carries the ribs passes both.
 
