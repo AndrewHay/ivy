@@ -1,6 +1,6 @@
 extends Node3D
 
-## Growth-surface audit driver — SG-9 (a)-(c), SD-OPEN-28 (ivy-b1e.2).
+## Growth-surface audit driver — SG-9 (a)-(c), SD-OPEN-28 (ivy-b1e.2; ratified gates ivy-b1e.12).
 ##
 ## Usage (project root):
 ##   Godot --headless res://tools/audit_growth_surface.tscn -- \
@@ -8,7 +8,8 @@ extends Node3D
 ##
 ## Builds each playable mesh structure the way the game does (StructureBody from the scenario's
 ## collision and hero GLBs, MeshSdf from its baked volume), runs tools/growth_surface_audit.gd,
-## prints the report and exits 1 when any structure fails SG-9 (a)-(c), 2 on a usage or asset error.
+## prints the report (gates: IMPLEMENTATION.md SD-MESH-19.4; --samples is the class W count, class R
+## gets half of it) and exits 1 when any structure fails SG-9 (a)-(c), 2 on a usage or asset error.
 
 const Audit = preload("res://tools/growth_surface_audit.gd")
 const StructureBodyScript = preload("res://src/world/structure_body.gd")
@@ -88,17 +89,21 @@ func _ready() -> void:
 		body.free()
 		await get_tree().physics_frame
 
-	print("[audit] summary (SG-9 provisional thresholds)")
-	print("  structure      (a) p95|g|  max|g|  float%  clip%   (b) listed  missing   (c) face max  p99     inside+   result")
+	print("[audit] summary (SG-9 ratified gates, IMPLEMENTATION.md SD-MESH-19.4)")
+	print("  structure      (a)W   p95|g|  p99|g|  max|g|  absent   (a)R   proud95 float95 max|g|   (b)   listed missing   (c)   face p95  max     inside+   result")
 	for row in summary:
 		var r: Dictionary = row[1]
-		var a: Dictionary = r["a"]
+		var w: Dictionary = r["a"]["walls"]
+		var roof: Dictionary = r["a"]["roof"]
 		var b: Dictionary = r["b"]
 		var c: Dictionary = r["c"]
-		print("  %-13s  %s  %.4f      %.4f  %5.1f   %5.1f   %s  %4d        %4d      %s  %.4f        %.4f  %4d      %s" % [
-			row[0], Audit._verdict(a["pass"]), a.get("p95_abs", NAN), a.get("max_abs", NAN),
-			100.0 * a.get("float_share", 0.0), 100.0 * a.get("clip_share", 0.0),
+		var roof_txt := "none   -       -       -     "
+		if roof["present"] and int(roof.get("n", 0)) > 0:
+			roof_txt = "%s   %.4f  %.4f  %.4f" % [Audit._verdict(roof["pass"]), roof["clip_p95"], roof["float_p95"], roof["max_abs"]]
+		print("  %-13s  %s   %.4f  %.4f  %.4f  %4d     %s   %s  %4d   %4d      %s  %.4f    %.4f  %4d      %s" % [
+			row[0], Audit._verdict(w["pass"]), w.get("p95_abs", NAN), w.get("p99_abs", NAN), w.get("max_abs", NAN),
+			w.get("absent", 0), roof_txt,
 			Audit._verdict(b["pass"]), b.get("listed", 0), b.get("unrepresented", 0),
-			Audit._verdict(c["pass"]), c["face_max"], c["face_p99"], c["inside_not_negative"],
+			Audit._verdict(c["pass"]), c["face_p95"], c["face_max"], c["inside_not_negative"],
 			Audit._verdict(r["pass"])])
 	get_tree().quit(0 if all_pass else 1)

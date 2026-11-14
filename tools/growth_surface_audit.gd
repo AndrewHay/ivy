@@ -1,33 +1,59 @@
 extends RefCounted
 
-## Growth-surface audit — SG-9 (a)-(c), SD-OPEN-28 (ivy-b1e.2).
+## Growth-surface audit — SG-9 (a)-(c), SD-OPEN-28 (ivy-b1e.2; ratified gates ivy-b1e.12).
 ##
 ## Judges a structure's growth surface (collision proxy + baked SDF) against the hero mesh the
 ## player sees. It measures and reports; it fixes nothing.
 ##
 ##   (a) signed gap `g` between hero and proxy on area-uniform samples of the hero's
-##       ivy-reachable exterior. g > 0: the hero is recessed behind the proxy (ivy floats);
-##       g < 0: the hero stands proud of it (ivy clips).
-##   (b) hero recesses and proud features >= 0.05 m deep x >= 0.15 m wide (up to 1 m across),
-##       with the proxy's depth at the same place, found on depth maps ray-cast from each side
-##       and from above.
-##   (c) the baked SDF against the collision mesh it was baked from.
+##       ivy-reachable exterior, stratified by surface class: W (walls and every other non-tile
+##       surface) and R (tiled roof fields, category `roof`), gated separately. g > 0: the hero
+##       is recessed behind the proxy (ivy floats); g < 0: the hero stands proud of it (ivy clips).
+##   (b) hero recesses and proud features >= 0.05 m deep x >= 0.15 m wide and >= 0.0225 m2 in
+##       opening area (up to 1 m across), with the proxy's depth at the same place, found on
+##       depth maps ray-cast from each side and from above.
+##   (c) the baked SDF against the collision mesh it was baked from, read raw at the face.
 ##
-## The thresholds below are the PROVISIONAL SG-9 numbers from DESIGN.md; ivy-b1e.4 ratifies them.
+## The thresholds below are the RATIFIED SG-9 numbers: DESIGN.md SG-9 and IMPLEMENTATION.md
+## SD-MESH-19.2 / 19.4 (ivy-b1e.4, owner ruling 2026-11-13). Change them there first.
 ## Driver: tools/audit_growth_surface.gd. Self-test: test/test_growth_surface_audit.gd.
 
 const PROXY_MASK := 1
 ## A layer nothing in the game uses, for the throwaway hero collision body.
 const HERO_MASK := 1 << 19
 
-# --- SG-9 thresholds (provisional) -------------------------------------------------------------
-const GAP_P95_MAX := 0.03
-const GAP_ABS_MAX := 0.05
+# --- SG-9 thresholds (ratified; IMPLEMENTATION.md SD-MESH-19.4 unless noted) --------------------
+## Gate (a), class W: |g| p95, p99 and worst case.
+const GAP_W_P95_MAX := 0.01
+const GAP_W_P99_MAX := 0.03
+const GAP_W_ABS_MAX := 0.05
+## Gate (a), class W, per node category: median |g|, for categories with enough samples.
+const GAP_W_CATEGORY_MEDIAN_MAX := 0.01
+const GAP_W_CATEGORY_MIN_SAMPLES := 30
+## Gate (a), class R: p95 of -g (tiles proud), p95 of g (float over troughs; provisional), worst.
+const GAP_R_CLIP_P95_MAX := 0.01
+const GAP_R_FLOAT_P95_MAX := 0.05
+const GAP_R_ABS_MAX := 0.10
+## Stratified sample counts (a p99 needs the count). The driver's --samples sets the W count.
+const SAMPLES_W := 2000
+const SAMPLES_R := 1000
+## Float and clip shares are reported against this line (the class W p99 line).
+const GAP_SHARE_LINE := 0.03
+## Gate (b): SD-MESH-19.2 row 1.
 const CONCAVITY_MIN_DEPTH := 0.05
 const CONCAVITY_MIN_WIDTH := 0.15
+const CONCAVITY_MIN_AREA := 0.0225
 const CONCAVITY_DEPTH_TOL := 0.03
-const SDF_FACE_TOL := 0.01
+## Gate (c): raw |phi| at the face, p95 and cap (half a cell of the 0.05 m grid).
+const SDF_FACE_P95_MAX := 0.01
+const SDF_FACE_ABS_MAX := 0.025
+const SDF_FACE_MIN_SAMPLES := 3000
 const SDF_INSIDE_DEPTH := 0.10
+const SDF_INSIDE_MIN_SAMPLES := 50
+## An inside probe counts only when no other proxy face lies within one SDF cell of it.
+const SDF_INSIDE_CLEAR := 0.05
+## SD-MESH-19.2: a slot narrower than this is closed; hero surface inside it is not ivy-reachable.
+const SLOT_MAX_WIDTH := 0.10
 
 # --- Method constants --------------------------------------------------------------------------
 ## Clear air a hero face needs in front of it to count as visible.
@@ -42,7 +68,12 @@ const RELIEF_PITCH := 0.025
 const ENVELOPE_RADIUS := 0.50
 ## An inward SDF probe only counts where at least this much solid lies behind the face.
 const SDF_MIN_SOLID := 0.20
-const SDF_RAYS := 3000
+## Rays cast at the proxy for gate (c); enough that SDF_FACE_MIN_SAMPLES of them hit.
+const SDF_RAYS := 4000
+## Height above a hero sample at which the slot test looks sideways for opposing walls.
+const SLOT_PROBE_LIFT := 0.015
+## Hero node category that is class R (tiled roof field); everything else reachable is class W.
+const ROOF_CATEGORY := "roof"
 
 ## SD-OPEN-27 exclusions that SD-OPEN-28 keeps: hero-only corner trim, sealed leaves and frames.
 const UNREACHABLE_CATEGORIES: Array[String] = [
@@ -158,13 +189,22 @@ func setup(space: PhysicsDirectSpaceState3D, pieces: Array, sdf) -> void:
 			_probe_dirs.append(Vector3(sin(tilt) * cos(az), sin(tilt) * sin(az), cos(tilt)))
 
 
-## options: samples (2000), seed (1), relief (true). Returns the report dictionary.
+## "W" or "R" for a node category (SD-MESH-19.1).
+static func surface_class(category: String) -> String:
+	return "R" if category == ROOF_CATEGORY else "W"
+
+
+## options: samples (class W count, 2000; class R gets half of it), seed (1), relief (true).
+## Returns the report dictionary.
 func run(options: Dictionary = {}) -> Dictionary:
+	var samples_w := int(options.get("samples", SAMPLES_W))
+	@warning_ignore("integer_division")
+	var samples_r := int(options.get("samples_roof", samples_w * SAMPLES_R / SAMPLES_W))
 	var report := {
 		"hero_pieces": _pieces.size(),
-		"a": _audit_gap(int(options.get("samples", 2000)), int(options.get("seed", 1))),
+		"a": _audit_gap(samples_w, samples_r, int(options.get("seed", 1))),
 		"b": _audit_concavities() if bool(options.get("relief", true)) else {"skipped": true, "pass": true},
-		"c": _audit_sdf(),
+		"c": audit_sdf(),
 	}
 	report["pass"] = bool(report["a"]["pass"]) and bool(report["b"]["pass"]) and bool(report["c"]["pass"])
 	return report
@@ -248,7 +288,29 @@ func _gap_at(p: Vector3, n_out: Vector3) -> Array:
 	return [GAP_REACH if phi < 0.0 else -GAP_REACH, 2]
 
 
-static func _gap_stats(values: Array) -> Dictionary:
+## True when the hero surface at `p` lies in a slot narrower than SLOT_MAX_WIDTH: hero walls
+## stand on two opposite sides of it, closer together than that (SD-MESH-19.2). The growth
+## surface bridges such a slot, so the surface inside it is not judged.
+func _in_narrow_slot(p: Vector3, n_out: Vector3) -> bool:
+	var basis := _basis_around(n_out)
+	var eye := p + n_out * SLOT_PROBE_LIFT
+	for k in 4:
+		var ang := deg_to_rad(45.0 * k)
+		var t := basis.x * cos(ang) + basis.y * sin(ang)
+		var fwd := _cast(eye, eye + t * SLOT_MAX_WIDTH, HERO_MASK)
+		if fwd.is_empty():
+			continue
+		var back := _cast(eye, eye - t * SLOT_MAX_WIDTH, HERO_MASK)
+		if back.is_empty():
+			continue
+		if (fwd["position"] as Vector3).distance_to(eye) + (back["position"] as Vector3).distance_to(eye) < SLOT_MAX_WIDTH:
+			return true
+	return false
+
+
+## Distribution of signed gaps. `clip_p95` is the p95 of -g (how proud the hero stands),
+## `float_p95` the p95 of g (how far it sits behind the proxy).
+static func gap_stats(values: Array) -> Dictionary:
 	var n := values.size()
 	if n == 0:
 		return {"n": 0}
@@ -256,28 +318,75 @@ static func _gap_stats(values: Array) -> Dictionary:
 	signed_sorted.sort()
 	var abs_sorted: Array = values.map(func(x): return absf(x))
 	abs_sorted.sort()
-	var floating := values.filter(func(x): return x > GAP_P95_MAX).size()
-	var clipping := values.filter(func(x): return x < -GAP_P95_MAX).size()
+	var floating := values.filter(func(x): return x > GAP_SHARE_LINE).size()
+	var clipping := values.filter(func(x): return x < -GAP_SHARE_LINE).size()
 	return {
 		"n": n,
 		"median": _pct(signed_sorted, 0.5),
+		"median_abs": _pct(abs_sorted, 0.5),
 		"p95_abs": _pct(abs_sorted, 0.95),
+		"p99_abs": _pct(abs_sorted, 0.99),
 		"max_abs": abs_sorted[-1],
+		"float_p95": _pct(signed_sorted, 0.95),
+		"clip_p95": -_pct(signed_sorted, 0.05),
 		"float_share": float(floating) / n,
 		"clip_share": float(clipping) / n,
 	}
 
 
-func _audit_gap(target: int, seed_value: int) -> Dictionary:
-	var rng := RandomNumberGenerator.new()
-	rng.seed = seed_value
+## Reasons class W fails gate (a); empty when it passes. `categories` maps a class W node
+## category to its gap_stats.
+static func judge_walls(st: Dictionary, categories: Dictionary, target: int, absent: int) -> Array:
+	var fails: Array = []
+	if int(st.get("n", 0)) < target:
+		fails.append("only %d of %d samples" % [int(st.get("n", 0)), target])
+	if int(st.get("n", 0)) == 0:
+		return fails
+	if st["p95_abs"] > GAP_W_P95_MAX:
+		fails.append("p95 %.4f > %.2f" % [st["p95_abs"], GAP_W_P95_MAX])
+	if st["p99_abs"] > GAP_W_P99_MAX:
+		fails.append("p99 %.4f > %.2f" % [st["p99_abs"], GAP_W_P99_MAX])
+	if st["max_abs"] > GAP_W_ABS_MAX:
+		fails.append("max %.4f > %.2f" % [st["max_abs"], GAP_W_ABS_MAX])
+	if absent > 0:
+		fails.append("%d with no proxy in reach" % absent)
+	var names: Array = categories.keys()
+	names.sort()
+	for cat in names:
+		var cs: Dictionary = categories[cat]
+		if int(cs["n"]) >= GAP_W_CATEGORY_MIN_SAMPLES and cs["median_abs"] > GAP_W_CATEGORY_MEDIAN_MAX:
+			fails.append("%s median %.4f > %.2f" % [cat, cs["median_abs"], GAP_W_CATEGORY_MEDIAN_MAX])
+	return fails
+
+
+## Reasons class R fails gate (a); empty when it passes.
+static func judge_roof(st: Dictionary, target: int, absent: int) -> Array:
+	var fails: Array = []
+	if int(st.get("n", 0)) < target:
+		fails.append("only %d of %d samples" % [int(st.get("n", 0)), target])
+	if int(st.get("n", 0)) == 0:
+		return fails
+	if st["clip_p95"] > GAP_R_CLIP_P95_MAX:
+		fails.append("proud p95 %.4f > %.2f" % [st["clip_p95"], GAP_R_CLIP_P95_MAX])
+	if st["float_p95"] > GAP_R_FLOAT_P95_MAX:
+		fails.append("float p95 %.4f > %.2f" % [st["float_p95"], GAP_R_FLOAT_P95_MAX])
+	if st["max_abs"] > GAP_R_ABS_MAX:
+		fails.append("max %.4f > %.2f" % [st["max_abs"], GAP_R_ABS_MAX])
+	if absent > 0:
+		fails.append("%d with no proxy in reach" % absent)
+	return fails
+
+
+## World-space triangles of the reachable hero pieces of one surface class, with a cumulative
+## area table for area-uniform draws.
+func _class_triangles(surface: String) -> Dictionary:
 	var tri := PackedVector3Array()
 	var tri_piece := PackedInt32Array()
 	var cumulative := PackedFloat64Array()
 	var total_area := 0.0
 	for pi in _pieces.size():
 		var piece: Dictionary = _pieces[pi]
-		if piece["category"] in UNREACHABLE_CATEGORIES:
+		if piece["category"] in UNREACHABLE_CATEGORIES or surface_class(piece["category"]) != surface:
 			continue
 		var faces: PackedVector3Array = piece["faces"]
 		var xf: Transform3D = piece["transform"]
@@ -294,13 +403,24 @@ func _audit_gap(target: int, seed_value: int) -> Dictionary:
 			tri_piece.append(pi)
 			total_area += area
 			cumulative.append(total_area)
+	return {"tri": tri, "tri_piece": tri_piece, "cumulative": cumulative, "area": total_area}
+
+
+## Draws up to `target` ivy-reachable samples of one class. Appends each gap to `by_category`
+## and `by_node`; returns the class's gaps and counters.
+func _sample_class(surface: String, target: int, rng: RandomNumberGenerator,
+		by_category: Dictionary, by_node: Dictionary) -> Dictionary:
+	var set := _class_triangles(surface)
+	var tri: PackedVector3Array = set["tri"]
+	var tri_piece: PackedInt32Array = set["tri_piece"]
+	var cumulative: PackedFloat64Array = set["cumulative"]
+	var total_area: float = set["area"]
 	var gaps: Array = []
-	var by_category: Dictionary = {}
-	var by_node: Dictionary = {}
 	var sdf_fallback := 0
 	var absent := 0
+	var in_slot := 0
 	var drawn := 0
-	var max_draws := target * 80
+	var max_draws := target * 200
 	while gaps.size() < target and drawn < max_draws and not cumulative.is_empty():
 		drawn += 1
 		var ti := mini(cumulative.bsearch(rng.randf() * total_area), cumulative.size() - 1)
@@ -319,6 +439,11 @@ func _audit_gap(target: int, seed_value: int) -> Dictionary:
 		var n_out := _exterior_normal(p, (c - a).cross(b - a).normalized())
 		if n_out == Vector3.ZERO:
 			continue
+		# Class R is judged against the tile field as modelled (troughs included): its float
+		# gate already allows for the crest envelope.
+		if surface == "W" and _in_narrow_slot(p, n_out):
+			in_slot += 1
+			continue
 		var measured := _gap_at(p, n_out)
 		var g: float = measured[0]
 		if measured[1] == 1:
@@ -333,28 +458,47 @@ func _audit_gap(target: int, seed_value: int) -> Dictionary:
 		if not by_node.has(piece["name"]):
 			by_node[piece["name"]] = []
 		by_node[piece["name"]].append(g)
-	var out := _gap_stats(gaps)
-	out["drawn"] = drawn
-	out["seed"] = seed_value
-	out["hero_area"] = total_area
-	out["sdf_fallback"] = sdf_fallback
-	out["absent"] = absent
-	out["by_category"] = {}
-	out["worst_nodes"] = []
-	if gaps.is_empty():
-		out["pass"] = false
-		return out
+	return {"gaps": gaps, "area": total_area, "drawn": drawn, "sdf_fallback": sdf_fallback,
+		"absent": absent, "in_slot": in_slot}
+
+
+func _audit_gap(target_w: int, target_r: int, seed_value: int) -> Dictionary:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_value
+	var by_category: Dictionary = {}
+	var by_node: Dictionary = {}
+	var out := {"seed": seed_value, "by_category": {}, "worst_nodes": []}
+	var drawn_w := _sample_class("W", target_w, rng, by_category, by_node)
+	var drawn_r := _sample_class("R", target_r, rng, by_category, by_node)
+	var w_categories: Dictionary = {}
 	for cat in by_category:
-		out["by_category"][cat] = _gap_stats(by_category[cat])
+		var cs := gap_stats(by_category[cat])
+		cs["class"] = surface_class(cat)
+		out["by_category"][cat] = cs
+		if cs["class"] == "W":
+			w_categories[cat] = cs
+	var classes := [["walls", drawn_w, target_w], ["roof", drawn_r, target_r]]
+	for row in classes:
+		var d: Dictionary = row[1]
+		var st := gap_stats(d["gaps"])
+		st["target"] = row[2]
+		for key in ["area", "drawn", "sdf_fallback", "absent", "in_slot"]:
+			st[key] = d[key]
+		out[row[0]] = st
+	out["walls"]["fails"] = judge_walls(out["walls"], w_categories, target_w, drawn_w["absent"])
+	out["walls"]["pass"] = (out["walls"]["fails"] as Array).is_empty()
+	# A structure with no tiled roof field has no class R to judge.
+	out["roof"]["present"] = drawn_r["area"] > 0.0
+	out["roof"]["fails"] = judge_roof(out["roof"], target_r, drawn_r["absent"]) if out["roof"]["present"] else []
+	out["roof"]["pass"] = (out["roof"]["fails"] as Array).is_empty()
 	var nodes: Array = []
 	for node_name in by_node:
-		var st := _gap_stats(by_node[node_name])
+		var st := gap_stats(by_node[node_name])
 		st["name"] = node_name
 		nodes.append(st)
 	nodes.sort_custom(func(x, y): return x["p95_abs"] > y["p95_abs"])
 	out["worst_nodes"] = nodes.slice(0, 8)
-	out["pass"] = gaps.size() >= target \
-			and out["p95_abs"] <= GAP_P95_MAX and out["max_abs"] <= GAP_ABS_MAX
+	out["pass"] = bool(out["walls"]["pass"]) and bool(out["roof"]["pass"])
 	return out
 
 
@@ -466,6 +610,7 @@ func _audit_concavities() -> Dictionary:
 	var listed: Array = []
 	var r_cells := int(round(ENVELOPE_RADIUS / RELIEF_PITCH))
 	var min_cells := int(ceil(CONCAVITY_MIN_WIDTH / RELIEF_PITCH))
+	var min_area_cells := int(ceil(CONCAVITY_MIN_AREA / (RELIEF_PITCH * RELIEF_PITCH) - 1e-6))
 	for view in _relief_views():
 		var nu := int(ceil(float(view["su"]) / RELIEF_PITCH))
 		var nv := int(ceil(float(view["sv"]) / RELIEF_PITCH))
@@ -534,6 +679,9 @@ func _audit_concavities() -> Dictionary:
 							stack.append(nb)
 				if u_hi - u_lo + 1 < min_cells or v_hi - v_lo + 1 < min_cells:
 					continue
+				# Opening area floor (actual opening, not its bounding box).
+				if cells.size() < min_area_cells:
+					continue
 				var hero_sizes: Array = []
 				var proxy_sizes: Array = []
 				var depths: Array = []
@@ -581,7 +729,8 @@ func _audit_concavities() -> Dictionary:
 # (c) baked SDF vs the collision mesh
 # ------------------------------------------------------------------------------------------------
 
-func _audit_sdf() -> Dictionary:
+## Gate (c). Needs only setup(space, [], sdf): test/slow/test_sg9_sdf_collision.gd calls it.
+func audit_sdf() -> Dictionary:
 	var centre: Vector3 = _sdf.mesh_aabb.get_center()
 	var extent: float = _sdf.mesh_aabb.size.length() * 0.65
 	var golden := PI * (3.0 - sqrt(5.0))
@@ -602,10 +751,31 @@ func _audit_sdf() -> Dictionary:
 		# Raw read at the face: no search along the normal for a better value.
 		face.append(absf(_sdf.signed_distance(p)))
 		if _cast(p - n * SDF_MIN_SOLID, p - n * 0.002, PROXY_MASK).is_empty():
-			inside.append(_sdf.signed_distance(p - n * SDF_INSIDE_DEPTH))
+			var q := p - n * SDF_INSIDE_DEPTH
+			# A hit beside an edge puts the probe 0.10 m in from this face but at an adjacent
+			# face: it is not inside by 0.10 m. Count it only with a clear cell around it.
+			var clear := true
+			for axis_dir in [Vector3.RIGHT, Vector3.LEFT, Vector3.UP, Vector3.DOWN, Vector3.BACK, Vector3.FORWARD]:
+				# Cast inward: proxy faces are one-sided, so only a ray from outside hits them.
+				if not _cast(q + axis_dir * SDF_INSIDE_CLEAR, q, PROXY_MASK).is_empty():
+					clear = false
+					break
+			if clear:
+				inside.append(_sdf.signed_distance(q))
 	face.sort()
 	inside.sort()
 	var not_negative := inside.filter(func(x): return x >= 0.0).size()
+	var fails: Array = []
+	if face.size() < SDF_FACE_MIN_SAMPLES:
+		fails.append("only %d of %d face samples" % [face.size(), SDF_FACE_MIN_SAMPLES])
+	if not face.is_empty() and _pct(face, 0.95) > SDF_FACE_P95_MAX:
+		fails.append("face p95 %.4f > %.2f" % [_pct(face, 0.95), SDF_FACE_P95_MAX])
+	if not face.is_empty() and face[-1] > SDF_FACE_ABS_MAX:
+		fails.append("face max %.4f > %.3f" % [face[-1], SDF_FACE_ABS_MAX])
+	if inside.size() < SDF_INSIDE_MIN_SAMPLES:
+		fails.append("only %d of %d inside probes" % [inside.size(), SDF_INSIDE_MIN_SAMPLES])
+	if not_negative > 0:
+		fails.append("%d inside probes not negative" % not_negative)
 	return {
 		"face_n": face.size(),
 		"face_median": _pct(face, 0.5),
@@ -615,8 +785,8 @@ func _audit_sdf() -> Dictionary:
 		"inside_n": inside.size(),
 		"inside_worst": inside[-1] if not inside.is_empty() else NAN,
 		"inside_not_negative": not_negative,
-		"pass": not face.is_empty() and face[-1] <= SDF_FACE_TOL
-				and inside.size() >= 50 and not_negative == 0,
+		"fails": fails,
+		"pass": fails.is_empty(),
 	}
 
 
@@ -634,20 +804,40 @@ static func format_report(structure_id: String, report: Dictionary) -> String:
 	var c: Dictionary = report["c"]
 	var lines: PackedStringArray = []
 	lines.append("[audit] %s — hero pieces %d — %s" % [structure_id, report["hero_pieces"], _verdict(report["pass"])])
-	if int(a.get("n", 0)) == 0:
-		lines.append("  (a) no ivy-reachable hero samples found — FAIL")
+	var w: Dictionary = a["walls"]
+	var r: Dictionary = a["roof"]
+	lines.append("  (a) hero-vs-proxy gap g, m (+ floats, - clips), seed %d -> %s" % [a["seed"], _verdict(a["pass"])])
+	if int(w.get("n", 0)) == 0:
+		lines.append("      W walls and flats: no ivy-reachable hero samples found -> FAIL")
 	else:
-		lines.append("  (a) hero-vs-proxy gap g, m (+ floats, - clips): n=%d of %d drawn (seed %d, hero area %.1f m2)" % [
-			a["n"], a["drawn"], a["seed"], a["hero_area"]])
-		lines.append("      median %+.4f  p95|g| %.4f  max|g| %.4f  floating>%.2f: %.1f%%  clipping>%.2f: %.1f%%  no proxy in reach: %d  SDF fallback: %d  -> %s (p95 <= %.2f, max <= %.2f)" % [
-			a["median"], a["p95_abs"], a["max_abs"], GAP_P95_MAX, 100.0 * a["float_share"], GAP_P95_MAX,
-			100.0 * a["clip_share"], a["absent"], a["sdf_fallback"], _verdict(a["pass"]), GAP_P95_MAX, GAP_ABS_MAX])
-		var cats: Array = a["by_category"].keys()
-		cats.sort_custom(func(x, y): return a["by_category"][x]["p95_abs"] > a["by_category"][y]["p95_abs"])
-		for cat in cats:
-			var st: Dictionary = a["by_category"][cat]
-			lines.append("      %-18s n=%4d  median %+.4f  p95|g| %.4f  max|g| %.4f  floating %.1f%%  clipping %.1f%%" % [
-				cat, st["n"], st["median"], st["p95_abs"], st["max_abs"], 100.0 * st["float_share"], 100.0 * st["clip_share"]])
+		lines.append("      W walls and flats: n=%d of %d drawn (target %d, hero area %.1f m2, in slots under %.2f m: %d)" % [
+			w["n"], w["drawn"], w["target"], w["area"], SLOT_MAX_WIDTH, w["in_slot"]])
+		lines.append("        median %+.4f  p95|g| %.4f  p99|g| %.4f  max|g| %.4f  floating>%.2f: %.1f%%  clipping>%.2f: %.1f%%  no proxy in reach: %d  SDF fallback: %d" % [
+			w["median"], w["p95_abs"], w["p99_abs"], w["max_abs"], GAP_SHARE_LINE, 100.0 * w["float_share"],
+			GAP_SHARE_LINE, 100.0 * w["clip_share"], w["absent"], w["sdf_fallback"]])
+		lines.append("        -> %s (p95 <= %.2f, p99 <= %.2f, max <= %.2f, category median <= %.2f, none without proxy)%s" % [
+			_verdict(w["pass"]), GAP_W_P95_MAX, GAP_W_P99_MAX, GAP_W_ABS_MAX, GAP_W_CATEGORY_MEDIAN_MAX,
+			"" if w["pass"] else ": " + "; ".join(PackedStringArray(w["fails"]))])
+	if not r["present"]:
+		lines.append("      R tiled roof: none on this structure")
+	elif int(r.get("n", 0)) == 0:
+		lines.append("      R tiled roof: no ivy-reachable hero samples found -> FAIL")
+	else:
+		lines.append("      R tiled roof (reported separately): n=%d of %d drawn (target %d, hero area %.1f m2)" % [
+			r["n"], r["drawn"], r["target"], r["area"]])
+		lines.append("        median %+.4f  proud p95 %.4f  float p95 %.4f  max|g| %.4f  no proxy in reach: %d  SDF fallback: %d" % [
+			r["median"], r["clip_p95"], r["float_p95"], r["max_abs"], r["absent"], r["sdf_fallback"]])
+		lines.append("        -> %s (proud p95 <= %.2f, float p95 <= %.2f, max <= %.2f, none without proxy)%s" % [
+			_verdict(r["pass"]), GAP_R_CLIP_P95_MAX, GAP_R_FLOAT_P95_MAX, GAP_R_ABS_MAX,
+			"" if r["pass"] else ": " + "; ".join(PackedStringArray(r["fails"]))])
+	var cats: Array = a["by_category"].keys()
+	cats.sort_custom(func(x, y): return a["by_category"][x]["p95_abs"] > a["by_category"][y]["p95_abs"])
+	for cat in cats:
+		var st: Dictionary = a["by_category"][cat]
+		lines.append("      %s %-18s n=%4d  median %+.4f  median|g| %.4f  p95|g| %.4f  max|g| %.4f  floating %.1f%%  clipping %.1f%%" % [
+			st["class"], cat, st["n"], st["median"], st["median_abs"], st["p95_abs"], st["max_abs"],
+			100.0 * st["float_share"], 100.0 * st["clip_share"]])
+	if not (a["worst_nodes"] as Array).is_empty():
 		lines.append("      worst nodes by p95|g|:")
 		for st in a["worst_nodes"]:
 			lines.append("        %-52s n=%4d  median %+.4f  p95|g| %.4f  max|g| %.4f" % [
@@ -655,8 +845,8 @@ static func format_report(structure_id: String, report: Dictionary) -> String:
 	if b.get("skipped", false):
 		lines.append("  (b) skipped")
 	else:
-		lines.append("  (b) hero recesses and proud features >= %.2f m deep x >= %.2f m wide: %d listed, %d not in the proxy within %.2f m (%.2f m2) -> %s" % [
-			CONCAVITY_MIN_DEPTH, CONCAVITY_MIN_WIDTH, b["listed"], b["unrepresented"], CONCAVITY_DEPTH_TOL,
+		lines.append("  (b) hero recesses and proud features >= %.2f m deep x >= %.2f m wide, >= %.4f m2: %d listed, %d not in the proxy within %.2f m (%.2f m2) -> %s" % [
+			CONCAVITY_MIN_DEPTH, CONCAVITY_MIN_WIDTH, CONCAVITY_MIN_AREA, b["listed"], b["unrepresented"], CONCAVITY_DEPTH_TOL,
 			b["unrepresented_area"], _verdict(b["pass"])])
 		var shown := 0
 		for cv in b["concavities"]:
@@ -669,7 +859,8 @@ static func format_report(structure_id: String, report: Dictionary) -> String:
 			lines.append("      %-6s %-16s centre (%.2f, %.2f, %.2f)  %.2f x %.2f m  area %.2f m2  hero %.3f  proxy %s  %s" % [
 				cv["kind"], cv["view"], cv["centre"][0], cv["centre"][1], cv["centre"][2], cv["width_u"],
 				cv["width_v"], cv["area"], cv["hero_depth"], proxy_txt, "ok" if cv["represented"] else "MISSING"])
-	lines.append("  (c) SDF vs collision: |phi| at the face n=%d  median %.4f  p95 %.4f  p99 %.4f  max %.4f; phi %.2f m inside n=%d  worst %+.4f  not negative: %d -> %s (max <= %.2f, all negative)" % [
+	lines.append("  (c) SDF vs collision: |phi| at the face n=%d  median %.4f  p95 %.4f  p99 %.4f  max %.4f; phi %.2f m inside n=%d  worst %+.4f  not negative: %d -> %s (n >= %d, p95 <= %.2f, max <= %.3f, all negative)" % [
 		c["face_n"], c["face_median"], c["face_p95"], c["face_p99"], c["face_max"], SDF_INSIDE_DEPTH,
-		c["inside_n"], c["inside_worst"], c["inside_not_negative"], _verdict(c["pass"]), SDF_FACE_TOL])
+		c["inside_n"], c["inside_worst"], c["inside_not_negative"], _verdict(c["pass"]),
+		SDF_FACE_MIN_SAMPLES, SDF_FACE_P95_MAX, SDF_FACE_ABS_MAX])
 	return "\n".join(lines)

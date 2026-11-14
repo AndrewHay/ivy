@@ -137,8 +137,8 @@ sees (SD-OPEN-28, `ivy-b1e.2`). It measures and reports; it fixes nothing. Run i
   --structures=ivy,tower,square,surface_wall --json-dir=res://.tmp/audit
 ```
 
-All arguments are optional: `--structures` (default: all four), `--samples` (default 2000 hero samples
-per structure), `--seed` (default 1), `--json-dir` (writes one JSON report per structure). Exit code 0
+All arguments are optional: `--structures` (default: all four), `--samples` (default 2000 class W hero
+samples per structure, plus 1000 class R), `--seed` (default 1), `--json-dir` (writes one JSON report per structure). Exit code 0
 when every structure passes, 1 when any fails SG-9 (a)–(c), 2 on a usage or missing-asset error.
 
 | Gate | What it measures | Ratified pass (DESIGN.md SG-9, IMPLEMENTATION.md SD-MESH-19) |
@@ -148,11 +148,14 @@ when every structure passes, 1 when any fails SG-9 (a)–(c), 2 on a usage or mi
 | (b) | Hero recesses and proud features ≥ 0.05 m deep, ≥ 0.15 m wide both ways and ≥ 0.0225 m² in opening area (up to 1 m across), found on depth maps ray-cast from each side and from above, with the proxy's depth at the same place. Relief under 0.03 m and slots narrower than 0.10 m are never listed. | every listed feature within 0.03 m of the hero's depth |
 | (c) | The baked SDF against the collision mesh: raw `\|Φ\|` at the face (no search along the normal) and `Φ` 0.10 m inside wherever at least 0.20 m of solid lies behind the face. | face p95 ≤ 0.01 m and max ≤ 0.025 m; every inside probe negative |
 
-These numbers were ratified on 2026-11-13 (`ivy-b1e.4`, owner ruling). **The tool does not enforce them
-yet:** the constants at the top of `tools/growth_surface_audit.gd` are still the provisional ones (p95
-0.03 m, no p99, no W/R split, (c) on max 0.01 m) until `ivy-b1e.12` lands.
+These numbers were ratified on 2026-11-13 (`ivy-b1e.4`, owner ruling) and are the constants at the top
+of `tools/growth_surface_audit.gd` (`ivy-b1e.12`). `--samples` is the class W count; class R gets half
+of it. Two method details: class W samples inside a slot narrower than 0.10 m are skipped (the growth
+surface bridges such a slot), and an inside probe for (c) only counts when no other proxy face lies
+within 0.05 m of it (a hit beside an edge is not 0.10 m deep). `test/slow/test_sg9_sdf_collision.gd`
+asserts gate (c) through the same code.
 `test/test_growth_surface_audit.gd` proves the audit is falsifiable: a bounding-box proxy over a ribbed
-hero wall fails (a) and (b), and a proxy that carries the ribs passes both.
+hero wall fails (a) and (b), and a proxy that carries the ribs passes (a), (b) and (c).
 
 ## Procedural picker fixtures (no Blender asset)
 

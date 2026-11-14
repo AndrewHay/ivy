@@ -1,6 +1,7 @@
 extends GutTest
 
-## ivy-b1e.2 — the growth-surface audit (SG-9 a-c) must be falsifiable.
+## ivy-b1e.2 / ivy-b1e.12 — the growth-surface audit (SG-9 a-c) must be falsifiable, and its
+## gates are the ratified ones (IMPLEMENTATION.md SD-MESH-19.4).
 ##
 ## A bounding-box proxy over a ribbed hero wall (what `cottage_sim_shell_from_hero` builds for the
 ## cottage's straight walls) has to FAIL the gap gate (a) and the concavity gate (b); a proxy that
@@ -124,13 +125,15 @@ func test_bounding_box_proxy_over_ribbed_hero_fails_gap_and_concavity() -> void:
 	var offset := Vector3(40.0, 0.0, 0.0)
 	var bounding_box := AABB(offset + Vector3(-RIB_PROUD, 0.0, 0.0), SLAB_SIZE + Vector3(RIB_PROUD, 0.0, 0.0))
 	var report: Dictionary = await _run_case(offset, [bounding_box])
-	var a: Dictionary = report["a"]
+	var a: Dictionary = report["a"]["walls"]
 	var b: Dictionary = report["b"]
 	assert_eq(a["n"], SAMPLES, "enough ivy-reachable hero samples")
 	assert_false(a["pass"], "(a) must fail: the wall between the ribs is 0.10 m behind the box face")
+	assert_false(report["a"]["pass"])
 	assert_almost_eq(a["p95_abs"], RIB_PROUD, 0.01)
 	assert_gt(a["float_share"], 0.2, "the recessed wall floats, it does not clip")
 	assert_almost_eq(a["clip_share"], 0.0, 0.001)
+	assert_false(report["a"]["roof"]["present"], "no tiled roof field on the test wall")
 	assert_false(b["pass"], "(b) must fail: the recesses between ribs are absent from the box")
 	assert_gte(b["unrepresented"], 3)
 	for cv in b["concavities"]:
@@ -147,12 +150,56 @@ func test_bounding_box_proxy_over_ribbed_hero_fails_gap_and_concavity() -> void:
 func test_proxy_that_carries_the_ribs_passes_gap_and_concavity() -> void:
 	var offset := Vector3(60.0, 0.0, 0.0)
 	var report: Dictionary = await _run_case(offset, _hero_boxes(offset))
-	var a: Dictionary = report["a"]
+	var a: Dictionary = report["a"]["walls"]
 	var b: Dictionary = report["b"]
 	assert_eq(a["n"], SAMPLES)
-	assert_true(a["pass"], "(a) p95|g| %.4f max|g| %.4f" % [a["p95_abs"], a["max_abs"]])
+	assert_true(a["pass"], "(a) %s" % [a["fails"]])
+	assert_true(report["a"]["pass"])
+	assert_lte(a["p95_abs"], Audit.GAP_W_P95_MAX)
+	assert_lte(a["p99_abs"], Audit.GAP_W_P99_MAX)
 	assert_gte(b["listed"], 3, "the recesses between ribs are found on the hero")
 	assert_true(b["pass"], "(b) every hero recess is in the proxy: %d missing" % b["unrepresented"])
+	# An exact box SDF read trilinearly peaks near 0.015 m at sharp edges: inside the 0.025 m cap.
+	assert_true(report["c"]["pass"], "(c) %s" % [report["c"]["fails"]])
+
+
+## 1000 gaps: `near` of them at `near_value`, the rest at `far_value`.
+func _gaps(near: int, near_value: float, far_value: float) -> Array:
+	var out: Array = []
+	for i in 1000:
+		out.append(near_value if i < near else far_value)
+	return out
+
+
+func test_walls_gate_is_p95_p99_max_and_category_median() -> void:
+	var ok := Audit.gap_stats(_gaps(985, 0.0, 0.02))
+	assert_eq(Audit.judge_walls(ok, {}, 1000, 0), [], "1.5 pct at 0.02 m passes")
+	var p95 := Audit.gap_stats(_gaps(900, 0.0, 0.02))
+	assert_eq(Audit.judge_walls(p95, {}, 1000, 0).size(), 1, "10 pct at 0.02 m fails p95 only")
+	var p99 := Audit.gap_stats(_gaps(980, 0.0, 0.04))
+	assert_eq(Audit.judge_walls(p99, {}, 1000, 0).size(), 1, "2 pct at 0.04 m fails p99 only")
+	var worst := Audit.gap_stats(_gaps(999, 0.0, -0.06))
+	assert_eq(Audit.judge_walls(worst, {}, 1000, 0).size(), 1, "one sample at 0.06 m fails the worst case")
+	assert_eq(Audit.judge_walls(ok, {}, 2000, 0).size(), 1, "too few samples fails")
+	assert_eq(Audit.judge_walls(ok, {}, 1000, 1).size(), 1, "a sample with no proxy in reach fails")
+	# A small category sitting wholly off the wall fails even when the pooled figures pass.
+	var shutter := Audit.gap_stats(_gaps(1000, 0.02, 0.02).slice(0, 30))
+	assert_eq(Audit.judge_walls(ok, {"shutter": shutter}, 1000, 0).size(), 1)
+	assert_eq(Audit.judge_walls(ok, {"shutter": Audit.gap_stats([0.02, 0.02])}, 1000, 0), [],
+		"a category under 30 samples is not gated")
+
+
+func test_roof_gate_is_signed_and_separate() -> void:
+	# Tiles riding 0.025 m proud at the median: the baseline cottage roof. Fails the proud side.
+	assert_eq(Audit.judge_roof(Audit.gap_stats(_gaps(600, -0.025, 0.0)), 1000, 0).size(), 1)
+	# Crest envelope: 4 pct proud by 0.02 m, troughs floating 0.04 m. Passes.
+	var envelope := Audit.gap_stats(_gaps(40, -0.02, 0.04))
+	assert_eq(Audit.judge_roof(envelope, 1000, 0), [])
+	assert_eq(Audit.judge_roof(Audit.gap_stats(_gaps(900, 0.0, 0.08)), 1000, 0).size(), 1, "float p95 over 0.05 m")
+	assert_eq(Audit.judge_roof(Audit.gap_stats(_gaps(999, 0.0, 0.12)), 1000, 0).size(), 1, "max over 0.10 m")
+	assert_eq(Audit.surface_class("roof"), "R")
+	for cat in ["wall_straight", "gable", "chimney", "shutter", "roof_cap", "other"]:
+		assert_eq(Audit.surface_class(cat), "W")
 
 
 func test_classify_keeps_the_sd_open_27_exclusions_and_names_cottage_pieces() -> void:
