@@ -2184,6 +2184,22 @@ and coverage wrong); retuning growth parameters; per-stone brick or quoin mouldi
 thresholds; unsealing doors/windows; analytic procedural structures (cylinder tower, `WallSdf` walls),
 which have no hero relief.
 
+**2026-11-13 — SD-OPEN-28 amendment confirmed (Game Director, `ivy-b1e.1`).** The 2026-10-31 diff —
+Concept principle, M2.6b row, SG-9, SG-7(b) amendment, SD-OPEN-27(d) revocation, SD-OPEN-28 row and
+the entry above — reads as the owner intends; no wording changed. The owner restated the defect twice
+this week on the same wall (snapshots `20261112-065819_ivy_d1`, "There's a gap, there shouldn't be",
+and `20261113-184229_ivy_d1`, "still not following the walls"), and re-measurement agrees with the
+entry above: stems sit 0–1.4 cm from the proxy but 3.0–13.6 cm (median 12.4) from the visible wall,
+whose plaster is at `x = −10.000` behind a box face at `x = −10.122`. Of the three causes named above,
+the SDF one is closed (`ivy-b1e.3`, baker v5: signed interior, median `|Φ|` 0 on collision faces). It
+changed nothing visible, which confirms the bounding-box proxy as the cause the player sees.
+**Order (owner, 2026-11-13):** the beads run in sequence — `.2` audit baseline → `.4` thresholds →
+`.5` method → `.6` test article → `.7` cottage — not straight to `.7`.
+**Risk to watch (for `ivy-b1e.4`):** the Concept principle says *every* ledge, frame and quoin the
+player can see, while SG-9(b) is thresholded (≥ 0.05 m × ≥ 0.15 m represented, < 0.03 m ignored). Set
+the thresholds so that nothing a player would notice ivy standing off falls below them; if a floor
+cannot be met, escalate rather than reword the principle.
+
 ---
 
 ## Developer debug snapshots (ivy-nrp)
