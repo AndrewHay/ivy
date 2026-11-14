@@ -907,14 +907,381 @@ screenshots. Whether the curves read as natural is the human SG-7(b) read, not t
 - **Architect (`ivy-b1e.5`) — `SurfaceQuery.effective_contact`** adds `h/2` (0.025 m) to
   `contact_distance` on MeshSdf structures (`growth_step.gd`). It looks like padding for the SDF bias
   fixed in `ivy-b1e.3`. D1 is written against the nominal 0.02 m; decide whether the padding goes.
+  **Decided 2026-11-14: it stays (AR-MESH-20.5).**
 - **Architect — field shell (0.09 m) against 0.05–0.15 m relief**, and how relief reaches both the
-  collision mesh and the SDF.
+  collision mesh and the SDF. **Decided 2026-11-14: shell and cell unchanged (AR-MESH-20.6); relief
+  reaches both through one hero-derived mesh that is also the bake input (AR-MESH-20.2); the fillet
+  is carried by the SDF (AR-MESH-20.4).**
 
 #### SD-MESH-19.9 — Non-goals
 
 Choosing the generation tool or method; changing adhesion or growth parameters; a finer SDF pitch;
 unsealing doors or windows; following individual roof tiles, bricks or quoin stones; analytic
 structures; editing the audit tool or tests (that is `ivy-b1e.12`); building the article (`ivy-b1e.6`).
+
+### AR-MESH-20 — Hero-to-growth-surface pipeline (implements SD-MESH-19; `ivy-b1e.5`, 2026-11-14)
+
+**Goal in implementation terms.** Every solid that ivy can touch is derived from the hero GLB the
+player sees, in world space, by one tool, and the SDF is baked from that same mesh. Flat hero wall
+reads a gap of 0; relief of 0.05 m and up is in both the collision mesh and the SDF; nothing in the
+runtime (`SurfaceQuery`, `growth_step.gd`, `IvyParams`, the baker's pitch) changes.
+
+Decisions, in one place:
+
+| Question | Decision |
+|---|---|
+| Method | **Hero-derived closed solids, built in world space by a new pure-Python tool** `tools/build_growth_surface.py`, run between the Blender export and the SDF bake (AR-MESH-20.2, 20.3). |
+| Where the 0.05 m fillet lives | **In the SDF, not modelled in the collision mesh.** The trilinear 0.05 m field stands 0.015 m off a sharp inside corner, the same as a 0.035–0.037 m fillet, inside the accepted 0.025–0.075 m band. Collision stays sharp and exact (AR-MESH-20.4). |
+| Slots under 0.10 m | Closed by a declared envelope or filler solid; the tool finds unclosed slots and fails the build (AR-MESH-20.4). |
+| `SurfaceQuery.effective_contact` `h/2` padding | **Stays** (AR-MESH-20.5). |
+| Field shell 0.09 m / cell 0.06 m | **Unchanged** (AR-MESH-20.6). |
+| SDF pitch, band, baker | Unchanged: 0.05 m, 0.55 m, baker v5. |
+
+#### AR-MESH-20.1 — What is wrong today, and why (measured on the committed GLBs)
+
+Node bounds read from `ivy_hero.glb` and `ivy_sim.glb` (`.tmp/b1e5/inspect_glb_nodes.py`, Godot
+coordinates):
+
+| Defect (`ivy-b1e.2`) | Measured | Cause in `tools/build_structures.py` |
+|---|---|---|
+| Straight walls and shutters are boxes | sim wall `x` −10.122 … −9.656 against hero −10.092 … −9.686 | `cottage_sim_shell_from_hero`: hero bounding box plus a 0.06 / 0.04 m pad |
+| Roof proxy covers the east half only | sim `x` −7.164 … −3.214, hero −10.786 … −3.214 | `solid_data` deletes every face with a kit-local `y > BEAM_Y` (0.21 m). That strip is meant for a wall's interior top beam; on the roof piece it removes half the roof |
+| Chimney proxy 0.31 m narrow | sim `z` 0.918 … 1.594, hero 0.606 … 1.594 | same strip |
+| Gables are open sheets | 68 boundary edges each | same strip removes the back sheet |
+| Front bay proxies 13.6 cm proud | hero `z` −2.314 … −1.908, sim −2.450 … −1.908 | the **hero** front and back wall pieces are placed inside-out (timber trim faces the room); the proxy then thickens toward the outside. Hero defect, escalated (AR-MESH-20.12) |
+| Left window panel proud | `Panel_…_wide_win_W_0` `x` −10.360 … −9.910, hero shutter front −10.288 | aperture offset applied with the wrong sign on the side walls |
+
+The "measured" column is read from the files. The "cause" column is inferred from the code and the
+kit pieces' bounds; it was not confirmed by a Blender run, which the sandbox does not allow.
+
+One cause covers all of them: recipes written in kit-local space with wall-only constants, applied
+to every piece, with nothing checking that each hero piece got a proxy that covers it. The one
+proxy piece that matches its hero to 0.000 m (`Wall_Plaster_Window_Wide_Flat_left_0`) is the case
+where the kit-local assumptions happen to hold.
+
+#### AR-MESH-20.2 — Chosen method and where it sits
+
+```
+Blender (unchanged, owner-run)        build_structures.py / rebuild_sim_from_hero.py
+        │  {name}_hero.glb   {name}_sim.glb  (scaffold: slabs, caps, columns, panels, legacy walls)
+        ▼
+tools/build_growth_surface.py         NEW, pure Python: hero GLB + scaffold → final {name}_sim.glb
+        ▼
+tools/bake_mesh_sdf.py                unchanged: final {name}_sim.glb → {name}_sim.sdf
+        ▼
+tools/audit_growth_surface.tscn       SG-9 (a)–(c); tools/measure_structure_gates.py
+```
+
+- The tool reads the hero GLB (the geometry the player sees, already in world coordinates) and
+  turns each hero node into closed solids by the rules in AR-MESH-20.3. It never looks at kit names
+  to decide a shape and has no kit-local constants.
+- The Blender-built sim GLB is demoted to a **scaffold**: only the solids that have no hero
+  counterpart are taken from it (floor slab, mid-floor slab, roof cap, tower roof cone, corner
+  columns, interior faces, and aperture panels where the hero has no seal node). Its wall, roof,
+  gable, chimney and shutter pieces are discarded and replaced.
+- The tool is idempotent: scaffold nodes are recognised by name, everything else is regenerated, so
+  running it on its own output gives the same file.
+- Pure Python (standard library only, like the baker) because Blender cannot run in the agent
+  sandbox: `Blender --background --python` on a three-line script exits 139
+  (`.tmp/b1e5/blender_probe.log`; the earlier, stopped run of this stage hit the same). A Blender recipe could only be iterated by the owner running each
+  attempt by hand; this one is iterated against the 5 s audit by the Gameplay Programmer.
+- `cottage_sim_shell_from_hero`, the shutter boxes and `solid_data`'s use on non-wall pieces are
+  retired by this (their output is no longer shipped). Deleting the dead Blender code is cleanup for
+  `ivy-b1e.7` if it is safe to do without a Blender run; otherwise it is left with a comment.
+
+#### AR-MESH-20.3 — Rules (all in world space; glTF `y` up)
+
+Per hero node: weld vertices at 0.1 mm, split into connected islands, then:
+
+| # | Island | Result |
+|---|---|---|
+| 1 | Closed | Kept as a solid, unchanged. |
+| 2 | Planar sheet (all vertices within 1 mm of one plane) whose normal points away from the structure's interior | Extruded `wall_t` (0.45 m, keeps the SD-MESH-17 0.24 m floor) toward the interior. Holes in the sheet extrude with it, which gives door and window reveals. |
+| 3 | Planar sheet facing the interior | Dropped. Its outward partner makes the wall. |
+| 4a | Open and not planar (timber tubes, chimney, tile field), boundary loop planar within 5 mm | The loop is capped. |
+| 4b | Same, boundary loop not planar (braces and arched trim lying on a wall: open at the back and at both ends) | A skirt is dropped from the loop to its projection on the backing sheet's plane, 2 mm inside the slab, and the projected loop is capped there. With no backing sheet behind it, the build fails naming the node. |
+| 5 | Any solid from 1, 4a or 4b that lies wholly inside a rule-2 slab | Dropped (kit interior beams). |
+| 6 | Node listed under `envelope` (shutters) | Replaced by its oriented box, no pad, extended back to the wall. This is the SD-MESH-19.2 slot closing for slat gaps. |
+| 7 | Hero seal node (`_Seal_`: door leaf, glass), when `seals` is `hero` | Its box, `wall_t` deep toward the interior, named `…_sim_Panel_<aperture id>` so `StructureBody` material lookup and the aperture gates keep working. The scaffold panel for that aperture is dropped. |
+| 8 | Any two solids that meet | Must overlap by at least 1 mm, not share a face. The baker clips faces buried inside another convex shell but keeps coincident ones (`_CLIP_EPS`), and a kept buried face sits in the distance field as a false surface. Caps that land on a slab face are pushed 2 mm into the slab. |
+| 9 | Scaffold slabs (`FloorSlab`, `RoofCap`) | Pulled 0.10 m inside the wall face. A scaffold solid must never be the outermost surface where a hero-derived one exists. |
+| 10 | Nodes listed under `exempt` (hero-only corner trim, door frames: SD-MESH-19.2) | Skipped. Corner columns stay as scaffold (SD-OPEN-27's faceted corner proxy stands). |
+
+"Interior" is the structure's footprint centre from `structure_configs.json` (`scene_offset`), so
+the outward test does not depend on how a kit piece was rotated. Each structure may carry an
+optional `growth_surface` block there: `wall_t`, `envelope`, `exempt`, `seals` (`hero` or
+`scaffold`), `fill` (explicit filler boxes). Defaults apply when it is absent; the block is
+validated like the rest of the file.
+
+Every output solid is one glTF node (the baker signs per node and unions them; two overlapping
+solids in one node would cancel under parity). Names are `{name}_sim_{hero tail}_iNN`.
+
+The tool **fails**, and never substitutes a box, when: an island fits no rule; a result is not
+closed; a hero node that is not exempt produced no solid; or the proxy contains a slot narrower
+than 0.10 m. The last check is what replaces "nothing flagged it".
+
+#### AR-MESH-20.4 — Closing and fillet
+
+**Fillet: carried by the SDF.** SD-MESH-19.3 leaves the location to this stage. Measured on the
+relief article built with sharp inside corners and baked at 0.05 m
+(`.tmp/b1e5/sdf_corner_probe.py`): `Φ` on the corner line is −0.0125 to −0.0151 m and the zero set
+crosses the 45° diagonal 0.0146–0.0155 m out. A circular fillet stands off its corner by
+0.414 · r, so the field carries the equivalent of **r = 0.035–0.037 m**, inside the accepted
+0.025–0.075 m band, and gate (c) holds (face p95 0.0066 m, max 0.0195 m, every inside probe
+negative). The collision mesh stays sharp, so flat wall and relief floors read exactly 0 in gate (a).
+
+A fillet modelled into the collision mesh was built and measured on the same article (three chords
+per quarter turn, 33 m of inside-corner line on 63.6 m² of hero surface):
+
+| Collision fillet | (a) W p95 | p99 | max | (c) face p95 / max | Bake |
+|---|---|---|---|---|---|
+| none (chosen) | 0.0000 | 0.0200 | 0.0200 | 0.0066 / 0.0195 | 34 s |
+| 0.025 m | 0.0008 | 0.0200 | 0.0243 | 0.0059 / 0.0195 | 168 s |
+| 0.050 m | **0.0097** | 0.0246 | **0.0493** | 0.0046 / 0.0195 | 196 s |
+| bounding box (D6) | 0.1000 | 0.2500 | 0.2715 | 0.0000 / 0.0150 | 3 s |
+
+(The 0.02 m p99 in the first rows is plaque U1, which the proxy is allowed to ignore.) At the
+nominal 0.05 m the article passes with no headroom (0.0097 against 0.01, 0.0493 against 0.05)
+because the audit measures against the sharp hero, not the closed reference surface of
+SD-MESH-19.1. A timber-framed cottage wall piece has roughly three times the article's
+inside-corner length per square metre (about 13.6 m on 7.5 m², an estimate from the kit trim
+layout, not measured), so 0.05 m is expected to fail gate (a) there. A 0.025 m fillet passes
+easily but is shorter than one 0.03 m stem segment and costs five times the bake. Neither buys
+anything the gates or the probe ask for.
+
+What the stems do at a sharp corner is set by the growth step (collision reflect, the second
+clamp ray, direction memory), not by the SDF, and whether that reads as "easing in" is the owner's
+read (SD-MESH-19.5, G7). So the article ships **four growth-surface variants** — sharp, 0.025 m,
+0.05 m and bounding box — and the probe reports the corner turn angles for each. If the owner
+prefers a modelled fillet, that is a follow-up with two parts: the audit must judge against the
+closed reference surface, and the tool gains fillet wedges where a proud solid meets a sheet.
+Escalated, not built (AR-MESH-20.12).
+
+**Slots under 0.10 m: declared, and checked.** There is no general morphological closing in the
+tool. Slots are closed by rule 6 (an envelope for a named node) or a `fill` box, and the tool's
+slot check makes an undeclared slot a build failure with its position and width. Known cases:
+shutter slat gaps (1–2 cm), article slot S1. Roof tile troughs are judged by the class R gates; if
+the slot check trips on a tile field, that field gets an envelope and SD-MESH-19.8's tile
+escalation is answered with numbers.
+
+**Convex edges** stay sharp in collision; the SDF rounds them by at most `h/2`, bounded by gate (c).
+
+#### AR-MESH-20.5 — `SurfaceQuery.effective_contact` keeps its `h/2` padding
+
+On a `MeshSdf` structure a tip counts as attached within `contact_distance + h/2` = 0.045 m
+(`growth_step.gd` lines 52, 84, 178). The comment on it describes the `+h/2` bias that `ivy-b1e.3`
+removed, but the padding still does one job: when `nearest()`'s rays miss (a tip diagonally off a
+convex edge is outside both faces' ray paths), the distance falls back to the trilinear `|Φ|`,
+which over-reads by up to `h/2` at an edge — the same bound as gate (c)'s cap. (This is from
+reading `_closest_mesh_hit`; how often it happens was not measured, which is why `ivy-b1e.6`
+reports it.) Without the padding
+such a tip is classed `FLOATING` for a step, gravity switches on and the upward bias switches off.
+This pipeline adds convex edges everywhere (two per timber), so this is the wrong moment to remove
+it.
+
+It also does not loosen where stems sit. D1 measures node-to-floor distance, not the threshold: an
+attached tip that ends a step farther than the threshold is snapped onto the surface, and stems
+measure 0–1.4 cm off the surface (median 0.4 cm) with the padding in place. D1 stays written
+against the nominal 0.02 m.
+
+Removing it would change every mesh scenario's growth and is growth-step tuning, which is a
+non-goal of this epic. `ivy-b1e.6` reports the share of `nearest()` calls that return unrefined and
+the share of floor-zone nodes between 0.02 and 0.045 m; if D1 fails on those, removing the padding
+is a separate bead with a playground variant (G7), not a quiet edit.
+
+#### AR-MESH-20.6 — Field shell and cell against 0.05–0.15 m relief
+
+`field_shell_halfwidth` 0.09 m and `field_cell` 0.06 m stay. They are `IvyParams` values shared
+with the analytic tower, so changing them breaks SG-1.
+
+- The shell is allocated from `Φ`, so once relief is in the SDF the shell follows it: a 0.10 m-deep
+  bay is covered from its floor to 0.09 m above it, and the timber faces carry their own shell. A
+  tip on any surface is inside the shell; nothing new falls to the SD-EDGE-15 out-of-shell fallback.
+- Allocated cells and per-tick EWMA cost rise with surface area. Measured in AR-MESH-20.8.
+- Light across a 0.10 m step is blurred: the visibility grid is 0.12 m (SD-MESH-17), so a bay floor
+  and the timber beside it share coarse cells. Recesses read slightly brighter than they are. That
+  is a soft steering input, not a fidelity gate, and it is accepted.
+
+#### AR-MESH-20.7 — Rejected alternatives
+
+| Alternative | Why not |
+|---|---|
+| **Fix the per-kit recipe in Blender** (`solid_data` variants per piece type; candidate (a) as first written) | Same kit-local reasoning that produced five of the six defects, one recipe per piece type, and no agent can run it (Blender exits 139 in the sandbox). Kept only as the scaffold source. |
+| **Voxel remesh / closing of the hero in Blender** (candidate (b)) | The kit heroes are open sheets, so they need the same solidifying step first. A 0.02 m voxel surface on the cottage is of the order of 10⁵ triangles (estimate from its surface area); the baker took 559 s for 5,432. Flat faces come back within a voxel fraction, not at 0, against a gate whose p95 is 0.01 m. The result is not reproducible across Blender versions, so a rebuild cannot be checked against the committed file. Not tried here (Blender does not run). Still the right tool for a scanned phase B hero, which has no islands to close. |
+| **Bake the SDF from the hero at a finer pitch** (candidate (c)) | The owner ruled the grid stays 0.05 m; 0.025 m is 8× (15 MB → 121 MB). `nearest()` ray-refines against collision, so an SDF-only fix leaves stems on the old boxes; putting the hero in collision is a non-goal (hero/proxy split, light contracts). |
+| **Modelled 0.05 m fillet in collision** | No headroom on gate (a) on the article, expected to fail on the cottage, five times the bake (AR-MESH-20.4). |
+| **Boolean union of all solids into one mesh** | Needs a mesh-boolean library or Blender. The baker already unions per node, and rule 8 removes the one failure mode separate solids have. |
+| **Render-time stem shrink-wrap** | Non-goal: cosmetic, leaves light and coverage wrong. |
+
+#### AR-MESH-20.8 — Measured costs
+
+Cottage, same 173 × 165 × 133 grid. "Prototype" is a 150-line stand-in for the tool
+(`.tmp/b1e5/proto_cottage.py`) run on the committed hero as it is today; the roof is the existing
+half-roof solid plus its mirror image, as a triangle-count stand-in.
+
+| Quantity | Today | Prototype | Delta |
+|---|---|---|---|
+| Sim GLB | 2,490 triangles, 21 nodes, 143,884 B | 5,432 triangles, 98 nodes, 173,880 B | 2.2× triangles |
+| SDF bake (pure Python, one core) | 323.5 s | 558.9 s; 765.5 s on the second prototype run (same triangle count) | +235 to +442 s (1.7× to 2.4×); the spread between two like bakes is not explained |
+| `.sdf` size | 15,186,039 B | 15,186,039 B | 0 (set by the bounding box, which the gables already span) |
+| Growth step (`GrowthStep.step_tip`) | 0.541 ms | 0.531 ms | none (−2 %, inside run-to-run noise: the first baseline run read 0.571 ms) |
+| Raycasts per step | 11.22 | 11.16 | none |
+| `env.tick` per tick | 13.80 ms | 16.11 ms | **+2.3 ms (+17 %)** |
+| Light-bake fine table (`P(cell, hour)`, disk cache) | 33,648,515 B | 42,186,779 B | +25 % allocated cells |
+| Session bootstrap with a cold light-bake cache | 86.5 s | 109.1 s | +22.6 s (+26 %) |
+| Session bootstrap with a warm cache | 2.5 s | not measured | |
+
+Per-tick figures are from `tools/profile_growth_step.gd` on the cottage (10 game-days, four seeds
+from the four sides, headless), with the collision GLB and SDF swapped in memory for the prototype
+run (`.tmp/b1e5/profile_custom.gd`, logs `profile_ivy_baseline2.log` and `profile_ivy_proto.log`).
+The two growth-step and `env.tick` figures were taken with nothing else running. The baseline's
+cold bootstrap was taken while SDF bakes were running, so the real bootstrap delta is at least the
+26 % shown. The two baseline runs gave the same plant fingerprint.
+
+The growth step does not get slower: more triangles and nodes cost the physics ray nothing
+measurable. The per-tick and load cost rise with allocated field cells. That 25 % is the roof's
+west half, which has no proxy today, plus the sides of the timbers; the split between the two was
+not measured. Bake seconds were taken with several single-core bakes running at once.
+
+Gates on the prototype (`.tmp/b1e5/audit_ivy_proto.log`, seed 1), against the `ivy-b1e.12` baseline:
+
+| Category | Baseline median / p95 | Prototype median / p95 |
+|---|---|---|
+| `wall_straight` | +0.1224 / 0.1440 | 0.0000 / 0.0000 |
+| `wall_door_bay` | +0.0993 / 0.2017 | 0.0000 / 0.0000 |
+| `wall_window_bay` | +0.0083 / 0.2111 | 0.0000 / 0.0093 |
+| `chimney` | 0.0000 / 0.1984 | 0.0000 / 0.0000 |
+| `gable` | 0.0000 / 0.0900 | 0.0000 / 0.0900 |
+| `shutter` | +0.0751 / 0.0943 | +0.0736 / 0.0919 |
+| (b) features missing | 42 of 69 | 15 of 69 |
+| (c) face p95 / max | 0.0085 / 0.0262 | 0.0068 / 0.0246 |
+| (c) inside probes not negative | 99 | 6 |
+
+Class W overall on the prototype is still p95 0.0772 m, and the audit's worst-node list says why:
+the scaffold window panel stands 0.07 m outside the left shutter, and the gables float 0.09 m on a
+fifth of their samples. A second prototype run with rules 7 and 9 applied (seals from the hero seal
+nodes, scaffold slabs pulled in; `.tmp/b1e5/audit_ivy_proto2.log`) gives:
+
+| | Prototype | With rules 7 and 9 |
+|---|---|---|
+| Class W p95 | 0.0772 | 0.0246 |
+| (c) face p95 / max, inside probes not negative | 0.0068 / 0.0246, 6 | 0.0068 / 0.0246, 6 |
+| `shutter` median / p95 | +0.0736 / 0.0919 | +0.0079 / 0.0514 |
+| `wall_window_bay` p95 | 0.0093 | 0.0000 |
+| `gable` p95 (share floating) | 0.0900 (19.9 %) | 0.0928 (13.1 %) |
+| (b) features missing | 15 of 69 | 10 of 69 |
+
+What is left is for `ivy-b1e.7`, in the order the audit ranks it. **Gables**: unchanged by rule 9,
+so the float is in the gable solids themselves. The suspect is the prototype's cap: it closes the
+gable's arched braces (open islands with 28-edge, non-planar boundaries) with a flat fan across the
+arch, which is exactly the case rule 4b exists for; the prototype did not have it. **Front
+shutter** (p95 0.05 m): the hero shutter is inside the house (`ivy-b1e.15`). **Six listed features
+on the left shutter** read "proxy 0.000": the depth-map pass sees the 1–2 cm gaps between the six
+boards and lists each board as a proud feature. SD-MESH-19.2 says the shutter's growth surface is
+the slat envelope, so this is the same audit defect as on the article's slot (AR-MESH-20.11) and
+goes away with that fix, which lands in `ivy-b1e.6`. **A few
+`wall_straight` samples at 0.29 m** (2.7 % floating, p95 0.0000) on two nodes: not diagnosed.
+
+Relief article (93 × 82 × 33 grid): `.sdf` 1,006,731 B for every variant; bake 34 s sharp (300
+triangles), 168–196 s with fillet wedges (1,212 triangles, 139 nodes), 3 s for the box.
+
+Budgets: SD-MESH-11 asset size is unchanged. The bake is offline (SD-MESH-10) and takes 9 to 13
+minutes for the cottage. SD-MESH-18's load and per-tick lines move by the amounts above.
+
+Not measured here: the real west half of the cottage roof (the stand-in fails class R, proud p95
+0.0115 m, which says nothing about the real piece); tower, square and surface_wall through the
+tool; anything in Blender.
+
+#### AR-MESH-20.9 — Files and responsibilities
+
+| File | Change | Bead |
+|---|---|---|
+| `tools/build_growth_surface.py` (new) | The rules of AR-MESH-20.3, the slot check, a JSON report | `ivy-b1e.14` |
+| `tools/test_build_growth_surface.py` (new) | `python3` self-test: one synthetic fixture per rule and per failure, idempotence | `ivy-b1e.14` |
+| `tools/structure_configs.json`, `validate_config` | Optional `growth_surface` block | `ivy-b1e.14` |
+| `tools/audit_growth_surface.gd` | Optional explicit `--collision`, `--hero`, `--sdf` paths, so a candidate under `.tmp/` is audited without editing a scenario | `ivy-b1e.14` |
+| `tools/build_relief_article.py` (new), `assets/structures/relief_article_*`, scenarios, `BuildingCatalog` entries with `in_picker = false` | Article hero from the SD-MESH-19.5 table, four growth-surface variants, baked SDFs | `ivy-b1e.6` |
+| `test/slow/test_relief_article_probe.gd`, `tools/ui_scripts/relief_article_*.txt` | D0–D6 probe; captures per variant | `ivy-b1e.6` |
+| `tools/growth_surface_audit.gd` | Gate (b) lists two features around slot S1 that are not there (AR-MESH-20.11) | `ivy-b1e.6` |
+| `assets/structures/ivy_sim.glb`, `ivy_sim.sdf`, `tools/measure_structure_gates.py`, `test/test_structure_proxy_footprint.gd` | Cottage through the tool; relief exemption removed from gate 3 | `ivy-b1e.7` |
+| `assets/structures/{tower,square,surface_wall}_sim.*` | Same, one structure at a time | `ivy-b1e.8` |
+| `STRUCTURES.md`, `assets/ASSET_LIBRARIES.md`, `.cursor/skills/modify-structure/SKILL.md`, `TECHNICAL_INDEX.md` | New step in the rebuild workflow | each bead for its part |
+
+No file under `src/` changes except the `BuildingCatalog` entries for the article.
+
+#### AR-MESH-20.10 — Rollout
+
+| Order | Bead | Scope | Done when |
+|---|---|---|---|
+| 1 | `ivy-b1e.14` (new) | The tool and its self-test. No committed asset changes. | Self-test passes; running the tool on the committed cottage hero into `.tmp/` reproduces the prototype's wall, bay and chimney medians |
+| 2 | `ivy-b1e.6` | Relief article, four variants, probe, captures | Audit (a)–(c) pass on the sharp variant; D0–D5 pass on it; D6 fails on the box; owner can open each variant |
+| 3 | `ivy-b1e.15` (new, bug, owner decision) | Cottage hero: inside-out front and back walls, shutter and glass inside, side panel offset | Owner chooses fix or keep; if fix, owner-run Blender regenerate |
+| 4 | `ivy-b1e.7` | Cottage through the tool, rebake, gates, tests | SG-9 (a)–(c) pass on `ivy`; class R float numbers recorded for the SD-MESH-19.8 tile escalation |
+| 5 | `ivy-b1e.8` | Tower, then square, then surface_wall | SG-9 (a)–(c) pass on all three; cost table for each |
+
+Tower first in step 5 because it fails the most (W p99 0.1085 m on three straight-wall nodes, two
+of them Blender duplicates named `…_001` that `sync_sim_walls_from_hero`'s name pattern would parse
+as a different wall, going by the pattern and not confirmed; one inside probe at the cone rim). Square already passes and is the regression
+check that the tool does not make a good structure worse.
+
+Each structure: run the tool, bake, audit, `measure_structure_gates.py`, fast suite, the slow
+`test_sg9_sdf_collision.gd` for that structure, then before and after captures from the same camera
+(`show-visual-changes`).
+
+#### AR-MESH-20.11 — Tests
+
+- **Tool self-test** (`python3 tools/test_build_growth_surface.py`): each rule, each hard failure,
+  idempotence, the 1 mm overlap rule (a capped tube on a slab bakes with no false interior surface).
+- **Audit** is the acceptance test for assets; it already proves a box fails and a faithful proxy
+  passes (`test/test_growth_surface_audit.gd`). On the article it currently lists two features that
+  do not exist, in every variant including the sharp one: "proud, +Z face, centre (1.58, 1.54)" and
+  "proud, +X face, centre (1.80, 2.49)", both next to slot S1; on the cottage it lists the six
+  boards of a shutter as proud features because of the 1–2 cm gaps between them. SD-MESH-19.5
+  requires (b) to pass on the article, so `ivy-b1e.6` fixes the depth-map pass (it does not apply
+  the slot exclusion that gate (a) applies) and adds a self-test case with a slot. The cause is
+  inferred from where the false features sit, not from reading the depth-map code.
+- **Slow GUT**: `test_sg9_sdf_collision.gd` turns green structure by structure;
+  `test_relief_article_probe.gd` asserts D0–D6 with default `IvyParams`.
+- **`run-ui-script`** is the right check for the article captures and for the cottage before and
+  after shots (load, grow, capture is a multi-step flow): `tools/ui_scripts/relief_article_*.txt`,
+  and the existing `ivy_cottage_smoke.txt` for the cottage.
+- **SG-1**: no runtime code changes, so the analytic tower fingerprint must be bit-identical; run
+  the SG-1 test in every bead as the guard.
+- **SG-5 / SG-6**: two-run identity must still hold on every mesh scenario. Stored fingerprints of
+  mesh scenarios change (the geometry changed) and are re-recorded in the bead that changes the
+  asset, with the old and new values in the notes.
+
+#### AR-MESH-20.12 — Risks, compatibility, escalations, non-goals
+
+| Risk | Mitigation |
+|---|---|
+| A hero island fits no rule, or fits one badly (cottage prototype: 73 capped, 12 extruded, 12 dropped, 4 closed; the gable braces closed, but wrongly, which is how rule 4b was found) | Hard failure naming the node; add a rule or a `fill`, never a box. The audit's worst-node list is the check that a closed solid is also the right solid |
+| Six inside probes still read non-negative on the prototype (worst +0.038 m) | Not diagnosed here. Suspects: the mirrored roof stand-in overlapping itself, fan caps on non-convex loops. `ivy-b1e.14` must reach zero on the cottage in `.tmp/` |
+| Gate (c) max 0.0246 m against a 0.025 m cap on the prototype | Same headroom the owner already accepted on the 0.05 m grid; report the location of the max in `ivy-b1e.7` |
+| Bake time 9–13 min for the cottage slows iteration | Iterate against the audit's gate (a) and (b), which need no bake; bake once per candidate. Speeding up the baker is not in scope |
+| Node count 21 → 98 (one trimesh shape each) | Measured in the per-tick figures above |
+| The `.blend`'s `Sim_{name}` collection no longer matches the shipped sim GLB | Documented in STRUCTURES.md and the modify-structure skill: the collection is scaffold |
+
+Compatibility: sim node names gain an `_iNN` suffix (`Panel_`, `Interior_`, `FloorSlab`, `RoofCap`,
+`CornerColumn_` tokens are kept, so `StructureBody` material lookup is unaffected); the light-bake
+cache and the SDF provenance hash are content-addressed and invalidate by themselves. Old debug
+snapshots replay against the new surface, so their stems will sit off it: expected, and it is the
+before/after evidence. Whether any saved state stores positions that assume the old proxy was not
+checked; `ivy-b1e.7` checks it.
+
+Escalated, not decided here:
+
+- **Owner — cottage hero placement (`ivy-b1e.15`).** Front and back walls inside-out, front shutter
+  and glass inside the house. Changes the cottage's look.
+- **Owner — modelled fillet.** After reading the four article variants. Adopting one needs the audit
+  to judge against the closed reference surface first.
+- **Owner / Director — tile roofs.** Unchanged from SD-MESH-19.8; `ivy-b1e.7` supplies the numbers.
+
+Non-goals: hero collision for ivy; render-time stem shrink-wrap; any change to `growth_step.gd`,
+`SurfaceQuery`, `IvyParams`, the SDF pitch or the baker; a general mesh boolean or morphological
+closing; fixing the Blender cottage layout (that is `ivy-b1e.15`); production code in this stage.
+
+Handoff: Gameplay Programmer, `ivy-b1e.14`, then `ivy-b1e.6`.
 
 ### SD-MESH — example scenarios
 
