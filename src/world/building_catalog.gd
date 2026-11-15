@@ -73,6 +73,16 @@ static func all() -> Array[Entry]:
 			"",
 			false,
 			"res://tools/nature_flora_lineup.tscn"),
+		# SG-9(d) relief test article (SD-MESH-19.5, ivy-b1e.6): one hero, four growth surfaces.
+		# Test structures for the probe, run-ui-script and the owner's feel read; never in the picker.
+		Entry.new("relief_article", "Relief article (sharp)",
+			"res://assets/structures/scenarios/relief_article.tres", false, "", "", false, false),
+		Entry.new("relief_article_r025", "Relief article (0.025 m fillets)",
+			"res://assets/structures/scenarios/relief_article_r025.tres", false, "", "", false, false),
+		Entry.new("relief_article_r050", "Relief article (0.05 m fillets)",
+			"res://assets/structures/scenarios/relief_article_r050.tres", false, "", "", false, false),
+		Entry.new("relief_article_bbox", "Relief article (bounding box)",
+			"res://assets/structures/scenarios/relief_article_bbox.tres", false, "", "", false, false),
 	]
 
 

@@ -506,6 +506,15 @@ func _audit_gap(target_w: int, target_r: int, seed_value: int) -> Dictionary:
 # (b) hero concavities vs the proxy
 # ------------------------------------------------------------------------------------------------
 
+## How far into the bounds a side view looks: to the mid-plane, so it never sees through an
+## opening into the far side, but never less than ENVELOPE_RADIUS (or the whole extent, if that
+## is shorter). On a structure under 1 m thick the mid-plane alone hid every recess deeper than
+## half the thickness: the relief article's 0.20 m niche N1 in a 0.55 m deep wall (ivy-b1e.6).
+## Structures more than 1 m across (all the playable ones) are unaffected.
+static func _side_reach(extent: float) -> float:
+	return 1.0 + maxf(extent * 0.5, minf(extent, ENVELOPE_RADIUS))
+
+
 ## Depth maps are ray-cast inward from a plane 1 m outside the bounds, on a RELIEF_PITCH grid.
 func _relief_views() -> Array:
 	var lo := _bounds.position
@@ -513,13 +522,13 @@ func _relief_views() -> Array:
 	var y0 := maxf(lo.y, 0.02)
 	return [
 		{"name": "west (-X face)", "origin": Vector3(lo.x - 1.0, y0, lo.z), "dir": Vector3.RIGHT,
-			"du": Vector3.BACK, "dv": Vector3.UP, "su": hi.z - lo.z, "sv": hi.y - y0, "reach": 1.0 + (hi.x - lo.x) * 0.5},
+			"du": Vector3.BACK, "dv": Vector3.UP, "su": hi.z - lo.z, "sv": hi.y - y0, "reach": _side_reach(hi.x - lo.x)},
 		{"name": "east (+X face)", "origin": Vector3(hi.x + 1.0, y0, lo.z), "dir": Vector3.LEFT,
-			"du": Vector3.BACK, "dv": Vector3.UP, "su": hi.z - lo.z, "sv": hi.y - y0, "reach": 1.0 + (hi.x - lo.x) * 0.5},
+			"du": Vector3.BACK, "dv": Vector3.UP, "su": hi.z - lo.z, "sv": hi.y - y0, "reach": _side_reach(hi.x - lo.x)},
 		{"name": "south (-Z face)", "origin": Vector3(lo.x, y0, lo.z - 1.0), "dir": Vector3.BACK,
-			"du": Vector3.RIGHT, "dv": Vector3.UP, "su": hi.x - lo.x, "sv": hi.y - y0, "reach": 1.0 + (hi.z - lo.z) * 0.5},
+			"du": Vector3.RIGHT, "dv": Vector3.UP, "su": hi.x - lo.x, "sv": hi.y - y0, "reach": _side_reach(hi.z - lo.z)},
 		{"name": "north (+Z face)", "origin": Vector3(lo.x, y0, hi.z + 1.0), "dir": Vector3.FORWARD,
-			"du": Vector3.RIGHT, "dv": Vector3.UP, "su": hi.x - lo.x, "sv": hi.y - y0, "reach": 1.0 + (hi.z - lo.z) * 0.5},
+			"du": Vector3.RIGHT, "dv": Vector3.UP, "su": hi.x - lo.x, "sv": hi.y - y0, "reach": _side_reach(hi.z - lo.z)},
 		{"name": "top (from above)", "origin": Vector3(lo.x, hi.y + 1.0, lo.z), "dir": Vector3.DOWN,
 			"du": Vector3.RIGHT, "dv": Vector3.BACK, "su": hi.x - lo.x, "sv": hi.z - lo.z, "reach": 1.0 + (hi.y - y0)},
 	]
@@ -573,6 +582,30 @@ static func _run_filter(src: PackedFloat32Array, nu: int, nv: int, r: int, take_
 
 static func _filter_2d(src: PackedFloat32Array, nu: int, nv: int, r: int, take_max: bool) -> PackedFloat32Array:
 	return _run_filter(_run_filter(src, nu, nv, r, take_max, true), nu, nv, r, take_max, false)
+
+
+## Depth-map radius, in RELIEF_PITCH cells, of the slot closing below: an opening by a
+## (2r + 1)-cell square (0.125 m) fills every slot narrower than SLOT_MAX_WIDTH, which spans at
+## most 4 cells, and leaves anything that can be listed (>= CONCAVITY_MIN_WIDTH, 6 cells) alone.
+const SLOT_CLOSE_CELLS := 2
+
+
+## SD-MESH-19.2: a slot narrower than SLOT_MAX_WIDTH is closed, at any depth, so the depth maps
+## are judged with every such slot bridged flush (ivy-b1e.6, AR-MESH-20.11). Gate (a) already
+## skips hero samples inside one (`_in_narrow_slot`); without this, a slot near the end of a wall
+## made the opening and closing in `_relief_maps` report the strip beside it as a proud feature
+## (the relief article's S1, the gaps between a shutter's boards).
+##
+## A grey-scale opening (min then max over the square) of the depth map, applied only where a
+## ray hit something: cells that hit nothing (INF) stay INF, so a silhouette, including one at the
+## edge of the map, never moves. (A gap with nothing at all behind it is therefore not bridged;
+## every slot on the structures audited so far has a wall behind it.)
+static func _close_narrow_slots(t: PackedFloat32Array, nu: int, nv: int) -> PackedFloat32Array:
+	var opened := _filter_2d(_filter_2d(t, nu, nv, SLOT_CLOSE_CELLS, false), nu, nv, SLOT_CLOSE_CELLS, true)
+	for i in t.size():
+		if t[i] == INF:
+			opened[i] = INF
+	return opened
 
 
 static func _swap(src: PackedFloat32Array, from_value: float, to_value: float) -> PackedFloat32Array:
@@ -641,6 +674,8 @@ func _audit_concavities() -> Dictionary:
 				var ph := _cast(from, to, PROXY_MASK)
 				if not ph.is_empty():
 					proxy_t[idx] = ((ph["position"] as Vector3) - from).dot(dir)
+		hero_t = _close_narrow_slots(hero_t, nu, nv)
+		proxy_t = _close_narrow_slots(proxy_t, nu, nv)
 		var hero_maps := _relief_maps(hero_t, nu, nv, r_cells)
 		var proxy_maps := _relief_maps(proxy_t, nu, nv, r_cells)
 		for kind in 2:

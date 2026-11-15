@@ -1,0 +1,11 @@
+# ivy-b1e.6 relief test article (SD-MESH-19.5), 0.025 m modelled inside-corner fillets: grow A1-A4
+# for 30 days, then front and oblique captures at local noon. Run windowed (the Godot binary as the whole command):
+#   /Applications/Godot.app/Contents/MacOS/Godot res://tools/run_ui_script.tscn -- --building=relief_article_r025 --script=<abs path to this file> --outdir=res://.tmp/relief_article
+SPEED pause
+ADVANCE_DAYS 30
+ADVANCE_DAYS 0.25
+DUMP
+ORBIT 0 4.6 1.5
+SCREENSHOT relief_article_r025_front.png
+ORBIT 38 3.2 2.1
+SCREENSHOT relief_article_r025_oblique.png

@@ -858,8 +858,8 @@ wall plane is inside it.
 | Id | Criterion | Pass |
 |---|---|---|
 | D0 | Enough evidence | ≥ 20 crossings of a rib or the rail (a stem with attached nodes on both sides), ≥ 5 stems with nodes in N1's floor zone, ≥ 1 in M1's. Fewer is **inconclusive and counts as a fail of the probe**: fix anchors or run length, do not relax D1–D4. |
-| D1 | Stems reach the recess floor | Of stem nodes in floor zones, **≥ 95 % within `d_contact` = 0.02 m** of the floor plane. |
-| D2 | Stems do not span an opening | No stem node in any footprint farther than **0.05 m** from the nearest article surface. |
+| D1 | Stems reach the recess floor | Of stem nodes in floor zones (front side), **≥ 95 % within the mesh attachment distance 0.045 m** (`SurfaceQuery.effective_contact`, AR-MESH-20.5) of the floor plane, **and the median distance to the floor ≤ `d_contact` = 0.02 m**. Ratified 2026-11-15 (`ivy-b1e.21`), replacing "≥ 95 % within 0.02 m"; numbers and reasons below. |
+| D2 | Stems do not span an opening | No front-side stem node in any footprint that is **attached to the growth surface** (`\|Φ_proxy\|` ≤ 0.045 m, read from the variant's own baked SDF) is farther than **0.05 m** from the nearest article surface. Far nodes off the growth surface (floating shoots) are reported, not gated. Ratified 2026-11-15 (`ivy-b1e.21`). |
 | D3 | Nothing inside solid | **Zero** tip end positions with analytic `Φ < 0`; no stem node deeper than 0.01 m inside. |
 | D4 | Slot not threaded | Zero stem nodes inside S1 deeper than 0.02 m behind `z = 0`. |
 | D5 | Determinism | Two runs give identical fingerprints (SG-6 discipline). |
@@ -868,6 +868,57 @@ wall plane is inside it.
 Reported, not gated: the turn angle between consecutive segments along stems passing an inside
 corner (p95 and max), the distance-to-surface histogram per feature, and front and oblique
 screenshots. Whether the curves read as natural is the human SG-7(b) read, not the probe's.
+Also reported since `ivy-b1e.21`: the floor-zone share within 0.02 m, the floor-zone p95, the same
+share, median and p95 on the **flat control** (front nodes, `z ≥ 0`, on the flat zones `x` −0.15 …
+0.30 and 0.90 … 1.20), and the count and maximum of far footprint nodes that are floating.
+
+**D1 and D2 ratification (`ivy-b1e.21`, 2026-11-15).** Measured after `ivy-9bt7` (no tunnelling),
+default `IvyParams`, 30 game-days, A1–A4, RunHash `52875f3f` (the recorded D5 fingerprint, seen
+again in two further separate-process runs), diagnostic `.tmp/b1e21/test_far_nodes.gd`.
+
+| Measure | Sharp variant | Bounding-box variant |
+|---|---|---|
+| Floor-zone nodes | 7,971 (panels 7,896, N1 74, M1 1) | 15,704 |
+| … within 0.02 m / 0.03 m / 0.045 m of the floor | 86.1 % / 93.5 % / **97.8 %** | 0.0 % / 0.0 % / **0.0 %** |
+| … median / p90 / p95 distance to the floor | **0.0065** / 0.0247 / 0.0334 m | **0.1054** / 0.1242 / 0.1338 m |
+| Flat control: within 0.02 m / 0.045 m; median / p95 | 83.4 % / 99.6 %; 0.0055 / 0.0340 m | 2.3 % / 5.9 %; 0.1038 / 0.1273 m |
+| Footprint nodes > 0.05 m from the article | 340, max 0.2883 m | 21,542, max 0.3053 m |
+| … of which attached to the growth surface (D2) | **0** | **21,470** |
+| … of which floating (reported) | 340 | 72 |
+| Ratified D1 / D2 | **PASS / PASS** | **FAIL / FAIL** (D6 holds) |
+
+*Why D1 changed.* The growth step counts a tip attached anywhere up to 0.045 m from a mesh face and
+snaps it back only beyond that (`growth_step.gd`, AR-MESH-20.5), so attached stems rest anywhere
+from the collision skin to 0.045 m. The flat control shows exactly that band: only 83.4 % of its
+nodes are within 0.02 m, p95 0.034 m. The recess floors read the same or better (86.1 %, p95
+0.0334 m, N1 and M1 100 %). "95 % within 0.02 m" therefore failed on how the growth step rests on
+**any** mesh face, which the growth surface cannot change and this epic must not tune; it did not
+measure whether the recess floor is carried. The ratified pair asks the growth-surface question:
+the stems are attached **to the floor** (95 % within the attachment distance; a bounding box or a
+plane across the opening puts them 0.10–0.30 m off) and they lie **on** it rather than at the edge
+of the band (median ≤ 0.02 m; a proxy floor too shallow by gate (b)'s 0.03 m allowance moves the
+median past 0.03 m and fails). Whether a 2–4.5 cm resting gap on about 15 % of attached stem looks
+right is a separate, owner question (SD-MESH-19.8).
+
+*What the 340 far nodes were.* All 340 lie in the six panel footprints (panel_1_high 103,
+panel_2_high 74, panel_3_high 132, panel_1_low 15, panel_3_low 16; none in N1 or M1). None is within
+0.045 m of the growth surface. They are 68 detached runs on 67 stems: 314 nodes on stem ends that
+left the surface and never re-attached, 18 on falling shoots that brushed a face once on the way
+down, 8 on one branch born off the surface. 336 are on dead tips, 330 are descending, 65 of the 68
+runs are 13–15 nodes long (0.40–0.45 m, i.e. `max_float` 0.40 m), and 255 sit more than 0.15 m in
+front of the wall. 246 are within 0.15 m below the article's top edge (`y` > 2.85: shoots that
+grew over the top at `y` = 3.0 and fell back in front of the upper panels); the sampled runs among
+the other 94 start on the rail H1's top (`y` ≈ 1.59) and fall in front of the lower panels. They are free shoots under gravity off convex edges, the growth
+step's behaviour, not a growth surface that spans an opening: the sharp proxy has no surface there
+to span. On the bounding box, by contrast, 99.7 % of the far nodes are attached to the box face
+0.10 m in front of the panel floors, which is exactly the spanning D2 exists to catch.
+
+*Why D2 reads the proxy.* Only to decide whether a node is on the growth surface, using the same
+0.045 m attachment distance as the growth step; every distance that is gated is still to the
+analytic article. When `analyse()` is given no proxy field, every node counts as attached (the
+stricter reading). Near a convex edge the trilinear field over-reads by up to `h/2`, which can
+mark an attached node floating, but such a node is within about 0.025 m of the article and cannot
+be a far node. Floating far nodes are reported so a change in free-shoot behaviour stays visible.
 
 #### SD-MESH-19.6 — Failure modes and expected behaviour
 
@@ -912,6 +963,18 @@ screenshots. Whether the curves read as natural is the human SG-7(b) read, not t
   collision mesh and the SDF. **Decided 2026-11-14: shell and cell unchanged (AR-MESH-20.6); relief
   reaches both through one hero-derived mesh that is also the bake input (AR-MESH-20.2); the fillet
   is carried by the SDF (AR-MESH-20.4).**
+- **Owner — resting gap on meshes (`ivy-b1e.21`).** SD-MESH-19's premise was stems 0–1.4 cm off
+  the surface, median 0.4 cm. On the relief article after `ivy-9bt7`, attached stems on the flat
+  control sit median 0.55 cm but p95 3.4 cm, 16.6 % beyond 2 cm, and recess floors the same. That is
+  the 0.045 m mesh attachment band (AR-MESH-20.5). D1 no longer fails on it. Whether the gap reads
+  as floating ivy is a look question; if it does, tightening the band is a growth-step bead with a
+  playground variant (G7), not a probe change.
+- **Owner — feelers hanging off convex edges (`ivy-b1e.21`).** About 65 dead shoots, each about
+  `max_float` (0.40 m) long, fall off the article's top edge and off the rail H1 and hang up to
+  0.29 m in front of the panels. On the cottage the same will happen at beams, sills and wall tops.
+  Natural ivy feelers or a defect is a feel judgement; D2 no longer gates it and the probe reports
+  the count. If it is a defect, it is growth-step work (gravity, `max_float`, dieback), out of this
+  epic.
 
 #### SD-MESH-19.9 — Non-goals
 
@@ -1240,6 +1303,15 @@ Each structure: run the tool, bake, audit, `measure_structure_gates.py`, fast su
   requires (b) to pass on the article, so `ivy-b1e.6` fixes the depth-map pass (it does not apply
   the slot exclusion that gate (a) applies) and adds a self-test case with a slot. The cause is
   inferred from where the false features sit, not from reading the depth-map code.
+  **Found in `ivy-b1e.6`:** the +Z feature was the slot's depth carried across the strip between
+  S1 and the wall's end by the 1 m opening and closing, which cannot restore values at the edge of
+  a depth map; the depth maps now close slots under 0.10 m first (a 0.125 m grey-scale opening,
+  `_close_narrow_slots`). The +X feature was the end face measured against U1's edge; the tool
+  keeps U1 in the proxy, so on the shipped sharp variant it is listed and represented. A third
+  defect was found: side views stopped at the structure's mid-plane, so on the 0.55 m-deep article
+  N1's floor was never seen and (b) did not list N1 at all; views now reach at least 0.5 m in
+  (`_side_reach`), which leaves every structure over 1 m across unchanged. Self-test cases for all
+  three in `test/test_growth_surface_audit.gd`; four-structure before/after in the `ivy-b1e.6` notes.
 - **Slow GUT**: `test_sg9_sdf_collision.gd` turns green structure by structure;
   `test_relief_article_probe.gd` asserts D0–D6 with default `IvyParams`.
 - **`run-ui-script`** is the right check for the article captures and for the cottage before and

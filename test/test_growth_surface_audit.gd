@@ -87,9 +87,9 @@ static func _analytic_sdf(boxes: Array[AABB]) -> MeshSdf:
 	return sdf
 
 
-func _run_case(offset: Vector3, proxy_boxes: Array[AABB]) -> Dictionary:
+func _run_case(offset: Vector3, proxy_boxes: Array[AABB], hero_override: Array[AABB] = []) -> Dictionary:
 	var pieces: Array = []
-	var hero_boxes := _hero_boxes(offset)
+	var hero_boxes := _hero_boxes(offset) if hero_override.is_empty() else hero_override
 	for i in hero_boxes.size():
 		pieces.append({
 			"name": "t_hero_Wall_Ribbed_part_%d" % i,
@@ -161,6 +161,122 @@ func test_proxy_that_carries_the_ribs_passes_gap_and_concavity() -> void:
 	assert_true(b["pass"], "(b) every hero recess is in the proxy: %d missing" % b["unrepresented"])
 	# An exact box SDF read trilinearly peaks near 0.015 m at sharp edges: inside the 0.025 m cap.
 	assert_true(report["c"]["pass"], "(c) %s" % [report["c"]["fails"]])
+
+
+## Slab of SLAB_SIZE with its outer face at x = 0 (facing -X) and a slot SLOT_WIDTH wide and
+## SLOT_DEPTH deep cut into that face, SLOT_EDGE_GAP from the slab's +Z end: like slot S1 on the
+## relief article (SD-MESH-19.5), which sits 0.26 m from the article's end.
+const SLOT_Z0 := 1.70
+const SLOT_WIDTH := 0.04
+const SLOT_DEPTH := 0.10
+const SLOT_Y := Vector2(0.5, 1.5)
+
+
+func _slotted_slab(offset: Vector3) -> Array[AABB]:
+	var front := SLOT_DEPTH
+	var z1 := SLOT_Z0 + SLOT_WIDTH
+	return [
+		AABB(offset + Vector3(front, 0.0, 0.0), SLAB_SIZE - Vector3(front, 0.0, 0.0)),
+		AABB(offset, Vector3(front, SLAB_SIZE.y, SLOT_Z0)),
+		AABB(offset + Vector3(0.0, 0.0, z1), Vector3(front, SLAB_SIZE.y, SLAB_SIZE.z - z1)),
+		AABB(offset + Vector3(0.0, 0.0, SLOT_Z0), Vector3(front, SLOT_Y.x, SLOT_WIDTH)),
+		AABB(offset + Vector3(0.0, SLOT_Y.y, SLOT_Z0), Vector3(front, SLAB_SIZE.y - SLOT_Y.y, SLOT_WIDTH)),
+	]
+
+
+## SD-MESH-19.2: a slot narrower than 0.10 m is closed in the growth surface and never listed.
+## A proxy that bridges it flush must pass (a) and (b), and (b) must list nothing around it: the
+## depth-map pass used to report the strip between the slot and the slab's end as a missing proud
+## feature (AR-MESH-20.11; the article's "(1.58, 1.54)" and the cottage shutter boards).
+func test_slot_under_ten_centimetres_closed_by_the_proxy_is_not_a_feature() -> void:
+	var offset := Vector3(80.0, 0.0, 0.0)
+	var proxy: Array[AABB] = [AABB(offset, SLAB_SIZE)]
+	var report: Dictionary = await _run_case(offset, proxy, _slotted_slab(offset))
+	var a: Dictionary = report["a"]["walls"]
+	var b: Dictionary = report["b"]
+	assert_gt(a["in_slot"], 0, "hero samples inside the slot are classified not reachable")
+	assert_true(a["pass"], "(a) %s" % [a["fails"]])
+	assert_true(b["pass"], "(b) a closed narrow slot leaves nothing missing: %d missing" % b["unrepresented"])
+	for cv in b["concavities"]:
+		var c: Array = cv["centre"]
+		var near_slot := absf(float(c[0]) - offset.x) < 0.2 and float(c[2]) - offset.z > SLOT_Z0 - 0.5
+		assert_false(near_slot and String(cv["view"]).begins_with("west"),
+			"(b) lists a %s feature beside the slot at %s" % [cv["kind"], c])
+
+
+## The slot fix must not hide real relief: the same slab with a recess 0.16 m wide (just over the
+## 0.15 m floor, like M1) next to the end is still listed and, against a flat proxy, missing.
+func test_recess_wider_than_the_floor_is_still_listed_and_missing_from_a_flat_proxy() -> void:
+	var offset := Vector3(100.0, 0.0, 0.0)
+	var wide := 0.16
+	var z1 := SLOT_Z0 + wide
+	var hero: Array[AABB] = [
+		AABB(offset + Vector3(SLOT_DEPTH, 0.0, 0.0), SLAB_SIZE - Vector3(SLOT_DEPTH, 0.0, 0.0)),
+		AABB(offset, Vector3(SLOT_DEPTH, SLAB_SIZE.y, SLOT_Z0)),
+		AABB(offset + Vector3(0.0, 0.0, z1), Vector3(SLOT_DEPTH, SLAB_SIZE.y, SLAB_SIZE.z - z1)),
+		AABB(offset + Vector3(0.0, 0.0, SLOT_Z0), Vector3(SLOT_DEPTH, SLOT_Y.x, wide)),
+		AABB(offset + Vector3(0.0, SLOT_Y.y, SLOT_Z0), Vector3(SLOT_DEPTH, SLAB_SIZE.y - SLOT_Y.y, wide)),
+	]
+	var proxy: Array[AABB] = [AABB(offset, SLAB_SIZE)]
+	var report: Dictionary = await _run_case(offset, proxy, hero)
+	var b: Dictionary = report["b"]
+	assert_false(b["pass"], "(b) a 0.16 m recess bridged by the proxy is missing")
+	var found := false
+	for cv in b["concavities"]:
+		var c: Array = cv["centre"]
+		if cv["kind"] == "recess" and String(cv["view"]).begins_with("west") \
+				and absf(float(c[2]) - offset.z - (SLOT_Z0 + wide * 0.5)) < 0.05:
+			found = true
+			assert_almost_eq(float(cv["hero_depth"]), SLOT_DEPTH, 0.01)
+			assert_false(cv["represented"])
+	assert_true(found, "the 0.16 m recess is listed")
+
+
+## A recess deeper than half a thin structure's thickness is still found: the relief article's
+## niche N1 is 0.20 m deep in a 0.45 m wall (SD-MESH-19.5), and the depth maps used to stop at the
+## structure's mid-plane, so (b) never listed it.
+func test_deep_recess_in_a_thin_slab_is_listed() -> void:
+	var offset := Vector3(120.0, 0.0, 0.0)
+	var deep := 0.20
+	var z0 := 0.70
+	var z1 := 1.30
+	var y0 := 0.60
+	var y1 := 1.50
+	var hero: Array[AABB] = [
+		AABB(offset + Vector3(deep, 0.0, 0.0), SLAB_SIZE - Vector3(deep, 0.0, 0.0)),
+		AABB(offset, Vector3(deep, SLAB_SIZE.y, z0)),
+		AABB(offset + Vector3(0.0, 0.0, z1), Vector3(deep, SLAB_SIZE.y, SLAB_SIZE.z - z1)),
+		AABB(offset + Vector3(0.0, 0.0, z0), Vector3(deep, y0, z1 - z0)),
+		AABB(offset + Vector3(0.0, y1, z0), Vector3(deep, SLAB_SIZE.y - y1, z1 - z0)),
+	]
+	var flat: Array[AABB] = [AABB(offset, SLAB_SIZE)]
+	var report: Dictionary = await _run_case(offset, flat, hero)
+	var found := false
+	for cv in report["b"]["concavities"]:
+		var c: Array = cv["centre"]
+		if cv["kind"] == "recess" and String(cv["view"]).begins_with("west") \
+				and absf(float(c[2]) - offset.z - 1.0) < 0.05 and absf(float(c[1]) - 1.05) < 0.05:
+			found = true
+			assert_almost_eq(float(cv["hero_depth"]), deep, 0.01)
+			assert_false(cv["represented"], "the flat proxy does not carry it")
+	assert_true(found, "(b) lists the 0.20 m recess in a 0.30 m slab")
+	assert_false(report["b"]["pass"])
+	# The same recess carried by the proxy is listed and represented.
+	var carried: Dictionary = await _run_case(offset + Vector3(0.0, 0.0, 10.0),
+			_shift(hero, Vector3(0.0, 0.0, 10.0)), _shift(hero, Vector3(0.0, 0.0, 10.0)))
+	assert_true(carried["b"]["pass"], "(b) %d missing" % carried["b"]["unrepresented"])
+	var listed := false
+	for cv in carried["b"]["concavities"]:
+		if cv["kind"] == "recess" and absf(float(cv["hero_depth"]) - deep) < 0.01:
+			listed = true
+	assert_true(listed)
+
+
+static func _shift(boxes: Array[AABB], by: Vector3) -> Array[AABB]:
+	var out: Array[AABB] = []
+	for b in boxes:
+		out.append(AABB(b.position + by, b.size))
+	return out
 
 
 ## 1000 gaps: `near` of them at `near_value`, the rest at `far_value`.

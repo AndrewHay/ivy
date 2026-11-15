@@ -166,6 +166,23 @@ python3 tools/build_growth_surface.py <hero.glb> <scaffold_sim.glb> <out_sim.glb
 - Audit a candidate under `.tmp/` without touching a scenario with the explicit-path form of the audit
   below (`--collision`, `--hero`, `--sdf`, `--id`).
 
+### Relief test article (SG-9(d), `ivy-b1e.6`)
+
+A synthetic ribbed wall with a niche, a minimum recess, a narrow slot and a plaque (IMPLEMENTATION.md
+SD-MESH-19.5), the growth-surface pipeline's first customer. Rebuild, then bake each `*_sim.glb`:
+
+```bash
+python3 tools/build_relief_article.py hero assets/structures
+python3 tools/build_growth_surface.py assets/structures/relief_article_hero.glb assets/structures/relief_article_hero.glb \
+  assets/structures/relief_article_sim.glb --structure relief_article --config tools/relief_article_config.json
+python3 tools/build_relief_article.py fillets assets/structures/relief_article_sim.glb assets/structures
+python3 tools/bake_mesh_sdf.py assets/structures/relief_article_sim.glb assets/structures/relief_article_sim.sdf
+```
+
+(and the same bake for `relief_article_{r025,r050,bbox}_sim`). Catalog ids `relief_article`,
+`relief_article_r025`, `relief_article_r050`, `relief_article_bbox` (not in the picker); open one with
+`Godot res://tools/open_building.tscn -- --building=<id>`. Probe: `test/slow/test_relief_article_probe.gd`.
+
 ### Growth-surface audit (SG-9 a–c)
 
 Judges each structure's growth surface (collision proxy + baked SDF) against the hero mesh the player
