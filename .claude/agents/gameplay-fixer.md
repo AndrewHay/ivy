@@ -1,7 +1,7 @@
 ---
 name: gameplay-fixer
 description: Applies targeted fixes from code review findings without redesigning the feature.
-model: sonnet
+model: opus
 ---
 
 <!-- Generated for Claude Code by semantic-memory from semantic-memory/assets/gamedev/agents/gameplay-fixer.md.

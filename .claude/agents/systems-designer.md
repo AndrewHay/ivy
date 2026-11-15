@@ -1,7 +1,7 @@
 ---
 name: systems-designer
 description: Designs gameplay systems, mechanics, and progression structures.
-model: fable
+model: opus
 ---
 
 <!-- Generated for Claude Code by semantic-memory from semantic-memory/assets/gamedev/agents/systems-designer.md.

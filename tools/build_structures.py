@@ -67,21 +67,33 @@ from mathutils import Matrix, Vector
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from cottage_layout import (  # noqa: E402
+    CORNER_POST_NODE,
     COTTAGE_DEPTH_HALF,
-    DOOR_LEAF_KIT_OFFSET_X,
+    COTTAGE_WINDOW_GLASS,
+    DOOR_OPENINGS,
+    KIT_TRIM_DEPTH,
     PIECE_CHIMNEY,
+    PIECE_CORNER_POST,
+    PIECE_DOOR_FRAME,
     PIECE_DOOR_LEAF,
     PIECE_GABLE,
     PIECE_SHUTTER,
+    PIECE_WINDOW_INSERT,
     PIECE_WALL,
     PIECE_WALL_BRICK,
     PIECE_WALL_DOOR,
     PIECE_WALL_WINDOW,
     ROOF_BY_BAYS,
     all_wall_slots,
+    KIT_EXTERIOR_LOCAL,
+    cottage_corner_posts,
     cottage_derived,
+    cottage_facing_angle,
     cottage_kit_piece_names,
+    cottage_shutter_fit,
     cottage_slot,
+    cottage_style,
+    door_leaf_fit,
     piece_for_slot,
 )
 
@@ -944,8 +956,14 @@ def opening_center_local(ap):
 
 
 def cottage_facing_matrix(normal: Vector, origin: Vector) -> Matrix:
-    ang = math.atan2(normal.x, normal.y)
+    """Place a kit piece so its exterior (local -Y) faces ``normal`` (ivy-b1e.15)."""
+    ang = cottage_facing_angle(normal.x, normal.y)
     return Matrix.Translation(origin) @ Matrix.Rotation(ang, 4, "Z")
+
+
+def cottage_wall_outward(xf: Matrix) -> Vector:
+    """World-space outward normal of a wall placed with ``cottage_wall_matrix``."""
+    return xf.to_3x3() @ Vector((KIT_EXTERIOR_LOCAL[0], KIT_EXTERIOR_LOCAL[1], 0.0))
 
 
 def cottage_house_rotation(cfg) -> Matrix:
@@ -961,8 +979,7 @@ def cottage_wall_matrix(cfg, side: str, bay: int) -> Matrix:
 
 
 def cottage_outward_yaw(cfg, side: str, bay: int) -> float:
-    xf = cottage_wall_matrix(cfg, side, bay)
-    n = xf.to_3x3() @ Vector((0.0, 1.0, 0.0))
+    n = cottage_wall_outward(cottage_wall_matrix(cfg, side, bay))
     return math.degrees(math.atan2(n.x, -n.y))
 
 
@@ -980,7 +997,7 @@ def enumerate_cottage_apertures(cfg, d):
             continue
         kind = "door" if "Door" in piece else "wide_win"
         xf = cottage_wall_matrix(cfg, side, bay)
-        n = xf.to_3x3() @ Vector((0.0, 1.0, 0.0))
+        n = cottage_wall_outward(xf)
         wall_loc = xf.translation + n * EXT_OFFSET
         yaw = cottage_outward_yaw(cfg, side, bay)
         aid = f"{cfg['name']}_ground_{kind}_{side_letter[side]}_{bay}"
@@ -997,13 +1014,20 @@ def enumerate_cottage_apertures(cfg, d):
         }
         if kind == "door":
             ap["door_kit"] = PIECE_DOOR_LEAF
+            # ivy-b1e.17.1: the hero leaf fills this kit opening (sim panel keeps "spec").
+            ap["door_opening"] = DOOR_OPENINGS[cottage_style()["door"]]
+        else:
+            # ivy-b1e.17.4: hero glass sized to the kit hole (sim panel keeps "spec").
+            ap["glass_spec"] = COTTAGE_WINDOW_GLASS
         apertures.append(ap)
     return apertures
 
 
 def place_cottage_sim_wall_slab(cfg, side: str, bay: int, collection, clay, prefix: str, world_offset: Vector):
     xf = Matrix.Translation(world_offset) @ cottage_wall_matrix(cfg, side, bay)
-    center = xf @ Vector((0.0, EXT_OFFSET + TARGET_T / 2.0, WALL_H / 2.0))
+    # Local +Y points into the house; the slab runs from the exterior face
+    # (EXT_OFFSET outside the grid line) TARGET_T inward.
+    center = xf @ Vector((0.0, TARGET_T / 2.0 - EXT_OFFSET, WALL_H / 2.0))
     return place_clay_box(
         f"{prefix}{PIECE_WALL}_{side}_{bay}",
         center,
@@ -1022,12 +1046,54 @@ def place_cottage_kit(
     data_fn,
     prefix: str,
     world_offset: Vector,
+    local: Matrix | None = None,
 ) -> bpy.types.Object:
     xf = cottage_wall_matrix(cfg, side, bay)
+    if local is not None:
+        xf = xf @ local
     obj = bpy.data.objects.new(f"{prefix}{piece}_{side}_{bay}", data_fn(piece).copy())
     collection.objects.link(obj)
     obj.matrix_world = Matrix.Translation(world_offset) @ xf
     return obj
+
+
+def cottage_shutter_local() -> Matrix:
+    """ivy-b1e.17.3 "flush" style: seat the closed shutter on the window wall's plaster,
+    front face capped at the wall trim so it stays inside the side-view silhouette."""
+    sy, dy, dz = cottage_shutter_fit(
+        piece_axis_extent(PIECE_SHUTTER, 1), piece_axis_extent(PIECE_SHUTTER, 2), KIT_TRIM_DEPTH,
+    )
+    return Matrix.Translation((0.0, dy, dz)) @ Matrix.Diagonal((1.0, sy, 1.0, 1.0))
+
+
+def swap_kit_glass(obj, glass_mat):
+    """Replace the kit's near-transparent MI_WindowGlass pane with ``glass_mat``.
+
+    obj.data is a per-object copy of the cached kit mesh, so the cache is untouched.
+    """
+    mats = obj.data.materials
+    for i, mat in enumerate(mats):
+        if mat is not None and mat.name.startswith("MI_WindowGlass"):
+            mats[i] = glass_mat
+
+
+def place_cottage_corner_posts(cfg, hero_col, prefix, world_offset):
+    """ivy-b1e.17.2: kit timber post over the trim gap at each outer corner."""
+    parts = []
+    house_rot = cottage_house_rotation(cfg)
+    depth_half = float(cfg.get("depth_half", COTTAGE_DEPTH_HALF))
+    for label, (cx, cy), yaw, scale in cottage_corner_posts(int(cfg["bays"]), depth_half):
+        obj = bpy.data.objects.new(
+            f"{prefix}{CORNER_POST_NODE}_{label}", hero_data(PIECE_CORNER_POST).copy()
+        )
+        hero_col.objects.link(obj)
+        obj.matrix_world = (
+            Matrix.Translation(world_offset) @ house_rot
+            @ Matrix.Translation((cx, cy, 0.0)) @ Matrix.Rotation(yaw, 4, "Z")
+            @ Matrix.Diagonal((scale[0], scale[1], scale[2], 1.0))
+        )
+        parts.append(obj)
+    return parts
 
 
 def assemble_cottage_hero(cfg, hero_col, hero_roof_mat, glass_mat, world_offset):
@@ -1039,6 +1105,8 @@ def assemble_cottage_hero(cfg, hero_col, hero_roof_mat, glass_mat, world_offset)
     door = str(cfg["door"])
     windows = [str(w) for w in cfg.get("windows", [])]
     brick_side = str(cfg.get("brick_side", ""))
+    style = cottage_style()
+    print(f"[{name}] cottage style {style}", flush=True)
     for side, bay in all_wall_slots(bays):
         slot = f"{side}:{bay}"
         piece = piece_for_slot(slot, door, windows, brick_side)
@@ -1046,11 +1114,32 @@ def assemble_cottage_hero(cfg, hero_col, hero_roof_mat, glass_mat, world_offset)
             place_cottage_kit(piece, cfg, side, bay, hero_col, hero_data, prefix, world_offset)
         )
         if slot in windows:
+            # ivy-b1e.17.3/.4: "frame" places the kit window insert (casement, mullions,
+            # sill) and hangs the shutter on it where the kit authored it; "flush" has
+            # no insert and seats the shutter on the plaster.
+            frame = style["window"] == "frame"
             parts.append(
                 place_cottage_kit(
-                    PIECE_SHUTTER, cfg, side, bay, hero_col, hero_data, prefix, world_offset
+                    PIECE_SHUTTER, cfg, side, bay, hero_col, hero_data, prefix, world_offset,
+                    local=None if frame else cottage_shutter_local(),
                 )
             )
+            if frame:
+                insert = place_cottage_kit(
+                    PIECE_WINDOW_INSERT, cfg, side, bay, hero_col, hero_data, prefix, world_offset
+                )
+                swap_kit_glass(insert, glass_mat)
+                parts.append(insert)
+        if slot == door and style["door"] == "frame":
+            # The kit frame's sill dips 8.5 mm below its origin; lift it to sit on grade.
+            lift = -piece_axis_extent(PIECE_DOOR_FRAME, 2)[0]
+            parts.append(
+                place_cottage_kit(
+                    PIECE_DOOR_FRAME, cfg, side, bay, hero_col, hero_data, prefix, world_offset,
+                    local=Matrix.Translation((0.0, 0.0, max(0.0, lift))),
+                )
+            )
+    parts += place_cottage_corner_posts(cfg, hero_col, prefix, world_offset)
     house_rot = cottage_house_rotation(cfg)
     half_len = float(bays)
     for sx in (-1, 1):
@@ -1141,6 +1230,10 @@ def assemble_cottage_sim(cfg, sim_col, clay, world_offset, omit_seal=None, hero_
             parts.append(obj)
         elif tail.startswith("WindowShutters"):
             parts.append(cottage_sim_shell_from_hero(hero_obj, sim_col, clay, sim_name))
+        elif tail.startswith(CORNER_POST_NODE):
+            # ivy-b1e.17.2: padded box closes the corner notch the wall shells leave.
+            parts.append(cottage_sim_shell_from_hero(hero_obj, sim_col, clay, sim_name))
+        # PIECE_WINDOW_INSERT / PIECE_DOOR_FRAME stay hero-only (no sim solid).
     slab_half_x = d["wall_x"]
     slab_half_y = d["wall_y"]
     parts.append(
@@ -1326,6 +1419,15 @@ def place_hero_seals(ap, hero_col, prefix, world_offset, glass_mat, wood_mat=Non
             parts += place_hero_open_reveal(
                 ap, hero_col, prefix, world_offset, d, _interior_floor, _interior,
             )
+        elif "door_opening" in ap:
+            # ivy-b1e.17.1 (cottage): centre the leaf in its kit opening at a fixed
+            # depth and keep its textured kit materials. The aperture frame is the kit
+            # wall frame moved EXT_OFFSET outward, so aperture y = kit y + EXT_OFFSET.
+            off, (sx, sz) = door_leaf_fit(ap["door_opening"])
+            door = place_kit_seal(ap, hero_col, prefix, world_offset, ap["door_kit"], "door",
+                                  Vector((off[0], off[1] + EXT_OFFSET, off[2])), None)
+            door.scale = (sx, 1.0, sz)
+            parts.append(door)
         elif ap["id"] not in open_ids:
             spec = ap["spec"]
             open_w = spec["x1"] - spec["x0"]
@@ -1349,14 +1451,12 @@ def place_hero_seals(ap, hero_col, prefix, world_offset, glass_mat, wood_mat=Non
                 -piece_y_min(door_kit) - DOOR_HERO_OUTSET,
                 spec["z0"] - dz0 * sz + inset,
             ))
-            if door_kit == PIECE_DOOR_LEAF:
-                door_off.x += DOOR_LEAF_KIT_OFFSET_X
             door = place_kit_seal(ap, hero_col, prefix, world_offset,
                                     door_kit, "door", door_off, wood_mat)
             door.scale = (sx, 1.0, sz)
             parts.append(door)
     else:
-        spec = ap["spec"]
+        spec = ap.get("glass_spec", ap["spec"])
         width = spec["x1"] - spec["x0"]
         height = spec["z1"] - spec["z0"]
         glass_off = Vector((
@@ -1439,7 +1539,7 @@ def place_interior_face(ap, sim_col, prefix, world_offset, clay):
 
 def assemble_hero(cfg, hero_col, hero_roof_mat, glass_mat, world_offset):
     if cfg.get("layout") == "cottage":
-        return assemble_cottage_hero(cfg, hero_col, hero_roof_mat, glass_mat, world_offset)
+        return assemble_cottage_hero(cfg, hero_col, hero_roof_mat, _cottage_glass, world_offset)
     d = cfg_derived(cfg)
     name = cfg["name"]
     prefix = f"{name}_hero_"
@@ -2054,6 +2154,13 @@ def sync_sim_roof_from_hero(name, hero_col, sim_parts):
 def rebuild_sim_from_hero(name, hero_col, sim_col, cfg, clay, world_offset, omit_seal=None):
     print(f"\n[{name}] rebuilding simulation mesh from hero transforms", flush=True)
     clear_collection_objects(sim_col)
+    if cfg.get("layout") == "cottage":
+        # The ring path below only syncs Wall_UnevenBrick_* walls by yaw/index name,
+        # so a cottage came out with no wall solids at all (ivy_sim.glb in eec391f).
+        # The cottage sim is already derived from hero transforms.
+        return assemble_cottage_sim(
+            cfg, sim_col, clay, world_offset, omit_seal=omit_seal, hero_col=hero_col,
+        )
     d = cfg_derived(cfg)
     parts = sync_sim_walls_from_hero(name, hero_col, sim_col, clay, cfg, d, world_offset)
     extra, apertures = assemble_sim_extras(
@@ -2145,13 +2252,14 @@ def hide_collection(col, hide):
 _hero_roof = None
 _clay = None
 _glass = None
+_cottage_glass = None
 _wood = None
 _interior = None
 _interior_floor = None
 
 
 def _init_materials():
-    global _hero_roof, _clay, _glass, _wood, _interior, _interior_floor
+    global _hero_roof, _clay, _glass, _cottage_glass, _wood, _interior, _interior_floor
     if _clay is not None:
         return
     _hero_roof = make_hero_roof_material(Path(__file__).resolve().parent.parent)
@@ -2170,6 +2278,18 @@ def _init_materials():
     _gbsdf.inputs["Roughness"].default_value = 0.05
     _gbsdf.inputs["Specular IOR Level"].default_value = 0.8
     _gbsdf.inputs["Transmission Weight"].default_value = 0.35
+
+    # ivy-b1e.17.4: Godot drops KHR_materials_transmission, so HeroGlass imports as an
+    # opaque near-white slab that reads brighter than shaded plaster ("white boxes").
+    # Cottage panes use a dark, tinted, opaque dielectric: darker than the wall facing
+    # on, with a sky sheen at grazing angles; it also hides the empty interior.
+    _cottage_glass = bpy.data.materials.new("HeroGlassCottage")
+    _cottage_glass.use_nodes = True
+    _cgbsdf = _cottage_glass.node_tree.nodes["Principled BSDF"]
+    _cgbsdf.inputs["Base Color"].default_value = (0.035, 0.050, 0.060, 1.0)
+    _cgbsdf.inputs["Roughness"].default_value = 0.15
+    _cgbsdf.inputs["Metallic"].default_value = 0.0
+    _cgbsdf.inputs["Transmission Weight"].default_value = 0.0
 
     _wood = bpy.data.materials.new("HeroWood")
     _wood.use_nodes = True
