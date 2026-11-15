@@ -96,6 +96,7 @@ from cottage_layout import (  # noqa: E402
     door_leaf_fit,
     piece_for_slot,
 )
+from kit_openings import coverage_probe_points, seal_spec  # noqa: E402
 
 argv = sys.argv[sys.argv.index("--") + 1 :]
 KIT = argv[0]
@@ -1006,6 +1007,8 @@ def enumerate_cottage_apertures(cfg, d):
             "wall_loc": wall_loc,
             "z_base": 0.0,
             "spec": APERTURE_SPECS[kind],
+            "piece": piece,
+            "seal_spec": seal_spec(piece),
             "label": f"ground {'door' if kind == 'door' else 'win'} {side_letter[side]}",
         }
         if kind == "door":
@@ -1321,6 +1324,8 @@ def enumerate_apertures(cfg, d):
                     "wall_loc": n * wall_r + tang * offsets[i],
                     "z_base": z_base,
                     "spec": APERTURE_SPECS[kind],
+                    "piece": nm,
+                    "seal_spec": seal_spec(nm),
                     "label": f"{tag} {'door' if kind == 'door' else 'win'} {side}",
                 })
     return apertures
@@ -1481,7 +1486,8 @@ def place_hero_seals(ap, hero_col, prefix, world_offset, glass_mat, wood_mat=Non
 def place_sim_panel(ap, sim_col, prefix, world_offset, clay, omit=False):
     if omit:
         return None
-    spec = ap["spec"]
+    # ivy-b1e.19: the growth-surface seal covers the kit piece's real hole plus a tuck.
+    spec = ap.get("seal_spec", ap["spec"])
     width = spec["x1"] - spec["x0"]
     height = spec["z1"] - spec["z0"]
     centre_local = Vector((
@@ -1789,6 +1795,29 @@ def probe_aperture_state(label, origin, direc, sim_parts, expect, panel_id=None)
     return len(hits), state
 
 
+def aperture_coverage(ap, sim_parts, wo):
+    """ivy-b1e.19: probe 9 points just inside the kit piece's real hole (corners, edge
+    midpoints, centre), each with a short ray through the wall thickness only. A point
+    is sealed when the ray enters and leaves sim solid (panel or wall) within the wall.
+    Shutter shells are excluded so they cannot mask an undersized panel.
+
+    Returns the list of (x, z) aperture-local points that leak.
+    """
+    if "piece" not in ap:
+        return []
+    targets = [p for p in sim_parts if "WindowShutters" not in p.name]
+    m = wall_world_matrix(ap["yaw"], ap["wall_loc"], wo, ap["z_base"])
+    inward = (m.to_3x3() @ Vector((0.0, 1.0, 0.0))).normalized()
+    standoff = 0.5
+    leaks = []
+    for x, z in coverage_probe_points(ap["piece"]):
+        origin = m @ Vector((x, 0.0, z)) - inward * standoff
+        hits = ray_crossings(targets, origin, inward, reach=standoff + TARGET_T + 0.2)
+        if len(hits) < 2:
+            leaks.append((x, z))
+    return leaks
+
+
 def verify_apertures(name, sim_parts, cfg, wo, d, apertures):
     results = []
     for ap in apertures:
@@ -1797,6 +1826,18 @@ def verify_apertures(name, sim_parts, cfg, wo, d, apertures):
             ap["label"], origin, direc, sim_parts, "sealed", panel_id=ap["id"])
         print(f"  {ap['label']:18s} n={n_hits}  {state}")
         results.append((ap["label"], state))
+        if ap["id"] in set(cfg.get("open_apertures", [])):
+            print(f"  {ap['label']:18s} edges  skipped (open by design)")
+            continue
+        leaks = aperture_coverage(ap, sim_parts, wo)
+        if "piece" in ap:
+            if leaks:
+                pts = ", ".join(f"({x:+.3f},{z:.3f})" for x, z in leaks)
+                cover = f"LEAK FAIL at {len(leaks)}/9 [{pts}]"
+            else:
+                cover = "COVERED 9/9"
+            print(f"  {ap['label']:18s} edges  {cover}")
+            results.append((f"{ap['label']} edges", cover))
     for label, origin, direc, expect in layout_aperture_probes(cfg, wo, d):
         if not label.startswith("solid "):
             continue
@@ -2419,6 +2460,9 @@ if EXPORT_BLEND is None and REBUILD_BLEND is None:
             n_hits, state = probe_aperture_state(
                 falsify["label"], origin, direc, sim_without, "sealed", panel_id=falsify["id"])
             print(f"  without panel: {falsify['label']:18s} n={n_hits}  {state}")
+            leaks = aperture_coverage(falsify, sim_without, data["wo"])
+            print(f"  without panel: {falsify['label']:18s} edges  "
+                  f"{'LEAK FAIL at %d/9 (expected)' % len(leaks) if leaks else 'COVERED 9/9 (check is blind!)'}")
             break
 
     print(f"\nstructures built: {list(built.keys())}")
