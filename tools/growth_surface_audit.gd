@@ -72,6 +72,12 @@ const SDF_MIN_SOLID := 0.20
 const SDF_RAYS := 4000
 ## Height above a hero sample at which the slot test looks sideways for opposing walls.
 const SLOT_PROBE_LIFT := 0.015
+## Spacing of the further slot checks along the line of sight, out to VISIBLE_CLEARANCE.
+const SLOT_SIGHT_STEP := 0.01
+## A viewpoint inside a growth-surface solid is moved to this far outside its nearest face, along
+## the SDF gradient, in at most PROXY_EXIT_TRIES moves.
+const PROXY_EXIT_MARGIN := 0.02
+const PROXY_EXIT_TRIES := 4
 ## Hero node category that is class R (tiled roof field); everything else reachable is class W.
 const ROOF_CATEGORY := "roof"
 
@@ -256,9 +262,37 @@ func _exterior_normal(p: Vector3, n: Vector3) -> Vector3:
 		var hit := _cast(eye, p - dir * 0.02, HERO_MASK)
 		if hit.is_empty() or (hit["position"] as Vector3).distance_to(p) > 0.004:
 			continue
-		if _open_to_sky(eye, dir):
+		var out := _clear_of_proxy(eye, dir)
+		if out != Vector3.INF and _open_to_sky(out, dir):
 			return dir
 	return Vector3.ZERO
+
+
+## `eye` itself when it is outside every growth-surface solid; otherwise the nearest point just
+## outside the solid it is in, or INF when that point is below the ground, cannot be found, or has
+## hero skin between it and the viewpoint (ivy-8mqi). Sky rays that start inside a proxy solid
+## pass out through its back faces unseen, so an interior hero face looking into a wall slab used
+## to count as exterior. A hero face buried under a solid with nothing but that solid between it
+## and open air (a bounding-box proxy) is still judged, and fails gate (a).
+func _clear_of_proxy(eye: Vector3, _dir: Vector3) -> Vector3:
+	var phi: float = _sdf.signed_distance(eye)
+	if phi >= 0.0:
+		return eye
+	var q := eye
+	for i in PROXY_EXIT_TRIES:
+		q += _sdf.gradient_normalized(q) * (PROXY_EXIT_MARGIN - phi)
+		phi = _sdf.signed_distance(q)
+		if phi >= 0.0:
+			break
+	if phi < 0.0 or q.y < 0.0:
+		return Vector3.INF
+	if not _cast(eye, q, HERO_MASK).is_empty():
+		return Vector3.INF
+	# The way out may itself run through a gap the growth surface bridges (between shutter boards).
+	var leg := q - eye
+	if _slot_along(eye, leg.normalized(), 0.0, leg.length()):
+		return Vector3.INF
+	return q
 
 
 # ------------------------------------------------------------------------------------------------
@@ -288,23 +322,34 @@ func _gap_at(p: Vector3, n_out: Vector3) -> Array:
 	return [GAP_REACH if phi < 0.0 else -GAP_REACH, 2]
 
 
-## True when the hero surface at `p` lies in a slot narrower than SLOT_MAX_WIDTH: hero walls
-## stand on two opposite sides of it, closer together than that (SD-MESH-19.2). The growth
-## surface bridges such a slot, so the surface inside it is not judged.
+## True when the hero surface at `p` lies in a slot narrower than SLOT_MAX_WIDTH, or is seen from
+## outside only through one: hero walls stand on two opposite sides of the line of sight, closer
+## together than that, anywhere between the surface and the viewpoint VISIBLE_CLEARANCE out
+## (SD-MESH-19.2). The growth surface bridges such a slot, so the surface behind it is not judged
+## (ivy-8mqi: a window pane behind closed shutter boards).
 func _in_narrow_slot(p: Vector3, n_out: Vector3) -> bool:
-	var basis := _basis_around(n_out)
-	var eye := p + n_out * SLOT_PROBE_LIFT
-	for k in 4:
-		var ang := deg_to_rad(45.0 * k)
-		var t := basis.x * cos(ang) + basis.y * sin(ang)
-		var fwd := _cast(eye, eye + t * SLOT_MAX_WIDTH, HERO_MASK)
-		if fwd.is_empty():
-			continue
-		var back := _cast(eye, eye - t * SLOT_MAX_WIDTH, HERO_MASK)
-		if back.is_empty():
-			continue
-		if (fwd["position"] as Vector3).distance_to(eye) + (back["position"] as Vector3).distance_to(eye) < SLOT_MAX_WIDTH:
-			return true
+	return _slot_along(p, n_out, SLOT_PROBE_LIFT, VISIBLE_CLEARANCE)
+
+
+## True when, somewhere from `start` to `length` along `dir` from `origin`, hero walls stand on
+## two opposite sides of that line closer together than SLOT_MAX_WIDTH.
+func _slot_along(origin: Vector3, dir: Vector3, start: float, length: float) -> bool:
+	var basis := _basis_around(dir)
+	var lift := start
+	while lift < length:
+		var eye := origin + dir * lift
+		for k in 4:
+			var ang := deg_to_rad(45.0 * k)
+			var t := basis.x * cos(ang) + basis.y * sin(ang)
+			var fwd := _cast(eye, eye + t * SLOT_MAX_WIDTH, HERO_MASK)
+			if fwd.is_empty():
+				continue
+			var back := _cast(eye, eye - t * SLOT_MAX_WIDTH, HERO_MASK)
+			if back.is_empty():
+				continue
+			if (fwd["position"] as Vector3).distance_to(eye) + (back["position"] as Vector3).distance_to(eye) < SLOT_MAX_WIDTH:
+				return true
+		lift += SLOT_SIGHT_STEP
 	return false
 
 

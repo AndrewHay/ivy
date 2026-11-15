@@ -272,6 +272,95 @@ func test_deep_recess_in_a_thin_slab_is_listed() -> void:
 	assert_true(listed)
 
 
+## ivy-8mqi: a window pane 0.20 m behind closed shutter boards is seen from outside only through
+## the 0.04 m gaps between the boards. SD-MESH-19.2 closes gaps under 0.10 m, so the growth surface
+## is a flat envelope over the boards and the pane is not ivy-reachable: gate (a) must not count it.
+func test_surface_seen_only_through_gaps_between_closed_shutter_boards_is_not_judged() -> void:
+	var offset := Vector3(140.0, 0.0, 0.0)
+	var deep := 0.20
+	var z0 := 0.40
+	var z1 := 1.60
+	var y0 := 0.50
+	var y1 := 1.50
+	var hero: Array[AABB] = [
+		AABB(offset + Vector3(deep, 0.0, 0.0), SLAB_SIZE - Vector3(deep, 0.0, 0.0)),
+		AABB(offset, Vector3(deep, SLAB_SIZE.y, z0)),
+		AABB(offset + Vector3(0.0, 0.0, z1), Vector3(deep, SLAB_SIZE.y, SLAB_SIZE.z - z1)),
+		AABB(offset + Vector3(0.0, 0.0, z0), Vector3(deep, y0, z1 - z0)),
+		AABB(offset + Vector3(0.0, y1, z0), Vector3(deep, SLAB_SIZE.y - y1, z1 - z0)),
+	]
+	# Seven boards 0.12 m wide and 0.03 m thick, flush with the wall face, 0.04 m apart.
+	for i in 7:
+		hero.append(AABB(offset + Vector3(0.0, y0, z0 + 0.04 + 0.16 * i), Vector3(0.03, y1 - y0, 0.12)))
+	var envelope: Array[AABB] = [AABB(offset, SLAB_SIZE)]
+	var report: Dictionary = await _run_case(offset, envelope, hero)
+	var a: Dictionary = report["a"]["walls"]
+	assert_lt(float(a["max_abs"]), Audit.GAP_W_ABS_MAX,
+		"(a) the pane behind the boards (0.20 m under the envelope) is not a wall sample")
+	assert_true(a["pass"], "(a) %s" % [a["fails"]])
+
+
+## ivy-8mqi, second case: a hero face whose 0.25 m viewpoint lands inside a growth-surface solid
+## is exterior only if the way on out of that solid reaches open air above the ground. Here the
+## face looks down into a floor solid, so it is not exterior; the same face looking sideways
+## through a wall solid into open air still is (a proxy standing far in front of the hero must
+## keep failing).
+func test_viewpoint_inside_a_proxy_solid_is_exterior_only_if_it_leads_out_above_ground() -> void:
+	var offset := Vector3(160.0, 0.0, 0.0)
+	var floor_solid: Array[AABB] = [AABB(offset, Vector3(2.0, 0.20, 2.0))]
+	var sheet: Array[AABB] = [AABB(offset + Vector3(0.8, 0.32, 0.8), Vector3(0.4, 0.02, 0.4))]
+	var audit = await _audit_for(floor_solid, sheet)
+	var under: Vector3 = offset + Vector3(1.0, 0.32, 1.0)
+	assert_eq(audit._exterior_normal(under, Vector3.DOWN), Vector3.ZERO,
+		"a face looking down into the floor solid is not exterior")
+	_free_case()
+	await get_tree().physics_frame
+	var wall_offset := Vector3(180.0, 0.0, 0.0)
+	var wall_solid: Array[AABB] = [AABB(wall_offset, SLAB_SIZE)]
+	var behind: Array[AABB] = [AABB(wall_offset + Vector3(0.35, 0.8, 0.8), Vector3(0.02, 0.4, 0.4))]
+	audit = await _audit_for(wall_solid, behind)
+	var face: Vector3 = wall_offset + Vector3(0.35, 1.0, 1.0)
+	assert_eq(audit._exterior_normal(face, Vector3.LEFT), Vector3.LEFT,
+		"a face buried behind a wall solid, with open air beyond it, is still judged")
+	_free_case()
+	await get_tree().physics_frame
+
+
+var _case_nodes: Array[Node] = []
+
+
+## An audit set up over `proxy_boxes` and `hero_boxes`, for calling its helpers directly.
+func _audit_for(proxy_boxes: Array[AABB], hero_boxes: Array[AABB]):
+	var pieces: Array = []
+	for i in hero_boxes.size():
+		pieces.append({"name": "t_hero_Wall_part_%d" % i, "faces": _box_faces(hero_boxes[i]),
+			"transform": Transform3D.IDENTITY})
+	var proxy := StaticBody3D.new()
+	proxy.collision_layer = Audit.PROXY_MASK
+	proxy.collision_mask = 0
+	add_child(proxy)
+	for box in proxy_boxes:
+		var shape := ConcavePolygonShape3D.new()
+		shape.set_faces(_box_faces(box))
+		var col := CollisionShape3D.new()
+		col.shape = shape
+		proxy.add_child(col)
+	var hero_body: StaticBody3D = Audit.make_hero_body(self, pieces)
+	_case_nodes = [proxy, hero_body]
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var audit = Audit.new()
+	audit.setup(proxy.get_world_3d().direct_space_state, pieces, _analytic_sdf(proxy_boxes))
+	return audit
+
+
+func _free_case() -> void:
+	for node in _case_nodes:
+		remove_child(node)
+		node.free()
+	_case_nodes = []
+
+
 static func _shift(boxes: Array[AABB], by: Vector3) -> Array[AABB]:
 	var out: Array[AABB] = []
 	for b in boxes:
