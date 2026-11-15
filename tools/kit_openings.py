@@ -23,6 +23,7 @@ KIT_HOLES: Dict[str, Dict[str, float]] = {
     # Cottage (ivy)
     "Wall_Plaster_Door_Flat": {"x0": -0.648, "x1": 0.648, "z0": 0.0, "z1": 2.196},
     "Wall_Plaster_Window_Wide_Flat": {"x0": -0.600, "x1": 0.600, "z0": 1.040, "z1": 2.318},
+    "Wall_Plaster_Window_Wide_Flat2": {"x0": -0.602, "x1": 0.602, "z0": 1.040, "z1": 2.314},
 }
 
 # Panel overlap into the surrounding solid wall on every edge.

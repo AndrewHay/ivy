@@ -142,9 +142,13 @@ Notes:
   Apertures in `open_apertures` print `edges skipped (open by design)`. The closing
   `FALSIFIABILITY` section removes one panel and must report `LEAK FAIL`.
 - **Cottage style variants** (ivy-b1e.17): production is `window=frame`, `door=frame` (kit window insert
-  with shutters on it; kit door frame). For design A/Bs, override per build with
-  `IVY_COTTAGE_STYLE='{"window": "flush", "door": "stretch"}'` and write to a scratch output dir; the
-  defaults live in `COTTAGE_STYLE_DEFAULT` (`tools/cottage_layout.py`).
+  with shutters on it; kit door frame). For design A/Bs, override per build with a build argument
+  after `--`, e.g. `--cottage-style window=flush,door=stretch,sill=shallow`, and write to a scratch
+  output dir. Keys and choices: `window` frame|flush, `door` frame|stretch, `sill` native|shallow,
+  `window_wall` flat|flat2, `plinth` none|all_l|all_lr|all_base (stone base under every plain bay on
+  all four sides). Defaults live in
+  `COTTAGE_STYLE_DEFAULT` (`tools/cottage_layout.py`). (The older `IVY_COTTAGE_STYLE` env var still
+  works as a fallback, but commands should start with the executable path.)
 - `.blend` files are tracked in **Git LFS** (ivy-c848); Blender's `*.blend1` backups are gitignored.
 
 ### Growth-surface audit (SG-9 a–c)

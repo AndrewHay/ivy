@@ -103,19 +103,77 @@ SHUTTER_WALL_GAP = 0.002
 SHUTTER_OPENING_OVERLAP = 0.01
 
 # Design variants for the human A/B (ivy-b1e.17). Production defaults below; a build
-# can override them with IVY_COTTAGE_STYLE='{"window": "flush", "door": "stretch"}'.
-COTTAGE_STYLE_CHOICES = {"window": ("frame", "flush"), "door": ("frame", "stretch")}
-COTTAGE_STYLE_DEFAULT = {"window": "frame", "door": "frame"}
+# overrides them with build_structures.py --cottage-style window=flush,door=stretch.
+COTTAGE_STYLE_CHOICES = {
+    "window": ("frame", "flush"),
+    "door": ("frame", "stretch"),
+    # ivy-b1e.17.6: depth of the kit window insert (and its shutters) about the plaster face.
+    "sill": ("native", "shallow"),
+    # ivy-b1e.17.5: window wall piece, and a stone plinth under every plain (non-door/window)
+    # bay on all four sides so the house stands on a continuous stone base:
+    # none = braced plaster to the ground; all_l = Straight_L everywhere (braces all lean
+    # one way); all_lr = Straight_L / Straight_R alternating by bay; all_base = no brace.
+    "window_wall": ("flat", "flat2"),
+    "plinth": ("none", "all_l", "all_lr", "all_base"),
+}
+COTTAGE_STYLE_DEFAULT = {
+    "window": "frame",
+    "door": "frame",
+    "sill": "shallow",  # owner's pick 2026-11-15 (ivy-b1e.17.6)
+    "window_wall": "flat",
+    "plinth": "all_lr",  # owner's pick 2026-11-15 (ivy-b1e.17.5): house stands on a stone base
+}
+SILL_DEPTH_SCALE = {"native": 1.0, "shallow": 0.6}
+WINDOW_WALL_PIECES = {
+    "flat": "Wall_Plaster_Window_Wide_Flat",
+    "flat2": "Wall_Plaster_Window_Wide_Flat2",
+}
+PLINTH_L = "Wall_Plaster_Straight_L"
+PLINTH_R = "Wall_Plaster_Straight_R"
+PLINTH_BASE = "Wall_Plaster_Straight_Base"
+
+
+def plinth_piece(style: str, bay: int) -> str:
+    """Plain-bay wall piece for a ``plinth`` style choice (see COTTAGE_STYLE_CHOICES)."""
+    if style == "all_l":
+        return PLINTH_L
+    if style == "all_lr":
+        return PLINTH_L if bay % 2 == 0 else PLINTH_R
+    if style == "all_base":
+        return PLINTH_BASE
+    return PIECE_WALL
+
+
+# Set from build_structures.py's --cottage-style argument (see parse_cottage_style).
+_STYLE_OVERRIDE: Dict[str, str] = {}
+
+
+def parse_cottage_style(spec: str) -> Dict[str, str]:
+    """Parse a ``--cottage-style`` value such as ``window=frame,sill=shallow`` (validated)."""
+    out: Dict[str, str] = {}
+    for item in filter(None, (s.strip() for s in spec.split(","))):
+        key, sep, val = item.partition("=")
+        key, val = key.strip(), val.strip()
+        if not sep or key not in COTTAGE_STYLE_CHOICES or val not in COTTAGE_STYLE_CHOICES[key]:
+            raise ValueError(f"--cottage-style: bad {item!r}; choices {COTTAGE_STYLE_CHOICES}")
+        out[key] = val
+    return out
+
+
+def set_cottage_style(spec: str) -> None:
+    """Install a ``--cottage-style`` override for this build."""
+    _STYLE_OVERRIDE.clear()
+    _STYLE_OVERRIDE.update(parse_cottage_style(spec))
 
 
 def cottage_style(env: Dict[str, str] | None = None) -> Dict[str, str]:
-    """Production style, overridden by the IVY_COTTAGE_STYLE JSON env var (validated)."""
+    """Production style, then the IVY_COTTAGE_STYLE JSON env var (legacy fallback), then
+    the ``--cottage-style`` command-line override, each validated."""
     raw = (os.environ if env is None else env).get("IVY_COTTAGE_STYLE") or "{}"
-    over = json.loads(raw)
     style = dict(COTTAGE_STYLE_DEFAULT)
-    for key, val in over.items():
+    for key, val in list(json.loads(raw).items()) + list(_STYLE_OVERRIDE.items()):
         if key not in COTTAGE_STYLE_CHOICES or val not in COTTAGE_STYLE_CHOICES[key]:
-            raise ValueError(f"IVY_COTTAGE_STYLE: bad {key}={val!r}; choices {COTTAGE_STYLE_CHOICES}")
+            raise ValueError(f"cottage style: bad {key}={val!r}; choices {COTTAGE_STYLE_CHOICES}")
         style[key] = val
     return style
 
@@ -191,14 +249,15 @@ def piece_for_slot(
     windows: List[str],
     brick_side: str,
 ) -> str:
+    style = cottage_style()
     if slot == door:
         return PIECE_WALL_DOOR
     if slot in windows:
-        return PIECE_WALL_WINDOW
-    side = slot.split(":")[0]
+        return WINDOW_WALL_PIECES[style["window_wall"]]
+    side, bay = slot.split(":")
     if side == brick_side:
         return PIECE_WALL_BRICK
-    return PIECE_WALL
+    return plinth_piece(style["plinth"], int(bay))
 
 
 def cottage_kit_piece_names(cfg: dict) -> set:

@@ -82,8 +82,8 @@ from cottage_layout import (  # noqa: E402
     PIECE_WALL,
     PIECE_WALL_BRICK,
     PIECE_WALL_DOOR,
-    PIECE_WALL_WINDOW,
     ROOF_BY_BAYS,
+    SILL_DEPTH_SCALE,
     all_wall_slots,
     KIT_EXTERIOR_LOCAL,
     cottage_corner_posts,
@@ -95,6 +95,7 @@ from cottage_layout import (  # noqa: E402
     cottage_style,
     door_leaf_fit,
     piece_for_slot,
+    set_cottage_style,
 )
 from kit_openings import coverage_probe_points, seal_spec  # noqa: E402
 
@@ -131,6 +132,10 @@ if len(argv) > 2:
             i += 1
         elif a == "--omit-seal" and i + 1 < len(argv[2:]):
             OMIT_SEAL = argv[3 + i]
+            i += 1
+        elif a == "--cottage-style" and i + 1 < len(argv[2:]):
+            # e.g. --cottage-style window=frame,sill=shallow (ivy-b1e.17 design variants)
+            set_cottage_style(argv[3 + i])
             i += 1
         else:
             rest.append(a)
@@ -1117,15 +1122,19 @@ def assemble_cottage_hero(cfg, hero_col, hero_roof_mat, glass_mat, world_offset)
             # sill) and hangs the shutter on it where the kit authored it; "flush" has
             # no insert and seats the shutter on the plaster.
             frame = style["window"] == "frame"
+            # ivy-b1e.17.6: "shallow" squashes the insert and the shutters hung on it about
+            # the plaster face (y = 0), so they stay seated on the frame's lip.
+            depth = Matrix.Diagonal((1.0, SILL_DEPTH_SCALE[style["sill"]], 1.0, 1.0))
             parts.append(
                 place_cottage_kit(
                     PIECE_SHUTTER, cfg, side, bay, hero_col, hero_data, prefix, world_offset,
-                    local=None if frame else cottage_shutter_local(),
+                    local=depth if frame else cottage_shutter_local(),
                 )
             )
             if frame:
                 insert = place_cottage_kit(
-                    PIECE_WINDOW_INSERT, cfg, side, bay, hero_col, hero_data, prefix, world_offset
+                    PIECE_WINDOW_INSERT, cfg, side, bay, hero_col, hero_data, prefix, world_offset,
+                    local=depth,
                 )
                 swap_kit_glass(insert, glass_mat)
                 parts.append(insert)
@@ -1243,7 +1252,9 @@ def assemble_cottage_sim(cfg, sim_col, clay, world_offset, omit_seal=None, hero_
         sim_name = f"{prefix}{tail}"
         if tail.startswith(("Wall_Plaster", "Wall_UnevenBrick")):
             kit = _cottage_kit_from_hero_name(tail)
-            if kit in (PIECE_WALL, PIECE_WALL_BRICK):
+            # Plain bays (any Straight variant) get a padded shell; door/window walls
+            # keep the solidified kit piece so their opening stays open for the panel.
+            if "Door" not in kit and "Window" not in kit:
                 parts.append(cottage_sim_shell_from_hero(hero_obj, sim_col, clay, sim_name))
             elif kit is not None:
                 obj = bpy.data.objects.new(sim_name, solid_data(kit).copy())

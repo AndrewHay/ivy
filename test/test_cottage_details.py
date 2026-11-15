@@ -42,7 +42,50 @@ class CottageStyleTest(unittest.TestCase):
 
     def test_override(self):
         style = cl.cottage_style({"IVY_COTTAGE_STYLE": '{"window": "flush", "door": "stretch"}'})
-        self.assertEqual(style, {"window": "flush", "door": "stretch"})
+        self.assertEqual(style, {**cl.COTTAGE_STYLE_DEFAULT, "window": "flush", "door": "stretch"})
+
+    def test_style_pieces_are_measured(self):
+        # Every selectable window wall has a measured hole, so its seal can be sized.
+        import kit_openings as ko
+        for piece in cl.WINDOW_WALL_PIECES.values():
+            self.assertIn(piece, ko.KIT_HOLES, piece)
+
+    def test_cli_style_parses_and_overrides(self):
+        self.assertEqual(cl.parse_cottage_style("window=frame, sill=shallow"),
+                         {"window": "frame", "sill": "shallow"})
+        self.assertEqual(cl.parse_cottage_style(""), {})
+        for bad in ("sill", "sill=deep", "roof=frame", "window=frame,door"):
+            with self.assertRaises(ValueError, msg=bad):
+                cl.parse_cottage_style(bad)
+        try:
+            cl.set_cottage_style("door=stretch")
+            self.assertEqual(cl.cottage_style({})["door"], "stretch")
+        finally:
+            cl.set_cottage_style("")
+        self.assertEqual(cl.cottage_style({}), cl.COTTAGE_STYLE_DEFAULT)
+
+    def test_plinth_covers_every_plain_bay_on_all_sides(self):
+        door, windows = "front:1", ["front:0", "left:0"]
+        try:
+            cl.set_cottage_style("plinth=all_lr,window_wall=flat2")
+            for side, bay in cl.all_wall_slots(3):
+                slot = f"{side}:{bay}"
+                piece = cl.piece_for_slot(slot, door, windows, "")
+                if slot == door:
+                    self.assertEqual(piece, cl.PIECE_WALL_DOOR)
+                elif slot in windows:
+                    self.assertEqual(piece, "Wall_Plaster_Window_Wide_Flat2")
+                else:
+                    self.assertEqual(piece, cl.PLINTH_L if bay % 2 == 0 else cl.PLINTH_R, slot)
+            cl.set_cottage_style("plinth=all_l")
+            self.assertEqual(cl.piece_for_slot("back:1", door, windows, ""), cl.PLINTH_L)
+            cl.set_cottage_style("plinth=none")
+            self.assertEqual(cl.piece_for_slot("back:1", door, windows, ""), cl.PIECE_WALL)
+            # Production default: alternating plinth bays (owner's pick, ivy-b1e.17.5).
+            cl.set_cottage_style("")
+            self.assertEqual(cl.piece_for_slot("back:1", door, windows, ""), cl.PLINTH_R)
+        finally:
+            cl.set_cottage_style("")
 
     def test_bad_value_rejected(self):
         with self.assertRaises(ValueError):
