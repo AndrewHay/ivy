@@ -2059,6 +2059,13 @@ def sync_sim_roof_from_hero(name, hero_col, sim_parts):
 def rebuild_sim_from_hero(name, hero_col, sim_col, cfg, clay, world_offset, omit_seal=None):
     print(f"\n[{name}] rebuilding simulation mesh from hero transforms", flush=True)
     clear_collection_objects(sim_col)
+    if cfg.get("layout") == "cottage":
+        # The ring path below only syncs Wall_UnevenBrick_* walls by yaw/index name,
+        # so a cottage came out with no wall solids at all (ivy_sim.glb in eec391f).
+        # The cottage sim is already derived from hero transforms.
+        return assemble_cottage_sim(
+            cfg, sim_col, clay, world_offset, omit_seal=omit_seal, hero_col=hero_col,
+        )
     d = cfg_derived(cfg)
     parts = sync_sim_walls_from_hero(name, hero_col, sim_col, clay, cfg, d, world_offset)
     extra, apertures = assemble_sim_extras(
