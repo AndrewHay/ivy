@@ -1178,6 +1178,48 @@ def cottage_sim_shell_from_hero(hero_obj, sim_col, clay, sim_name: str):
     return place_clay_box(sim_name, center, (size.x, size.y, size.z), sim_col, clay)
 
 
+def cottage_sim_shells_from_parts(hero_obj, sim_col, clay, sim_name: str, pad: float = 0.03):
+    """ivy-b1e.17.7: one padded clay box per connected part of a multi-part kit piece
+    (window insert: sill, jambs, header, lip, glazing bars; door frame: posts, lintel,
+    threshold), so the growth surface follows each part instead of one box over all
+    of them. Glass parts are skipped (the aperture panel seals the opening). Kit pieces
+    here are only rotated by multiples of 90 degrees, so world AABBs stay tight.
+    """
+    mesh = hero_obj.data
+    mats = mesh.materials
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-4)
+    mw = hero_obj.matrix_world
+    seen = set()
+    parts = []
+    for face in bm.faces:
+        if face.index in seen:
+            continue
+        seen.add(face.index)
+        stack, comp = [face], []
+        while stack:
+            f = stack.pop()
+            comp.append(f)
+            for e in f.edges:
+                for g in e.link_faces:
+                    if g.index not in seen:
+                        seen.add(g.index)
+                        stack.append(g)
+        mat = mats[comp[0].material_index] if len(mats) > comp[0].material_index else None
+        if mat is not None and "Glass" in mat.name:
+            continue
+        pts = [mw @ v.co for f in comp for v in f.verts]
+        mins = Vector((min(p[i] for p in pts) for i in range(3)))
+        maxs = Vector((max(p[i] for p in pts) for i in range(3)))
+        size = maxs - mins + Vector((2 * pad, 2 * pad, 2 * pad))
+        parts.append(place_clay_box(
+            f"{sim_name}_{len(parts)}", (mins + maxs) / 2.0, (size.x, size.y, size.z), sim_col, clay,
+        ))
+    bm.free()
+    return parts
+
+
 def assemble_cottage_sim(cfg, sim_col, clay, world_offset, omit_seal=None, hero_col=None):
     name = cfg["name"]
     print(f"\n[{name}] assembling cottage simulation mesh", flush=True)
@@ -1232,7 +1274,8 @@ def assemble_cottage_sim(cfg, sim_col, clay, world_offset, omit_seal=None, hero_
         elif tail.startswith(CORNER_POST_NODE):
             # ivy-b1e.17.2: padded box closes the corner notch the wall shells leave.
             parts.append(cottage_sim_shell_from_hero(hero_obj, sim_col, clay, sim_name))
-        # PIECE_WINDOW_INSERT / PIECE_DOOR_FRAME stay hero-only (no sim solid).
+        elif tail.startswith((PIECE_WINDOW_INSERT, PIECE_DOOR_FRAME)):
+            parts += cottage_sim_shells_from_parts(hero_obj, sim_col, clay, sim_name)
     slab_half_x = d["wall_x"]
     slab_half_y = d["wall_y"]
     parts.append(
@@ -1799,13 +1842,14 @@ def aperture_coverage(ap, sim_parts, wo):
     """ivy-b1e.19: probe 9 points just inside the kit piece's real hole (corners, edge
     midpoints, centre), each with a short ray through the wall thickness only. A point
     is sealed when the ray enters and leaves sim solid (panel or wall) within the wall.
-    Shutter shells are excluded so they cannot mask an undersized panel.
+    Shutter and frame shells are excluded so they cannot mask an undersized panel.
 
     Returns the list of (x, z) aperture-local points that leak.
     """
     if "piece" not in ap:
         return []
-    targets = [p for p in sim_parts if "WindowShutters" not in p.name]
+    masking = ("WindowShutters", PIECE_WINDOW_INSERT, PIECE_DOOR_FRAME)
+    targets = [p for p in sim_parts if not any(m in p.name for m in masking)]
     m = wall_world_matrix(ap["yaw"], ap["wall_loc"], wo, ap["z_base"])
     inward = (m.to_3x3() @ Vector((0.0, 1.0, 0.0))).normalized()
     standoff = 0.5
