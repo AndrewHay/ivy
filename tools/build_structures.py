@@ -1169,6 +1169,10 @@ def assemble_cottage_hero(cfg, hero_col, hero_roof_mat, glass_mat, world_offset)
 
 
 def cottage_sim_shell_from_hero(hero_obj, sim_col, clay, sim_name: str):
+    # Superseded for the shipped cottage (ivy-b1e.7, IMPLEMENTATION.md AR-MESH-20): its wall, roof,
+    # gable, chimney and shutter sim pieces (these bounding boxes and the solid_data copies below)
+    # only reach the Blender sim GLB, which tools/build_growth_surface.py uses as a scaffold and
+    # discards those pieces from. Retiring them needs a Blender run to verify: bead ivy-rksp.
     depsgraph = bpy.context.evaluated_depsgraph_get()
     eval_obj = hero_obj.evaluated_get(depsgraph)
     corners = [eval_obj.matrix_world @ Vector(c) for c in eval_obj.bound_box]

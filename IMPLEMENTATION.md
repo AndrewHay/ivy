@@ -792,7 +792,8 @@ counts as `|g|` = 0.60 m and is also reported as a count; the count must be 0 in
 | **(a) R** | signed `g` over class R | Clip side: **p95 of `−g` ≤ 0.01 m** (tiles do not bury stems). Float side: **p95 of `g` ≤ 0.05 m, max `\|g\|` ≤ 0.10 m**. Reported separately, always with the signed median. The growth surface of a tile field is its crest envelope (SD-MESH-19.3 closing), not the tile troughs. Float-side numbers are provisional until the cottage roof is re-measured (`ivy-b1e.7`); see escalations. |
 | **(b)** | every listed feature (SD-MESH-19.2 row 1) | present in the proxy, depth within **0.03 m** of the hero's |
 | **(c) face** | raw `\|Φ\|` read at sampled collision-face points, **no search along the normal**, ≥ 3,000 samples | **p95 ≤ 0.01 m, max ≤ 0.025 m** (owner ruling; grid stays 0.05 m) |
-| **(c) inside** | `Φ` 0.10 m inside every face with ≥ 0.20 m of solid behind it | **every probe negative** (0 failures) |
+| **(c) inside** | `Φ` 0.10 m inside every face with ≥ 0.20 m of solid behind it; `Φ` at mid-thickness of a closed solid 0.10–0.20 m thick; no probe in a solid under 0.10 m (SD-MESH-19.4.1) | **every probe negative** (0 failures) |
+| **(c) closure** | each of the 4,000 gate (c) rays: is its one-sided hit the first face a two-sided cast meets? (SD-MESH-19.4.1) | **0 rays** with a two-sided crossing more than 0.002 m before the one-sided hit |
 | **(d)** | relief test article growth probe | SD-MESH-19.5 |
 
 A structure passes SG-9 only if every row passes. Reports always carry the distributions (median,
@@ -818,6 +819,120 @@ cap about 1.1× on the tower (0.0223 against 0.025); an exact analytic box read 
 its headroom comes from the collision mesh, which is exact, and not from the SDF; feature M1 on the
 test article exists to prove a one-cell recess is reached. Budgets: no grid change, so the
 SD-MESH-11 asset size and SD-MESH-18 load figures are unchanged by this contract.
+
+#### SD-MESH-19.4.1 — Gate (c) inside probe: thin solids and closure (ruled 2026-11-15, `ivy-b1e.23`)
+
+**Question.** The cottage growth surface (`ivy-b1e.7`, builder rule 11 `tile_field`) failed gate (c)
+on 5 inside probes (worst `Φ` +0.0478 m), reported as sitting in the 0.05 m eave lip of the
+tile field. Does the 0.10 m probe apply to a solid thinner than that, and how is "thinner" measured
+so the gate can still fail an unsigned interior?
+
+**What the 5 probes actually are** (diagnostic `.tmp/b1e23/test_inside_probe_diag.gd` and
+`test_eave_orientation_diag.gd`, installed `ivy_sim.glb` / `.sdf`, the audit's own 4,000 rays).
+None of them is 0.10 m into a thin solid. All five are on the eave course of the tile field
+(`Roof_RoundTiles_4x6` `_i16` front, x −9.82, −7.84, −7.24, z +2.61 … +2.63; `_i15` back, x −7.44,
+−4.42, z −2.60; y 2.85 … 2.90). On each ray:
+
+| Measure | Value on all 5 |
+|---|---|
+| Two-sided cast along the incoming ray | meets a face of the same tile-field piece **4.3–32 mm before** the one-sided hit `p`. That face is met from behind (geometric normal · ray direction −0.56 … −0.84; a hit from outside is positive). It is a steep face at the eave end of the field (y 2.82–2.96, \|z\| 2.52–2.71). |
+| Two-sided cast from `p` along −n | **no face within 0.30 m** |
+| `Φ` from `p` to 0.20 m behind it | **+0.005 … +0.048 at every depth**; analytic winding number 0 (outside) at every depth from 0.025 m on |
+| `Φ` in the 4–32 mm sliver before `p` | −0.004 … +0.004: the 0.05 m grid does not see it as solid |
+
+So the audit's first hit `p` is not the outside of the roof. The ray passes through an inward-wound
+face, crosses a sliver, and hits an up-facing face that has **air behind it**. The SDF reads air
+there, and it is right to. Rule 11 extrudes the hero tile surface by a fixed 0.05 m along one slope
+normal (`_tile_field_solids`). The most likely cause is that the eave course is not single-valued
+along that normal (tile ends, lips), so the offset copy folds through the top and leaves inside-out
+slivers. The builder stage confirms the mechanism; this ruling does not depend on it. The SDF is not
+at fault. The proxy is not a closed, outward-wound solid at the eave, which SD-MESH-13.1 already
+forbids, and gate (c) caught it.
+
+**Why `SDF_MIN_SOLID` let them through.** The filter casts one-sided from `p − 0.20·n` to `p`.
+A one-sided cast sees only faces it meets from the front. On a closed, outward-wound mesh "no hit"
+means solid. Behind an inverted face or an open sheet it means nothing. "≥ 0.20 m of solid behind the
+face" (row (c) inside, STRUCTURES.md) is really "no front face within 0.20 m", and that holds only on
+a closed proxy. The closure line below makes that assumption checked rather than assumed.
+
+**Tower.** Its one failing probe (+0.0386, `tower_sim_RoofCone` at (6.62, 6.24, 1.71)) is the same
+family but a different case: an **open sheet**. Behind the cone face there is air (winding 0, `Φ`
++0.019 … +0.052) for 0.147 m, down to the wall top, which the inward ray meets from the front.
+No incoming-ray fault. It is SD-MESH-19.6's single-sided-sheet row, and the baseline's "cone rim".
+**It is not a thin solid, it is not waived, and it is not `ivy-b1e.7`'s.** It fails until the tower
+growth surface is built (`ivy-b1e.8`).
+
+**Ruling.**
+
+1. **No thin-solid exemption for these probes.** Every probe the filters count must read negative,
+   as before. None of the six failures (5 cottage, 1 tower) is a thin solid. An exemption would
+   have hidden two real proxy defects.
+2. **Local thickness `τ`.** Measure `τ` along −n from the hit `p`: the distance to the first face a
+   two-sided cast crosses, **counted only if that face is an exit** (a face the one-sided cast from
+   `p − (τ + 0.002)·n` back toward `p` hits). If the first crossing is a face met from the front,
+   or there is none within 0.20 m, then `τ` is undefined. The probe is then counted and judged as
+   today. This keeps "thin" from ever being granted to an open sheet or an inverted sliver.
+   - `τ ≥ 0.20 m`: the 0.10 m probe applies (the current behaviour).
+   - **0.10 ≤ `τ` < 0.20 m: probe at mid-thickness**, `q = p − (τ/2)·n`, with the same 0.05 m
+     clearance check; `Φ(q)` must be negative. At ≥ 0.05 m from both faces a correct trilinear read
+     is ≤ −0.025 m (half-cell error), so a positive read is a sign fault, not grid error.
+   - **`τ` < 0.10 m (2·h): no inside probe.** A solid under two cells has no cell centre a full
+     cell from both faces, so no sign test on the 0.05 m grid is meaningful there. Gate (c) face
+     still covers both of its faces. The 0.05 m eave lip is this case once it is closed.
+3. **New gate line (c) closure:** of the 4,000 gate (c) rays, **0** may have a two-sided crossing
+   more than 0.002 m before the one-sided hit. Measured today: `ivy` **16** (8 on each tile-field
+   piece, `_i15` and `_i16`), `tower` 0, `square` 0, `surface_wall` 0. So it does not false-fire on
+   a valid overlapping-solid proxy. (The first crossing from outside is always on the union's
+   boundary, which is a front face.)
+4. **Report, not gate:** each not-negative probe is labelled `inverted` (its ray fails closure),
+   `open` (the first two-sided crossing along −n within 0.20 m is met from the front, or `Φ` is
+   positive and the winding is 0), or `sdf` (otherwise: the proxy is solid there and the field is
+   wrong). Today: cottage 5 × `inverted`, tower 1 × `open`, 0 × `sdf`.
+
+**How a test shows the gate can still fail an unsigned interior.** A fast unit test (no bake) runs
+`audit_sdf()` on synthetic box proxies with an analytic stand-in for the SDF (it needs only
+`mesh_aabb` and `signed_distance`):
+
+| Fixture | Field | Expected |
+|---|---|---|
+| F1 closed 1 m cube | exact signed | PASS, closure 0 |
+| F2 same cube | `\|Φ\|` (unsigned everywhere) | FAIL: every counted inside probe not negative, labelled `sdf` |
+| F3 cube + closed, outward 0.05 m slab overhanging air | exact signed; then unsigned inside the slab only | PASS both: the slab has `τ` < 0.10, so no inside probe (this is the documented limit) |
+| F4 cube + closed 0.15 m slab | unsigned inside the slab only | FAIL by the mid-thickness probe |
+| F5 cube with one face's triangles reversed | exact signed | FAIL (c) closure |
+| F6 cube + open single-sided sheet 0.15 m above its top (tower rim) | signed field of the cube only | FAIL (c) inside, labelled `open`, not exempted as thin |
+
+**What `ivy-b1e.7` must do to pass: both.**
+- *Builder (rule 11):* make the tile field a closed, outward-wound solid at the eave and verge
+  courses: (c) closure 0 on `ivy`, and the 5 probes negative or legitimately `τ` < 0.10.
+  `TILE_EDGE_DEPTH` 0.05 m may stay; a deeper lip is **not** required by this ruling. The top
+  surface stays exact on the tiles. Gates (a) and (b), 0 slots under 0.10 m, and idempotence must
+  still hold. The method (per-vertex offset that cannot fold, a bottom below the lowest point of the
+  eave course, trimming the tile ends) is the Architect's or programmer's choice.
+- *Audit (`tools/growth_surface_audit.gd` `audit_sdf`, `test/slow/test_sg9_sdf_collision.gd`):*
+  add `τ`, the mid-thickness probe, the closure line and the labels, plus the F1–F6 test. STRUCTURES.md's
+  audit-method paragraph is corrected to say "no front face within 0.20 m, on a proxy that passes
+  closure".
+- The slow SG-9 test then passes for `ivy` and keeps failing for `tower` on its 1 `open` probe
+  until `ivy-b1e.8`. That is not a `ivy-b1e.7` failure.
+
+**`ivy-hfik` (stems inside the roof, 532 of the 1,057 deep nodes on the overhang).** The eave fold is a
+plausible contributor, not proven. One-sided physics rays do not see the inward faces, so a stem
+can cross into the sliver without a hit. The SDF reads −0.004 … +0.004 in the sliver and +0.02 …
++0.05 under it, so the field gives no inward gradient to push a stem back out. A *correct* one-cell
+(0.05 m) lip would have the second property too: on the 0.05 m grid it has no negative interior.
+The check belongs to `ivy-hfik`: bin its overhang nodes by distance to the eave-course faces, before
+and after the closure fix. This ruling does not fix it.
+
+**Escalated to the owner, not decided** (see also SD-MESH-19.8):
+- If the eave course cannot be closed without changing its top surface (for example an envelope
+  over the tile ends, so ivy lies across the ends instead of tucking into each tile's front), that
+  changes what the player sees at the eave.
+- If `ivy-hfik` shows the one-cell lip itself lets stems through, the remedy is a lip ≥ 0.10 m
+  with eave-corner fills against the gutter beams and barge boards (the 0.15 and 0.25 m trials
+  made slots under 0.10 m there). That changes the soffit ivy grows under.
+- How the tower's cone rim is closed (solid cone rim, or a fill down to the wall top) when
+  `ivy-b1e.8` builds the tower surface.
 
 #### SD-MESH-19.5 — Relief test article (SG-9(d))
 
@@ -926,7 +1041,9 @@ be a far node. Floating far nodes are reported so a change in free-shoot behavio
 |---|---|
 | Proxy is a bounding box over relief | Fails (a) W and (b); on the article fails D1/D2. Never waived. |
 | Proxy carries relief, SDF does not (or the reverse) | Fails (c) face. Stems would be pulled toward a surface the ray cannot find. |
-| Single-sided sheet in the proxy (cottage gables) | Fails (c) inside and is already inadmissible under SD-MESH-13.1. Fix the asset. |
+| Single-sided sheet in the proxy (cottage gables, tower cone rim) | Fails (c) inside (labelled `open`, SD-MESH-19.4.1) and is already inadmissible under SD-MESH-13.1. Fix the asset. Never exempted as a thin solid. |
+| Inward-wound or folded proxy faces (cottage eave course, `ivy-b1e.23`) | Fails (c) closure; any inside probe behind them is labelled `inverted`. Fix the builder. |
+| Closed solid thinner than 0.10 m (a 0.05 m eave lip) | No inside probe (SD-MESH-19.4.1); its faces are still held to (c) face. 0.10–0.20 m: probed at mid-thickness. |
 | Proxy missing over part of the hero (cottage west roof) | Counted at 0.60 m, fails the class's percentiles, and the non-zero "no proxy in reach" count fails by itself. |
 | Hero has a slot under 0.10 m | Closed in the growth surface; samples inside are excluded; ivy crosses it flush. |
 | Hero has 1–3 cm geometric relief over a large area | Fails (a) p95. Escalate to the Director with the measured share; do not exempt a category. |
@@ -975,6 +1092,12 @@ be a far node. Floating far nodes are reported so a change in free-shoot behavio
   Natural ivy feelers or a defect is a feel judgement; D2 no longer gates it and the probe reports
   the count. If it is a defect, it is growth-step work (gravity, `max_float`, dieback), out of this
   epic.
+
+- **Owner — eave and tower rim closure (`ivy-b1e.23`).** Three open questions, listed in
+  SD-MESH-19.4.1. (1) Whether closing the cottage eave course may change its top surface.
+  (2) A lip of at least 0.10 m with eave-corner fills, only if `ivy-hfik` shows the one-cell lip
+  matters. (3) How the tower cone rim is closed (`ivy-b1e.8`). None is needed for the ruling
+  itself.
 
 #### SD-MESH-19.9 — Non-goals
 
@@ -1069,12 +1192,14 @@ Per hero node: weld vertices at 0.1 mm, split into connected islands, then:
 | 8 | Any two solids that meet | Must overlap by at least 1 mm, not share a face. The baker clips faces buried inside another convex shell but keeps coincident ones (`_CLIP_EPS`), and a kept buried face sits in the distance field as a false surface. Caps that land on a slab face are pushed 2 mm into the slab. |
 | 9 | Scaffold slabs (`FloorSlab`, `RoofCap`) | Pulled 0.10 m inside the wall face. A scaffold solid must never be the outermost surface where a hero-derived one exists. |
 | 10 | Nodes listed under `exempt` (hero-only corner trim, door frames: SD-MESH-19.2) | Skipped. Corner columns stay as scaffold (SD-OPEN-27's faceted corner proxy stands). |
+| 11 | Node listed under `tile_field` (added in `ivy-b1e.7`: the cottage roof's tile field is one open island over both slopes, so 4b has no backing plane) | The islands 4b cannot close are split at the ridge; each slope is extruded along its inward normal, its top the tiles themselves (the cottage's troughs are 0.40 m wide and 0.12 m deep, gate (b) recesses, so a crest envelope fails), down to the node's own underside (its down-facing islands) or, where none lies below (overhangs), 0.05 m under the lowest tile point within 0.05 m across the slope (a plain offset folded through tile ends and lips: SD-MESH-19.4.1); the tiles are cut along the underside's edges so that step is 2 mm wide. Ridge caps (closed, straddling the ridge, above the tiles) are kept, plus a convex filling and a support across the middle 60 % of their width, both 0.10 m short of a cap end no other cap overlaps. |
 
 "Interior" is the structure's footprint centre from `structure_configs.json` (`scene_offset`), so
 the outward test does not depend on how a kit piece was rotated. Each structure may carry an
-optional `growth_surface` block there: `wall_t`, `envelope`, `exempt`, `seals` (`hero` or
-`scaffold`), `fill` (explicit filler boxes). Defaults apply when it is absent; the block is
-validated like the rest of the file.
+optional `growth_surface` block there: `wall_t`, `envelope`, `exempt`, `tile_field`, `seals`
+(`hero` or `scaffold`), `fill` (explicit filler boxes, or `{name, points}` convex hulls for a filler
+that hugs a rotated piece). Defaults apply when it is absent; the block is validated like the rest
+of the file.
 
 Every output solid is one glTF node (the baker signs per node and unions them; two overlapping
 solids in one node would cancel under parity). Names are `{name}_sim_{hero tail}_iNN`.

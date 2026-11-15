@@ -9,10 +9,12 @@ const IvyParams = preload("res://src/params/ivy_params.gd")
 
 const Audit = preload("res://tools/growth_surface_audit.gd")
 
-## Gate (c) as ratified in IMPLEMENTATION.md SD-MESH-19.4 (ivy-b1e.12): raw |Φ| read at the
-## collision face with no search along the normal, p95 and half-cell cap; Φ negative 0.10 m
-## inside solid. The statistic and thresholds are the audit tool's own (Audit.audit_sdf), so
-## this test and tools/audit_growth_surface.tscn cannot disagree.
+## Gate (c) as ratified in IMPLEMENTATION.md SD-MESH-19.4 (ivy-b1e.12) and SD-MESH-19.4.1
+## (ivy-b1e.23): raw |Φ| read at the collision face with no search along the normal, p95 and
+## half-cell cap; Φ negative 0.10 m inside solid (at mid-thickness for a closed solid 0.10-0.20 m
+## thick, no probe under 0.10 m); closure 0. The statistic and thresholds are the audit tool's own
+## (Audit.audit_sdf), so this test and tools/audit_growth_surface.tscn cannot disagree. The tower
+## fails its one `open` probe (its cone rim) until ivy-b1e.8 builds its growth surface.
 
 const _PLAYABLE_SCENARIOS: Array[String] = [
 	"res://assets/structures/scenarios/ivy.tres",
@@ -65,18 +67,27 @@ func test_sg9c_sdf_agrees_with_collision_mesh_on_all_playable_structures() -> vo
 			pending("%s assets missing" % fixture.get("id", scenario_path))
 			continue
 		var body: Node3D = fixture.body
+		var two_sided: StaticBody3D = Audit.make_two_sided_proxy(self, body)
+		await get_tree().physics_frame
 		var audit = Audit.new()
 		audit.setup(body.get_world_3d().direct_space_state, [], fixture.sdf)
+		audit.set_two_sided_proxy(two_sided)
 		var report: Dictionary = audit.audit_sdf()
 		var sid: String = fixture.id
+		remove_child(two_sided)
+		two_sided.free()
 		await _free_fixture(fixture)
 		print(
-			"[SG-9c] %s — face samples: %d, raw |Φ| p95 %.4f p99 %.4f max %.4f m; inside probes: %d, worst Φ@%.2f m: %.4f, not negative: %d"
+			"[SG-9c] %s — face samples: %d, raw |Φ| p95 %.4f p99 %.4f max %.4f m; inside probes: %d (mid-thickness %d, thin faces not probed %d), worst Φ: %.4f, not negative: %d %s; closure faults %d"
 			% [
 				sid, report.face_n, report.face_p95, report.face_p99, report.face_max,
-				report.inside_n, Audit.SDF_INSIDE_DEPTH, report.inside_worst, report.inside_not_negative,
+				report.inside_n, report.inside_mid, report.inside_thin, report.inside_worst,
+				report.inside_not_negative, report.labels, report.closure_faults,
 			]
 		)
+		assert_true(report.closure_measured, "%s: closure measured" % sid)
+		assert_eq(report.closure_faults, 0,
+			"%s: (c) closure — rays crossing a face before the one-sided hit (SD-MESH-19.4.1)" % sid)
 		assert_gte(report.face_n, Audit.SDF_FACE_MIN_SAMPLES, "%s: collision-face samples" % sid)
 		assert_lte(
 			report.face_p95, Audit.SDF_FACE_P95_MAX,

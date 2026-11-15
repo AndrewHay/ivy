@@ -21,6 +21,10 @@ extends RefCounted
 const PROXY_MASK := 1
 ## A layer nothing in the game uses, for the throwaway hero collision body.
 const HERO_MASK := 1 << 19
+## Another unused layer: a copy of the proxy whose faces collide from both sides (gate (c) closure
+## and local thickness, SD-MESH-19.4.1). Built by make_two_sided_proxy, handed in with
+## set_two_sided_proxy.
+const TWO_SIDED_MASK := 1 << 18
 
 # --- SG-9 thresholds (ratified; IMPLEMENTATION.md SD-MESH-19.4 unless noted) --------------------
 ## Gate (a), class W: |g| p95, p99 and worst case.
@@ -52,6 +56,11 @@ const SDF_INSIDE_DEPTH := 0.10
 const SDF_INSIDE_MIN_SAMPLES := 50
 ## An inside probe counts only when no other proxy face lies within one SDF cell of it.
 const SDF_INSIDE_CLEAR := 0.05
+## SD-MESH-19.4.1: a closed solid thinner than this (two cells) gets no inside probe; between this
+## and SDF_MIN_SOLID it is probed at mid-thickness.
+const SDF_THIN_MIN := 0.10
+## SD-MESH-19.4.1 (c) closure: a two-sided crossing this far before the one-sided hit is a fault.
+const SDF_CLOSURE_TOL := 0.002
 ## SD-MESH-19.2: a slot narrower than this is closed; hero surface inside it is not ivy-reachable.
 const SLOT_MAX_WIDTH := 0.10
 
@@ -93,6 +102,7 @@ var _pieces: Array = []
 var _sdf = null  # MeshSdf
 var _bounds: AABB = AABB()
 var _probe_dirs: Array[Vector3] = []
+var _two_sided: StaticBody3D = null
 
 
 ## Category of a hero glTF node (extends tools/diagnose_hero_deviation.py classify_node).
@@ -171,6 +181,32 @@ static func make_hero_body(host: Node, pieces: Array) -> StaticBody3D:
 		body.add_child(col)
 		col.transform = piece["transform"]
 	return body
+
+
+## A copy of the proxy body's collision faces on TWO_SIDED_MASK that collide from both sides, so
+## gate (c) can see faces a one-sided ray meets from behind (SD-MESH-19.4.1). Free it with the proxy.
+static func make_two_sided_proxy(host: Node, proxy: Node3D) -> StaticBody3D:
+	var body := StaticBody3D.new()
+	body.name = "GrowthSurfaceAuditTwoSided"
+	body.collision_layer = TWO_SIDED_MASK
+	body.collision_mask = 0
+	host.add_child(body)
+	body.global_transform = proxy.global_transform
+	for child in proxy.get_children():
+		if child is CollisionShape3D and (child as CollisionShape3D).shape is ConcavePolygonShape3D:
+			var shape := ConcavePolygonShape3D.new()
+			shape.backface_collision = true
+			shape.set_faces(((child as CollisionShape3D).shape as ConcavePolygonShape3D).get_faces())
+			var col := CollisionShape3D.new()
+			col.shape = shape
+			body.add_child(col)
+			col.transform = (child as CollisionShape3D).transform
+	return body
+
+
+## Gate (c) closure and local thickness need the two-sided copy; without it audit_sdf fails (c).
+func set_two_sided_proxy(body: StaticBody3D) -> void:
+	_two_sided = body
 
 
 func setup(space: PhysicsDirectSpaceState3D, pieces: Array, sdf) -> void:
@@ -816,12 +852,29 @@ func audit_sdf() -> Dictionary:
 	var golden := PI * (3.0 - sqrt(5.0))
 	var face: Array = []
 	var inside: Array = []
+	var measured := _two_sided != null
+	var closure_faults := 0
+	var inside_thin := 0
+	var inside_mid := 0
+	var labels := {}
 	for i in SDF_RAYS:
 		var y := 1.0 - 2.0 * (i + 0.5) / SDF_RAYS
 		var ring := sqrt(maxf(0.0, 1.0 - y * y))
 		var dir := Vector3(cos(golden * i) * ring, y, sin(golden * i) * ring)
 		var from := centre + dir * extent
-		var hit := _cast(from, centre - dir * extent, PROXY_MASK)
+		var to := centre - dir * extent
+		var hit := _cast(from, to, PROXY_MASK)
+		# (c) closure: on a closed, outward-wound proxy the first face a two-sided cast crosses is
+		# the one-sided hit. A crossing before it (or with no one-sided hit at all) is an
+		# inward-wound face or a fold (SD-MESH-19.4.1).
+		var ray_fault := false
+		if measured:
+			var two := _cast(from, to, TWO_SIDED_MASK)
+			if not two.is_empty():
+				var d2 := from.distance_to(two["position"])
+				if hit.is_empty() or d2 < from.distance_to(hit["position"]) - SDF_CLOSURE_TOL:
+					closure_faults += 1
+					ray_fault = true
 		if hit.is_empty():
 			continue
 		var p: Vector3 = hit["position"]
@@ -830,22 +883,60 @@ func audit_sdf() -> Dictionary:
 			n = -n
 		# Raw read at the face: no search along the normal for a better value.
 		face.append(absf(_sdf.signed_distance(p)))
-		if _cast(p - n * SDF_MIN_SOLID, p - n * 0.002, PROXY_MASK).is_empty():
-			var q := p - n * SDF_INSIDE_DEPTH
-			# A hit beside an edge puts the probe 0.10 m in from this face but at an adjacent
-			# face: it is not inside by 0.10 m. Count it only with a clear cell around it.
-			var clear := true
-			for axis_dir in [Vector3.RIGHT, Vector3.LEFT, Vector3.UP, Vector3.DOWN, Vector3.BACK, Vector3.FORWARD]:
-				# Cast inward: proxy faces are one-sided, so only a ray from outside hits them.
-				if not _cast(q + axis_dir * SDF_INSIDE_CLEAR, q, PROXY_MASK).is_empty():
-					clear = false
-					break
-			if clear:
-				inside.append(_sdf.signed_distance(q))
+		# Local thickness tau: the first two-sided crossing along -n, counted only if it is an exit
+		# face (one-sided, it is hit from just behind it). Otherwise tau is undefined: an open sheet
+		# or an inverted sliver is never granted "thin" (SD-MESH-19.4.1).
+		var tau := -1.0
+		var first_not_exit := false
+		if measured:
+			var back := _cast(p - n * 0.002, p - n * SDF_MIN_SOLID, TWO_SIDED_MASK)
+			if not back.is_empty():
+				var dist := p.distance_to(back["position"])
+				if not _cast(p - n * (dist + 0.002), p - n * 0.002, PROXY_MASK).is_empty():
+					tau = dist
+				else:
+					first_not_exit = true
+		var q := Vector3.ZERO
+		var probe := false
+		var mid := false
+		if tau >= 0.0:
+			if tau < SDF_THIN_MIN:
+				inside_thin += 1  # under two cells: no meaningful sign test; (c) face still holds
+			else:
+				q = p - n * (tau * 0.5)
+				probe = true
+				mid = true
+		elif _cast(p - n * SDF_MIN_SOLID, p - n * 0.002, PROXY_MASK).is_empty():
+			q = p - n * SDF_INSIDE_DEPTH
+			probe = true
+		if not probe:
+			continue
+		# A hit beside an edge puts the probe 0.10 m in from this face but at an adjacent
+		# face: it is not inside by 0.10 m. Count it only with a clear cell around it.
+		var clear := true
+		for axis_dir in [Vector3.RIGHT, Vector3.LEFT, Vector3.UP, Vector3.DOWN, Vector3.BACK, Vector3.FORWARD]:
+			# Cast inward: proxy faces are one-sided, so only a ray from outside hits them.
+			if not _cast(q + axis_dir * SDF_INSIDE_CLEAR, q, PROXY_MASK).is_empty():
+				clear = false
+				break
+		if not clear:
+			continue
+		var phi: float = _sdf.signed_distance(q)
+		inside.append(phi)
+		if mid:
+			inside_mid += 1
+		if phi >= 0.0:
+			# Report only: why the probe is not negative.
+			var label := "inverted" if ray_fault else ("open" if first_not_exit else "sdf")
+			labels[label] = int(labels.get(label, 0)) + 1
 	face.sort()
 	inside.sort()
 	var not_negative := inside.filter(func(x): return x >= 0.0).size()
 	var fails: Array = []
+	if not measured:
+		fails.append("closure not measured (no two-sided proxy: set_two_sided_proxy)")
+	elif closure_faults > 0:
+		fails.append("%d rays fail closure" % closure_faults)
 	if face.size() < SDF_FACE_MIN_SAMPLES:
 		fails.append("only %d of %d face samples" % [face.size(), SDF_FACE_MIN_SAMPLES])
 	if not face.is_empty() and _pct(face, 0.95) > SDF_FACE_P95_MAX:
@@ -865,6 +956,11 @@ func audit_sdf() -> Dictionary:
 		"inside_n": inside.size(),
 		"inside_worst": inside[-1] if not inside.is_empty() else NAN,
 		"inside_not_negative": not_negative,
+		"inside_thin": inside_thin,
+		"inside_mid": inside_mid,
+		"labels": labels,
+		"closure_measured": measured,
+		"closure_faults": closure_faults,
 		"fails": fails,
 		"pass": fails.is_empty(),
 	}
@@ -943,4 +1039,8 @@ static func format_report(structure_id: String, report: Dictionary) -> String:
 		c["face_n"], c["face_median"], c["face_p95"], c["face_p99"], c["face_max"], SDF_INSIDE_DEPTH,
 		c["inside_n"], c["inside_worst"], c["inside_not_negative"], _verdict(c["pass"]),
 		SDF_FACE_MIN_SAMPLES, SDF_FACE_P95_MAX, SDF_FACE_ABS_MAX])
+	lines.append("      inside probes at mid-thickness (0.10-0.20 m solid): %d; faces on solids under %.2f m (not probed): %d; not-negative labels %s" % [
+		c.get("inside_mid", 0), SDF_THIN_MIN, c.get("inside_thin", 0), c.get("labels", {})])
+	lines.append("      closure: %s" % (("%d of %d rays cross a face before the one-sided hit (0 allowed)" % [c["closure_faults"], SDF_RAYS])
+		if c.get("closure_measured", false) else "NOT MEASURED (no two-sided proxy)"))
 	return "\n".join(lines)

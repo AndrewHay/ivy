@@ -90,13 +90,13 @@ Created in Blender by `tools/build_structures.py` (names appear in `*_hero.glb` 
 | `{name}_hero_Seal_*_glass` | **0.02 m** glass pane | ✓ | — |
 | `{name}_hero_Seal_*_door` | `Door_2_Round` or `Door_1_Flat` leaf | ✓ | — |
 | `{name}_sim_Panel_*` | Aperture seal (**0.45 m** clay), doors/windows | — | ✓ |
-| **`ivy` wall shells** | AABB / solidified kit matching hero walls | — | ✓ cottage layout |
+| **`ivy` growth surface** | `tools/build_growth_surface.py` solids from the hero: relief-exact walls, the roof's tile field (rule 11), ridge caps and their supports, 20 `fill` pieces | — | ✓ cottage layout (`ivy-b1e.7`) |
 
 ### Which parts each playable building uses
 
 | Building | Walls | Doors / windows | Roof | Chimney / other |
 |---|---|---|---|---|
-| **`ivy`** | Tier A plaster + optional brick; sim = hero-matched shells + solid door/window + solid `Roof_RoundTiles_4x6` | `Door_1_Flat`, shutters, sim panels | `Roof_RoundTiles_4x6`, `Roof_Front_Brick4` ×2 | `Prop_Chimney2` |
+| **`ivy`** | Tier A plaster + optional brick; sim = `tools/build_growth_surface.py` output (walls with their bands and reveals, shutters as envelopes, hero seals as panels, the tile field exact on the tiles) | `Door_1_Flat`, shutters, hero seals | `Roof_RoundTiles_4x6`, `Roof_Front_Brick4` ×2 | `Prop_Chimney2` |
 | **`square`** | `Wall_UnevenBrick_*` ring (3 bays/side) | `Door_2_Round`, round windows, glass + panels | Flat **`RoofCap`** | Corner trim blocks |
 | **`tower`** | `Wall_UnevenBrick_*` (2 bays/side × 2 storeys) | Mixed round door/windows | **`RoofCone`** + cap | Corner trim; **`MidFloorSlab`** |
 | **`surface_wall`** | Long uneven-brick run + door | Same seal policy as ring | **`RoofCap`** | — |
@@ -122,13 +122,23 @@ These appear in the building picker (`BuildingCatalog`) or dev tooling. Each has
   assets/_local/medieval_village_megakit/glTF assets/structures --no-render --emit-blend --force ivy
 
 python3 tools/rebuild_sim_from_hero.py assets/structures/ivy.blend assets/structures ivy
-# Growth surface from the hero (AR-MESH-20; see below). Not yet run on committed structures:
-# ivy-b1e.7 (cottage) and ivy-b1e.8 (the rest) switch each one over.
+# Growth surface from the hero (AR-MESH-20; see below). The cottage's shipped ivy_sim.glb is this
+# tool's output (ivy-b1e.7); the Blender sim GLB is only its scaffold, and the tool is idempotent on
+# its own output, so it can be re-run in place. Tower, square and surface_wall: ivy-b1e.8.
 python3 tools/build_growth_surface.py assets/structures/ivy_hero.glb assets/structures/ivy_sim.glb \
-  .tmp/gs/ivy_sim.glb --structure ivy --report .tmp/gs/ivy_report.json
+  assets/structures/ivy_sim.glb --structure ivy --report .tmp/gs/ivy_report.json
 python3 tools/bake_mesh_sdf.py assets/structures/ivy_sim.glb assets/structures/ivy_sim.sdf
+/Applications/Godot.app/Contents/MacOS/Godot --headless res://tools/audit_growth_surface.tscn -- --structures=ivy
 python3 tools/measure_structure_gates.py ivy tower
 ```
+
+`measure_structure_gates.py` on the cottage (`ivy-b1e.20`): gates 1 and 2 probe at half the wall
+height (`cottage_layout.WALL_TOP`), not the middle of the bounds, which is in the roof. For a
+structure with a `growth_surface` block gate 3 judges only hero vertices standing **proud** of the
+growth surface; vertices buried in a solid (interior faces inside wall slabs, parts under a shutter
+envelope) are counted and printed but not judged, because the tool has no visibility test: SG-9 (a)
+in the audit judges that side. Tower and square keep the two-sided read with the SD-OPEN-27(d)
+relief exemption until `ivy-b1e.8`.
 
 ### Growth-surface builder (`tools/build_growth_surface.py`)
 
@@ -151,10 +161,31 @@ python3 tools/build_growth_surface.py <hero.glb> <scaffold_sim.glb> <out_sim.glb
   skirted to its backing sheet 2 mm inside the slab (not planar); solids wholly inside a slab →
   dropped. Shutters listed under `envelope` become one box extended back to the wall; hero `_Seal_`
   nodes become the aperture panel when `seals` is `hero`. Solids that meet overlap by at least 1 mm.
+  The scaffold `FloorSlab` is pulled 0.10 m inside the wall faces and its top lowered to y = 0 (it
+  stood 0.05 m above the ground and buried the hero's wall bases; `ivy-b1e.7`).
+- Rule 11, tiled roofs (`tile_field`, `ivy-b1e.7`): the islands of a listed node that rule 4 cannot
+  close (the tile surface) are split at the ridge; each slope becomes one solid whose top is the tile
+  surface itself (troughs included) and whose bottom reaches down along the slope normal to the
+  node's own underside (its down-facing islands), or, where nothing lies below (eave and verge
+  overhangs), to `TILE_EDGE_DEPTH` (0.05 m) under the lowest tile point within 0.05 m across the
+  slope (a plain offset folded through the tile ends and lips, which are not single-valued along the
+  slope normal, and left inward-wound slivers; SD-MESH-19.4.1); the tiles are cut along the
+  underside's edges so that step is 2 mm wide. Closed islands that straddle the ridge and rise above the tiles (ridge caps) are kept
+  exactly, plus a convex filling (buries the hollow and the lap joint under the next cap) and a
+  support down into the tiles across the middle 60 % of the cap's width (the pockets under the rims
+  stay open); both stop 0.10 m short of a cap end no other cap overlaps, so its hollow stays.
 - Settings: optional `growth_surface` block of the structure in `tools/structure_configs.json`,
-  validated by `validate_config`: `wall_t` (≥ 0.24, default 0.45), `envelope` and `exempt` (substrings
-  of the hero node name after `{id}_hero_`), `seals` (`hero` / `scaffold`, default `scaffold`), `fill`
-  (`[{"name", "min", "max"}]` boxes in glTF world coordinates). Absent block → defaults.
+  validated by `validate_config`: `wall_t` (≥ 0.24, default 0.45), `envelope`, `exempt` and
+  `tile_field` (substrings of the hero node name after `{id}_hero_`), `seals` (`hero` / `scaffold`,
+  default `scaffold`), `fill` (`[{"name", "min", "max"}]` boxes in glTF world coordinates, or
+  `{"name", "points"}`: the convex hull of at least 4 points, for a fill that hugs a rotated piece).
+  Absent block → defaults. The cottage's 26 fills (sill gaps, shutters on the sill, the groove under
+  each sill, window head to corner post, the gable purlins' barge-board notches, the gap above the
+  middle purlins, and the barge boards' ends against the eave lip at the four eave corners) are
+  computed by `python3 tools/cottage_growth_fills.py` from the hero (the eave corners from the
+  builder's own slot report, via `build(..., fail_on_slots=False)`); paste its output into the block
+  when the hero or rule 11 changes (`--check` exits 1 while the committed list is stale, and so does
+  `tools/test_build_growth_surface.py`).
 - It **fails** (exit 1, nothing written) instead of substituting a box: an island no rule covers, a
   result that is not closed, a boundary loop more than 5 mm out of plane with no backing sheet, a hero
   node that is not exempt and produced no solid, an envelope with no wall behind it, a config entry
@@ -212,16 +243,31 @@ with explicit paths instead of `--structures`; the three paths go together and `
 | (a) W | Signed gap `g` between hero and proxy on area-uniform samples of the hero's ivy-reachable exterior, walls and every other non-tile surface (≥ 2,000 samples). `g > 0`: hero recessed behind the proxy, ivy floats. `g < 0`: hero proud, ivy clips. Reported overall, per node category and for the worst nodes. | p95 `\|g\|` ≤ 0.01 m, p99 ≤ 0.03 m, max ≤ 0.05 m; median `\|g\|` ≤ 0.01 m in every category with ≥ 30 samples; no sample without proxy in reach |
 | (a) R | The same gap on tiled roof fields (category `roof`, ≥ 1,000 samples where present), reported separately. | tiles proud by more than 0.01 m on ≤ 5 % of samples; float p95 ≤ 0.05 m, max `\|g\|` ≤ 0.10 m (float side provisional); no sample without proxy in reach |
 | (b) | Hero recesses and proud features ≥ 0.05 m deep, ≥ 0.15 m wide both ways and ≥ 0.0225 m² in opening area (up to 1 m across), found on depth maps ray-cast from each side and from above, with the proxy's depth at the same place. Relief under 0.03 m and slots narrower than 0.10 m are never listed. | every listed feature within 0.03 m of the hero's depth |
-| (c) | The baked SDF against the collision mesh: raw `\|Φ\|` at the face (no search along the normal) and `Φ` 0.10 m inside wherever at least 0.20 m of solid lies behind the face. | face p95 ≤ 0.01 m and max ≤ 0.025 m; every inside probe negative |
+| (c) | The baked SDF against the collision mesh: raw `\|Φ\|` at the face (no search along the normal) and `Φ` 0.10 m inside wherever no front face lies within 0.20 m behind the face, on a proxy that passes closure; at mid-thickness for a closed solid 0.10–0.20 m thick; no inside probe in a solid under 0.10 m (SD-MESH-19.4.1). | face p95 ≤ 0.01 m and max ≤ 0.025 m; every inside probe negative |
+| (c) closure | Each of the 4,000 gate (c) rays, cast again against a two-sided copy of the proxy: is its one-sided hit the first face it crosses? | 0 rays with a crossing more than 0.002 m before the one-sided hit |
 
 These numbers were ratified on 2026-11-13 (`ivy-b1e.4`, owner ruling) and are the constants at the top
 of `tools/growth_surface_audit.gd` (`ivy-b1e.12`). `--samples` is the class W count; class R gets half
-of it. Two method details: class W samples inside a slot narrower than 0.10 m are skipped (the growth
-surface bridges such a slot), and an inside probe for (c) only counts when no other proxy face lies
-within 0.05 m of it (a hit beside an edge is not 0.10 m deep). `test/slow/test_sg9_sdf_collision.gd`
-asserts gate (c) through the same code.
+of it. Three method details: class W samples inside a slot narrower than 0.10 m, or seen from outside
+only through one (a window pane behind closed shutter boards), are skipped (the growth surface bridges
+such a slot; `ivy-8mqi`); a sample whose 0.25 m viewpoint lands inside a growth-surface solid is judged
+from the nearest point just outside that solid, and not at all when that point is below the ground or
+behind hero skin (`ivy-8mqi`); and an inside probe for (c) only counts when no other proxy face lies
+within 0.05 m of it (a hit beside an edge is not 0.10 m deep). The "0.20 m of solid behind the face"
+test is a one-sided cast, so it means "no front face within 0.20 m", which is solid only on a proxy
+that passes closure; the local thickness `τ` (first two-sided crossing along −n, counted only if it is
+an exit face) decides the mid-thickness probe and the no-probe case, and a not-negative probe is
+labelled `inverted` (its ray fails closure), `open` (the first crossing behind it is met from the
+front) or `sdf` (the field is wrong) in the report (SD-MESH-19.4.1, `ivy-b1e.23`). Callers hand the
+audit a two-sided copy of the proxy (`make_two_sided_proxy`, `set_two_sided_proxy`); without one,
+closure reads NOT MEASURED and (c) fails. `test/slow/test_sg9_sdf_collision.gd` asserts gate (c),
+closure included, through the same code; the tower fails it on one `open` probe (its cone rim) until
+`ivy-b1e.8`.
 `test/test_growth_surface_audit.gd` proves the audit is falsifiable: a bounding-box proxy over a ribbed
 hero wall fails (a) and (b), and a proxy that carries the ribs passes (a), (b) and (c).
+`test/test_growth_surface_audit_closure.gd` does the same for gate (c) (SD-MESH-19.4.1 F1–F6): an
+unsigned field fails (`sdf`), a 0.05 m slab is not probed, an unsigned 0.15 m slab fails at
+mid-thickness, a reversed face fails closure and an open sheet fails as `open`.
 
 ## Procedural picker fixtures (no Blender asset)
 

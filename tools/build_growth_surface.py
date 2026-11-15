@@ -27,6 +27,13 @@ Every hero node is turned into closed solids in world space by the rules of AR-M
                                              edge; a 4a cap lying on another solid is pushed 2 mm in
   9   scaffold FloorSlab / RoofCap           vertices pulled 0.10 m inside the hero wall faces
   10  node listed under `exempt`             skipped
+  11  node listed under `tile_field`         a tiled roof (ivy-b1e.7): the islands rule 4 cannot close
+                                             are split at the ridge; each slope is extruded along its
+                                             inward normal, exact on the tiles, down to the node's own
+                                             underside (its down-facing islands) or, where none lies
+                                             below, TILE_EDGE_DEPTH under the lowest tile point within
+                                             FOLD_REACH (never through a fold); ridge caps are kept
+                                             (rule 1) with a convex filling and a support
 
 Scaffold nodes (FloorSlab, MidFloorSlab, RoofCap, RoofCone, CornerColumn_, Interior_, and Panel_
 unless seals is hero) are copied from the scaffold GLB; every other scaffold node is discarded.
@@ -42,9 +49,10 @@ than 0.10 m (the report lists position and width). Exit 2 is a usage or input er
 
 Settings come from the optional `growth_surface` block of the structure in
 tools/structure_configs.json (validated by validate_growth_surface): wall_t (>= 0.24, default
-0.45), envelope and exempt (lists of substrings of the hero node tail), seals ("hero" or
-"scaffold", default "scaffold"), fill (list of {"name", "min", "max"} glTF world boxes). The
-interior is the structure's footprint centre, from its scene_offset.
+0.45), envelope, exempt and tile_field (lists of substrings of the hero node tail), seals ("hero"
+or "scaffold", default "scaffold"), fill (list of {"name", "min", "max"} glTF world boxes, or
+{"name", "points"}: the convex hull of >= 4 points). The interior is the structure's footprint
+centre, from its scene_offset.
 
 Standard library only (like tools/bake_mesh_sdf.py). Self-test: tools/test_build_growth_surface.py.
 """
@@ -80,8 +88,18 @@ ENVELOPE_REACH = 1.0  # an envelope extends at most this far to meet a wall
 FACING_MIN = 0.2  # a sheet needs this much horizontal normal for the outward test
 SCAFFOLD_TOKENS = ("FloorSlab", "MidFloorSlab", "RoofCap", "RoofCone", "CornerColumn_", "Interior_", "Panel_")
 SEAL_TOKEN = "_Seal_"
-GROWTH_SURFACE_KEYS = ("wall_t", "envelope", "exempt", "seals", "fill")
+GROWTH_SURFACE_KEYS = ("wall_t", "envelope", "exempt", "seals", "fill", "tile_field")
+NAME_LIST_KEYS = ("envelope", "exempt", "tile_field")
+HULL_EPS = 1e-7  # rule 11: a point within 0.1 um of a hull face is on it
+TILE_EDGE_DEPTH = 0.05  # rule 11: thickness of a tile field where no hero underside lies below it.
+# Thinner than SG-9 (c)'s 0.10 m inside probe; on the cottage 0.15 and 0.25 both leave slots under
+# 0.10 m against the gutter beams and barge boards at the eave corners (ivy-b1e.7).
+UNDERSIDE_ALIGN = 0.9  # rule 11: an underside faces within ~25 degrees of straight away from its slope
+FOLD_REACH = 0.05  # rule 11: an overhang bottom lies under every tile point this close across the slope
+RIDGE_END_KEEP = 0.10  # rule 11: a ridge cap's free end keeps this much of its hollow unsupported
+RIDGE_SUPPORT_SHARE = 0.6  # rule 11: a cap's support spans the middle 60 % of its width
 FILL_KEYS = ("name", "min", "max")
+FILL_HULL_KEYS = ("name", "points")  # a fill as the convex hull of its points (a rotated box, say)
 _GENERATED = re.compile(r"_i\d{2,}$")
 _FILL_NAME = re.compile(r"^[A-Za-z0-9_]+$")
 GENERATOR = "ivy tools/build_growth_surface.py v1"
@@ -564,6 +582,100 @@ def oriented_box_mesh(ob):
     return [world(p) for p in v], t
 
 
+def convex_hull(points, eps=HULL_EPS):
+    """Closed, outward-wound convex hull (verts, tris) of 3D points (rule 11). Incremental, in
+    input order, so the result is deterministic; a point within `eps` of a face is on it.
+    Raises CapError when the points span no volume."""
+    pts = []
+    seen = set()
+    for p in points:
+        key = tuple(round(c, 6) for c in p)  # weld to 1 um: near-duplicates make sliver faces
+        if key not in seen:
+            seen.add(key)
+            pts.append(tuple(float(c) for c in p))
+    if len(pts) < 4:
+        raise CapError("fewer than 4 distinct points")
+    i0 = min(range(len(pts)), key=lambda i: pts[i])
+    i1 = max(range(len(pts)), key=lambda i: length(sub(pts[i], pts[i0])))
+    d01 = norm(sub(pts[i1], pts[i0]))
+    i2 = max(range(len(pts)), key=lambda i: length(cross(d01, sub(pts[i], pts[i0]))))
+    n012 = cross(sub(pts[i1], pts[i0]), sub(pts[i2], pts[i0]))
+    if length(n012) < 1e-12:
+        raise CapError("points are collinear")
+    n012 = norm(n012)
+    i3 = max(range(len(pts)), key=lambda i: abs(dot(n012, sub(pts[i], pts[i0]))))
+    if abs(dot(n012, sub(pts[i3], pts[i0]))) <= 1e3 * eps:
+        raise CapError("points are coplanar: no volume to hull")
+    inner = mul(add(add(pts[i0], pts[i1]), add(pts[i2], pts[i3])), 0.25)
+
+    def plane(a, b, c):
+        n = cross(sub(pts[b], pts[a]), sub(pts[c], pts[a]))
+        ln = length(n)
+        if ln < 1e-15:
+            return (0.0, 0.0, 0.0), 0.0
+        n = mul(n, 1.0 / ln)
+        return n, dot(n, pts[a])
+
+    faces = {}
+    edge_face = {}  # directed edge -> the face that has it
+    next_id = [0]
+
+    def put(a, b, c, n, d):
+        fid = next_id[0]
+        next_id[0] += 1
+        faces[fid] = (a, b, c, n, d)
+        for e in ((a, b), (b, c), (c, a)):
+            edge_face[e] = fid
+
+    def add_face(a, b, c):
+        n, d = plane(a, b, c)
+        if dot(n, inner) - d > 0.0:  # the interior must lie behind every face
+            a, b = b, a
+            n, d = plane(a, b, c)
+        put(a, b, c, n, d)
+
+    for a, b, c in ((i0, i1, i2), (i0, i1, i3), (i0, i2, i3), (i1, i2, i3)):
+        add_face(a, b, c)
+    for pi in range(len(pts)):
+        if pi in (i0, i1, i2, i3):
+            continue
+        p = pts[pi]
+        dist = {fid: dot(f[3], p) - f[4] for fid, f in faces.items()}
+        start = max(dist, key=lambda fid: (dist[fid], -fid))
+        if dist[start] <= eps:
+            continue
+        # The visible region grown across edges from the most visible face, so it is one disc and
+        # its boundary one horizon loop even when far faces are within eps of seeing the point.
+        visible = {start}
+        stack = [start]
+        while stack:
+            a, b, c = faces[stack.pop()][:3]
+            for e in ((b, a), (c, b), (a, c)):
+                nb = edge_face.get(e)
+                if nb is not None and nb not in visible and dist[nb] > eps:
+                    visible.add(nb)
+                    stack.append(nb)
+        horizon = []
+        for fid in sorted(visible):
+            a, b, c = faces[fid][:3]
+            for e in ((a, b), (b, c), (c, a)):
+                if edge_face.get((e[1], e[0])) not in visible:
+                    horizon.append(e)
+        for fid in visible:
+            a, b, c = faces.pop(fid)[:3]
+            for e in ((a, b), (b, c), (c, a)):
+                if edge_face.get(e) == fid:
+                    del edge_face[e]
+        for a, b in horizon:  # keep each horizon edge's direction: the new face stays outward
+            n, d = plane(a, b, pi)
+            put(a, b, pi, n, d)
+    used = sorted({i for f in faces.values() for i in f[:3]})
+    remap = {old: k for k, old in enumerate(used)}
+    verts = [pts[i] for i in used]
+    tris = [(remap[f[0]], remap[f[1]], remap[f[2]]) for _fid, f in sorted(faces.items())]
+    return verts, tris
+
+
 # ------------------------------------------------------------------------------------------------
 # Sheets and slabs
 # ------------------------------------------------------------------------------------------------
@@ -670,10 +782,18 @@ def grow_outer_loop(verts, tris, normal, amount):
 
 
 def extrude_sheet(verts, tris, normal, depth):
-    """Closed solid: the sheet, a reversed copy `depth` behind it, side walls along every loop."""
+    """Closed solid: the sheet, a reversed copy `depth` behind it, side walls along every loop.
+    `depth` is one number or one per vertex (rule 11: a tile field reaching down to its underside)."""
     n = len(verts)
-    back = mul(normal, -depth)
-    v2 = list(verts) + [add(p, back) for p in verts]
+    depths = depth if isinstance(depth, (list, tuple)) else [depth] * n
+    return extrude_to(verts, tris, [add(p, mul(normal, -d)) for p, d in zip(verts, depths)])
+
+
+def extrude_to(verts, tris, bottoms):
+    """Closed solid: the sheet, a reversed copy whose vertex k sits at bottoms[k], side walls
+    along every boundary loop."""
+    n = len(verts)
+    v2 = list(verts) + list(bottoms)
     t2 = list(tris) + [(a + n, c + n, b + n) for a, b, c in tris]
     for loop in boundary_loops(tris):
         m = len(loop)
@@ -923,7 +1043,7 @@ def validate_growth_surface(where, block):
     if "wall_t" in block:
         if not _is_number(block["wall_t"]) or block["wall_t"] < WALL_T_MIN:
             raise ValueError(f"{w}: 'wall_t' must be a number >= {WALL_T_MIN}, got {block['wall_t']!r}")
-    for key in ("envelope", "exempt"):
+    for key in NAME_LIST_KEYS:
         if key in block:
             val = block[key]
             if not isinstance(val, list) or not all(isinstance(s, str) and s for s in val):
@@ -933,15 +1053,22 @@ def validate_growth_surface(where, block):
     if "fill" in block:
         fill = block["fill"]
         if not isinstance(fill, list):
-            raise ValueError(f"{w}: 'fill' must be a list of {{name, min, max}} boxes")
+            raise ValueError(f"{w}: 'fill' must be a list of {{name, min, max}} boxes or {{name, points}} hulls")
         names = set()
         for k, f in enumerate(fill):
             fw = f"{w}: fill[{k}]"
-            if not isinstance(f, dict) or sorted(f) != sorted(FILL_KEYS):
-                raise ValueError(f"{fw} must have exactly the keys {list(FILL_KEYS)}, got {f!r}")
+            hull_form = isinstance(f, dict) and sorted(f) == sorted(FILL_HULL_KEYS)
+            if not isinstance(f, dict) or (sorted(f) != sorted(FILL_KEYS) and not hull_form):
+                raise ValueError(f"{fw} must have exactly the keys {list(FILL_KEYS)} or {list(FILL_HULL_KEYS)}, got {f!r}")
             if not isinstance(f["name"], str) or not _FILL_NAME.match(f["name"]) or f["name"] in names:
                 raise ValueError(f"{fw}: 'name' must be a unique [A-Za-z0-9_] string, got {f['name']!r}")
             names.add(f["name"])
+            if hull_form:
+                pts = f["points"]
+                if (not isinstance(pts, list) or len(pts) < 4
+                        or not all(isinstance(p, list) and len(p) == 3 and all(_is_number(x) for x in p) for p in pts)):
+                    raise ValueError(f"{fw}: 'points' must be a list of at least 4 [x, y, z] numbers, got {pts!r}")
+                continue
             for key in ("min", "max"):
                 if not isinstance(f[key], list) or len(f[key]) != 3 or not all(_is_number(x) for x in f[key]):
                     raise ValueError(f"{fw}: '{key}' must be [x, y, z] numbers, got {f[key]!r}")
@@ -959,6 +1086,7 @@ def growth_settings(block):
         "exempt": list(block.get("exempt", [])),
         "seals": block.get("seals", "scaffold"),
         "fill": [dict(f) for f in block.get("fill", [])],
+        "tile_field": list(block.get("tile_field", [])),
     }
 
 
@@ -1014,15 +1142,17 @@ class _Solid:
         self.island = None  # (verts, tris, loops, plans, caps) for rule-4 solids
 
 
-def build(hero, scaffold, structure, centre_xz, settings):
-    """Build the growth-surface solids. Returns (meshes, report); raises BuildError."""
+def build(hero, scaffold, structure, centre_xz, settings, fail_on_slots=True):
+    """Build the growth-surface solids. Returns (meshes, report); raises BuildError. With
+    fail_on_slots False, slots are still listed in the report but are not a failure (for tools
+    that compute fills, such as tools/cottage_growth_fills.py; never for a shipped surface)."""
     st = settings
     wall_t = st["wall_t"]
     cx, cz = centre_xz
     failures = []
     rules = {k: 0 for k in ("1_closed", "2_extruded", "3_dropped", "4a_capped_loops", "4b_skirted_loops",
                             "5_dropped", "6_envelope", "7_seal", "8_pushed_caps", "9_pulled_vertices",
-                            "10_exempt", "fill", "scaffold_copied", "flipped_to_outward")}
+                            "10_exempt", "11_tile_field", "fill", "scaffold_copied", "flipped_to_outward")}
     report = {"tool": GENERATOR, "structure": structure, "centre_xz": [cx, cz], "settings": st,
               "rules": rules, "nodes": [], "slots": [], "enclosed_gap_samples": 0, "contacts": [],
               "warnings": [], "failures": failures}
@@ -1037,8 +1167,10 @@ def build(hero, scaffold, structure, centre_xz, settings):
         tail = _tail(name, structure, "hero")
         ex = _matches(tail, st["exempt"])
         en = _matches(tail, st["envelope"])
+        tf = _matches(tail, st["tile_field"])
         used_entries.update(("exempt", e) for e in ex)
         used_entries.update(("envelope", e) for e in en)
+        used_entries.update(("tile_field", e) for e in tf)
         if ex:
             rules["10_exempt"] += 1
             report["nodes"].append({"hero": name, "rule": "10_exempt", "solids": []})
@@ -1048,7 +1180,7 @@ def build(hero, scaffold, structure, centre_xz, settings):
             envelopes.append((name, tail, verts, tris))
         else:
             regular.append((name, tail, verts, tris))
-    for key in ("exempt", "envelope"):
+    for key in ("exempt", "envelope", "tile_field"):
         for e in st[key]:
             if (key, e) not in used_entries:
                 fail(f"growth_surface {key} entry '{e}' matches no hero node")
@@ -1089,7 +1221,10 @@ def build(hero, scaffold, structure, centre_xz, settings):
                 else:
                     e["kind"] = "open"
             entries.append(e)
+        is_field = bool(_matches(tail, st["tile_field"]))
         for e in entries:
+            if is_field and e["kind"] != "closed" and area_normal(e["verts"], e["tris"])[0][1] < -0.3:
+                e["kind"] = "underside"  # rule 11: the bottom of this node's tile field
             if e["kind"] == "sheet_out":
                 sheet = e["sheet"]
                 sheet.depth = wall_t
@@ -1105,9 +1240,13 @@ def build(hero, scaffold, structure, centre_xz, settings):
     # -- pass 2: solids per node ----------------------------------------------------------------
     solids = []
     node_reports = {}
+    tile_pools = {}  # rule 11: node -> [(verts, tris)] of the islands rule 4 cannot close
+    ridge_candidates = {}  # rule 11: node -> closed islands, decided once the ridge is known
+    undersides = {}  # rule 11: node -> its down-facing open islands (the bottom of the roof)
     for name, tail, entries, node_sheets in per_node:
         made = 0
         dropped5 = 0
+        is_tile_field = bool(_matches(tail, st["tile_field"]))
         info = {"hero": name, "rule": "islands", "islands": [], "solids": []}
         node_reports[name] = info
         report["nodes"].append(info)
@@ -1115,6 +1254,9 @@ def build(hero, scaffold, structure, centre_xz, settings):
             kind = e["kind"]
             iv, it = e["verts"], e["tris"]
             info["islands"].append(kind)
+            if kind == "underside":
+                undersides.setdefault(name, []).append((iv, it))
+                continue
             if kind == "nofit":
                 fail(f"{name}: island {k} fits no rule ({e['why']})")
                 continue
@@ -1136,6 +1278,9 @@ def build(hero, scaffold, structure, centre_xz, settings):
             if inside_some_slab(iv):
                 rules["5_dropped"] += 1
                 dropped5 += 1
+                continue
+            if kind == "closed" and is_tile_field:
+                ridge_candidates.setdefault(name, []).append((iv, it))
                 continue
             if kind == "closed":
                 ct, flipped = _orient_outward(iv, it)
@@ -1168,7 +1313,10 @@ def build(hero, scaffold, structure, centre_xz, settings):
                 if backing is None:
                     backing = _find_backing(iv, it, node_sheets)
                 if backing is None:
-                    fail(f"{name}: island {k} has a boundary loop {dev * 1000:.1f} mm out of plane and no backing sheet")
+                    if is_tile_field:
+                        tile_pools.setdefault(name, []).append((iv, it))
+                    else:
+                        fail(f"{name}: island {k} has a boundary loop {dev * 1000:.1f} mm out of plane and no backing sheet")
                     ok = False
                     break
                 hmin = min(backing.height(p) for p in pts)
@@ -1191,9 +1339,51 @@ def build(hero, scaffold, structure, centre_xz, settings):
             sol.island = (iv, it, loops, plans, caps, flipped)
             solids.append(sol)
             made += 1
-        if made == 0 and dropped5 == 0:
+        if made == 0 and dropped5 == 0 and not any(name in d for d in (tile_pools, ridge_candidates, undersides)):
             fail(f"{name}: hero node produced no solid")
         info["count"] = made
+
+    # -- rule 11: tile fields ---------------------------------------------------------------------
+    for name in sorted(set(tile_pools) | set(ridge_candidates) | set(undersides)):
+        field = None
+        if name in tile_pools:
+            try:
+                field = _tile_field_solids(tile_pools[name], undersides.get(name, []))
+            except (CapError, LoopError) as exc:
+                fail(f"{name}: tile field solid failed ({exc})")
+                continue
+        elif name in undersides:
+            fail(f"{name}: down-facing islands of a tile_field node but no tile field above them")
+            continue
+        made = []
+        ridge = []
+        for iv, it in ridge_candidates.get(name, []):
+            if field is not None and _is_ridge_piece(iv, field):
+                ridge.append(iv)
+            ct, flipped = _orient_outward(iv, it)
+            if abs(signed_volume(iv, ct)) < 1e-12:
+                fail(f"{name}: a closed island fits no rule (closed but encloses no volume: a double-sided sheet)")
+                continue
+            rules["flipped_to_outward"] += int(flipped)
+            made.append(("1", (iv, ct)))
+        if field is not None:
+            made += [("11", part) for part in field["parts"]]
+        if ridge:
+            try:
+                made += [("11", part) for part in _ridge_supports(ridge, field)]
+            except CapError as exc:
+                fail(f"{name}: ridge piece support failed ({exc})")
+        for rule, (hv, ht) in made:
+            if rule == "11":
+                ht, _flipped = _orient_outward(hv, ht)
+                if not is_closed(ht):
+                    fail(f"{name}: tile field hull is not closed")
+                    continue
+                rules["11_tile_field"] += 1
+            else:
+                rules["1_closed"] += 1
+            solids.append(_Solid(name, rule, hv, ht))
+            node_reports[name]["count"] = node_reports[name].get("count", 0) + 1
 
     # -- rule 6: envelopes ------------------------------------------------------------------------
     for name, tail, verts, tris in envelopes:
@@ -1256,6 +1446,11 @@ def build(hero, scaffold, structure, centre_xz, settings):
         if ("FloorSlab" in tail and "MidFloorSlab" not in tail) or "RoofCap" in tail:
             verts, moved = _pull_inside_walls(verts, walls)
             rules["9_pulled_vertices"] += moved
+            if "FloorSlab" in tail and "MidFloorSlab" not in tail:
+                # Its top stood above the ground and buried the hero's wall bases (ivy-b1e.7).
+                lowered = [(p[0], min(p[1], 0.0), p[2]) for p in verts]
+                rules["9_pulled_vertices"] += sum(1 for a, b in zip(verts, lowered) if a != b)
+                verts = lowered
         if not is_closed(tris):
             report["warnings"].append(f"scaffold node {base} is not closed (copied as is)")
         rules["scaffold_copied"] += 1
@@ -1263,7 +1458,15 @@ def build(hero, scaffold, structure, centre_xz, settings):
 
     # -- fill -------------------------------------------------------------------------------------
     for f in st["fill"]:
-        fv, ft = box_mesh(tuple(f["min"]), tuple(f["max"]))
+        if "points" in f:
+            try:
+                fv, ft = convex_hull([tuple(float(x) for x in p) for p in f["points"]])
+            except CapError as exc:
+                fail(f"fill '{f['name']}': its points span no volume ({exc})")
+                continue
+            ft, _flipped = _orient_outward(fv, ft)
+        else:
+            fv, ft = box_mesh(tuple(f["min"]), tuple(f["max"]))
         rules["fill"] += 1
         solids.append(_Solid("fill", "fill", fv, ft, name=f"{structure}_sim_Fill_{f['name']}_i00"))
 
@@ -1289,7 +1492,7 @@ def build(hero, scaffold, structure, centre_xz, settings):
     if not failures:
         report["slot_check"] = "run"
         _slot_check(solids, report)
-        if report["slots"]:
+        if report["slots"] and fail_on_slots:
             worst = sorted(report["slots"], key=lambda s: s["width"])[:10]
             listed = ", ".join("%.3f m at (%.3f, %.3f, %.3f)" % (s["width"], *s["position"]) for s in worst)
             fail(f"proxy has {len(report['slots'])} slot(s) narrower than {SLOT_MIN:.2f} m: {listed}")
@@ -1298,6 +1501,303 @@ def build(hero, scaffold, structure, centre_xz, settings):
     if failures:
         raise BuildError(failures, report)
     return [(s.name, s.verts, s.tris) for s in solids], report
+
+
+def cut_by_plane(verts, tris, m, d, tol=1e-9):
+    """Split every triangle that crosses the plane dot(m, p) == d. Edge cuts are shared between
+    neighbours, so a closed or open manifold stays one; winding is kept."""
+    v = list(verts)
+    side = [dot(m, p) - d for p in v]
+    cache = {}
+
+    def cut(i, j):
+        key = (min(i, j), max(i, j))
+        if key not in cache:
+            f = side[i] / (side[i] - side[j])
+            cache[key] = len(v)
+            v.append(add(v[i], mul(sub(v[j], v[i]), f)))
+            side.append(0.0)
+        return cache[key]
+
+    out = []
+    for tri in tris:
+        s = [side[i] for i in tri]
+        sg = [0 if abs(x) <= tol else (1 if x > 0 else -1) for x in s]
+        if not (1 in sg and -1 in sg):
+            out.append(tri)
+            continue
+        # rotate so the lone vertex (the one on its own side, or on the plane) comes first
+        for r in range(3):
+            a, b, c = tri[r], tri[(r + 1) % 3], tri[(r + 2) % 3]
+            ga, gb, gc = sg[r], sg[(r + 1) % 3], sg[(r + 2) % 3]
+            if ga == 0 and gb == -gc:
+                x = cut(b, c)
+                out += [(a, b, x), (a, x, c)]
+                break
+            if ga != 0 and gb == gc == -ga:
+                x, y = cut(a, b), cut(a, c)
+                out += [(a, x, y), (x, b, c), (x, c, y)]
+                break
+            if ga != 0 and gb == -ga and gc == 0:
+                x = cut(a, b)
+                out += [(a, x, c), (x, b, c)]
+                break
+            if ga != 0 and gc == -ga and gb == 0:
+                x = cut(c, a)
+                out += [(a, b, x), (x, b, c)]
+                break
+    return v, out
+
+
+def _underside_plane(verts, tris):
+    """(outward unit normal, offset, basis u, basis v, outer boundary in (u, v)) of a roof underside."""
+    n, _area, cen, _net = area_normal(verts, tris)
+    u, w = plane_basis(n)
+    loops = boundary_loops(tris)
+
+    def flat(loop):
+        return [(dot(verts[i], u), dot(verts[i], w)) for i in loop]
+
+    def area2(q):
+        return abs(sum(q[k][0] * q[(k + 1) % len(q)][1] - q[(k + 1) % len(q)][0] * q[k][1] for k in range(len(q))))
+
+    outer = max((flat(loop) for loop in loops), key=area2)
+    hull = _hull_2d(outer)  # counter-clockwise
+    return n, dot(n, cen), u, w, hull
+
+
+def _in_convex(q, hull, tol):
+    """q inside the counter-clockwise convex polygon `hull`, or within `tol` of it."""
+    m = len(hull)
+    for k in range(m):
+        a, b = hull[k], hull[(k + 1) % m]
+        ex, ey = b[0] - a[0], b[1] - a[1]
+        ln = math.hypot(ex, ey)
+        if ln < 1e-12:
+            continue
+        if (ex * (q[1] - a[1]) - ey * (q[0] - a[0])) / ln < -tol:
+            return False
+    return True
+
+
+def _cut_at_footprint(verts, tris, slope_n, plane):
+    """Cut a tile half along every edge of an underside's (convex) footprint, at the edge and 2 mm
+    outside it, with planes containing the slope normal: the step from the underside up to the
+    thin overhang then lies in a 2 mm band at the underside's edge instead of across a tile row."""
+    un, off, u, w, hull = plane
+    cx = sum(p[0] for p in hull) / len(hull)
+    cy = sum(p[1] for p in hull) / len(hull)
+
+    def to3(q):
+        return add(mul(un, off), add(mul(u, q[0]), mul(w, q[1])))
+
+    c3 = to3((cx, cy))
+    m_ = len(hull)
+    for k in range(m_):
+        a, b = to3(hull[k]), to3(hull[(k + 1) % m_])
+        e = sub(b, a)
+        if length(e) < 1e-6:
+            continue
+        mn = cross(e, slope_n)
+        if length(mn) < 1e-9:
+            continue
+        mn = norm(mn)
+        d = dot(mn, a)
+        if dot(mn, c3) - d > 0.0:
+            mn, d = mul(mn, -1.0), -d
+        for extra in (0.0, 2.0 * SLAB_GROW):
+            verts, tris = cut_by_plane(verts, tris, mn, d + extra)
+    return verts, tris
+
+
+def ray_first_hit(origin, direction, verts, tris, reach=math.inf):
+    """Distance along `direction` to the first triangle crossed (either side), or None."""
+    best = None
+    for a, b, c in tris:
+        pa = verts[a]
+        e1, e2 = sub(verts[b], pa), sub(verts[c], pa)
+        pv = cross(direction, e2)
+        det = dot(e1, pv)
+        if abs(det) < 1e-14:
+            continue
+        inv = 1.0 / det
+        tv = sub(origin, pa)
+        u = dot(tv, pv) * inv
+        if u < 0.0 or u > 1.0:
+            continue
+        qv = cross(tv, e1)
+        w = dot(direction, qv) * inv
+        if w < 0.0 or u + w > 1.0:
+            continue
+        s = dot(e2, qv) * inv
+        if 1e-9 < s <= reach and (best is None or s < best):
+            best = s
+    return best
+
+
+def _tile_field_solids(pool, undersides):
+    """Rule 11: the solids of a tiled roof field, exact on the tiles.
+
+    `pool` holds the islands of one node that rule 4 cannot close (the tiles); `undersides` its
+    down-facing islands (the roof's underside, if modelled). The tile triangles are split at the
+    ridge: the vertical plane along the world axis (x or z) on which the highest pooled vertices
+    (within 1 cm of the top) spread most, through their mean position. Each side is extruded
+    along its own inward slope normal with a per-vertex depth: down to the plane of the underside
+    that faces away from it, where that underside lies below the vertex, and TILE_EDGE_DEPTH where
+    nothing lies below (eave and verge overhangs). The top of the solid is the tile surface itself,
+    troughs and lips included; side walls close every boundary loop (eaves, verges, the ridge seam,
+    holes such as the chimney's). The two sides' walls at the ridge cross below the seam, so the
+    two solids overlap there (rule 8). A field with triangles on one side only is one solid."""
+    verts, tris = [], []
+    for iv, it in pool:
+        base = len(verts)
+        verts += iv
+        tris += [(a + base, b + base, c + base) for a, b, c in it]
+    top = max(p[1] for p in verts)
+    high = [p for p in verts if p[1] >= top - 0.01]
+    spread = [max(p[k] for p in high) - min(p[k] for p in high) for k in (0, 2)]
+    s = 2 if spread[0] >= spread[1] else 0  # the ridge runs along the axis the highest points spread on
+    ridge = sum(p[s] for p in high) / len(high)
+    sides = ([], [])
+    for tri in tris:
+        cs = sum(verts[i][s] for i in tri) / 3.0
+        sides[0 if cs < ridge else 1].append(tri)
+    planes = [_underside_plane(uv, ut) for uv, ut in undersides]
+    seam = {i for tri in sides[0] for i in tri} & {i for tri in sides[1] for i in tri}
+    out = []
+    for k, side in enumerate(sides):
+        if not side:
+            continue
+        used = sorted({i for tri in side for i in tri})
+        remap = {old: j for j, old in enumerate(used)}
+        sv = [verts[i] for i in used]
+        st_ = [(remap[a], remap[b], remap[c]) for a, b, c in side]
+        n = area_normal(sv, st_)[0]
+        mine = [pl for pl in planes if dot(pl[0], n) < -UNDERSIDE_ALIGN]
+        seam_pts = {tuple(verts[i]) for i in used if i in seam}
+        for pl in mine:
+            sv, st_ = _cut_at_footprint(sv, st_, n, pl)
+        toward = 1.0 if k == 0 else -1.0
+        plan = []
+        for p in sv:
+            # Seam vertices go straight down (so the two sides' walls do not cross under the ridge),
+            # nudged SLAB_GROW past the seam so the sides overlap; the rest along -n.
+            on_seam = tuple(p) in seam_pts
+            axis = (0.0, 1.0, 0.0) if on_seam else n
+            d = None
+            for un, off, u, w, hull in mine:
+                t = (dot(un, p) - off) / dot(un, axis)  # move along -axis this far to reach the plane
+                if t <= SLAB_GROW:
+                    continue
+                q = sub(p, mul(axis, t))
+                if _in_convex((dot(q, u), dot(q, w)), hull, SLAB_GROW):
+                    d = t if d is None else max(d, t)  # exactly down to the underside, however shallow
+            plan.append((p, on_seam, axis, d))
+        # Nothing below (eave and verge overhangs): a uniform offset along n folds through tile ends
+        # and lips, which are not single-valued along n (inward-wound slivers, SD-MESH-19.4.1). Each
+        # overhang vertex's bottom goes TILE_EDGE_DEPTH below the LOWEST overhang tile point within
+        # FOLD_REACH of it across the slope, so it lies under every fold near it (ivy-b1e.7).
+        floors = _local_floors([p for p, _seam, _axis, d in plan if d is None], n)
+        bottoms = []
+        for p, on_seam, axis, d in plan:
+            if d is None:
+                d = (dot(p, n) - floors[tuple(p)] + TILE_EDGE_DEPTH) / dot(n, axis)
+            b = list(sub(p, mul(axis, d)))
+            if on_seam:
+                b[s] += toward * SLAB_GROW
+            bottoms.append(tuple(b))
+        out.append(extrude_to(sv, st_, bottoms))
+    return {"parts": out, "axis": s, "ridge": ridge, "top": top}
+
+
+def _local_floors(points, n):
+    """For each point, the lowest height along n of any point within FOLD_REACH of it measured in
+    the plane across n (a grid hash keeps it linear)."""
+    if not points:
+        return {}
+    u, w = plane_basis(n)
+    cell = FOLD_REACH
+    grid = {}
+    flat = []
+    for p in points:
+        a, b = dot(p, u), dot(p, w)
+        flat.append((a, b, dot(p, n)))
+        grid.setdefault((math.floor(a / cell), math.floor(b / cell)), []).append(len(flat) - 1)
+    out = {}
+    for p, (a, b, _h) in zip(points, flat):
+        ga, gb = math.floor(a / cell), math.floor(b / cell)
+        low = math.inf
+        for i in range(ga - 1, ga + 2):
+            for j in range(gb - 1, gb + 2):
+                for k in grid.get((i, j), ()):
+                    qa, qb, qh = flat[k]
+                    if (qa - a) ** 2 + (qb - b) ** 2 <= cell * cell:
+                        low = min(low, qh)
+        out[tuple(p)] = low
+    return out
+
+
+def _is_ridge_piece(verts, field):
+    """A closed island of a tile field that straddles the ridge and rises above the tiles (a ridge
+    cap). It is kept exact on top but sunk into the slopes (see _sunk_hull)."""
+    s = field["axis"]
+    return (min(p[s] for p in verts) < field["ridge"] < max(p[s] for p in verts)
+            and max(p[1] for p in verts) > field["top"])
+
+
+def _sunk_hull(verts, field_top=None):
+    """The convex hull of a ridge piece and of its copy lowered by its own height (plus however far
+    the piece's bottom stands above the field's top, so the result always reaches the tiles)."""
+    lo = min(p[1] for p in verts)
+    h = max(p[1] for p in verts) - lo
+    drop = h + (max(0.0, lo - field_top) if field_top is not None else 0.0)
+    return convex_hull(list(verts) + [(p[0], p[1] - drop, p[2]) for p in verts])
+
+
+def _clip_convex(verts, tris, axis, value, keep_above):
+    """A convex solid cut by the plane p[axis] == value, keeping the side above (or below) it."""
+    side = [(p[axis] - value) * (1.0 if keep_above else -1.0) for p in verts]
+    pts = [p for p, d in zip(verts, side) if d >= 0.0]
+    for a, b, c in tris:
+        for i, j in ((a, b), (b, c), (c, a)):
+            if (side[i] > 0.0) != (side[j] > 0.0) and side[i] != side[j]:
+                f = side[i] / (side[i] - side[j])
+                pts.append(add(verts[i], mul(sub(verts[j], verts[i]), f)))
+    return convex_hull(pts)
+
+
+def _ridge_supports(pieces, field):
+    """Rule 11: two convex solids under each ridge piece (which is kept exactly, rule 1), both
+    lowered CAP_INSET so they never share a face with it:
+
+    - the filling: the piece's convex hull, which buries its inner (hollow) faces and closes the
+      lap joint under the next piece; its bottom is the chord across the piece's rims;
+    - the support: the piece sunk down into the tiles (_sunk_hull), cut to the middle
+      RIDGE_SUPPORT_SHARE of the piece's width, so the gap under its crown is filled while the
+      pockets under its rims, which the player sees, stay open.
+
+    Both are cut RIDGE_END_KEEP short at an end no other piece overlaps, so that end keeps the
+    hollow the player sees into."""
+    s = field["axis"]
+    ra = 0 if s == 2 else 2  # along the ridge
+    spans = [(min(p[ra] for p in v), max(p[ra] for p in v)) for v in pieces]
+    out = []
+    for k, v in enumerate(pieces):
+        lo, hi = spans[k]
+        others = [sp for j, sp in enumerate(spans) if j != k]
+        low = [(p[0], p[1] - CAP_INSET, p[2]) for p in v]
+        w_lo, w_hi = min(p[s] for p in v), max(p[s] for p in v)
+        mid, half = 0.5 * (w_lo + w_hi), 0.5 * (w_hi - w_lo) * RIDGE_SUPPORT_SHARE
+        sv, sts = _sunk_hull(low, field["top"])
+        sv, sts = _clip_convex(sv, sts, s, mid - half, True)
+        sv, sts = _clip_convex(sv, sts, s, mid + half, False)
+        for hv, ht in (convex_hull(low), (sv, sts)):
+            if not any(a < lo < b for a, b in others):
+                hv, ht = _clip_convex(hv, ht, ra, lo + RIDGE_END_KEEP, True)
+            if not any(a < hi < b for a, b in others):
+                hv, ht = _clip_convex(hv, ht, ra, hi - RIDGE_END_KEEP, False)
+            out.append((hv, ht))
+    return out
 
 
 def _find_backing(iv, it, node_sheets):

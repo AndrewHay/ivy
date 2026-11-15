@@ -104,10 +104,12 @@ func _ready() -> void:
 		sdf.load_from_file(sdf_path)
 		var pieces: Array = Audit.collect_hero_pieces(body.get_node("StructureVisual"))
 		var hero_body: StaticBody3D = Audit.make_hero_body(self, pieces)
+		var two_sided: StaticBody3D = Audit.make_two_sided_proxy(self, body)
 		for _i in 2:
 			await get_tree().physics_frame
 		var audit = Audit.new()
 		audit.setup(get_world_3d().direct_space_state, pieces, sdf)
+		audit.set_two_sided_proxy(two_sided)
 		var report: Dictionary = audit.run({"samples": int(args["samples"]), "seed": int(args["seed"])})
 		print(Audit.format_report(structure_id, report))
 		print("  audited in %.1f s" % ((Time.get_ticks_msec() - started) / 1000.0))
@@ -123,12 +125,14 @@ func _ready() -> void:
 		# The playable structures overlap in world space: clear this one before the next.
 		remove_child(hero_body)
 		hero_body.free()
+		remove_child(two_sided)
+		two_sided.free()
 		remove_child(body)
 		body.free()
 		await get_tree().physics_frame
 
 	print("[audit] summary (SG-9 ratified gates, IMPLEMENTATION.md SD-MESH-19.4)")
-	print("  structure      (a)W   p95|g|  p99|g|  max|g|  absent   (a)R   proud95 float95 max|g|   (b)   listed missing   (c)   face p95  max     inside+   result")
+	print("  structure      (a)W   p95|g|  p99|g|  max|g|  absent   (a)R   proud95 float95 max|g|   (b)   listed missing   (c)   face p95  max     inside+ closure  result")
 	for row in summary:
 		var r: Dictionary = row[1]
 		var w: Dictionary = r["a"]["walls"]
@@ -138,10 +142,10 @@ func _ready() -> void:
 		var roof_txt := "none   -       -       -     "
 		if roof["present"] and int(roof.get("n", 0)) > 0:
 			roof_txt = "%s   %.4f  %.4f  %.4f" % [Audit._verdict(roof["pass"]), roof["clip_p95"], roof["float_p95"], roof["max_abs"]]
-		print("  %-13s  %s   %.4f  %.4f  %.4f  %4d     %s   %s  %4d   %4d      %s  %.4f    %.4f  %4d      %s" % [
+		print("  %-13s  %s   %.4f  %.4f  %.4f  %4d     %s   %s  %4d   %4d      %s  %.4f    %.4f  %4d    %4d   %s" % [
 			row[0], Audit._verdict(w["pass"]), w.get("p95_abs", NAN), w.get("p99_abs", NAN), w.get("max_abs", NAN),
 			w.get("absent", 0), roof_txt,
 			Audit._verdict(b["pass"]), b.get("listed", 0), b.get("unrepresented", 0),
 			Audit._verdict(c["pass"]), c["face_p95"], c["face_max"], c["inside_not_negative"],
-			Audit._verdict(r["pass"])])
+			c.get("closure_faults", -1), Audit._verdict(r["pass"])])
 	get_tree().quit(0 if all_pass else 1)

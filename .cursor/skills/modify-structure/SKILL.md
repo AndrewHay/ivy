@@ -52,7 +52,8 @@ Blender: **4.2.1 LTS** at `/Applications/Blender.app`.
 | Export GLBs from blend | `tools/export_structures.py` | **Implemented** |
 | Rebuild sim from hero | `tools/rebuild_sim_from_hero.py` | **Implemented** |
 | JSON-only build (legacy) | `tools/build_structures.py` | Exists — stomps GLBs |
-| Growth surface from hero | `tools/build_growth_surface.py` | **Implemented** (`ivy-b1e.14`); not yet switched on for any committed structure (ivy: `ivy-b1e.7`, others: `ivy-b1e.8`) |
+| Growth surface from hero | `tools/build_growth_surface.py` | **Implemented** (`ivy-b1e.14`); **switched on for `ivy`** (`ivy-b1e.7`); tower, square, surface_wall: `ivy-b1e.8` |
+| Cottage fills from hero | `tools/cottage_growth_fills.py` | **Implemented** (`ivy-b1e.7`): re-run and paste into the `ivy` block whenever `ivy_hero.glb` changes |
 | SDF bake | `tools/bake_mesh_sdf.py` | Exists |
 | Growth-surface audit (SG-9) | `tools/audit_growth_surface.tscn` | Exists |
 | Director gates | `tools/measure_structure_gates.py` | Exists |
@@ -65,8 +66,10 @@ cone, corner columns, interior faces, aperture panels); every wall, roof, gable,
 solid is rebuilt from the hero, so the `.blend`'s `Sim_{name}` collection no longer matches the
 shipped sim GLB. Settings are the optional `growth_surface` block in `tools/structure_configs.json`
 (see `STRUCTURES.md`). The tool fails rather than guessing: on a failure, read the message (and the
-`--report` JSON for slots) and fix the hero or declare an `envelope` / `exempt` / `fill` entry — never
-hand-edit the sim GLB.
+`--report` JSON for slots) and fix the hero or declare an `envelope` / `exempt` / `tile_field` / `fill`
+entry — never hand-edit the sim GLB. For `ivy`, step 2b is mandatory after any hero change, preceded
+by `python3 tools/cottage_growth_fills.py --check` (regenerate and paste the cottage's fills when it
+reports them stale).
 
 ---
 

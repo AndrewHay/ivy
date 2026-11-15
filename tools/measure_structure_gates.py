@@ -177,7 +177,24 @@ def ray_hits_along(verts, tris, origin, direction, t_max=50.0, eps=1e-4):
     return deduped
 
 
-def measure_wall_thickness(verts, tris):
+def probe_height(name: str, ys) -> float:
+    """Height (glTF y) at which gates 1 and 2 probe the sim mesh.
+
+    Ring structures (tower, square) are walls from bottom to top, so the middle of the bounds is
+    in a wall. The cottage carries a pitched roof above WALL_TOP: the middle of its bounds is in
+    the roof, so it is probed at half its wall height instead (ivy-b1e.20).
+    """
+    import json  # noqa: WPS433
+
+    cfg = json.loads((Path(__file__).resolve().parent / "structure_configs.json").read_text())
+    if cfg.get(name, {}).get("layout") == "cottage":
+        from cottage_layout import WALL_TOP  # noqa: WPS433
+
+        return WALL_TOP * 0.5
+    return (min(ys) + max(ys)) * 0.5
+
+
+def measure_wall_thickness(verts, tris, mid_y=None):
     """Minimum wall-slab span along cardinal rays through the structure centre.
 
     Filters to the 0.25–0.55 m band so aperture seal panels (≈0.02 m) and
@@ -189,7 +206,8 @@ def measure_wall_thickness(verts, tris):
     zs = [v[2] for v in verts]
     cx = (min(xs) + max(xs)) * 0.5
     cz = (min(zs) + max(zs)) * 0.5
-    mid_y = (min(ys) + max(ys)) * 0.5
+    if mid_y is None:
+        mid_y = (min(ys) + max(ys)) * 0.5
     wall_spans = []
     for axis in ("x", "z"):
         for side in ("min", "max"):
@@ -217,14 +235,15 @@ def measure_wall_thickness(verts, tris):
     return min(wall_spans), sorted(wall_spans)[:10]
 
 
-def measure_interior(verts, tris, shells):
+def measure_interior(verts, tris, shells, mid_y=None):
     """Enclosed void clear span at the structure centre (outside solid, inside shell)."""
     xs = [v[0] for v in verts]
     ys = [v[1] for v in verts]
     zs = [v[2] for v in verts]
     cx = (min(xs) + max(xs)) * 0.5
     cz = (min(zs) + max(zs)) * 0.5
-    mid_y = (min(ys) + max(ys)) * 0.5
+    if mid_y is None:
+        mid_y = (min(ys) + max(ys)) * 0.5
     probe = (cx, mid_y, cz)
     # Hollow buildings: the cavity centre is outside the solid shell.
     if ray_inside(probe, shells):
@@ -258,34 +277,65 @@ def measure_interior(verts, tris, shells):
     }
 
 
-def ivy_reachable_vertex(node_name: str, v, phi: float) -> bool:
+def relief_exempt_for(name: str) -> bool:
+    """SD-OPEN-27(d) applies to Blender-built proxies only: a structure whose sim GLB is
+    tools/build_growth_surface.py output (a `growth_surface` block in structure_configs.json)
+    keeps the wall relief, so gate 3 judges it in full (ivy-b1e.7)."""
+    import json  # noqa: WPS433
+
+    cfg = json.loads((Path(__file__).resolve().parent / "structure_configs.json").read_text())
+    return "growth_surface" not in cfg.get(name, {})
+
+
+def ivy_reachable_vertex(node_name: str, v, phi: float, relief_exempt: bool = True) -> bool:
     """SD-OPEN-27: vertices excluded from gate-3 max |Φ| (see DESIGN.md ratification log)."""
     from diagnose_hero_deviation import classify_node  # noqa: WPS433 — shared offline tooling
 
     cat = classify_node(node_name)
     if cat in IVY_UNREACHABLE_NODE_CATEGORIES:
         return False
-    if v[2] < 0.0:
+    # Below ground. `v` is in glTF coordinates (y up), as load_glb_nodes returns it; this used to
+    # read v[2] and so dropped the z < 0 half of every structure (ivy-b1e.20).
+    if v[1] < 0.0:
         return False
     if phi > ADHESION_RANGE:
         return False
     # Hero wall-kit relief / timber-beam shell stripped from the sim proxy (build.py BEAM_Y).
-    if cat.startswith("wall_") and phi > DEVIATION_CEILING:
+    if relief_exempt and cat.startswith("wall_") and phi > DEVIATION_CEILING:
         return False
     return True
 
 
-def measure_hero_proxy_deviation(hero_verts, sdf, hero_nodes=None):
+def gate3_deviation(phi: float, relief_exempt: bool) -> float:
+    """What gate 3 judges at a hero vertex whose signed proxy distance is `phi`.
+
+    Blender-built proxy (relief exempt): |Φ|, as SD-OPEN-27 prescribes. Growth surface built by
+    tools/build_growth_surface.py: only how far the vertex stands PROUD of the surface (Φ > 0).
+    A vertex buried in a growth-surface solid (Φ < 0) is an interior face inside a wall slab, a
+    part under a shutter envelope, or the back of a trim seated in a slab; this tool has no
+    visibility test to tell those from a visible wall the surface floats in front of, so that
+    side is judged by SG-9 (a) (tools/audit_growth_surface.tscn), which has one (ivy-b1e.20).
+    """
+    if relief_exempt:
+        return abs(phi)
+    return max(phi, 0.0)
+
+
+def measure_hero_proxy_deviation(hero_verts, sdf, hero_nodes=None, relief_exempt=True):
     """|Φ| at each hero vertex from the proxy SDF (DESIGN.md prescribed method)."""
     abs_phi = []
     ivy_reachable = []
+    buried = 0
     if hero_nodes is not None:
         for node_name, verts in hero_nodes:
             for v in verts:
-                phi = abs(read_trilinear(sdf, v))
+                signed = read_trilinear(sdf, v)
+                phi = abs(signed)
                 abs_phi.append(phi)
-                if ivy_reachable_vertex(node_name, v, phi):
-                    ivy_reachable.append(phi)
+                if ivy_reachable_vertex(node_name, v, phi, relief_exempt):
+                    ivy_reachable.append(gate3_deviation(signed, relief_exempt))
+                    if not relief_exempt and signed < -DEVIATION_CEILING:
+                        buried += 1
     else:
         for v in hero_verts:
             phi = abs(read_trilinear(sdf, v))
@@ -333,6 +383,7 @@ def measure_hero_proxy_deviation(hero_verts, sdf, hero_nodes=None):
         "ivy_p90": pct_ivy(0.9),
         "ivy_max": ivy[-1] if ivy else None,
         "ivy_over_50mm": sum(1 for a in ivy if a > DEVIATION_CEILING),
+        "buried_over_50mm": buried,
     }
 
 
@@ -404,9 +455,10 @@ def measure_structure(name: str):
     hero_nodes = load_glb_nodes(hero_path)
     sim_verts, sim_tris, sim_shells = load_glb_mesh(sim_path)
     sdf = load_sdf(sdf_path)
-    wall_min, wall_samples = measure_wall_thickness(sim_verts, sim_tris)
-    interior = measure_interior(sim_verts, sim_tris, sim_shells)
-    deviation = measure_hero_proxy_deviation(hero_verts, sdf, hero_nodes)
+    mid_y = probe_height(name, [v[1] for v in sim_verts])
+    wall_min, wall_samples = measure_wall_thickness(sim_verts, sim_tris, mid_y)
+    interior = measure_interior(sim_verts, sim_tris, sim_shells, mid_y)
+    deviation = measure_hero_proxy_deviation(hero_verts, sdf, hero_nodes, relief_exempt_for(name))
     corner_cont = check_corner_storey_continuity(hero_nodes)
     return {
         "name": name,
@@ -472,6 +524,11 @@ def print_report(r):
     print(f"  min/med/p90/p95/max: {d['min']:.4f} / {d['median']:.4f} / {d['p90']:.4f} / {d['p95']:.4f} / {d['max']:.4f} m")
     if d["ivy_max"] is not None:
         print(f"  Ivy-reachable: {d['ivy_samples']} samples, med {d['ivy_median']:.4f} m, p90 {d['ivy_p90']:.4f} m, max {d['ivy_max']:.4f} m, over 50 mm: {d['ivy_over_50mm']}")
+    if d.get("buried_over_50mm"):
+        print(
+            f"  Buried in a growth-surface solid by over 50 mm: {d['buried_over_50mm']} vertices, "
+            "reported only (no visibility test here; SG-9 (a) in tools/audit_growth_surface.tscn judges that side)"
+        )
     print(f"  PASS: {v['hero_proxy_deviation']}")
     print(f"\n  OVERALL: {'PASS' if v['all_pass'] else 'FAIL'}")
 

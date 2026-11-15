@@ -107,14 +107,18 @@ func _run_case(offset: Vector3, proxy_boxes: Array[AABB], hero_override: Array[A
 		col.shape = shape
 		proxy.add_child(col)
 	var hero_body: StaticBody3D = Audit.make_hero_body(self, pieces)
+	var two_sided: StaticBody3D = Audit.make_two_sided_proxy(self, proxy)
 	await get_tree().physics_frame
 	await get_tree().physics_frame
 	var audit = Audit.new()
 	audit.setup(proxy.get_world_3d().direct_space_state, pieces, _analytic_sdf(proxy_boxes))
+	audit.set_two_sided_proxy(two_sided)
 	var report: Dictionary = audit.run({"samples": SAMPLES, "seed": 7})
 	gut.p(Audit.format_report("ribbed test wall", report))
 	remove_child(hero_body)
 	hero_body.free()
+	remove_child(two_sided)
+	two_sided.free()
 	remove_child(proxy)
 	proxy.free()
 	await get_tree().physics_frame
