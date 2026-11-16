@@ -181,8 +181,9 @@ python3 tools/build_growth_surface.py <hero.glb> <scaffold_sim.glb> <out_sim.glb
   `tile_field` (substrings of the hero node name after `{id}_hero_`), `seals` (`hero` / `scaffold`,
   default `scaffold`), `fill` (`[{"name", "min", "max"}]` boxes in glTF world coordinates, or
   `{"name", "points"}`: the convex hull of at least 4 points, for a fill that hugs a rotated piece).
-  Absent block → defaults. The cottage's 26 fills (sill gaps, shutters on the sill, the groove under
-  each sill, window head to corner post, the gable purlins' barge-board notches, the gap above the
+  Absent block → defaults. The cottage's 24 fills (sill gaps, shutters on the sill, the groove under
+  each sill, window head to corner post only while that gap is under 0.10 m (on the merged hero it is
+  0.19 m, so none; ivy-b1e.28), the gable purlins' barge-board notches, the gap above the
   middle purlins, and the barge boards' ends against the eave lip at the four eave corners) are
   computed by `python3 tools/cottage_growth_fills.py` from the hero (the eave corners from the
   builder's own slot report, via `build(..., fail_on_slots=False)`); paste its output into the block

@@ -8,7 +8,8 @@ never left for ivy to wedge into):
   SillGap{L,F}      the 1.2 mm gap between each window's sill board and its nose
   ShutterSill{L,F}  the closed shutters standing 8 mm above the sill board (2.8 cm above the nose)
   BandSill{L,F}     the 6 cm groove between the wall's lower band and the sill board
-  HeadPost{L,F}     the 9 cm gap between the window head and the corner post
+  HeadPost{L,F}     the gap between the window head and the corner post, only while it is a slot
+                    (9 cm on the ivy-b1e.7 hero; 19 cm on the merged hero, so no fill there)
   Notch{W,E}{S,N}k  the 7 mm clearance round the lowest gable purlins in each barge board's notch
                     (a convex `points` fill: the purlins are rotated to the roof pitch)
   Web{W,E}{S,N}     the 9 cm gap between the middle purlins' top face and the roof underside,
@@ -100,7 +101,8 @@ def _window_fills(hero):
             lo[along], hi[along] = post[1][along] - E, head[0][along] + E
         lo[axis], hi[axis] = post[0][axis] + E, face + E
         lo[1], hi[1] = head[0][1] + E, head[1][1] - E
-        out.append(_box("HeadPost" + tag, lo, hi))
+        if hi[along] - lo[along] - 2 * E < g.SLOT_MIN:  # ivy-b1e.28: a wider recess is relief, not a slot
+            out.append(_box("HeadPost" + tag, lo, hi))
     return out
 
 

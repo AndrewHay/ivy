@@ -1156,6 +1156,17 @@ class TestGrowthSurfaceConfig(unittest.TestCase):
         raw = json.loads((TOOLS / "structure_configs.json").read_text())
         self.assertEqual(raw["ivy"]["growth_surface"]["fill"], cgf.cottage_fills(hero))
 
+    def test_cottage_window_fills_bridge_only_slots(self):
+        # ivy-b1e.28: a fill closes a gap narrower than SLOT_MIN (AR-MESH-20.4) and nothing wider,
+        # so ivy keeps the relief of a wider recess. Each window fill box reaches E into the two
+        # pieces it bridges, so its thinnest extent is the gap plus 2 E. On the merged hero the
+        # window head stops 0.19 m short of the corner post: that recess is not a slot.
+        import cottage_growth_fills as cgf  # noqa: WPS433
+        hero = bgs.read_glb(TOOLS.parent / "assets" / "structures" / "ivy_hero.glb")
+        for f in cgf._window_fills(hero):
+            thinnest = min(hi - lo for lo, hi in zip(f["min"], f["max"]))
+            self.assertLess(thinnest, bgs.SLOT_MIN + 2 * cgf.E + 1e-4, f["name"])
+
     def test_scene_offset_maps_from_blender_to_gltf(self):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "c.json"

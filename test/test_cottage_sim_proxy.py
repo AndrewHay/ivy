@@ -46,20 +46,31 @@ class CottageSimProxyTest(unittest.TestCase):
 
     def test_frame_pieces_have_per_part_sim_solids(self):
         # ivy-b1e.17.7: the production style is window=frame / door=frame; every hero
-        # frame piece gets one sim box per wooden part (glass skipped).
+        # frame piece gets one sim solid per part.
+        # ivy-b1e.28: CONTRACT CHANGED. ivy_sim.glb is the growth-surface builder's output, which
+        # makes one solid per hero island of the piece (the window insert's back sheet included),
+        # not the Blender sim's one box per wooden part (14 per window, glass skipped).
+        import build_growth_surface as bgs  # noqa: WPS433
+
+        hero = {n: (v, t) for n, v, t in bgs.read_glb(_REPO / "assets" / "structures" / "ivy_hero.glb")}
+
+        def hero_islands(tail):
+            v, t = bgs.weld(*hero["ivy_hero_" + tail])
+            return len(bgs.islands(len(v), t))
+
         cfg = _ivy_cfg()
         style = cl.cottage_style({})
         if style["window"] == "frame":
             for slot in cfg.get("windows", []):
                 side, bay = slot.split(":")
-                stem = f"ivy_sim_{cl.PIECE_WINDOW_INSERT}_{side}_{bay}_"
-                n = sum(name.startswith(stem) for name in self.names)
-                self.assertEqual(n, 14, f"{slot}: {n} window-frame parts; nodes={self.names}")
+                tail = f"{cl.PIECE_WINDOW_INSERT}_{side}_{bay}"
+                n = sum(name.startswith(f"ivy_sim_{tail}_i") for name in self.names)
+                self.assertEqual(n, hero_islands(tail), f"{slot}: {n} window-frame parts; nodes={self.names}")
         if style["door"] == "frame":
             side, bay = str(cfg["door"]).split(":")
-            stem = f"ivy_sim_{cl.PIECE_DOOR_FRAME}_{side}_{bay}_"
-            n = sum(name.startswith(stem) for name in self.names)
-            self.assertEqual(n, 4, f"door frame: {n} parts; nodes={self.names}")
+            tail = f"{cl.PIECE_DOOR_FRAME}_{side}_{bay}"
+            n = sum(name.startswith(f"ivy_sim_{tail}_i") for name in self.names)
+            self.assertEqual(n, hero_islands(tail), f"door frame: {n} parts; nodes={self.names}")
 
     def test_roof_and_gables_present(self):
         self.assertTrue(any(n.startswith("ivy_sim_Roof_RoundTiles") for n in self.names), self.names)
