@@ -99,7 +99,7 @@ Created in Blender by `tools/build_structures.py` (names appear in `*_hero.glb` 
 | Building | Walls | Doors / windows | Roof | Chimney / other |
 |---|---|---|---|---|
 | **`ivy`** | Tier A plaster + optional brick; `Corner_Exterior_Wood` posts; sim = `tools/build_growth_surface.py` output (walls with their bands and reveals, shutters as envelopes, hero seals as panels, the tile field exact on the tiles) | `Door_1_Flat` in `DoorFrame_Flat_WoodDark`, `Window_Wide_Flat1` frames with closed shutters, hero seals | `Roof_RoundTiles_4x6`, `Roof_Front_Brick4` ×2 | `Prop_Chimney2` |
-| **`square`** | `Wall_UnevenBrick_*` ring (3 bays/side) | `Door_2_Round`, round windows, glass + panels | Flat **`RoofCap`** | Corner trim blocks |
+| **`square`** | `Wall_UnevenBrick_*` ring (3 bays/side); sim = `tools/build_growth_surface.py` output with defaults, no `growth_surface` block (walls extruded from the hero, scaffold `FloorSlab`, `RoofCap` and the four aperture `Panel_`s copied; 42 nodes, 2252 triangles; `ivy-b1e.8`) | `Door_2_Round`, round windows, glass + panels | Flat **`RoofCap`** | Corner trim blocks |
 | **`tower`** | `Wall_UnevenBrick_*` (2 bays/side × 2 storeys) | Mixed round door/windows | **`RoofCone`** + cap | Corner trim; **`MidFloorSlab`** |
 | **`surface_wall`** | Long uneven-brick run + door | Same seal policy as ring | **`RoofCap`** | — |
 
@@ -126,7 +126,8 @@ These appear in the building picker (`BuildingCatalog`) or dev tooling. Each has
 python3 tools/rebuild_sim_from_hero.py assets/structures/ivy.blend assets/structures ivy
 # Growth surface from the hero (AR-MESH-20; see below). The cottage's shipped ivy_sim.glb is this
 # tool's output (ivy-b1e.7); the Blender sim GLB is only its scaffold, and the tool is idempotent on
-# its own output, so it can be re-run in place. Tower, square and surface_wall: ivy-b1e.8.
+# its own output, so it can be re-run in place. The square's sim is also this tool's output (ivy-b1e.8,
+# built on the ivy-b1e.19 scaffold); tower and surface_wall still ship their Blender sims (ivy-b1e.8).
 python3 tools/build_growth_surface.py assets/structures/ivy_hero.glb assets/structures/ivy_sim.glb \
   assets/structures/ivy_sim.glb --structure ivy --report .tmp/gs/ivy_report.json
 python3 tools/bake_mesh_sdf.py assets/structures/ivy_sim.glb assets/structures/ivy_sim.sdf
@@ -140,7 +141,9 @@ structure with a `growth_surface` block gate 3 judges only hero vertices standin
 growth surface; vertices buried in a solid (interior faces inside wall slabs, parts under a shutter
 envelope) are counted and printed but not judged, because the tool has no visibility test: SG-9 (a)
 in the audit judges that side. Tower and square keep the two-sided read with the SD-OPEN-27(d)
-relief exemption until `ivy-b1e.8`.
+relief exemption: the square's growth surface needs no `growth_surface` block (defaults fit), so the
+gates tool still reads it that way (gate 3 ivy-reachable max 0.0495 m on the growth surface,
+`ivy-b1e.8`); the tower until `ivy-b1e.8` installs its growth surface.
 
 ### Growth-surface builder (`tools/build_growth_surface.py`)
 
