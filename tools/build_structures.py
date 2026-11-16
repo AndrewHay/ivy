@@ -83,8 +83,11 @@ from cottage_layout import (  # noqa: E402
     PIECE_WALL_BRICK,
     PIECE_WALL_DOOR,
     ROOF_BY_BAYS,
+    SHUTTER_BACKING,
     SILL_DEPTH_SCALE,
     all_wall_slots,
+    box_mesh,
+    trim_window_header,
     KIT_EXTERIOR_LOCAL,
     cottage_corner_posts,
     cottage_derived,
@@ -1081,6 +1084,48 @@ def swap_kit_glass(obj, glass_mat):
             mats[i] = glass_mat
 
 
+def trim_insert_header(obj):
+    """ivy-b1e.25 header=trim: pull the insert lintel's ends in (per-object mesh copy)."""
+    verts = obj.data.vertices
+    trimmed = trim_window_header([tuple(v.co) for v in verts])
+    for v, co in zip(verts, trimmed):
+        v.co = co
+    obj.data.update()
+
+
+SHUTTER_BACKING_MAT = "HeroShutterBacking"
+SHUTTER_BACKING_RGB = (0.25, 0.14, 0.07)  # linear; mid wood, darkened by the plank shadow
+
+
+def shutter_backing_material():
+    mat = bpy.data.materials.get(SHUTTER_BACKING_MAT)
+    if mat is None:
+        mat = bpy.data.materials.new(SHUTTER_BACKING_MAT)
+        mat.use_nodes = True
+        bsdf = mat.node_tree.nodes.get("Principled BSDF")
+        bsdf.inputs["Base Color"].default_value = (*SHUTTER_BACKING_RGB, 1.0)
+        bsdf.inputs["Roughness"].default_value = 0.9
+    return mat
+
+
+def add_shutter_backing(obj):
+    """ivy-b1e.25 shutter_back=backed: a board behind the planks, part of the shutter's own
+    mesh so every downstream rule that treats the shutter treats it too. It has no UVs, so
+    it gets a flat untextured material rather than the planks' wood texture."""
+    mats = obj.data.materials
+    mats.append(shutter_backing_material())
+    slot = len(mats) - 1
+    verts, faces = box_mesh(SHUTTER_BACKING)
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    new = [bm.verts.new(v) for v in verts]
+    for f in faces:
+        bm.faces.new([new[i] for i in f]).material_index = slot
+    bm.to_mesh(obj.data)
+    bm.free()
+    obj.data.update()
+
+
 def place_cottage_corner_posts(cfg, hero_col, prefix, world_offset):
     """ivy-b1e.17.2: kit timber post over the trim gap at each outer corner."""
     parts = []
@@ -1125,18 +1170,21 @@ def assemble_cottage_hero(cfg, hero_col, hero_roof_mat, glass_mat, world_offset)
             # ivy-b1e.17.6: "shallow" squashes the insert and the shutters hung on it about
             # the plaster face (y = 0), so they stay seated on the frame's lip.
             depth = Matrix.Diagonal((1.0, SILL_DEPTH_SCALE[style["sill"]], 1.0, 1.0))
-            parts.append(
-                place_cottage_kit(
-                    PIECE_SHUTTER, cfg, side, bay, hero_col, hero_data, prefix, world_offset,
-                    local=depth if frame else cottage_shutter_local(),
-                )
+            shutter = place_cottage_kit(
+                PIECE_SHUTTER, cfg, side, bay, hero_col, hero_data, prefix, world_offset,
+                local=depth if frame else cottage_shutter_local(),
             )
+            if style["shutter_back"] == "backed":
+                add_shutter_backing(shutter)
+            parts.append(shutter)
             if frame:
                 insert = place_cottage_kit(
                     PIECE_WINDOW_INSERT, cfg, side, bay, hero_col, hero_data, prefix, world_offset,
                     local=depth,
                 )
                 swap_kit_glass(insert, glass_mat)
+                if style["header"] == "trim":
+                    trim_insert_header(insert)
                 parts.append(insert)
         if slot == door and style["door"] == "frame":
             # The kit frame's sill dips 8.5 mm below its origin; lift it to sit on grade.

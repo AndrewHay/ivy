@@ -252,6 +252,61 @@ class KitConstantsMatchGltfTest(unittest.TestCase):
             self.assertTrue((_KIT / f"{piece}.gltf").exists(), piece)
         self.assertIn("MI_WindowGlass", _gltf_bounds(cl.PIECE_WINDOW_INSERT))
 
+    def test_header_trim_touches_only_the_lintel(self):
+        # The insert's only wood wider than the trim half-width above WINDOW_HEADER_Z0 is the
+        # lintel; jambs and casement stay narrower, so the trim leaves them alone.
+        lo, hi = _gltf_bounds(cl.PIECE_WINDOW_INSERT)["MI_WoodTrim"]
+        self.assertAlmostEqual(hi[0], 0.804, delta=1e-3)
+        self.assertGreater(cl.WINDOW_HEADER_Z0, 2.0)
+        self.assertLess(cl.WINDOW_HEADER_Z0, 2.383)  # lintel bottom
+
+    def test_shutter_backing_sits_behind_the_planks(self):
+        b = cl.SHUTTER_BACKING
+        # Behind the planks (whose back face is y = -0.198) and in front of the wall (y = 0),
+        # and no wider or taller than the shutter so it never shows past its outline.
+        self.assertGreater(b["y0"], -0.198)
+        self.assertLess(b["y1"], 0.0)
+        lo, hi = _gltf_bounds(cl.PIECE_SHUTTER)["MI_WoodTrim_Wear"]
+        self.assertGreaterEqual(b["x0"], lo[0] - 1e-3)
+        self.assertLessEqual(b["x1"], hi[0] + 1e-3)
+        self.assertGreaterEqual(b["z0"], lo[2] - 1e-3)
+        self.assertLessEqual(b["z1"], hi[2] + 1e-3)
+
+
+class WindowPolishTest(unittest.TestCase):
+    """ivy-b1e.25: lintel end clear of the corner post; no see-through slits in the shutter."""
+
+    def test_header_trim_clamps_lintel_ends_only(self):
+        verts = [
+            (-0.804, -0.169, 2.383), (0.804, 0.267, 2.524),  # lintel ends
+            (0.670, -0.154, 2.394),  # jamb top: inside the trim width
+            (-0.701, -0.417, 0.964),  # sill nose: below the lintel band
+        ]
+        out = cl.trim_window_header(verts)
+        h = cl.WINDOW_HEADER_TRIM_HALF
+        self.assertEqual(out[0], (-h, -0.169, 2.383))
+        self.assertEqual(out[1], (h, 0.267, 2.524))
+        self.assertEqual(out[2], verts[2])
+        self.assertEqual(out[3], verts[3])
+
+    def test_style_keys(self):
+        self.assertEqual(cl.COTTAGE_STYLE_DEFAULT["header"], "trim")
+        self.assertEqual(cl.COTTAGE_STYLE_DEFAULT["shutter_back"], "backed")
+        self.assertEqual(cl.parse_cottage_style("header=native,shutter_back=open"),
+                         {"header": "native", "shutter_back": "open"})
+
+    def test_backing_box_is_closed(self):
+        verts, faces = cl.box_mesh(cl.SHUTTER_BACKING)
+        self.assertEqual(len(verts), 8)
+        self.assertEqual(len(faces), 6)
+        # Every edge shared by exactly two faces.
+        edges = {}
+        for f in faces:
+            for i in range(4):
+                e = tuple(sorted((f[i], f[(i + 1) % 4])))
+                edges[e] = edges.get(e, 0) + 1
+        self.assertTrue(all(n == 2 for n in edges.values()))
+
 
 if __name__ == "__main__":
     unittest.main()

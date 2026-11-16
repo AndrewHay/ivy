@@ -148,7 +148,9 @@ Notes:
   after `--`, e.g. `--cottage-style window=flush,door=stretch,sill=shallow`, and write to a scratch
   output dir. Keys and choices: `window` frame|flush, `door` frame|stretch, `sill` native|shallow,
   `window_wall` flat|flat2, `plinth` none|all_l|all_lr|all_base (stone base under every plain bay on
-  all four sides). Defaults live in
+  all four sides), `header` native|trim (window lintel cut to the sill nose width so it clears the
+  corner post; ivy-b1e.25), `shutter_back` open|backed (recessed wood board behind the closed
+  shutter's planks so the plank gaps don't show the dark glass; ivy-b1e.25). Defaults live in
   `COTTAGE_STYLE_DEFAULT` (`tools/cottage_layout.py`). (The older `IVY_COTTAGE_STYLE` env var still
   works as a fallback, but commands should start with the executable path.)
 - `.blend` files are tracked in **Git LFS** (ivy-c848); Blender's `*.blend1` backups are gitignored.

@@ -115,6 +115,12 @@ COTTAGE_STYLE_CHOICES = {
     # one way); all_lr = Straight_L / Straight_R alternating by bay; all_base = no brace.
     "window_wall": ("flat", "flat2"),
     "plinth": ("none", "all_l", "all_lr", "all_base"),
+    # ivy-b1e.25: window insert lintel at kit length, or trimmed to the sill nose so its end
+    # stands clear of the corner post at an end bay.
+    "header": ("native", "trim"),
+    # ivy-b1e.25: closed shutter as the kit has it (the dark glass shows through the plank
+    # gaps as slits), or with a recessed board behind the planks.
+    "shutter_back": ("open", "backed"),
 }
 COTTAGE_STYLE_DEFAULT = {
     "window": "frame",
@@ -122,7 +128,45 @@ COTTAGE_STYLE_DEFAULT = {
     "sill": "shallow",  # owner's pick 2026-11-15 (ivy-b1e.17.6)
     "window_wall": "flat",
     "plinth": "all_lr",  # owner's pick 2026-11-15 (ivy-b1e.17.5): house stands on a stone base
+    "header": "trim",  # ivy-b1e.25, pending owner sign-off
+    "shutter_back": "backed",  # ivy-b1e.25, pending owner sign-off
 }
+
+# Window_Wide_Flat1, Blender-local: the lintel spans x +-0.804 at z 2.383-2.524, past its
+# jambs (+-0.670) and sill nose (+-0.701). "header=trim" clamps wood above WINDOW_HEADER_Z0
+# to the sill nose's half-width; the jambs (to z 2.406) are narrower, so only the lintel moves.
+WINDOW_HEADER_Z0 = 2.38
+WINDOW_HEADER_TRIM_HALF = 0.701
+# WindowShutters_Wide_Flat_Closed, Blender-local: planks x -0.646..0.656, y -0.288..-0.198
+# (exterior is -y), battens behind them to y -0.152. The board sits behind the battens,
+# inside the shutter outline, so the plank gaps show recessed wood instead of glass.
+SHUTTER_BACKING = {"x0": -0.640, "x1": 0.650, "y0": -0.165, "y1": -0.155, "z0": 1.100, "z1": 2.510}
+
+
+def trim_window_header(verts, half: float = WINDOW_HEADER_TRIM_HALF, z0: float = WINDOW_HEADER_Z0):
+    """Clamp the insert lintel's ends to +-``half`` (vertices above ``z0`` only)."""
+    out = []
+    for x, y, z in verts:
+        if z > z0 and abs(x) > half:
+            x = math.copysign(half, x)
+        out.append((x, y, z))
+    return out
+
+
+def box_mesh(b):
+    """Closed, outward-wound box (8 vertices, 6 quads) from x0..x1, y0..y1, z0..z1."""
+    verts = [
+        (b["x0"], b["y0"], b["z0"]), (b["x1"], b["y0"], b["z0"]),
+        (b["x1"], b["y1"], b["z0"]), (b["x0"], b["y1"], b["z0"]),
+        (b["x0"], b["y0"], b["z1"]), (b["x1"], b["y0"], b["z1"]),
+        (b["x1"], b["y1"], b["z1"]), (b["x0"], b["y1"], b["z1"]),
+    ]
+    faces = [
+        (0, 3, 2, 1), (4, 5, 6, 7),  # bottom, top
+        (0, 1, 5, 4), (2, 3, 7, 6),  # -y, +y
+        (0, 4, 7, 3), (1, 2, 6, 5),  # -x, +x
+    ]
+    return verts, faces
 SILL_DEPTH_SCALE = {"native": 1.0, "shallow": 0.6}
 WINDOW_WALL_PIECES = {
     "flat": "Wall_Plaster_Window_Wide_Flat",
