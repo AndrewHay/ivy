@@ -87,6 +87,9 @@ const SLOT_SIGHT_STEP := 0.01
 ## the SDF gradient, in at most PROXY_EXIT_TRIES moves.
 const PROXY_EXIT_MARGIN := 0.02
 const PROXY_EXIT_TRIES := 4
+## When that nearest way out is refused, the viewpoint may instead leave the solid straight along
+## its line of sight, within this distance (ivy-b1e.27).
+const SIGHT_EXIT_REACH := 1.0
 ## Hero node category that is class R (tiled roof field); everything else reachable is class W.
 const ROOF_CATEGORY := "roof"
 
@@ -291,44 +294,145 @@ func _open_to_sky(point: Vector3, dir: Vector3) -> bool:
 	return false
 
 
+## Why _exterior_side turned one side of a hero sample down. The first four come from
+## _clear_of_proxy (the viewpoint is inside a growth-surface solid and no way out of it was
+## accepted); gate (a) lists those samples one by one (SD-MESH-19.4, ivy-b1e.27).
+const REJECT_EXIT_HERO := "exit_blocked_by_hero"
+const REJECT_EXIT_SLOT := "exit_through_slot"
+const REJECT_EXIT_GROUND := "exit_below_ground"
+const REJECT_EXIT_NONE := "no_exit_found"
+const REJECT_NOT_VISIBLE := "not_visible"
+const REJECT_NO_SKY := "not_open_to_sky"
+const PROXY_EXIT_REJECTS: Array[String] = [REJECT_EXIT_HERO, REJECT_EXIT_SLOT, REJECT_EXIT_GROUND, REJECT_EXIT_NONE]
+## Gate (a) lists at most this many proxy-exit rejections per class (the counts are always whole).
+const REJECT_LIST_MAX := 2000
+
+
 ## The outward normal of a hero sample, or ZERO when neither side is exposed exterior.
 func _exterior_normal(p: Vector3, n: Vector3) -> Vector3:
+	return _exterior_side(p, n)["dir"]
+
+
+## {dir, reason, sight_reason, reject_dir}: dir is the outward normal of a hero sample, or ZERO
+## when neither side is exposed exterior. Then `reason` says why, for the side that came closest:
+## a proxy-exit reason over not_open_to_sky over not_visible, with `reject_dir` that side's normal.
+## `reason` is the nearest way out's (the SDF gradient); `sight_reason` the line of sight's, when
+## that was tried as well.
+func _exterior_side(p: Vector3, n: Vector3) -> Dictionary:
+	var best := ""
+	var best_sight := ""
+	var best_dir := Vector3.ZERO
 	for dir in [n, -n]:
+		var reason := ""
+		var sight_reason := ""
 		var eye: Vector3 = p + dir * VISIBLE_CLEARANCE
 		var hit := _cast(eye, p - dir * 0.02, HERO_MASK)
 		if hit.is_empty() or (hit["position"] as Vector3).distance_to(p) > 0.004:
-			continue
-		var out := _clear_of_proxy(eye, dir)
-		if out != Vector3.INF and _open_to_sky(out, dir):
-			return dir
-	return Vector3.ZERO
+			reason = REJECT_NOT_VISIBLE
+		else:
+			var exit := _clear_of_proxy(eye, dir)
+			if exit[0] == Vector3.INF:
+				reason = exit[1]
+			elif _open_to_sky(exit[0], dir):
+				return {"dir": dir, "reason": "", "sight_reason": "", "reject_dir": Vector3.ZERO}
+			else:
+				reason = REJECT_NO_SKY
+			# ivy-b1e.27: the nearest way out of a proxy solid is not the only one. A viewpoint
+			# whose line of sight runs on out of the solid into open air, crossing no hero skin
+			# and no bridged slot, sees the face from outside as surely as one that started there.
+			if exit[0] != eye:
+				var sight := _sight_exit(eye, dir)
+				if sight[0] == Vector3.INF:
+					sight_reason = sight[1]
+				elif _open_to_sky(sight[0], dir):
+					return {"dir": dir, "reason": "", "sight_reason": "", "reject_dir": Vector3.ZERO}
+				else:
+					sight_reason = REJECT_NO_SKY
+		if _reject_rank(reason) > _reject_rank(best):
+			best = reason
+			best_sight = sight_reason
+			best_dir = dir
+	return {"dir": Vector3.ZERO, "reason": best, "sight_reason": best_sight, "reject_dir": best_dir}
 
 
-## `eye` itself when it is outside every growth-surface solid; otherwise the nearest point just
-## outside the solid it is in, or INF when that point is below the ground, cannot be found, or has
-## hero skin between it and the viewpoint (ivy-8mqi). Sky rays that start inside a proxy solid
-## pass out through its back faces unseen, so an interior hero face looking into a wall slab used
-## to count as exterior. A hero face buried under a solid with nothing but that solid between it
-## and open air (a bounding-box proxy) is still judged, and fails gate (a).
-func _clear_of_proxy(eye: Vector3, _dir: Vector3) -> Vector3:
+## Of the 17 level or rising directions to the faces, edges and corners of a cube around `point`,
+## how many leave the hero without meeting its skin (falling ones end on the ground). Report only:
+## 0 means `point` is sealed inside the hero (an interior room or attic, open only to the floor),
+## which is why a rejected viewpoint there is not exterior.
+func _hero_escapes(point: Vector3) -> int:
+	var escaped := 0
+	for ix in [-1, 0, 1]:
+		for iy in [0, 1]:
+			for iz in [-1, 0, 1]:
+				if ix == 0 and iy == 0 and iz == 0:
+					continue
+				var d := Vector3(ix, iy, iz).normalized()
+				if _cast(point, point + d * FAR, HERO_MASK).is_empty():
+					escaped += 1
+	return escaped
+
+
+static func _reject_rank(reason: String) -> int:
+	if reason in PROXY_EXIT_REJECTS:
+		return 3
+	if reason == REJECT_NO_SKY:
+		return 2
+	if reason == REJECT_NOT_VISIBLE:
+		return 1
+	return 0
+
+
+## [point, reason]: `eye` itself when it is outside every growth-surface solid; otherwise the
+## nearest point just outside the solid it is in, or INF (with the reason) when that point is below
+## the ground, cannot be found, or has hero skin between it and the viewpoint (ivy-8mqi). Sky rays
+## that start inside a proxy solid pass out through its back faces unseen, so an interior hero face
+## looking into a wall slab used to count as exterior. A hero face buried under a solid with
+## nothing but that solid between it and open air (a bounding-box proxy) is still judged, and fails
+## gate (a).
+func _clear_of_proxy(eye: Vector3, _dir: Vector3) -> Array:
 	var phi: float = _sdf.signed_distance(eye)
 	if phi >= 0.0:
-		return eye
+		return [eye, ""]
 	var q := eye
 	for i in PROXY_EXIT_TRIES:
 		q += _sdf.gradient_normalized(q) * (PROXY_EXIT_MARGIN - phi)
 		phi = _sdf.signed_distance(q)
 		if phi >= 0.0:
 			break
-	if phi < 0.0 or q.y < 0.0:
-		return Vector3.INF
+	return _checked_exit(eye, q, phi)
+
+
+## [point, reason]: like _clear_of_proxy, but leaving the solid straight along `dir` (the line of
+## sight, away from the hero face), marching the SDF out to at most SIGHT_EXIT_REACH. Used only
+## when the nearest way out is refused: the rib sides under a bounding-box proxy need the nearest
+## way (their line of sight runs into the next rib), a wall swallowed by a proxy over the relief
+## beside it needs this one (ivy-b1e.27).
+func _sight_exit(eye: Vector3, dir: Vector3) -> Array:
+	var phi: float = _sdf.signed_distance(eye)
+	var q := eye
+	var t := 0.0
+	while phi < 0.0:
+		t += PROXY_EXIT_MARGIN - phi
+		if t > SIGHT_EXIT_REACH:
+			return [Vector3.INF, REJECT_EXIT_NONE]
+		q = eye + dir * t
+		phi = _sdf.signed_distance(q)
+	return _checked_exit(eye, q, phi)
+
+
+## The tests a way out of a proxy solid, from `eye` to `q` (where the SDF reads `phi`), must pass.
+func _checked_exit(eye: Vector3, q: Vector3, phi: float) -> Array:
+	if phi < 0.0:
+		return [Vector3.INF, REJECT_EXIT_NONE]
+	if q.y < 0.0:
+		return [Vector3.INF, REJECT_EXIT_GROUND]
 	if not _cast(eye, q, HERO_MASK).is_empty():
-		return Vector3.INF
+		return [Vector3.INF, REJECT_EXIT_HERO]
 	# The way out may itself run through a gap the growth surface bridges (between shutter boards).
 	var leg := q - eye
 	if _slot_along(eye, leg.normalized(), 0.0, leg.length()):
-		return Vector3.INF
-	return q
+		return [Vector3.INF, REJECT_EXIT_SLOT]
+	return [q, ""]
 
 
 # ------------------------------------------------------------------------------------------------
@@ -501,6 +605,14 @@ func _sample_class(surface: String, target: int, rng: RandomNumberGenerator,
 	var absent := 0
 	var in_slot := 0
 	var drawn := 0
+	var rejected := {}
+	var rejected_samples := {}
+	for reason in PROXY_EXIT_REJECTS:
+		rejected[reason] = 0
+		rejected_samples[reason] = []
+	rejected[REJECT_NO_SKY] = 0
+	rejected[REJECT_NOT_VISIBLE] = 0
+	var below_ground := 0
 	var max_draws := target * 200
 	while gaps.size() < target and drawn < max_draws and not cumulative.is_empty():
 		drawn += 1
@@ -515,10 +627,25 @@ func _sample_class(surface: String, target: int, rng: RandomNumberGenerator,
 			v = 1.0 - v
 		var p := a + (b - a) * u + (c - a) * v
 		if p.y < 0.0:
+			below_ground += 1
 			continue
 		# Godot front faces are wound clockwise, so this is the front-facing normal.
-		var n_out := _exterior_normal(p, (c - a).cross(b - a).normalized())
+		var side := _exterior_side(p, (c - a).cross(b - a).normalized())
+		var n_out: Vector3 = side["dir"]
 		if n_out == Vector3.ZERO:
+			var why: String = side["reason"]
+			rejected[why] = int(rejected.get(why, 0)) + 1
+			if why in PROXY_EXIT_REJECTS and (rejected_samples[why] as Array).size() < REJECT_LIST_MAX:
+				# The gap this sample would have had, had that side been judged.
+				var would: Vector3 = side["reject_dir"]
+				(rejected_samples[why] as Array).append({
+					"node": _pieces[tri_piece[ti]]["name"],
+					"position": [p.x, p.y, p.z],
+					"dir": [would.x, would.y, would.z],
+					"g": float(_gap_at(p, would)[0]),
+					"sight_reason": side["sight_reason"],
+					"eye_escapes": _hero_escapes(p + would * VISIBLE_CLEARANCE),
+				})
 			continue
 		# Class R is judged against the tile field as modelled (troughs included): its float
 		# gate already allows for the crest envelope.
@@ -539,8 +666,9 @@ func _sample_class(surface: String, target: int, rng: RandomNumberGenerator,
 		if not by_node.has(piece["name"]):
 			by_node[piece["name"]] = []
 		by_node[piece["name"]].append(g)
+	rejected["below_ground"] = below_ground
 	return {"gaps": gaps, "area": total_area, "drawn": drawn, "sdf_fallback": sdf_fallback,
-		"absent": absent, "in_slot": in_slot}
+		"absent": absent, "in_slot": in_slot, "rejected": rejected, "rejected_samples": rejected_samples}
 
 
 func _audit_gap(target_w: int, target_r: int, seed_value: int) -> Dictionary:
@@ -563,7 +691,7 @@ func _audit_gap(target_w: int, target_r: int, seed_value: int) -> Dictionary:
 		var d: Dictionary = row[1]
 		var st := gap_stats(d["gaps"])
 		st["target"] = row[2]
-		for key in ["area", "drawn", "sdf_fallback", "absent", "in_slot"]:
+		for key in ["area", "drawn", "sdf_fallback", "absent", "in_slot", "rejected", "rejected_samples"]:
 			st[key] = d[key]
 		out[row[0]] = st
 	out["walls"]["fails"] = judge_walls(out["walls"], w_categories, target_w, drawn_w["absent"])
@@ -974,6 +1102,27 @@ static func _verdict(ok: bool) -> String:
 	return "PASS" if ok else "FAIL"
 
 
+## Gate (a) draws not judged, by reason; proxy-exit rejections are listed (worst would-be g first).
+static func _format_rejections(lines: PackedStringArray, cls: String, st: Dictionary) -> void:
+	if not st.has("rejected"):
+		return
+	var rj: Dictionary = st["rejected"]
+	var parts: PackedStringArray = []
+	for key in rj:
+		parts.append("%s %d" % [key, rj[key]])
+	lines.append("      %s draws not judged: %s" % [cls, ", ".join(parts)])
+	for reason in PROXY_EXIT_REJECTS:
+		var listed: Array = (st["rejected_samples"] as Dictionary).get(reason, [])
+		if listed.is_empty():
+			continue
+		var sorted := listed.duplicate()
+		sorted.sort_custom(func(x, y): return absf(x["g"]) > absf(y["g"]))
+		for s in sorted.slice(0, 12):
+			lines.append("        %s %-46s at (%.3f, %.3f, %.3f) dir (%.2f, %.2f, %.2f) would-be g %+.4f" % [
+				reason, s["node"], s["position"][0], s["position"][1], s["position"][2],
+				s["dir"][0], s["dir"][1], s["dir"][2], s["g"]])
+
+
 static func format_report(structure_id: String, report: Dictionary) -> String:
 	var a: Dictionary = report["a"]
 	var b: Dictionary = report["b"]
@@ -994,6 +1143,8 @@ static func format_report(structure_id: String, report: Dictionary) -> String:
 		lines.append("        -> %s (p95 <= %.2f, p99 <= %.2f, max <= %.2f, category median <= %.2f, none without proxy)%s" % [
 			_verdict(w["pass"]), GAP_W_P95_MAX, GAP_W_P99_MAX, GAP_W_ABS_MAX, GAP_W_CATEGORY_MEDIAN_MAX,
 			"" if w["pass"] else ": " + "; ".join(PackedStringArray(w["fails"]))])
+	for row in [["W", w], ["R", r]]:
+		_format_rejections(lines, row[0], row[1])
 	if not r["present"]:
 		lines.append("      R tiled roof: none on this structure")
 	elif int(r.get("n", 0)) == 0:

@@ -57,6 +57,16 @@ def merge(*meshes):
     return verts, tris
 
 
+def split_vertices(mesh):
+    """The same triangles with three vertices of their own each (unwelded, as a GLB may store them)."""
+    v, t = mesh
+    verts, tris = [], []
+    for tri in t:
+        tris.append((len(verts), len(verts) + 1, len(verts) + 2))
+        verts += [tuple(v[i]) for i in tri]
+    return verts, tris
+
+
 def drop_faces(mesh, axis, value):
     """Remove the triangles of `mesh` whose vertices all have coordinate `axis` == value."""
     v, t = mesh
@@ -528,6 +538,25 @@ class TestRule9ScaffoldSlabs(unittest.TestCase):
         self.assertAlmostEqual(lo[0], -2.5, places=6, msg="only FloorSlab and RoofCap are pulled")
         self.assertFalse(any("Legacy" in n for n in names))
         self.assertEqual(report["rules"]["scaffold_copied"], 4)
+
+    def test_scaffold_copy_with_split_vertices_is_welded_before_the_closure_test(self):
+        # ivy-b1e.27 (review ivy-b1e.26 B2): a GLB stores a box with its vertices split per face,
+        # as the cottage's FloorSlab and RoofCap are; unwelded, it read as "not closed".
+        sc = scaffold(("FloorSlab", split_vertices(box((-2.09, -0.3, -0.9), (2.0, 0.05, 0.9)))),
+                      ("RoofCap", split_vertices(box((-2.09, 3.0, -0.9), (2.0, 3.3, 0.9)))))
+        out, report = run(hero(("Wall", wall_sheet())), sc)
+        self.assertIn("t_sim_FloorSlab_i00", by_name(out))
+        self.assertIn("t_sim_RoofCap_i00", by_name(out))
+        self.assertEqual(report["warnings"], [])
+
+    def test_open_scaffold_copy_fails_the_build(self):
+        # AR-MESH-20.3: the tool fails when a result is not closed; an open scaffold sheet (the
+        # tower's RoofCone) was copied with only a warning.
+        cone = drop_faces(box((-1, 3, -1), (1, 4, 1)), 1, 3)
+        with self.assertRaises(bgs.BuildError) as ctx:
+            run(hero(("Wall", wall_sheet())), scaffold(("RoofCone", split_vertices(cone))))
+        self.assertIn("t_sim_RoofCone", str(ctx.exception))
+        self.assertIn("not closed", str(ctx.exception))
 
 
 class TestRule10ExemptAndFill(unittest.TestCase):

@@ -42,7 +42,7 @@ unless seals is hero) are copied from the scaffold GLB; every other scaffold nod
 scaffold) gives a byte-identical file.
 
 The build FAILS (exit 1, nothing written) instead of substituting a box when: an island fits no
-rule; a capped or extruded result is not closed; a boundary loop more than 5 mm out of plane has
+rule; a capped or extruded result, or a scaffold copy once welded, is not closed; a boundary loop more than 5 mm out of plane has
 no backing sheet; a hero node that is not exempt produced no solid; an envelope has no wall
 behind it; a config entry matches no hero node; or the proxy has an ivy-reachable slot narrower
 than 0.10 m (the report lists position and width). Exit 2 is a usage or input error.
@@ -1451,8 +1451,15 @@ def build(hero, scaffold, structure, centre_xz, settings, fail_on_slots=True):
                 lowered = [(p[0], min(p[1], 0.0), p[2]) for p in verts]
                 rules["9_pulled_vertices"] += sum(1 for a, b in zip(verts, lowered) if a != b)
                 verts = lowered
-        if not is_closed(tris):
-            report["warnings"].append(f"scaffold node {base} is not closed (copied as is)")
+        # A GLB may store a closed box with its vertices split per face: weld before the test, as
+        # rule 1 does for hero nodes, but copy the node as it is. An open copy is a failure, like any
+        # other result that is not closed (AR-MESH-20.3; ivy-b1e.27).
+        _wv, wt = weld(verts, tris)
+        if not is_closed(wt):
+            counts = directed_edge_counts(wt)
+            bad = sum(1 for e, n in counts.items() if n != 1 or counts.get((e[1], e[0])) != 1)
+            fail(f"scaffold node {base} is not closed once welded ({bad} open or non-manifold edges)")
+            continue
         rules["scaffold_copied"] += 1
         solids.append(_Solid(base, "scaffold", list(verts), list(tris), name=base + "_i00"))
 

@@ -330,6 +330,41 @@ func test_viewpoint_inside_a_proxy_solid_is_exterior_only_if_it_leads_out_above_
 	await get_tree().physics_frame
 
 
+## ivy-b1e.27 (review ivy-b1e.26 B1): a visible hero wall with the proxy floating 0.06 m off it must
+## fail (a) even when its 0.25 m viewpoint lies inside a proxy solid whose nearest way out (the SDF
+## gradient) crosses hero skin. Here the wall is recessed 0.06 m between two hero shelves 0.20 m
+## apart; the proxy bridges the recess flush with the wall (the bounding-box error) and its box
+## over the shelves (flush with their outsides) swallows the viewpoint. That box's nearest faces
+## are above and below, through a shelf, but the line of sight runs straight out of its front into
+## open air. ivy-8mqi's rule dropped every such sample unjudged and unreported, and (a) passed.
+func test_floating_proxy_over_a_visible_wall_fails_when_the_nearest_way_out_crosses_hero_skin() -> void:
+	var offset := Vector3(200.0, 0.0, 0.0)
+	var recess := 0.06
+	var hero: Array[AABB] = [
+		AABB(offset, Vector3(SLAB_SIZE.x, 0.88, SLAB_SIZE.z)),  # wall below the shelves
+		AABB(offset + Vector3(0.0, 1.12, 0.0), Vector3(SLAB_SIZE.x, SLAB_SIZE.y - 1.12, SLAB_SIZE.z)),  # above
+		AABB(offset + Vector3(recess, 0.88, 0.0), Vector3(SLAB_SIZE.x - recess, 0.24, SLAB_SIZE.z)),  # recessed band
+		AABB(offset + Vector3(-0.50, 0.88, 0.0), Vector3(0.50 + recess, 0.02, SLAB_SIZE.z)),  # lower shelf
+		AABB(offset + Vector3(-0.50, 1.10, 0.0), Vector3(0.50 + recess, 0.02, SLAB_SIZE.z)),  # upper shelf
+		AABB(offset + Vector3(-0.50, 0.88, -0.02), Vector3(0.50 + recess, 0.24, 0.02)),  # end cheeks
+		AABB(offset + Vector3(-0.50, 0.88, SLAB_SIZE.z), Vector3(0.50 + recess, 0.24, 0.02)),
+	]
+	var proxy: Array[AABB] = [
+		AABB(offset, SLAB_SIZE),  # flush with the wall face: bridges the recess
+		AABB(offset + Vector3(-0.50, 0.88, -0.02), Vector3(0.50, 0.24, SLAB_SIZE.z + 0.04)),  # over the shelves
+	]
+	var report: Dictionary = await _run_case(offset, proxy, hero)
+	var a: Dictionary = report["a"]["walls"]
+	var band_samples := 0
+	for st in report["a"]["worst_nodes"]:
+		if st["name"] == "t_hero_Wall_Ribbed_part_2":
+			band_samples = int(st["n"])
+			assert_almost_eq(float(st["max_abs"]), recess, 0.005, "the recessed band floats 0.06 m")
+	assert_gt(band_samples, 0, "the recessed band between the shelves is judged")
+	assert_false(a["pass"], "(a) must fail: the band is 0.06 m behind the proxy")
+	assert_gte(float(a["max_abs"]), 0.055)
+
+
 var _case_nodes: Array[Node] = []
 
 

@@ -187,7 +187,8 @@ python3 tools/build_growth_surface.py <hero.glb> <scaffold_sim.glb> <out_sim.glb
   when the hero or rule 11 changes (`--check` exits 1 while the committed list is stale, and so does
   `tools/test_build_growth_surface.py`).
 - It **fails** (exit 1, nothing written) instead of substituting a box: an island no rule covers, a
-  result that is not closed, a boundary loop more than 5 mm out of plane with no backing sheet, a hero
+  result that is not closed (a scaffold copy included, tested once welded, `ivy-b1e.27`), a boundary
+  loop more than 5 mm out of plane with no backing sheet, a hero
   node that is not exempt and produced no solid, an envelope with no wall behind it, a config entry
   that matches no node, or an ivy-reachable slot narrower than 0.10 m between parallel proxy faces
   (`--report` lists each slot's position, width, extent and the two nodes; close it with a `fill` box
@@ -251,8 +252,13 @@ of `tools/growth_surface_audit.gd` (`ivy-b1e.12`). `--samples` is the class W co
 of it. Three method details: class W samples inside a slot narrower than 0.10 m, or seen from outside
 only through one (a window pane behind closed shutter boards), are skipped (the growth surface bridges
 such a slot; `ivy-8mqi`); a sample whose 0.25 m viewpoint lands inside a growth-surface solid is judged
-from the nearest point just outside that solid, and not at all when that point is below the ground or
-behind hero skin (`ivy-8mqi`); and an inside probe for (c) only counts when no other proxy face lies
+from the nearest point just outside that solid, or, when that way out is below the ground, behind hero
+skin, through a bridged slot or not open to the sky, from the point where its line of sight leaves the
+solid (within 1 m), and not at all only when both ways out fail (`ivy-8mqi`, `ivy-b1e.27`: a proxy over
+the relief beside a recessed wall swallows the viewpoint, and its nearest way out runs through that
+relief). Every draw (a) does not judge is counted by reason in the report, and those turned down for
+want of a way out of a proxy solid are listed with position, would-be `g` and how many of 17 level or
+rising rays from the viewpoint leave the hero (0: sealed inside it); and an inside probe for (c) only counts when no other proxy face lies
 within 0.05 m of it (a hit beside an edge is not 0.10 m deep). The "0.20 m of solid behind the face"
 test is a one-sided cast, so it means "no front face within 0.20 m", which is solid only on a proxy
 that passes closure; the local thickness `τ` (first two-sided crossing along −n, counted only if it is
