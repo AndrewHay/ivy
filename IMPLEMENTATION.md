@@ -742,7 +742,7 @@ can see is an asset defect, not a tolerance. Flat wall should measure 0.
 | Depth or height **≥ 0.05 m**, both widths **≥ 0.15 m**, opening area **≥ 0.0225 m²** (0.15 × 0.15) | **Must be represented.** Listed by gate (b). Proxy depth within 0.03 m of the hero's. Applies equally to recesses and proud steps. Features wider than 1 m in both directions are judged by gate (a) alone. |
 | Depth 0.03–0.05 m, or ≥ 0.05 m deep but narrower than 0.15 m, or under the area floor | **Not listed by (b); still bound by (a).** The proxy may carry it or close it, whichever keeps class W inside its percentiles and the 0.05 m worst case. |
 | Depth **< 0.03 m** (brick and stone texture, mortar joints, board grain, plaques) | **Ignored micro-relief.** A render normal-map concern. Never listed by (b). Still counted by (a), so a hero with real geometric relief of 1–3 cm over more than 5 % of a structure's class W area fails (a) and is an asset problem to escalate, not a threshold to relax. |
-| Slot or gap **narrower than 0.10 m** (`2·h`, and the SD-MESH-3 hard floor) at any depth | **Closed.** The growth surface bridges it flush with the surrounding face. Ivy must never thread it. Hero surface inside such a slot is not ivy-reachable and is excluded from (a). Shutter slat gaps are this case: the shutter's growth surface is the envelope over its slats, not the frame's bounding box. |
+| Slot or gap **narrower than 0.10 m** (`2·h`, and the SD-MESH-3 hard floor) at any depth | **Closed.** The growth surface bridges it flush with the surrounding face. Ivy must never thread it. Hero surface inside such a slot, **or reached from open air only through such an opening, whatever its shape (a slit, a crack between two hero pieces, a notch)**, is not ivy-reachable and is excluded from (a), on the terms of SD-MESH-19.4.2 (it is still listed with its would-be gap, and it is judged after all if a clear way out exists). Shutter slat gaps are this case: the shutter's growth surface is the envelope over its slats, not the frame's bounding box. |
 | Slot 0.10–0.15 m wide | Asset author's choice: close it or represent it. If represented it must pass (a) and (c). |
 
 Area floor rationale: the baseline's only listed features under 0.0225 m² are the four tower corner
@@ -934,6 +934,110 @@ and after the closure fix. This ruling does not fix it.
 - How the tower's cone rim is closed (solid cone rim, or a fill down to the wall top) when
   `ivy-b1e.8` builds the tower surface.
 
+#### SD-MESH-19.4.2 — Gate (a): hero faces reached only through openings under 0.10 m (ruled 2026-11-16, `ivy-b1e.29`; awaiting owner ratification)
+
+**Question.** Tower candidate c2 (`ivy-b1e.8`, `.tmp/b1e8/tower/c2/`) fails (a) W on max only
+(p95 0.0010, p99 0.0027, max 0.1577). Exactly two judged samples exceed 0.03 m: +0.1577 at
+(5.364, 6.098, 1.446) on `Wall_UnevenBrick_Straight_0_0_001` and +0.0392 at (5.410, 6.202, −1.446)
+on `Wall_UnevenBrick_Straight_180_2`. Both are inner-band end faces of the north and south walls
+inside the west wall's hollow (two plaster sheets 0.20 m apart, open ends). The proxy is solid
+there, as ivy needs. The audit's way out from their viewpoints threads a crack of about
+1.4 × 3 mm between the cornice top and the cone, or the 9 cm corner notch. The slot test
+(`_slot_along`: 4 directions, 0.01 m steps) misses it. Are such faces judged?
+
+**Principle.** SD-MESH-19.2 already says it: ivy never passes an opening under 0.10 m, so a hero face
+that open air reaches only through one is not ivy-reachable. The gap is in how the audit detects the
+opening, not in the rule. Options considered: a named exception for the two tower samples (rejected:
+it does not generalise, it goes stale on the next hero export, and the same two-sheet kit walls
+recur on `square` and `surface_wall`); closing the cracks in the hero (rejected as the remedy: no
+player can see a 1.4 mm crack and no stem can enter it, so owner Blender time buys nothing; it stays
+the fallback below). Ruling: extend detection to openings of any shape, and add a guard so that the
+exemption can only be granted to a face that is actually shut in.
+
+**Ruling.**
+
+1. **Opening width.** At a point `x` on a straight path with direction `d`, the opening width is the
+   least, over 8 directions `t_k` at 22.5° spacing in the plane perpendicular to `d`, of
+   (hero hit distance along `+t_k`) + (hero hit distance along `−t_k`), each cast hero-only and at
+   most `SLOT_MAX_WIDTH` (0.10 m) long. If either cast misses, that direction reads wide. A path
+   **threads a narrow opening** when the width is under 0.10 m at any point on it, endpoints
+   included. 22.5° spacing overstates a width by at most 1/cos 11.25° = 1.020.
+2. **Resolution, as a contract.** The test must flag every opening of width ≤ 0.098 m whose extent
+   along the path is ≥ 0.001 m, at any position along the path and any orientation about it. It must
+   never flag an opening whose width perpendicular to the path is ≥ 0.10 m. The method is the
+   programmer's choice. Example: a coarse hero proximity query (sphere of radius 0.125 m every
+   0.05 m), and 0.001 m steps only where hero lies within reach. Fixed 0.01 m steps everywhere do
+   not meet this contract.
+3. **Paths tested.** (P1) the viewpoint segment, from `p + n·SLOT_PROBE_LIFT` to the eye at
+   `VISIBLE_CLEARANCE` (today's `_in_narrow_slot`, class W only). (P2) every way out of a proxy solid
+   the audit tries (the gradient exit and the line-of-sight exit, `ivy-b1e.27`), classes W and R.
+   (P3) the escape rays of item 5. All three use the test of items 1 and 2.
+4. **Narrow-opening candidate.** A side `n_s` of sample `p` is a candidate when P1 threads a narrow
+   opening (today `in_slot`), or when every way out tried is refused and at least one refusal is a
+   narrow opening (`exit_through_slot`).
+5. **Guard: clear escape.** From the sight origin `o = p + n_s·SLOT_PROBE_LIFT`, cast hero-only rays
+   along the 17 level-or-rising world directions of `_hero_escapes` and the 17 `_probe_dirs` about
+   `n_s`. A ray is a **clear escape** if it meets no hero skin out to `FAR` and threads no narrow
+   opening between `o` and where it leaves the hero's bounding box grown by 0.10 m. A candidate
+   with **one or more** clear escapes is **judged**: `n_out = n_s`, `g = _gap_at(p, n_s)`, counted in
+   every (a) statistic like any other sample, and counted as `judged_by_escape`. A candidate with
+   none is **not judged** (the exemption).
+6. **Fail-safe default.** An exemption must carry its evidence: the narrowest width measured
+   (< 0.10 m) and the point where it was measured. A candidate the audit cannot attach that to is
+   judged. Every uncertainty in this rule resolves toward judging.
+7. **Unchanged.** `SLOT_MAX_WIDTH` 0.10 m, `VISIBLE_CLEARANCE`, `SIGHT_EXIT_REACH`, every (a)
+   threshold, and the other rejection reasons (`exit_blocked_by_hero`, `exit_below_ground`,
+   `no_exit_found`, `not_open_to_sky`, `not_visible`, `below_ground`). The guard covers
+   narrow-opening candidates only (see the escalation at the end).
+
+**What must still be reported, so the gate can still fail.** Per class W and R, in the JSON and the
+text report:
+- Counts: narrow-opening exemptions split by path (P1 `in_slot`, P2 `exit_through_slot`), and
+  `judged_by_escape`.
+- A list of **every** exemption (P1 ones too: today they are only counted), with the counts whole
+  even past `REJECT_LIST_MAX`. Each entry: node, position, side `n_s`, would-be `g`, the path that
+  threaded (viewpoint, gradient or sight), narrowest width and its position, and clear escapes (0).
+- One summary line under each (a) verdict: number of exemptions, how many have would-be `|g|` above
+  0.03 m, and the worst would-be `g` with node, position and opening width.
+
+The gate fails through items 5 and 6. A shut-in face with a wide view out is judged, and so is a
+candidate with no evidence. A large would-be gap is never hidden: it is printed beside the verdict.
+SG-7(b), the human read, still covers what the audit cannot see.
+
+**The tower's two samples.** **Not judged** under this rule, provided the implementing bead's listing
+shows each as a narrow-opening exemption with its narrowest width at the cornice-to-cone crack
+(about 0.0014 m) or the corner notch (about 0.09 m), near x 5.24–5.44, y 6.1–6.25, and 0 clear
+escapes. Every other judged c2 sample is at or under 0.03 m (`gaps_baked.txt`), so (a) W max then
+passes and p95/p99 barely move. If either sample shows a clear escape, it stays judged and the tower
+keeps failing (a). The remedy then is the hero, an owner-run Blender step: close the crack and notch,
+or cap the wall-hollow ends. It is not an exception.
+
+**How the rule can fail.**
+
+| Failure | Direction | Containment |
+|---|---|---|
+| A wide view out at an angle none of the 34 escape rays takes, so a reachable face is exempted | false PASS | Listed with its would-be `g`; summary line; SG-7(b). Accepted limit. |
+| A slit in a zero-thickness hero sheet (extent along the path under 0.001 m) is not detected | sample judged: possible false FAIL | Safe direction. Fix the hero or report. |
+| A crack the player can see (a 5 cm gap that shows a hero interior) exempts the faces behind it | correct for ivy (the builder bridges it) | A look defect for SG-7(b), not gate (a). |
+| The proxy behind a crack is wrong (a hollow or open sheet in the proxy) | not gate (a)'s to catch | Gate (c) inside and closure. |
+| Fine stepping makes the audit slow | cost | Report wall time before and after per structure. Over 2× is reported, not a gate. |
+
+**Must stay judged (a test fixture).** A hero cavity whose only exits the audit tries thread a
+1.5 mm crack, under a solid proxy, with its back face floating ≥ 0.06 m behind the proxy, plus one
+opening ≥ 0.15 × 0.15 m in a side wall in line with a level escape direction from that face. The
+back-face samples are judged (`judged_by_escape` > 0) and (a) **FAILS** with max close to the float.
+The same cavity without the side opening: not judged, every exemption listed with width < 0.005 m
+and clear escapes 0, and (a) passes. The fixture is red first against today's code: its crack must
+be missed by the current 0.01 m / 4-direction test. The `ivy-b1e.27` visible-wall regression test
+(`test_floating_proxy_over_a_visible_wall_fails_when_the_nearest_way_out_crosses_hero_skin`) must
+still fail (a).
+
+**Escalated, not decided.** Should the clear-escape guard also govern the other proxy-exit
+rejections (`exit_blocked_by_hero`, `no_exit_found`), making `ivy-b1e.27`'s "eye_escapes 0, sealed"
+justification a checked rule rather than a reviewed one? That is principled, but it is outside this
+case and would change what (a) counts on the cottage and square. Owner or Director call. File it
+separately if wanted.
+
 #### SD-MESH-19.5 — Relief test article (SG-9(d))
 
 A synthetic structure built from boxes, so every distance below is checked against exact analytic
@@ -1046,6 +1150,7 @@ be a far node. Floating far nodes are reported so a change in free-shoot behavio
 | Closed solid thinner than 0.10 m (a 0.05 m eave lip) | No inside probe (SD-MESH-19.4.1); its faces are still held to (c) face. 0.10–0.20 m: probed at mid-thickness. |
 | Proxy missing over part of the hero (cottage west roof) | Counted at 0.60 m, fails the class's percentiles, and the non-zero "no proxy in reach" count fails by itself. |
 | Hero has a slot under 0.10 m | Closed in the growth surface; samples inside are excluded; ivy crosses it flush. |
+| Hero face inside a hollow wall body, seen only through a crack or notch under 0.10 m (tower west wall, `ivy-b1e.29`) | Not judged by (a) and listed with its would-be gap (SD-MESH-19.4.2). If any clear way out of 0.10 m or more exists from the face, it is judged. |
 | Hero has 1–3 cm geometric relief over a large area | Fails (a) p95. Escalate to the Director with the measured share; do not exempt a category. |
 | Sharp-edge trilinear error on a clean asset exceeds the (c) cap | Report the measured max and escalate; a finer pitch for that asset (SD-MESH-16 header pitch) is an owner decision. |
 | Probe yields too few crossings | Inconclusive = fail (D0). |
