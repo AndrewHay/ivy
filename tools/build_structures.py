@@ -82,9 +82,12 @@ from cottage_layout import (  # noqa: E402
     PIECE_WALL,
     PIECE_WALL_BRICK,
     PIECE_WALL_DOOR,
-    PIECE_WALL_WINDOW,
     ROOF_BY_BAYS,
+    SHUTTER_BACKING,
+    SILL_DEPTH_SCALE,
     all_wall_slots,
+    box_mesh,
+    trim_window_header,
     KIT_EXTERIOR_LOCAL,
     cottage_corner_posts,
     cottage_derived,
@@ -95,7 +98,9 @@ from cottage_layout import (  # noqa: E402
     cottage_style,
     door_leaf_fit,
     piece_for_slot,
+    set_cottage_style,
 )
+from kit_openings import coverage_probe_points, seal_spec  # noqa: E402
 
 argv = sys.argv[sys.argv.index("--") + 1 :]
 KIT = argv[0]
@@ -130,6 +135,10 @@ if len(argv) > 2:
             i += 1
         elif a == "--omit-seal" and i + 1 < len(argv[2:]):
             OMIT_SEAL = argv[3 + i]
+            i += 1
+        elif a == "--cottage-style" and i + 1 < len(argv[2:]):
+            # e.g. --cottage-style window=frame,sill=shallow (ivy-b1e.17 design variants)
+            set_cottage_style(argv[3 + i])
             i += 1
         else:
             rest.append(a)
@@ -1010,6 +1019,8 @@ def enumerate_cottage_apertures(cfg, d):
             "wall_loc": wall_loc,
             "z_base": 0.0,
             "spec": APERTURE_SPECS[kind],
+            "piece": piece,
+            "seal_spec": seal_spec(piece),
             "label": f"ground {'door' if kind == 'door' else 'win'} {side_letter[side]}",
         }
         if kind == "door":
@@ -1077,6 +1088,48 @@ def swap_kit_glass(obj, glass_mat):
             mats[i] = glass_mat
 
 
+def trim_insert_header(obj):
+    """ivy-b1e.25 header=trim: pull the insert lintel's ends in (per-object mesh copy)."""
+    verts = obj.data.vertices
+    trimmed = trim_window_header([tuple(v.co) for v in verts])
+    for v, co in zip(verts, trimmed):
+        v.co = co
+    obj.data.update()
+
+
+SHUTTER_BACKING_MAT = "HeroShutterBacking"
+SHUTTER_BACKING_RGB = (0.25, 0.14, 0.07)  # linear; mid wood, darkened by the plank shadow
+
+
+def shutter_backing_material():
+    mat = bpy.data.materials.get(SHUTTER_BACKING_MAT)
+    if mat is None:
+        mat = bpy.data.materials.new(SHUTTER_BACKING_MAT)
+        mat.use_nodes = True
+        bsdf = mat.node_tree.nodes.get("Principled BSDF")
+        bsdf.inputs["Base Color"].default_value = (*SHUTTER_BACKING_RGB, 1.0)
+        bsdf.inputs["Roughness"].default_value = 0.9
+    return mat
+
+
+def add_shutter_backing(obj):
+    """ivy-b1e.25 shutter_back=backed: a board behind the planks, part of the shutter's own
+    mesh so every downstream rule that treats the shutter treats it too. It has no UVs, so
+    it gets a flat untextured material rather than the planks' wood texture."""
+    mats = obj.data.materials
+    mats.append(shutter_backing_material())
+    slot = len(mats) - 1
+    verts, faces = box_mesh(SHUTTER_BACKING)
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    new = [bm.verts.new(v) for v in verts]
+    for f in faces:
+        bm.faces.new([new[i] for i in f]).material_index = slot
+    bm.to_mesh(obj.data)
+    bm.free()
+    obj.data.update()
+
+
 def place_cottage_corner_posts(cfg, hero_col, prefix, world_offset):
     """ivy-b1e.17.2: kit timber post over the trim gap at each outer corner."""
     parts = []
@@ -1118,17 +1171,24 @@ def assemble_cottage_hero(cfg, hero_col, hero_roof_mat, glass_mat, world_offset)
             # sill) and hangs the shutter on it where the kit authored it; "flush" has
             # no insert and seats the shutter on the plaster.
             frame = style["window"] == "frame"
-            parts.append(
-                place_cottage_kit(
-                    PIECE_SHUTTER, cfg, side, bay, hero_col, hero_data, prefix, world_offset,
-                    local=None if frame else cottage_shutter_local(),
-                )
+            # ivy-b1e.17.6: "shallow" squashes the insert and the shutters hung on it about
+            # the plaster face (y = 0), so they stay seated on the frame's lip.
+            depth = Matrix.Diagonal((1.0, SILL_DEPTH_SCALE[style["sill"]], 1.0, 1.0))
+            shutter = place_cottage_kit(
+                PIECE_SHUTTER, cfg, side, bay, hero_col, hero_data, prefix, world_offset,
+                local=depth if frame else cottage_shutter_local(),
             )
+            if style["shutter_back"] == "backed":
+                add_shutter_backing(shutter)
+            parts.append(shutter)
             if frame:
                 insert = place_cottage_kit(
-                    PIECE_WINDOW_INSERT, cfg, side, bay, hero_col, hero_data, prefix, world_offset
+                    PIECE_WINDOW_INSERT, cfg, side, bay, hero_col, hero_data, prefix, world_offset,
+                    local=depth,
                 )
                 swap_kit_glass(insert, glass_mat)
+                if style["header"] == "trim":
+                    trim_insert_header(insert)
                 parts.append(insert)
         if slot == door and style["door"] == "frame":
             # The kit frame's sill dips 8.5 mm below its origin; lift it to sit on grade.
@@ -1183,6 +1243,48 @@ def cottage_sim_shell_from_hero(hero_obj, sim_col, clay, sim_name: str):
     return place_clay_box(sim_name, center, (size.x, size.y, size.z), sim_col, clay)
 
 
+def cottage_sim_shells_from_parts(hero_obj, sim_col, clay, sim_name: str, pad: float = 0.03):
+    """ivy-b1e.17.7: one padded clay box per connected part of a multi-part kit piece
+    (window insert: sill, jambs, header, lip, glazing bars; door frame: posts, lintel,
+    threshold), so the growth surface follows each part instead of one box over all
+    of them. Glass parts are skipped (the aperture panel seals the opening). Kit pieces
+    here are only rotated by multiples of 90 degrees, so world AABBs stay tight.
+    """
+    mesh = hero_obj.data
+    mats = mesh.materials
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-4)
+    mw = hero_obj.matrix_world
+    seen = set()
+    parts = []
+    for face in bm.faces:
+        if face.index in seen:
+            continue
+        seen.add(face.index)
+        stack, comp = [face], []
+        while stack:
+            f = stack.pop()
+            comp.append(f)
+            for e in f.edges:
+                for g in e.link_faces:
+                    if g.index not in seen:
+                        seen.add(g.index)
+                        stack.append(g)
+        mat = mats[comp[0].material_index] if len(mats) > comp[0].material_index else None
+        if mat is not None and "Glass" in mat.name:
+            continue
+        pts = [mw @ v.co for f in comp for v in f.verts]
+        mins = Vector((min(p[i] for p in pts) for i in range(3)))
+        maxs = Vector((max(p[i] for p in pts) for i in range(3)))
+        size = maxs - mins + Vector((2 * pad, 2 * pad, 2 * pad))
+        parts.append(place_clay_box(
+            f"{sim_name}_{len(parts)}", (mins + maxs) / 2.0, (size.x, size.y, size.z), sim_col, clay,
+        ))
+    bm.free()
+    return parts
+
+
 def assemble_cottage_sim(cfg, sim_col, clay, world_offset, omit_seal=None, hero_col=None):
     name = cfg["name"]
     print(f"\n[{name}] assembling cottage simulation mesh", flush=True)
@@ -1206,7 +1308,9 @@ def assemble_cottage_sim(cfg, sim_col, clay, world_offset, omit_seal=None, hero_
         sim_name = f"{prefix}{tail}"
         if tail.startswith(("Wall_Plaster", "Wall_UnevenBrick")):
             kit = _cottage_kit_from_hero_name(tail)
-            if kit in (PIECE_WALL, PIECE_WALL_BRICK):
+            # Plain bays (any Straight variant) get a padded shell; door/window walls
+            # keep the solidified kit piece so their opening stays open for the panel.
+            if "Door" not in kit and "Window" not in kit:
                 parts.append(cottage_sim_shell_from_hero(hero_obj, sim_col, clay, sim_name))
             elif kit is not None:
                 obj = bpy.data.objects.new(sim_name, solid_data(kit).copy())
@@ -1237,7 +1341,8 @@ def assemble_cottage_sim(cfg, sim_col, clay, world_offset, omit_seal=None, hero_
         elif tail.startswith(CORNER_POST_NODE):
             # ivy-b1e.17.2: padded box closes the corner notch the wall shells leave.
             parts.append(cottage_sim_shell_from_hero(hero_obj, sim_col, clay, sim_name))
-        # PIECE_WINDOW_INSERT / PIECE_DOOR_FRAME stay hero-only (no sim solid).
+        elif tail.startswith((PIECE_WINDOW_INSERT, PIECE_DOOR_FRAME)):
+            parts += cottage_sim_shells_from_parts(hero_obj, sim_col, clay, sim_name)
     slab_half_x = d["wall_x"]
     slab_half_y = d["wall_y"]
     parts.append(
@@ -1329,6 +1434,8 @@ def enumerate_apertures(cfg, d):
                     "wall_loc": n * wall_r + tang * offsets[i],
                     "z_base": z_base,
                     "spec": APERTURE_SPECS[kind],
+                    "piece": nm,
+                    "seal_spec": seal_spec(nm),
                     "label": f"{tag} {'door' if kind == 'door' else 'win'} {side}",
                 })
     return apertures
@@ -1489,7 +1596,8 @@ def place_hero_seals(ap, hero_col, prefix, world_offset, glass_mat, wood_mat=Non
 def place_sim_panel(ap, sim_col, prefix, world_offset, clay, omit=False):
     if omit:
         return None
-    spec = ap["spec"]
+    # ivy-b1e.19: the growth-surface seal covers the kit piece's real hole plus a tuck.
+    spec = ap.get("seal_spec", ap["spec"])
     width = spec["x1"] - spec["x0"]
     height = spec["z1"] - spec["z0"]
     centre_local = Vector((
@@ -1797,6 +1905,30 @@ def probe_aperture_state(label, origin, direc, sim_parts, expect, panel_id=None)
     return len(hits), state
 
 
+def aperture_coverage(ap, sim_parts, wo):
+    """ivy-b1e.19: probe 9 points just inside the kit piece's real hole (corners, edge
+    midpoints, centre), each with a short ray through the wall thickness only. A point
+    is sealed when the ray enters and leaves sim solid (panel or wall) within the wall.
+    Shutter and frame shells are excluded so they cannot mask an undersized panel.
+
+    Returns the list of (x, z) aperture-local points that leak.
+    """
+    if "piece" not in ap:
+        return []
+    masking = ("WindowShutters", PIECE_WINDOW_INSERT, PIECE_DOOR_FRAME)
+    targets = [p for p in sim_parts if not any(m in p.name for m in masking)]
+    m = wall_world_matrix(ap["yaw"], ap["wall_loc"], wo, ap["z_base"])
+    inward = (m.to_3x3() @ Vector((0.0, 1.0, 0.0))).normalized()
+    standoff = 0.5
+    leaks = []
+    for x, z in coverage_probe_points(ap["piece"]):
+        origin = m @ Vector((x, 0.0, z)) - inward * standoff
+        hits = ray_crossings(targets, origin, inward, reach=standoff + TARGET_T + 0.2)
+        if len(hits) < 2:
+            leaks.append((x, z))
+    return leaks
+
+
 def verify_apertures(name, sim_parts, cfg, wo, d, apertures):
     results = []
     for ap in apertures:
@@ -1805,6 +1937,18 @@ def verify_apertures(name, sim_parts, cfg, wo, d, apertures):
             ap["label"], origin, direc, sim_parts, "sealed", panel_id=ap["id"])
         print(f"  {ap['label']:18s} n={n_hits}  {state}")
         results.append((ap["label"], state))
+        if ap["id"] in set(cfg.get("open_apertures", [])):
+            print(f"  {ap['label']:18s} edges  skipped (open by design)")
+            continue
+        leaks = aperture_coverage(ap, sim_parts, wo)
+        if "piece" in ap:
+            if leaks:
+                pts = ", ".join(f"({x:+.3f},{z:.3f})" for x, z in leaks)
+                cover = f"LEAK FAIL at {len(leaks)}/9 [{pts}]"
+            else:
+                cover = "COVERED 9/9"
+            print(f"  {ap['label']:18s} edges  {cover}")
+            results.append((f"{ap['label']} edges", cover))
     for label, origin, direc, expect in layout_aperture_probes(cfg, wo, d):
         if not label.startswith("solid "):
             continue
@@ -1940,47 +2084,73 @@ def _hero_has_baked_geometry(obj):
     return centroid.length > 0.25
 
 
-def wall_storey_z_base(cfg, yaw_deg):
-    for si, sides in enumerate(cfg["storey_sides"]):
-        for side_yaw, _names in sides:
-            if float(side_yaw) == float(yaw_deg):
-                return si * WALL_H
-    return 0.0
+# Hero wall object suffix: <kit>_<yaw>_<index>, plus Blender's ".001" when two storeys
+# place the same kit piece at the same yaw/index (the tower; ivy-b1e.22).
+_HERO_WALL_NAME_RE = re.compile(r"^(Wall_UnevenBrick_.+)_(\d+)_(\d+)(?:\.\d{3})?$")
 
 
-def wall_placement_matrix(cfg, d, world_offset, yaw_deg, idx, z_base=0.0):
-    """World matrix for a sim wall piece matching ``place_wall_run`` placement."""
+def parse_hero_wall_name(suffix):
+    """(kit name, yaw degrees, bay index) of a hero wall object suffix, or None."""
+    m = _HERO_WALL_NAME_RE.match(suffix)
+    if m is None:
+        return None
+    return m.group(1), float(m.group(2)), int(m.group(3))
+
+
+def hero_wall_storey(hero_obj, world_offset):
+    """Storey index from the hero object's own height, not from its yaw: both tower
+    storeys have walls at every yaw (ivy-b1e.22)."""
+    if _hero_has_baked_geometry(hero_obj):
+        base_z = min(v.co.z for v in hero_obj.data.vertices)
+    else:
+        base_z = hero_obj.matrix_world.translation.z
+    return max(0, int(round((base_z - world_offset.z) / WALL_H)))
+
+
+def wall_placement_matrix(cfg, d, world_offset, yaw_deg, idx, storey=0, kit_name=None):
+    """World matrix for a sim wall piece matching ``place_wall_run`` placement.
+
+    ``kit_name``, when given, must be the piece the config puts at that storey, yaw
+    and index; a mismatch means the storey was derived wrongly, so it raises."""
     yaw_deg = float(yaw_deg)
     idx = int(idx)
+    storeys = cfg["storey_sides"]
+    if storey < 0 or storey >= len(storeys):
+        raise ValueError(f"structure '{cfg['name']}': storey {storey} out of range")
     half = d["half"]
     n, tang = side_vectors(yaw_deg)
     yr = math.radians(yaw_deg)
-    for si, sides in enumerate(cfg["storey_sides"]):
-        storey_z = si * WALL_H
-        for side_yaw, names in sides:
-            if float(side_yaw) != yaw_deg:
-                continue
-            placements = resolve_wall_placements(cfg, d, names)
-            if idx < 0 or idx >= len(placements):
-                raise ValueError(
-                    f"structure '{cfg['name']}': wall index {idx} out of range for yaw {yaw_deg}"
-                )
-            _nm, tang_off, sx = placements[idx]
-            loc = n * (half - EXT_OFFSET) + tang * tang_off
-            loc.z = z_base + storey_z
-            mat = Matrix.Translation(loc + world_offset) @ Matrix.Rotation(yr, 4, "Z")
-            if sx != 1.0:
-                mat @= Matrix.Scale(sx, 4, Vector((1.0, 0.0, 0.0)))
-            return mat
-    raise ValueError(f"structure '{cfg['name']}': no storey side with yaw {yaw_deg}")
+    for side_yaw, names in storeys[storey]:
+        if float(side_yaw) != yaw_deg:
+            continue
+        placements = resolve_wall_placements(cfg, d, names)
+        if idx < 0 or idx >= len(placements):
+            raise ValueError(
+                f"structure '{cfg['name']}': wall index {idx} out of range for yaw {yaw_deg}"
+            )
+        nm, tang_off, sx = placements[idx]
+        if kit_name is not None and nm != kit_name:
+            raise ValueError(
+                f"structure '{cfg['name']}': storey {storey} yaw {yaw_deg} index {idx} "
+                f"is {nm}, hero object is {kit_name}"
+            )
+        loc = n * (half - EXT_OFFSET) + tang * tang_off
+        loc.z = storey * WALL_H
+        mat = Matrix.Translation(loc + world_offset) @ Matrix.Rotation(yr, 4, "Z")
+        if sx != 1.0:
+            mat @= Matrix.Scale(sx, 4, Vector((1.0, 0.0, 0.0)))
+        return mat
+    raise ValueError(f"structure '{cfg['name']}': storey {storey} has no side with yaw {yaw_deg}")
 
 
-def hero_wall_sim_matrix(hero_obj, cfg, d, world_offset, yaw_deg, idx):
+def hero_wall_sim_matrix(hero_obj, cfg, d, world_offset, kit_name, yaw_deg, idx):
     mw = hero_obj.matrix_world.copy()
     if not _hero_has_baked_geometry(hero_obj):
         return mw
-    z_base = wall_storey_z_base(cfg, yaw_deg)
-    return wall_placement_matrix(cfg, d, world_offset, yaw_deg, idx, z_base=z_base)
+    return wall_placement_matrix(
+        cfg, d, world_offset, yaw_deg, idx,
+        storey=hero_wall_storey(hero_obj, world_offset), kit_name=kit_name,
+    )
 
 
 def export_collection(objects, path, root_name):
@@ -2048,24 +2218,23 @@ def sync_sim_walls_from_hero(name, hero_col, sim_col, clay, cfg, d, world_offset
     """Place sim wall solids at the same world transforms as hero wall pieces."""
     hero_prefix = f"{name}_hero_"
     parts = []
-    wall_re = re.compile(r"^Wall_UnevenBrick_.+_(\d+)_(\d+)$")
     for obj in hero_col.all_objects:
         if obj.type != "MESH" or not obj.name.startswith(hero_prefix):
             continue
         suffix = obj.name[len(hero_prefix):]
         if not suffix.startswith("Wall_UnevenBrick_"):
             continue
-        m = wall_re.match(suffix)
-        if m is None:
-            print(f"  skip hero wall with unexpected name: {obj.name}", flush=True)
-            continue
-        yaw_s, idx_s = m.group(1), m.group(2)
-        kit_nm = suffix[: -(len(yaw_s) + len(idx_s) + 2)]
-        sim_name = f"{name}_sim_{kit_nm}_{yaw_s}_{idx_s}"
+        parsed = parse_hero_wall_name(suffix)
+        if parsed is None:
+            raise SystemExit(f"hero wall with unexpected name: {obj.name}")
+        kit_nm, yaw, idx = parsed
+        # Same name as place_wall_run gives; Blender adds .001 for the upper storey,
+        # exactly as in the full build.
+        sim_name = f"{name}_sim_{kit_nm}_{int(yaw)}_{idx}"
         sim_obj = bpy.data.objects.new(sim_name, solid_data(kit_nm).copy())
         sim_col.objects.link(sim_obj)
         sim_obj.matrix_world = hero_wall_sim_matrix(
-            obj, cfg, d, world_offset, float(yaw_s), int(idx_s),
+            obj, cfg, d, world_offset, kit_nm, yaw, idx,
         )
         assign_material(sim_obj, clay)
         parts.append(sim_obj)
@@ -2427,6 +2596,9 @@ if EXPORT_BLEND is None and REBUILD_BLEND is None:
             n_hits, state = probe_aperture_state(
                 falsify["label"], origin, direc, sim_without, "sealed", panel_id=falsify["id"])
             print(f"  without panel: {falsify['label']:18s} n={n_hits}  {state}")
+            leaks = aperture_coverage(falsify, sim_without, data["wo"])
+            print(f"  without panel: {falsify['label']:18s} edges  "
+                  f"{'LEAK FAIL at %d/9 (expected)' % len(leaks) if leaks else 'COVERED 9/9 (check is blind!)'}")
             break
 
     print(f"\nstructures built: {list(built.keys())}")

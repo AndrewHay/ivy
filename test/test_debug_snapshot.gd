@@ -192,6 +192,79 @@ func test_box_over_wall_hits_collider() -> void:
 	}
 	var enriched := SnapshotCapture.enrich_annotations(main, null, [entry], Vector2(800, 600))
 	assert_gt(enriched[0]["world_anchors"].size(), 0, "rays through box centre should hit the wall collider")
+	assert_eq(str(enriched[0]["camera_inside_collider"]), "", "camera is outside every collider")
+
+
+## ivy-b1e.11: the debug camera can sit inside a proxy slab (snapshot 20261031-061030:
+## 2 cm inside the cottage left_1 wall). Structure proxies are trimeshes, whose faces a
+## ray from inside hits from the back; those anchors described the slab's own end face,
+## not what the player sees. Anchors must be the first FRONT-face hit, and the snapshot
+## must say the camera was inside.
+func _camera_in_proxy_scene(trimesh: bool) -> Node3D:
+	var main := Node3D.new()
+	add_child_autofree(main)
+	var world := Node3D.new()
+	world.name = "World"
+	main.add_child(world)
+	var cam := Camera3D.new()
+	cam.name = "DebugCamera"
+	world.add_child(cam)
+	cam.position = Vector3(0.0, 0.0, 2.0)
+	cam.look_at(Vector3(0.0, 0.0, -5.0))
+	cam.current = true
+	# Proxy slab around the camera: thin in x like a wall, long along the view (z).
+	var proxy := StaticBody3D.new()
+	proxy.name = "Proxy"
+	var proxy_shape := CollisionShape3D.new()
+	var slab := BoxMesh.new()
+	slab.size = Vector3(4.0, 4.0, 2.0)
+	if trimesh:
+		proxy_shape.shape = slab.create_trimesh_shape()  # StructureBody's path
+	else:
+		var box := BoxShape3D.new()
+		box.size = slab.size
+		proxy_shape.shape = box
+	proxy.add_child(proxy_shape)
+	proxy.position = Vector3(0.0, 0.0, 2.0)
+	world.add_child(proxy)
+	var wall := StaticBody3D.new()
+	wall.name = "TestWall"
+	var wall_shape := CollisionShape3D.new()
+	var wall_box := BoxShape3D.new()
+	wall_box.size = Vector3(10.0, 10.0, 0.2)
+	wall_shape.shape = wall_box
+	wall.add_child(wall_shape)
+	wall.position = Vector3(0.0, 0.0, -3.0)
+	world.add_child(wall)
+	return main
+
+
+func _assert_anchors_skip_proxy(trimesh: bool) -> void:
+	var main := _camera_in_proxy_scene(trimesh)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var entry: Dictionary = {
+		"kind": "box",
+		"id": 1,
+		"comment": "",
+		"rect": SnapshotAnnotationModel.rect_to_norm_dict(Rect2(0.4, 0.4, 0.2, 0.2)),
+	}
+	var enriched := SnapshotCapture.enrich_annotations(main, null, [entry], Vector2(800, 600))
+	var anchors: Array = enriched[0]["world_anchors"]
+	assert_eq(anchors.size(), 9, "all 9 box rays reach the wall past the proxy")
+	for a in anchors:
+		assert_eq(str(a["collider"]), "TestWall", "anchor is the wall the camera sees, not the proxy")
+		assert_almost_eq(float(a["position"][2]), -2.9, 0.01)
+		assert_gt(float(a["normal"][2]), 0.5, "front face toward the camera")
+	assert_eq(str(enriched[0]["camera_inside_collider"]), "Proxy")
+
+
+func test_camera_inside_trimesh_proxy_skips_its_back_faces() -> void:
+	await _assert_anchors_skip_proxy(true)
+
+
+func test_camera_inside_convex_proxy_is_flagged() -> void:
+	await _assert_anchors_skip_proxy(false)
 
 
 func test_overlay_esc_emits_cancelled_without_completed() -> void:

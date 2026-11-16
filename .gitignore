@@ -28,3 +28,6 @@ wanderer_content/*
 .DS_Store
 __pycache__/
 *.pyc
+
+# Blender's automatic save backups (ivy-c848)
+*.blend1

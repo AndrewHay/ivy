@@ -87,16 +87,18 @@ Created in Blender by `tools/build_structures.py` (names appear in `*_hero.glb` 
 | `{name}_hero_RoofCone` | Conical tower roof | ✓ **`tower`** | ✓ (synced from hero) |
 | `{name}_sim_CornerColumn_*` | **0.45 m** corner posts, full height | — | ✓ ring layouts |
 | `{name}_hero_Corner_*` | `Corner_ExteriorWide_Brick`, `Corner_Exterior_Brick` trim | ✓ ring | — |
-| `{name}_hero_Seal_*_glass` | **0.02 m** glass pane | ✓ | — |
-| `{name}_hero_Seal_*_door` | `Door_2_Round` or `Door_1_Flat` leaf | ✓ | — |
-| `{name}_sim_Panel_*` | Aperture seal (**0.45 m** clay), doors/windows | — | ✓ |
-| **`ivy` growth surface** | `tools/build_growth_surface.py` solids from the hero: relief-exact walls, the roof's tile field (rule 11), ridge caps and their supports, 20 `fill` pieces | — | ✓ cottage layout (`ivy-b1e.7`) |
+| `{name}_hero_Seal_*_glass` | **0.02 m** glass pane (`ivy`: dark opaque `HeroGlassCottage`, sized to the kit hole + 2 cm) | ✓ | — |
+| `{name}_hero_Seal_*_door` | `Door_2_Round` or `Door_1_Flat` leaf (`ivy`: kit-textured, centred in its opening) | ✓ | — |
+| `{name}_sim_Panel_*` | Aperture seal (**0.45 m** clay): the kit piece's **real hole + 3 cm** tuck (`tools/kit_openings.py`), not the hero size | — | ✓ |
+| `ivy_hero_CornerPost_*` | Kit `Corner_Exterior_Wood` at the 4 outer corners (closes the wall-trim gap) | ✓ | via the growth surface |
+| `ivy_hero_Window_Wide_Flat1_*`, `ivy_hero_DoorFrame_Flat_WoodDark_*` | Kit window insert (sill, casement, mullions) and timber door frame | ✓ | via the growth surface |
+| **`ivy` growth surface** | `tools/build_growth_surface.py` solids from the hero: relief-exact walls, the roof's tile field (rule 11), ridge caps and their supports, `fill` pieces. The Blender sim (wall shells, padded boxes per wooden part) is only its scaffold | — | ✓ cottage layout (`ivy-b1e.7`) |
 
 ### Which parts each playable building uses
 
 | Building | Walls | Doors / windows | Roof | Chimney / other |
 |---|---|---|---|---|
-| **`ivy`** | Tier A plaster + optional brick; sim = `tools/build_growth_surface.py` output (walls with their bands and reveals, shutters as envelopes, hero seals as panels, the tile field exact on the tiles) | `Door_1_Flat`, shutters, hero seals | `Roof_RoundTiles_4x6`, `Roof_Front_Brick4` ×2 | `Prop_Chimney2` |
+| **`ivy`** | Tier A plaster + optional brick; `Corner_Exterior_Wood` posts; sim = `tools/build_growth_surface.py` output (walls with their bands and reveals, shutters as envelopes, hero seals as panels, the tile field exact on the tiles) | `Door_1_Flat` in `DoorFrame_Flat_WoodDark`, `Window_Wide_Flat1` frames with closed shutters, hero seals | `Roof_RoundTiles_4x6`, `Roof_Front_Brick4` ×2 | `Prop_Chimney2` |
 | **`square`** | `Wall_UnevenBrick_*` ring (3 bays/side) | `Door_2_Round`, round windows, glass + panels | Flat **`RoofCap`** | Corner trim blocks |
 | **`tower`** | `Wall_UnevenBrick_*` (2 bays/side × 2 storeys) | Mixed round door/windows | **`RoofCone`** + cap | Corner trim; **`MidFloorSlab`** |
 | **`surface_wall`** | Long uneven-brick run + door | Same seal policy as ring | **`RoofCap`** | — |
@@ -214,6 +216,33 @@ python3 tools/bake_mesh_sdf.py assets/structures/relief_article_sim.glb assets/s
 (and the same bake for `relief_article_{r025,r050,bbox}_sim`). Catalog ids `relief_article`,
 `relief_article_r025`, `relief_article_r050`, `relief_article_bbox` (not in the picker); open one with
 `Godot res://tools/open_building.tscn -- --building=<id>`. Probe: `test/slow/test_relief_article_probe.gd`.
+
+### Blender build notes
+
+- **Worktrees:** the kit lives only in the main checkout (`assets/_local/` is gitignored). In a worktree, pass
+  the main checkout's kit path: the absolute `…/ivy/assets/_local/medieval_village_megakit/glTF` as the
+  build's first argument, and `--kit <that path>` to `rebuild_sim_from_hero.py`.
+- **`rebuild_sim_from_hero.py`** rebuilds only the sim from the saved blend (hero untouched). It is
+  cottage-aware (ivy-b1e.18). On multi-storey ring structures (`tower`) each hero wall's storey comes
+  from the object's own height, and Blender's `.001` duplicate names are accepted, so the rebuild
+  reproduces the full build's wall set (ivy-b1e.22: node bounds identical to the full-build
+  `tower_sim.glb`). A hero wall whose name cannot be parsed, or whose kit piece does not match the
+  config at that storey, yaw and bay, stops the rebuild instead of being skipped.
+- **Aperture checks** in the build log: every door/window prints `SEALED` (centre ray hits its panel) and
+  `edges COVERED 9/9` (9 probes just inside the kit piece's real hole all hit sim solid; ivy-b1e.19).
+  Apertures in `open_apertures` print `edges skipped (open by design)`. The closing
+  `FALSIFIABILITY` section removes one panel and must report `LEAK FAIL`.
+- **Cottage style variants** (ivy-b1e.17): production is `window=frame`, `door=frame` (kit window insert
+  with shutters on it; kit door frame). For design A/Bs, override per build with a build argument
+  after `--`, e.g. `--cottage-style window=flush,door=stretch,sill=shallow`, and write to a scratch
+  output dir. Keys and choices: `window` frame|flush, `door` frame|stretch, `sill` native|shallow,
+  `window_wall` flat|flat2, `plinth` none|all_l|all_lr|all_base (stone base under every plain bay on
+  all four sides), `header` native|trim (window lintel cut to the sill nose width so it clears the
+  corner post; ivy-b1e.25), `shutter_back` open|backed (recessed wood board behind the closed
+  shutter's planks so the plank gaps don't show the dark glass; ivy-b1e.25). Defaults live in
+  `COTTAGE_STYLE_DEFAULT` (`tools/cottage_layout.py`). (The older `IVY_COTTAGE_STYLE` env var still
+  works as a fallback, but commands should start with the executable path.)
+- `.blend` files are tracked in **Git LFS** (ivy-c848); Blender's `*.blend1` backups are gitignored.
 
 ### Growth-surface audit (SG-9 a–c)
 

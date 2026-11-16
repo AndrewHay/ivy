@@ -3,3 +3,4 @@
 assets/structures/*.glb filter=lfs diff=lfs merge=lfs -text
 assets/structures/*.sdf filter=lfs diff=lfs merge=lfs -text
 assets/structures/*.png filter=lfs diff=lfs merge=lfs -text
+assets/structures/*.blend filter=lfs diff=lfs merge=lfs -text

@@ -24,7 +24,7 @@ _CONFIGS_PATH = _REPO / "tools" / "structure_configs.json"
 
 def _load_blend_helpers():
     source = _BUILD_PATH.read_text().splitlines()
-    ns: dict = {"os": os, "Path": Path, "DRAFT": False, "FORCE": False}
+    ns: dict = {"os": os, "Path": Path, "re": __import__("re"), "DRAFT": False, "FORCE": False}
     start = next(i for i, line in enumerate(source) if line.startswith("def restore_export_hierarchy"))
     end = next(i for i, line in enumerate(source[start:], start) if line.startswith("def clear_collection_objects"))
     exec("\n".join(source[start:end]), ns)  # noqa: S102
@@ -254,6 +254,58 @@ class TestBakedHeroWallSync(unittest.TestCase):
         mat = self._helpers["wall_placement_matrix"](cfg, d, wo, 0.0, 1)
         self.assertAlmostEqual(mat.translation.x, -7.0)
         self.assertAlmostEqual(mat.translation.y, -2.91, places=2)
+
+
+class TestTowerUpperStoreyWallSync(unittest.TestCase):
+    """ivy-b1e.22: both tower storeys share wall names, so Blender suffixes the upper
+    storey's objects .001; the storey must come from the object, not its yaw."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._helpers = _load_wall_sync_helpers()
+        cls._cfg = json.loads(_CONFIGS_PATH.read_text())["tower"]
+        cls._d = cls._helpers["cfg_derived"](cls._cfg)
+        cls._wo = _FakeVector3(cls._cfg["scene_offset"])
+
+    def test_parses_blender_duplicate_suffix(self):
+        parse = self._helpers["parse_hero_wall_name"]
+        self.assertEqual(
+            parse("Wall_UnevenBrick_Straight_0_0.001"), ("Wall_UnevenBrick_Straight", 0.0, 0),
+        )
+        self.assertEqual(
+            parse("Wall_UnevenBrick_Window_Wide_Round_90_1"),
+            ("Wall_UnevenBrick_Window_Wide_Round", 90.0, 1),
+        )
+        self.assertIsNone(parse("Wall_UnevenBrick_Straight"))
+
+    def test_storey_from_baked_vertices(self):
+        storey = self._helpers["hero_wall_storey"]
+        upper = _FakeHeroObj([(-7.0, -3.0, 3.12), (-5.0, -3.0, 6.24)])
+        lower = _FakeHeroObj([(-7.0, -3.0, 0.0), (-5.0, -3.0, 3.12)])
+        self.assertEqual(storey(upper, self._wo), 1)
+        self.assertEqual(storey(lower, self._wo), 0)
+
+    def test_storey_from_live_transform(self):
+        storey = self._helpers["hero_wall_storey"]
+        hero = _FakeHeroObj([(0.0, 0.0, 0.0)], translation=(7.0, -3.0, 3.12))
+        self.assertEqual(storey(hero, self._wo), 1)
+
+    def test_upper_storey_matrix_height(self):
+        mat = self._helpers["wall_placement_matrix"](
+            # merge_straight_runs: the all-straight upper face is one piece, index 0.
+            self._cfg, self._d, self._wo, 0.0, 0, storey=1, kit_name="Wall_UnevenBrick_Straight",
+        )
+        self.assertAlmostEqual(mat.translation.z, 3.12)
+
+    def test_yaw_first_seen_upstairs_not_doubled(self):
+        mat = self._helpers["wall_placement_matrix"](self._cfg, self._d, self._wo, 90.0, 1, storey=1)
+        self.assertAlmostEqual(mat.translation.z, 3.12)
+
+    def test_kit_name_mismatch_raises(self):
+        with self.assertRaises(ValueError):
+            self._helpers["wall_placement_matrix"](
+                self._cfg, self._d, self._wo, 0.0, 1, storey=0, kit_name="Wall_UnevenBrick_Straight",
+            )
 
 
 class TestExportCollectionMeshRestore(unittest.TestCase):

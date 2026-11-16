@@ -42,7 +42,50 @@ class CottageStyleTest(unittest.TestCase):
 
     def test_override(self):
         style = cl.cottage_style({"IVY_COTTAGE_STYLE": '{"window": "flush", "door": "stretch"}'})
-        self.assertEqual(style, {"window": "flush", "door": "stretch"})
+        self.assertEqual(style, {**cl.COTTAGE_STYLE_DEFAULT, "window": "flush", "door": "stretch"})
+
+    def test_style_pieces_are_measured(self):
+        # Every selectable window wall has a measured hole, so its seal can be sized.
+        import kit_openings as ko
+        for piece in cl.WINDOW_WALL_PIECES.values():
+            self.assertIn(piece, ko.KIT_HOLES, piece)
+
+    def test_cli_style_parses_and_overrides(self):
+        self.assertEqual(cl.parse_cottage_style("window=frame, sill=shallow"),
+                         {"window": "frame", "sill": "shallow"})
+        self.assertEqual(cl.parse_cottage_style(""), {})
+        for bad in ("sill", "sill=deep", "roof=frame", "window=frame,door"):
+            with self.assertRaises(ValueError, msg=bad):
+                cl.parse_cottage_style(bad)
+        try:
+            cl.set_cottage_style("door=stretch")
+            self.assertEqual(cl.cottage_style({})["door"], "stretch")
+        finally:
+            cl.set_cottage_style("")
+        self.assertEqual(cl.cottage_style({}), cl.COTTAGE_STYLE_DEFAULT)
+
+    def test_plinth_covers_every_plain_bay_on_all_sides(self):
+        door, windows = "front:1", ["front:0", "left:0"]
+        try:
+            cl.set_cottage_style("plinth=all_lr,window_wall=flat2")
+            for side, bay in cl.all_wall_slots(3):
+                slot = f"{side}:{bay}"
+                piece = cl.piece_for_slot(slot, door, windows, "")
+                if slot == door:
+                    self.assertEqual(piece, cl.PIECE_WALL_DOOR)
+                elif slot in windows:
+                    self.assertEqual(piece, "Wall_Plaster_Window_Wide_Flat2")
+                else:
+                    self.assertEqual(piece, cl.PLINTH_L if bay % 2 == 0 else cl.PLINTH_R, slot)
+            cl.set_cottage_style("plinth=all_l")
+            self.assertEqual(cl.piece_for_slot("back:1", door, windows, ""), cl.PLINTH_L)
+            cl.set_cottage_style("plinth=none")
+            self.assertEqual(cl.piece_for_slot("back:1", door, windows, ""), cl.PIECE_WALL)
+            # Production default: alternating plinth bays (owner's pick, ivy-b1e.17.5).
+            cl.set_cottage_style("")
+            self.assertEqual(cl.piece_for_slot("back:1", door, windows, ""), cl.PLINTH_R)
+        finally:
+            cl.set_cottage_style("")
 
     def test_bad_value_rejected(self):
         with self.assertRaises(ValueError):
@@ -208,6 +251,61 @@ class KitConstantsMatchGltfTest(unittest.TestCase):
         for piece in (cl.PIECE_WINDOW_INSERT, cl.PIECE_DOOR_FRAME):
             self.assertTrue((_KIT / f"{piece}.gltf").exists(), piece)
         self.assertIn("MI_WindowGlass", _gltf_bounds(cl.PIECE_WINDOW_INSERT))
+
+    def test_header_trim_touches_only_the_lintel(self):
+        # The insert's only wood wider than the trim half-width above WINDOW_HEADER_Z0 is the
+        # lintel; jambs and casement stay narrower, so the trim leaves them alone.
+        lo, hi = _gltf_bounds(cl.PIECE_WINDOW_INSERT)["MI_WoodTrim"]
+        self.assertAlmostEqual(hi[0], 0.804, delta=1e-3)
+        self.assertGreater(cl.WINDOW_HEADER_Z0, 2.0)
+        self.assertLess(cl.WINDOW_HEADER_Z0, 2.383)  # lintel bottom
+
+    def test_shutter_backing_sits_behind_the_planks(self):
+        b = cl.SHUTTER_BACKING
+        # Behind the planks (whose back face is y = -0.198) and in front of the wall (y = 0),
+        # and no wider or taller than the shutter so it never shows past its outline.
+        self.assertGreater(b["y0"], -0.198)
+        self.assertLess(b["y1"], 0.0)
+        lo, hi = _gltf_bounds(cl.PIECE_SHUTTER)["MI_WoodTrim_Wear"]
+        self.assertGreaterEqual(b["x0"], lo[0] - 1e-3)
+        self.assertLessEqual(b["x1"], hi[0] + 1e-3)
+        self.assertGreaterEqual(b["z0"], lo[2] - 1e-3)
+        self.assertLessEqual(b["z1"], hi[2] + 1e-3)
+
+
+class WindowPolishTest(unittest.TestCase):
+    """ivy-b1e.25: lintel end clear of the corner post; no see-through slits in the shutter."""
+
+    def test_header_trim_clamps_lintel_ends_only(self):
+        verts = [
+            (-0.804, -0.169, 2.383), (0.804, 0.267, 2.524),  # lintel ends
+            (0.670, -0.154, 2.394),  # jamb top: inside the trim width
+            (-0.701, -0.417, 0.964),  # sill nose: below the lintel band
+        ]
+        out = cl.trim_window_header(verts)
+        h = cl.WINDOW_HEADER_TRIM_HALF
+        self.assertEqual(out[0], (-h, -0.169, 2.383))
+        self.assertEqual(out[1], (h, 0.267, 2.524))
+        self.assertEqual(out[2], verts[2])
+        self.assertEqual(out[3], verts[3])
+
+    def test_style_keys(self):
+        self.assertEqual(cl.COTTAGE_STYLE_DEFAULT["header"], "trim")
+        self.assertEqual(cl.COTTAGE_STYLE_DEFAULT["shutter_back"], "backed")
+        self.assertEqual(cl.parse_cottage_style("header=native,shutter_back=open"),
+                         {"header": "native", "shutter_back": "open"})
+
+    def test_backing_box_is_closed(self):
+        verts, faces = cl.box_mesh(cl.SHUTTER_BACKING)
+        self.assertEqual(len(verts), 8)
+        self.assertEqual(len(faces), 6)
+        # Every edge shared by exactly two faces.
+        edges = {}
+        for f in faces:
+            for i in range(4):
+                e = tuple(sorted((f[i], f[(i + 1) % 4])))
+                edges[e] = edges.get(e, 0) + 1
+        self.assertTrue(all(n == 2 for n in edges.values()))
 
 
 if __name__ == "__main__":

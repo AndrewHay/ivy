@@ -44,6 +44,23 @@ class CottageSimProxyTest(unittest.TestCase):
             hits = [n for n in self.names if n.startswith("ivy_sim_Wall_") and infix in n]
             self.assertGreaterEqual(len(hits), 1, f"{side}:{bay} sim wall missing; nodes={self.names}")
 
+    def test_frame_pieces_have_per_part_sim_solids(self):
+        # ivy-b1e.17.7: the production style is window=frame / door=frame; every hero
+        # frame piece gets one sim box per wooden part (glass skipped).
+        cfg = _ivy_cfg()
+        style = cl.cottage_style({})
+        if style["window"] == "frame":
+            for slot in cfg.get("windows", []):
+                side, bay = slot.split(":")
+                stem = f"ivy_sim_{cl.PIECE_WINDOW_INSERT}_{side}_{bay}_"
+                n = sum(name.startswith(stem) for name in self.names)
+                self.assertEqual(n, 14, f"{slot}: {n} window-frame parts; nodes={self.names}")
+        if style["door"] == "frame":
+            side, bay = str(cfg["door"]).split(":")
+            stem = f"ivy_sim_{cl.PIECE_DOOR_FRAME}_{side}_{bay}_"
+            n = sum(name.startswith(stem) for name in self.names)
+            self.assertEqual(n, 4, f"door frame: {n} parts; nodes={self.names}")
+
     def test_roof_and_gables_present(self):
         self.assertTrue(any(n.startswith("ivy_sim_Roof_RoundTiles") for n in self.names), self.names)
         self.assertGreaterEqual(sum(n.startswith("ivy_sim_Roof_Front_Brick4") for n in self.names), 2, self.names)
