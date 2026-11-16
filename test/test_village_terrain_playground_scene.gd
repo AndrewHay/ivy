@@ -112,7 +112,7 @@ func test_reset_to_production_restores_defaults() -> void:
 	pg._on_reset_production()
 	await get_tree().process_frame
 	var params: VillageTerrainParams = pg._params
-	assert_almost_eq(params.base_amplitude_m, 0.64, 1e-5,
+	assert_almost_eq(params.base_amplitude_m, VillageTerrainParams.production().base_amplitude_m, 1e-5,
 		"base_amplitude_m must return to production default after reset")
 
 
@@ -214,9 +214,14 @@ func test_compute_terrain_stats_returns_sensible_values() -> void:
 	var max_slope: float = stats["max_slope_deg"]
 	assert_lte(min_h, max_h, "min_h must be <= max_h")
 	assert_gte(max_slope, 0.0, "max_slope must be non-negative")
-	# Production params: max_rise=0.8, max_depression=0.6 — stats should be within those.
-	assert_lte(max_h, 0.85, "max_h should not exceed max_rise + eps")
-	assert_gte(min_h, -0.65, "min_h should not exceed max_depression + eps")
+	# ivy-82zn.14.10 contract change: the caps clamp the detail layer only; the hill adds up to
+	# hill_rise_m (crest) on top. Stats stay within [−max_depression, hill_rise + max_rise] + eps,
+	# and the hero sits at the crest (hero_datum_y).
+	var p := VillageTerrainParams.production()
+	assert_lte(max_h, p.hill_rise_m + p.max_rise_m + 0.05, "max_h should not exceed hill + max_rise + eps")
+	assert_gte(min_h, -(p.max_depression_m + 0.05), "min_h should not exceed max_depression + eps")
+	assert_almost_eq(float(stats["hero_h"]), VillageTerrain.hero_datum_y(pg._layout, p), 0.05,
+		"hero at the hill crest")
 
 
 func test_debug_material_is_debug_shader_when_debug_on() -> void:
@@ -294,10 +299,16 @@ func test_pond_water_marker_exists() -> void:
 	assert_not_null(pond_water, "PondWater marker must exist after rebuild")
 	if pond_water == null:
 		return
-	# Water Y must be negative or at least below datum.
+	# ivy-82zn.14.10 contract change: on the hill the pond sits metres above the rim datum, so the
+	# water is checked against its own basin: below the bank (pond centre + basin rim) and above
+	# the basin floor.
 	var water_y: float = pond_water.position.y
-	assert_lte(water_y, 0.1,
-		"Pond water Y should be at or below datum (pond is a depression); got %.3f" % water_y)
+	var p: VillageTerrainParams = pg._params
+	var t_seed := VillageTerrain.terrain_seed(layout, p)
+	var floor_y := VillageTerrain.sample_y(layout.pond_center, layout, p, t_seed)
+	assert_gt(water_y, floor_y, "pond water above the basin floor (%.3f > %.3f)" % [water_y, floor_y])
+	assert_lte(water_y, floor_y - p.pond_depth_m + p.pond_lip_rise_m,
+		"pond water below the basin lip (%.3f)" % water_y)
 
 
 ## Regression: _debug_relief_on can be set before _ready via export (used by test_debug_off).

@@ -109,13 +109,35 @@ func get_layout() -> VillageLayout:
 	return _layout
 
 
-## Returns the terrain Y at the given XZ world-relative position (AR-VT-WIRE / WP7).
-## Respects wanderer_follow_terrain flag: returns 0.0 (datum) when off or classic/variant-1.
-## Generated variant-0 only; classic is byte-identical (INV-15).
+## Returns the terrain Y (backdrop-local) at the given backdrop-local XZ (AR-VT-WIRE / WP7).
+## 0.0 for classic / variant 1 (INV-15). ivy-82zn.14.10: no longer gated on
+## wanderer_follow_terrain — camera floor and fauna read it too, and on the hill a datum 0 would
+## sit metres above or below the ground; the wanderer applies its own flag.
 func sample_terrain_y(xz: Vector2) -> float:
-	if _terrain_params == null or not _terrain_params.wanderer_follow_terrain:
+	if _terrain_params == null or _layout == null:
 		return 0.0
 	return VillageTerrain.sample_y(xz, _layout, _terrain_params, _terrain_seed)
+
+
+## Local height of the hero flat disc (VillageTerrain.hero_datum_y). World lowers this backdrop by
+## it so the hero ground stays at world y = 0 (ivy-82zn.14.10 option A). 0 for classic / variant 1.
+func hero_datum_y() -> float:
+	if _terrain_params == null or _layout == null:
+		return 0.0
+	return VillageTerrain.hero_datum_y(_layout, _terrain_params)
+
+
+## Authored near-garden props (Garden_* children of the .tscn, authored at y = 0) sit on the
+## generated terrain; without this they would be buried hero_datum_y metres under the crest.
+func _seat_authored_props() -> void:
+	if not _layout.is_generated or _terrain_params == null or _terrain_params.variant == 1:
+		return
+	for c in get_children():
+		var n := c as Node3D
+		if n == null or not str(n.name).begins_with("Garden_"):
+			continue
+		n.position.y = VillageTerrain.sample_y(
+			Vector2(n.position.x, n.position.z), _layout, _terrain_params, _terrain_seed)
 
 
 func _ready() -> void:
@@ -127,6 +149,7 @@ func _ready() -> void:
 	var pond_center := VillagePondPlacement.resolve_center(_layout)
 	VillagePondShape.set_active(VillagePondShape.at(pond_center))
 	_apply_subtree(self)
+	_seat_authored_props()
 	_build_cottages()
 	var path_stones := VillageScatterPositions.path_stone_transforms(
 		_layout.path_polylines(), Callable(self, "_reject_path_stone_xz"),
@@ -310,14 +333,7 @@ func _setup_multimesh_scatter(path_stones: Array[Transform3D]) -> void:
 	var filler_g := _layout.hamlet_centre_xz if _layout.is_generated else Vector2.ZERO
 	var bush_transforms := VillageScatterPositions.bush_common_positions(
 		_layout.cottages, _layout.bush_filler_inner, _layout.bush_filler_outer, filler_g)
-	var grass_g := _layout.hamlet_centre_xz if _layout.is_generated else Vector2.ZERO
-	var grass_hero := VillageLayout.HERO_DOOR_STOOP if _layout.is_generated else Vector2.ZERO
-	var grass_ctx := VillageGrassExclusionContext.for_layout(
-		_layout.paths,
-		func(p: Vector2) -> bool:
-			return _layout.inside_any_cottage(p, VillageScatterPositions.COTTAGE_MARGIN),
-		path_stones, bush_transforms, grass_g, grass_hero, _layout.is_generated,
-		_layout.cottages)
+	var grass_ctx := _lawn_grass_context(path_stones, bush_transforms)
 	# WP5 / AR-VT-WIRE: LUT built in _ensure_terrain_sample_lut() before path lift (ivy-4ehy).
 	_ensure_terrain_sample_lut()
 	_setup_hybrid_grass(grass_ctx)
@@ -373,12 +389,30 @@ func _scatter_piece_layers(
 		_create_scatter(path, "%s_%s" % [name_prefix, piece_name], transforms, shadow)
 
 
+## Grass exclusion context for the lawn (shared with the terrain playground's grass host).
+func _lawn_grass_context(
+		path_stones: Array[Transform3D],
+		bush_transforms: Array[Transform3D]) -> VillageGrassExclusionContext:
+	var grass_g := _layout.hamlet_centre_xz if _layout.is_generated else Vector2.ZERO
+	var grass_hero := VillageLayout.HERO_DOOR_STOOP if _layout.is_generated else Vector2.ZERO
+	return VillageGrassExclusionContext.for_layout(
+		_layout.paths,
+		func(p: Vector2) -> bool:
+			return _layout.inside_any_cottage(p, VillageScatterPositions.COTTAGE_MARGIN),
+		path_stones, bush_transforms, grass_g, grass_hero, _layout.is_generated,
+		_layout.cottages)
+
+
 func _setup_hybrid_grass(ctx: VillageGrassExclusionContext) -> void:
 	var tufts := VillageScatterPositions.grass_blade_positions(ctx)
 	# WP5 / AR-VT-WIRE: bake blade Y + basis tilt from terrain LUT for generated villages.
 	# Classic and flat variant: _bake_grass_y_tilt is a no-op (_sample_lut empty).
 	_bake_grass_y_tilt(tufts)
 	_add_grass_blade_chunks(tufts, ctx.generated_grass)
+	_add_grass_accents(ctx)
+
+
+func _add_grass_accents(ctx: VillageGrassExclusionContext) -> void:
 	var accent_path := "res://assets/backdrop/pieces/Grass_Wispy_Short.gltf"
 	var accent_mesh := _extract_first_mesh(accent_path)
 	var accent_mat: Material = null
@@ -521,17 +555,23 @@ func _bake_y_lut_dict(layers: Dictionary) -> void:
 
 ## Bake origin.y for path stone transforms (LUT when built; within AC-VT9 tolerance).
 ## Generated variant-0 only; classic returns byte-identical y=0 transforms (INV-15 / WP6 / AR-VT-WIRE).
-func _lift_transforms_y(xfms: Array[Transform3D]) -> void:
+## Path stones: exact sample_y (ivy-82zn.14.10). The 1 m LUT rounds the terrace bank creases the
+## village hill puts beside paths by up to ~9 cm, past the AC-VT7 ±8 cm stone tolerance.
+## from_i / budget_usec slice the bake (playground host); returns the next index (== size: done).
+func _lift_transforms_y(xfms: Array[Transform3D], from_i: int = 0, budget_usec: int = -1) -> int:
 	if not _layout.is_generated or _terrain_params == null or _terrain_params.variant == 1:
-		return
-	if not _sample_lut.is_empty():
-		_bake_transforms_y_lut(xfms)
-		return
-	for i in range(xfms.size()):
+		return xfms.size()
+	var t_end := Time.get_ticks_usec() + budget_usec
+	var i := from_i
+	while i < xfms.size():
 		var t := xfms[i]
 		t.origin.y = VillageTerrain.sample_y(
 			Vector2(t.origin.x, t.origin.z), _layout, _terrain_params, _terrain_seed)
 		xfms[i] = t
+		i += 1
+		if budget_usec >= 0 and Time.get_ticks_usec() >= t_end:
+			break
+	return i
 
 
 ## Frustum culling uses MultiMesh.custom_aabb for the whole chunk. A single-tuft AABB at the
@@ -869,6 +909,7 @@ func _add_village_lawn_ground() -> void:
 func _add_lawn_terrain() -> void:
 	var mesh := VillageTerrain.build_mesh(_layout, _terrain_params)
 	var mat := _lawn_ground_material()
+	VillageTerrain.apply_ground_material(mat, _terrain_params)
 	mesh.surface_set_material(0, mat)
 	var mi := MeshInstance3D.new()
 	mi.name = "LawnTerrain"
@@ -926,23 +967,49 @@ func _pond_bank_material() -> ShaderMaterial:
 	return mat
 
 
+## ivy-82zn.14.10: the bank ring is draped this far above the RENDERED lawn (the 2 m triangle
+## mesh), not on the exact sample_y. Vertices on sample_y left the bank under the coarse lawn in
+## places and above it in others: dark jagged shards around the pond (ivy-82zn.14.9 diagnosis).
+const POND_BANK_DRAPE_M := 0.02
+## Bank triangles are split until they follow the drape within this (the lawn has creases inside
+## each 2 m cell; at the wide-knob settings a 0.25 m chord strayed 3-5 cm).
+const POND_BANK_REFINE_TOL_M := 0.012
+
+
+## Bank quads are subdivided so no edge is longer than this: the lawn mesh is piecewise linear
+## per 2 m cell, and a chord shorter than 1/8 cell stays within ~2 cm of it on the hill.
+static func pond_bank_max_edge_m(params: VillageTerrainParams) -> float:
+	return maxf(params.terrain_mesh_step_m, 0.1) / 8.0
+
+
+## Precomputed lowest sample_y on the bank outer outline (VillageTerrain.pond_bank_outline_min_y),
+## or NAN to let pond_water_y compute it. The playground village host slices that evaluation.
+func _pond_outline_min_y() -> float:
+	return NAN
+
+
 func _add_village_pond() -> void:
 	var water := VillagePondShape.water_render_outline_xz()
 	var bank := VillagePondShape.bank_outer_outline_xz()
-	# WP4 / AR-VT-GAP-1: water_y from LOCAL BASE FIELD, not the stamped basin floor.
-	# Classic / variant-1: fall back to pre-WP4 fixed offset (INV-15 byte-identical).
+	# Classic / variant-1: pre-WP4 fixed offsets and a flat, unsubdivided ring (INV-15).
 	var water_y := POND_WATER_Y_OFFSET  # classic / flat fallback
 	var bank_y_fn := Callable()          # flat bank by default
+	var max_edge := INF
+	var refine := 0.0
 	if _layout.is_generated and _terrain_params != null and _terrain_params.variant != 1:
-		var pond_center := _layout.pond_center
-		var base_h := VillageTerrain._compose_base(pond_center, _layout, _terrain_params, _terrain_seed)
-		water_y = VillageTerrain.Y_BASE + base_h \
-				+ (_terrain_params.pond_lip_rise_m - _terrain_params.pond_water_inset_m)
-		# Per-vertex bank Y: each bank ring vertex follows sample_y (AR-VT-WIRE / AR-VT-GAP-6).
+		refine = POND_BANK_REFINE_TOL_M
+		# Water: VillageTerrain.pond_water_y (basin anchor + lip − inset, below the bank outline).
+		water_y = VillageTerrain.pond_water_y(_layout, _terrain_params, _terrain_seed, _pond_outline_min_y())
+		# Bank: draped on the rendered lawn surface (same triangles as LawnTerrain) + 2 cm.
+		var lut := VillageTerrain.mesh_surface_lut(_layout, _terrain_params)
+		var layout := _layout
+		var params := _terrain_params
 		bank_y_fn = func(xz: Vector2) -> float:
-			return VillageTerrain.sample_y(xz, _layout, _terrain_params, _terrain_seed)
+			return VillageTerrain.mesh_surface_y_from_lut(xz, layout, params, lut) + POND_BANK_DRAPE_M
+		max_edge = pond_bank_max_edge_m(_terrain_params)
 	_add_pond_water_surface("PondWater", water_y, _pond_water_material())
-	_add_pond_polygon_ring("PondBank", water, bank, POND_BANK_Y_OFFSET, _pond_bank_material(), bank_y_fn)
+	_add_pond_polygon_ring("PondBank", water, bank, POND_BANK_Y_OFFSET, _pond_bank_material(), bank_y_fn,
+		max_edge, refine)
 
 
 func _add_pond_water_surface(node_name: String, y: float, mat: Material) -> void:
@@ -957,6 +1024,98 @@ func _add_pond_water_surface(node_name: String, y: float, mat: Material) -> void
 	add_child(mi)
 
 
+## Ring of quads between two equal-length closed outlines. Each quad is split into
+## ceil(edge / max_edge_m) parts along and across the ring (max_edge_m = INF: one quad, the
+## pre-ivy-82zn.14.10 mesh, byte-identical for classic / variant 1). Vertex Y = y_fn(xz) when
+## valid, else the flat `y`. Normals generated.
+static func build_pond_ring_mesh(
+		inner_xz: PackedVector2Array,
+		outer_xz: PackedVector2Array,
+		y: float,
+		y_fn: Callable = Callable(),
+		max_edge_m: float = INF,
+		refine_tol_m: float = 0.0) -> ArrayMesh:
+	## refine_tol_m > 0 (with y_fn): triangles are split further where they stray from y_fn.
+	var has_y_fn := y_fn.is_valid()
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var n := inner_xz.size()
+	## Draped (refined) rings take every _POND_BANK_OUTLINE_STRIDE-th outline point: the 720-point
+	## render outline is ~4 cm apart, and refining every one of those slivers cost ~0.35 s. Flat
+	## rings keep every point (byte-identical classic / variant 1).
+	var stride := _POND_BANK_OUTLINE_STRIDE if has_y_fn and refine_tol_m > 0.0 and n >= 4 * _POND_BANK_OUTLINE_STRIDE else 1
+	for i in range(0, n, stride):
+		var i0 := inner_xz[i]
+		var i1 := inner_xz[(i + stride) % n]
+		var o0 := outer_xz[i]
+		var o1 := outer_xz[(i + stride) % outer_xz.size()]
+		var nu := 1
+		var nv := 1
+		if is_finite(max_edge_m) and max_edge_m > 0.0:
+			nu = maxi(1, ceili(maxf(i0.distance_to(i1), o0.distance_to(o1)) / max_edge_m))
+			nv = maxi(1, ceili(maxf(i0.distance_to(o0), i1.distance_to(o1)) / max_edge_m))
+		# Grid of (nu + 1) × (nv + 1) points; the four corners stay the exact outline points.
+		var grid: Array[Vector3] = []
+		for kv in range(nv + 1):
+			var tv := float(kv) / float(nv)
+			for ku in range(nu + 1):
+				var tu := float(ku) / float(nu)
+				var a: Vector2 = i0 if ku == 0 else (i1 if ku == nu else i0.lerp(i1, tu))
+				var b: Vector2 = o0 if ku == 0 else (o1 if ku == nu else o0.lerp(o1, tu))
+				var p: Vector2 = a if kv == 0 else (b if kv == nv else a.lerp(b, tv))
+				var py: float = y_fn.call(p) if has_y_fn else y
+				grid.append(Vector3(p.x, py, p.y))
+		for kv in range(nv):
+			for ku in range(nu):
+				var v_a := grid[kv * (nu + 1) + ku]          # inner side, start of the edge
+				var v_b := grid[kv * (nu + 1) + ku + 1]      # inner side, end of the edge
+				var v_c := grid[(kv + 1) * (nu + 1) + ku]    # outer side, start
+				var v_d := grid[(kv + 1) * (nu + 1) + ku + 1]
+				if has_y_fn and refine_tol_m > 0.0:
+					_emit_draped_tri(st, v_a, v_c, v_b, y_fn, refine_tol_m, _POND_BANK_REFINE_DEPTH)
+					_emit_draped_tri(st, v_b, v_c, v_d, y_fn, refine_tol_m, _POND_BANK_REFINE_DEPTH)
+					continue
+				st.add_vertex(v_a)
+				st.add_vertex(v_c)
+				st.add_vertex(v_b)
+				st.add_vertex(v_b)
+				st.add_vertex(v_c)
+				st.add_vertex(v_d)
+	st.generate_normals()
+	return st.commit()
+
+
+const _POND_BANK_REFINE_DEPTH := 4
+const _POND_BANK_OUTLINE_STRIDE := 4
+
+
+## Emit a triangle whose vertices sit on y_fn; split it in four (midpoints on y_fn) while its edge
+## midpoints or centroid stray more than tol from y_fn — the lawn mesh has creases inside a 2 m
+## cell, and a straight bank chord across one would dip under it or float above it.
+static func _emit_draped_tri(
+		st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, y_fn: Callable, tol: float, depth: int) -> void:
+	if depth > 0:
+		var worst := 0.0
+		for p: Vector3 in [(a + b) * 0.5, (b + c) * 0.5, (c + a) * 0.5, (a + b + c) / 3.0]:
+			worst = maxf(worst, absf(p.y - float(y_fn.call(Vector2(p.x, p.z)))))
+		if worst > tol:
+			var ab := _on_fn((a + b) * 0.5, y_fn)
+			var bc := _on_fn((b + c) * 0.5, y_fn)
+			var ca := _on_fn((c + a) * 0.5, y_fn)
+			_emit_draped_tri(st, a, ab, ca, y_fn, tol, depth - 1)
+			_emit_draped_tri(st, ab, b, bc, y_fn, tol, depth - 1)
+			_emit_draped_tri(st, ca, bc, c, y_fn, tol, depth - 1)
+			_emit_draped_tri(st, ab, bc, ca, y_fn, tol, depth - 1)
+			return
+	st.add_vertex(a)
+	st.add_vertex(b)
+	st.add_vertex(c)
+
+
+static func _on_fn(p: Vector3, y_fn: Callable) -> Vector3:
+	return Vector3(p.x, float(y_fn.call(Vector2(p.x, p.z))), p.z)
+
+
 ## `y_fn`: optional Callable(Vector2) -> float for per-vertex Y (WP4 / AR-VT-WIRE).
 ## When invalid (empty Callable()), all vertices use the flat `y` fallback.
 func _add_pond_polygon_ring(
@@ -965,33 +1124,12 @@ func _add_pond_polygon_ring(
 		outer_xz: PackedVector2Array,
 		y: float,
 		mat: Material,
-		y_fn: Callable = Callable()) -> void:
+		y_fn: Callable = Callable(),
+		max_edge_m: float = INF,
+		refine_tol_m: float = 0.0) -> void:
 	if inner_xz.size() < 3 or inner_xz.size() != outer_xz.size():
 		return
-	var has_y_fn := y_fn.is_valid()
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	for i in range(inner_xz.size()):
-		var i0 := inner_xz[i]
-		var i1 := inner_xz[(i + 1) % inner_xz.size()]
-		var o0 := outer_xz[i]
-		var o1 := outer_xz[(i + 1) % outer_xz.size()]
-		var yi0: float = y_fn.call(i0) if has_y_fn else y
-		var yi1: float = y_fn.call(i1) if has_y_fn else y
-		var yo0: float = y_fn.call(o0) if has_y_fn else y
-		var yo1: float = y_fn.call(o1) if has_y_fn else y
-		var v0 := Vector3(i0.x, yi0, i0.y)
-		var v1 := Vector3(i1.x, yi1, i1.y)
-		var v2 := Vector3(o0.x, yo0, o0.y)
-		var v3 := Vector3(o1.x, yo1, o1.y)
-		st.add_vertex(v0)
-		st.add_vertex(v2)
-		st.add_vertex(v1)
-		st.add_vertex(v1)
-		st.add_vertex(v2)
-		st.add_vertex(v3)
-	st.generate_normals()
-	var mesh := st.commit()
+	var mesh := build_pond_ring_mesh(inner_xz, outer_xz, y, y_fn, max_edge_m, refine_tol_m)
 	mesh.surface_set_material(0, mat)
 	var mi := MeshInstance3D.new()
 	mi.name = node_name

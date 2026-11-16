@@ -22,6 +22,21 @@ const _SCATTER_EPS := 0.06
 const _FAUNA_EPS := 0.25
 
 
+## ivy-82zn.14.10 contract change: on the village hill, cottage pads / the pond are terraced with
+## banks up to 30°, and a bank's foot and its corners around a pad are curved on a ~1 m radius. A
+## 1 m bilinear LUT misses a slope change Δs inside one cell by up to cell × Δs / 4, so the 6 cm
+## tolerance (written for the <= 8° pre-hill lawn) holds on gentle ground and grows with the local
+## slope on banks: tol = eps + cell × tan(steepest slope within 0.5 m) / 4.
+static func _lut_tol(
+		xz: Vector2, layout: VillageLayout, params: VillageTerrainParams, t_seed: int, eps: float) -> float:
+	var s := 0.0
+	for o: Vector2 in [Vector2.ZERO, Vector2(0.5, 0), Vector2(-0.5, 0), Vector2(0, 0.5), Vector2(0, -0.5)]:
+		s = maxf(s, VillageTerrain.sample_slope_deg(xz + o, layout, params, t_seed))
+	if s <= 10.0:
+		return eps
+	return eps + _PROD_LUT_CELL_M * tan(deg_to_rad(s)) / 4.0
+
+
 func _make_generated(seed: int) -> GeneratedVillageBackdrop:
 	var bd := GeneratedBackdropScene.instantiate() as GeneratedVillageBackdrop
 	bd.set_village_seed(seed)
@@ -82,9 +97,10 @@ func test_lut_vs_direct_sample_error() -> void:
 				(float(j) / 9.0 - 0.5) * layout.lawn_radius * 1.8)
 			var direct := VillageTerrain.sample_y(xz, layout, params, t_seed)
 			var approx := VillageTerrain.lut_sample(lut, xz)
-			max_err = maxf(max_err, absf(direct - approx))
-	assert_lte(max_err, _LUT_EPS,
-		"LUT bilinear max error (%.4fm) must be < %.3fm" % [max_err, _LUT_EPS])
+			var tol := _lut_tol(xz, layout, params, t_seed, _LUT_EPS)
+			max_err = maxf(max_err, absf(direct - approx) - tol)
+	assert_lte(max_err, 0.0,
+		"LUT bilinear error over its slope-aware tolerance by %.4f m" % max_err)
 
 
 # ── 2. Grass blade Y follows terrain in generated village ────────────────────
@@ -121,9 +137,10 @@ func test_grass_blade_y_baked_generated() -> void:
 			var expected := VillageTerrain.sample_y(xzs[i], layout, params, t_seed)
 			var err := absf(ys[i] - expected)
 			max_err = maxf(max_err, err)
-			if err > _LUT_EPS:
+			var tol := _lut_tol(xzs[i], layout, params, t_seed, _LUT_EPS)
+			if err > tol:
 				fail_test("blade[%d] xz=%s y=%.4f expected≈%.4f err=%.4f > %.3f (LUT cell_m=%.1f)" % [
-					i, str(xzs[i]), ys[i], expected, err, _LUT_EPS, _PROD_LUT_CELL_M])
+					i, str(xzs[i]), ys[i], expected, err, tol, _PROD_LUT_CELL_M])
 				return
 		checked += ys.size()
 	assert_gt(checked, 100, "must have checked at least 100 grass blades (got %d)" % checked)
@@ -234,9 +251,10 @@ func test_scatter_piece_y_nonzero_in_generated() -> void:
 		for i in range(0, ys.size(), step):
 			var expected := VillageTerrain.sample_y(xzs[i], layout, params, t_seed)
 			var err := absf(ys[i] - expected)
-			if err > _SCATTER_EPS:
+			var tol := _lut_tol(xzs[i], layout, params, t_seed, _SCATTER_EPS)
+			if err > tol:
 				fail_test("%s[%d] y=%.4f expected≈%.4f err=%.4f > %.3f" % [
-					mmi.name, i, ys[i], expected, err, _SCATTER_EPS])
+					mmi.name, i, ys[i], expected, err, tol])
 				return
 		checked_nonzero += 1
 	# At least some scatter nodes must exist and have been checked

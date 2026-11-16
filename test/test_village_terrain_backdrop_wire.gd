@@ -99,6 +99,62 @@ func test_generated_lawn_terrain_uses_village_ground_shader() -> void:
 		"LawnTerrain must use village_ground shader, got: %s" % shader.resource_path)
 
 
+func test_apply_ground_material_sets_shading_uniforms_from_params() -> void:
+	## ivy-82zn.14.1: slope shading + height tint strengths flow params → shader uniforms
+	## through one helper used by both the game backdrop and the playground (no fork).
+	var p := VillageTerrainParams.production()
+	p.ground_slope_dark = 0.41
+	p.ground_slope_full_deg = 11.0
+	p.ground_height_tint = 0.13
+	p.ground_height_range_m = 1.7
+	var mat := ShaderMaterial.new()
+	mat.shader = load("res://src/render/shaders/village_ground.gdshader") as Shader
+	VillageTerrain.apply_ground_material(mat, p)
+	assert_almost_eq(float(mat.get_shader_parameter("terrain_slope_dark")), 0.41, 1e-5)
+	assert_almost_eq(float(mat.get_shader_parameter("terrain_slope_full_deg")), 11.0, 1e-5)
+	assert_almost_eq(float(mat.get_shader_parameter("terrain_height_tint")), 0.13, 1e-5)
+	assert_almost_eq(float(mat.get_shader_parameter("terrain_height_range_m")), 1.7, 1e-5)
+
+
+func test_ground_shader_renormalises_normal_before_slope_ramp() -> void:
+	## ivy-82zn.14.5 (review MINOR-3): v_world_normal is interpolated per fragment, so its length
+	## drops below 1 between vertices; with the acos ramp (full dim at 10°) that shortfall read as
+	## ~0.5° of false slope on flat ground. The fragment slope term must use a unit normal.
+	## Headless GUT cannot render, so this pins the source (manual check: playground screenshot).
+	var code := (load("res://src/render/shaders/village_ground.gdshader") as Shader).code
+	var frag := code.substr(code.find("void fragment()"))
+	assert_true(frag.contains("normalize(v_world_normal)"),
+		"fragment() must normalize(v_world_normal) before the slope ramp")
+	assert_false(frag.contains("clamp(v_world_normal.y"),
+		"fragment() must not read the raw interpolated v_world_normal.y")
+
+
+func test_generated_lawn_terrain_material_uses_production_shading_params() -> void:
+	## ivy-82zn.14.1: the real-game LawnTerrain carries production shading uniforms.
+	var bd := _make_generated(_TEST_SEED)
+	var terrain := bd.get_node_or_null("LawnTerrain") as MeshInstance3D
+	if terrain == null or terrain.mesh == null:
+		fail_test("no LawnTerrain mesh"); return
+	var mat := terrain.mesh.surface_get_material(0) as ShaderMaterial
+	var p := VillageTerrainParams.production()
+	assert_almost_eq(float(mat.get_shader_parameter("terrain_slope_full_deg")),
+		p.ground_slope_full_deg, 1e-5, "LawnTerrain slope full-dim angle == production")
+	assert_almost_eq(float(mat.get_shader_parameter("terrain_height_tint")),
+		p.ground_height_tint, 1e-5, "LawnTerrain height tint == production")
+
+
+func test_classic_lawn_ground_has_no_height_tint() -> void:
+	## INV-15: flat classic LawnGround keeps shader defaults (height tint off).
+	var bd := _make_classic()
+	var ground := bd.get_node_or_null("LawnGround") as MeshInstance3D
+	if ground == null or ground.mesh == null:
+		fail_test("no LawnGround mesh"); return
+	var mat := ground.mesh.surface_get_material(0) as ShaderMaterial
+	var tint: Variant = mat.get_shader_parameter("terrain_height_tint")
+	assert_true(tint == null or is_zero_approx(float(tint)),
+		"classic LawnGround height tint must stay 0 (got %s)" % str(tint))
+
+
 # ── (2) Classic backdrop must still have LawnGround (INV-15) ─────────────────
 
 func test_classic_has_lawn_ground_not_terrain() -> void:

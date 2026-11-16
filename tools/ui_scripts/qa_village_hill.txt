@@ -1,0 +1,19 @@
+# Village on a hill (ivy-82zn.14.10): seed 7 generated village, daytime key cameras.
+# Run once with --outdir=res://.tmp/village_terrain/village_hill/before (pre-change)
+# and once with --outdir=res://.tmp/village_terrain/village_hill/after.
+# The hero stays at world y = 0; the village and the lawn sit lower around it (option A datum).
+SPEED pause
+WAIT 2500
+VILLAGE_MODE generated_village 7
+WAIT 3500
+CAMERA sun
+SCREENSHOT s7_camsun.png
+CAMERA shade
+SCREENSHOT s7_camshade.png
+CAMERA top
+SCREENSHOT s7_camtop.png
+# Low view across the lawn toward the hero (does the ground climb to the hero?)
+ORBIT 180 30 3
+SCREENSHOT s7_orbit_front.png
+ORBIT 90 30 3
+SCREENSHOT s7_orbit_side.png

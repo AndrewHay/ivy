@@ -91,7 +91,9 @@ func test_camera_rig_preset_eyes_above_terrain_floor() -> void:
 		await get_tree().process_frame
 		var cam := rig.get_child(i) as Camera3D
 		var eye := cam.global_position
-		var terrain_y: float = backdrop.call("sample_terrain_y", Vector2(eye.x, eye.z))
+		# sample_terrain_y takes and returns backdrop-LOCAL coords; convert to world frame.
+		var o: Vector3 = (backdrop as Node3D).global_position
+		var terrain_y: float = o.y + float(backdrop.call("sample_terrain_y", Vector2(eye.x - o.x, eye.z - o.z)))
 		var floor_y := terrain_y + clearance
 		# Preset cameras sit high (authored > 5 m) — they should always be above terrain floor.
 		assert_gte(eye.y, floor_y - 0.05,

@@ -78,9 +78,11 @@ static func anchor_world_pos(
 		anchor_index: int,
 		backdrop: Transform3D,
 		species: FaunaConstants.Species) -> Vector3:
+	## ivy-82zn.14.10: hover above the anchor's ground (anchors carry the terrain y; the backdrop may
+	## sit below world 0 on the village hill), not at an absolute height. Classic: ground y 0.
 	var anchor := environment.anchors[anchor_index]
 	var p: Vector3 = backdrop * anchor.local_transform.origin
-	p.y = anchor_hover_y(species)
+	p.y += anchor_hover_y(species)
 	return p
 
 
@@ -202,7 +204,7 @@ static func _advance_butterfly(
 	match agent.butterfly_mode:
 		FaunaAgentState.ButterflyMode.RACING:
 			world_pos = _advance_butterfly_race_leader(
-				agent, world_pos, delta, span, wind_dir, wind_strength, wind_phase)
+				agent, world_pos, delta, span, wind_dir, wind_strength, wind_phase, anchor_base.y)
 			yaw = atan2(agent.butterfly_race_dir_xz.x, agent.butterfly_race_dir_xz.y)
 			agent.butterfly_race_sec -= delta
 			if agent.butterfly_race_sec <= 0.0:
@@ -323,7 +325,9 @@ static func _advance_butterfly_race_leader(
 		span: float,
 		wind_dir: Vector2,
 		wind_strength: float,
-		wind_phase: float) -> Vector3:
+		wind_phase: float,
+		hover_base_y: float) -> Vector3:
+	## hover_base_y: the anchor's ground + butterfly hover (world), ivy-82zn.14.10.
 	var speed: float = agent.cruise_speed_mps * 4.2
 	var dir: Vector2 = agent.butterfly_race_dir_xz
 	agent.travel_phase += delta * 2.4
@@ -333,7 +337,7 @@ static func _advance_butterfly_race_leader(
 	var move_dir: Vector2 = (dir + wobble).normalized()
 	world_pos.x += move_dir.x * speed * delta
 	world_pos.z += move_dir.y * speed * delta
-	world_pos.y = anchor_hover_y(FaunaConstants.Species.BUTTERFLY) \
+	world_pos.y = hover_base_y \
 		+ sin(agent.wing_phase) * span * 0.22 + sin(agent.travel_phase * 6.0) * span * 0.1
 	world_pos.x += wind_dir.x * sin(wind_phase) * wind_strength * span * 0.25
 	world_pos.z += wind_dir.y * sin(wind_phase) * wind_strength * span * 0.25

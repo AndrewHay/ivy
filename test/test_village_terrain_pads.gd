@@ -34,6 +34,10 @@ func test_pad_interior_flat_seed7() -> void:
 func test_pad_interior_flat_seed12() -> void:
 	_check_interior_flat(12)
 
+## ivy-82zn.14.1 village swell: seed 22 was closest to the pad-skirt limit in the prototype.
+func test_pad_interior_flat_seed22() -> void:
+	_check_interior_flat(22)
+
 
 func _check_interior_flat(seed: int) -> void:
 	## For every cottage: sample a 3×3 grid inside the grown pad rect.
@@ -82,9 +86,14 @@ func test_pad_skirt_slope_seed7() -> void:
 func test_pad_skirt_slope_seed12() -> void:
 	_check_pad_skirt_slope(12)
 
+func test_pad_skirt_slope_seed22() -> void:
+	_check_pad_skirt_slope(22)
+
 
 func test_cottage_pad_heights_relaxation_limits_neighbor_delta_seed1() -> void:
 	## Regression (bold relief): neighbour pad datums stay within gap*tan(8°) after relaxation.
+	## ivy-82zn.14.10: on the detail layer (detail_y). The hill puts whole-pad level differences of
+	## metres between neighbours on purpose; those are terraced at hill_bank_max_deg (hill test).
 	var layout := VillageLayout.generate(1)
 	if layout.fallback:
 		pass_test("fallback skip")
@@ -98,8 +107,8 @@ func test_cottage_pad_heights_relaxation_limits_neighbor_delta_seed1() -> void:
 		for j in range(i + 1, layout.cottages.size()):
 			var cj: Vector2 = layout.cottages[j]["centre"]
 			var gap := maxf(ci.distance_to(cj) - 5.5, 2.0)
-			var hi := VillageTerrain.sample_y(ci, layout, params, t_seed)
-			var hj := VillageTerrain.sample_y(cj, layout, params, t_seed)
+			var hi := VillageTerrain.detail_y(ci, layout, params, t_seed)
+			var hj := VillageTerrain.detail_y(cj, layout, params, t_seed)
 			var allowed := grade_cap * gap + 0.05
 			assert_lte(absf(hi - hj), allowed,
 				"seed1 pads %d↔%d Δh=%.3f > gap*tan(8°)=%.3f" % [i, j, absf(hi - hj), allowed])
@@ -126,6 +135,9 @@ func test_pad_skirt_multi_pad_tail_reset_seed1() -> void:
 
 func _check_pad_skirt_slope(seed: int) -> void:
 	## Sample pairs across each pad skirt (just outside grown rect → skirt boundary).
+	## ivy-82zn.14.10: the 8° skirt contract is the DETAIL layer's (detail_y). On the hill each pad is
+	## also a terrace with a bank up to hill_bank_max_deg; the total bank (<= 35°) is pinned by
+	## test_village_terrain_hill.gd test_total_pad_bank_le_35_deg.
 	var layout := VillageLayout.generate(seed)
 	if layout.fallback:
 		pass_test("fallback skip seed %d" % seed)
@@ -143,7 +155,7 @@ func _check_pad_skirt_slope(seed: int) -> void:
 		var cardinals := [Vector2(1, 0), Vector2(-1, 0), Vector2(0, 1), Vector2(0, -1)]
 		for dir: Vector2 in cardinals:
 			var prev_p := centre
-			var prev_y := VillageTerrain.sample_y(centre, layout, params, t_seed)
+			var prev_y := VillageTerrain.detail_y(centre, layout, params, t_seed)
 			var prev_sdf := _rect_sdf(centre, grown)
 			var guard := 0
 			var p := centre
@@ -152,13 +164,13 @@ func _check_pad_skirt_slope(seed: int) -> void:
 				p += dir * _SLOPE_STEP_M
 				var sdf := _rect_sdf(p, grown)
 				if sdf < -_SLOPE_STEP_M:
-					prev_y = VillageTerrain.sample_y(p, layout, params, t_seed)
+					prev_y = VillageTerrain.detail_y(p, layout, params, t_seed)
 					prev_p = p
 					prev_sdf = sdf
 					continue
 				if sdf > skirt_m + _SLOPE_STEP_M:
 					break
-				var h := VillageTerrain.sample_y(p, layout, params, t_seed)
+				var h := VillageTerrain.detail_y(p, layout, params, t_seed)
 				var ds := sdf - prev_sdf
 				if ds < _SLOPE_STEP_M * 0.45:
 					prev_y = h

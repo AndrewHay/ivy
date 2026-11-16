@@ -276,7 +276,9 @@ func rebuild_backdrop() -> void:
 	# Position at the current pivot (mirrors _apply_scenario_camera_framing logic).
 	if mesh_scenario != null:
 		var pivot: Vector3 = mesh_scenario.resolve_camera_pivot()
-		_village_backdrop.position = Vector3(pivot.x, 0.0, pivot.z)
+		_village_backdrop.position = Vector3(pivot.x, backdrop_y(), pivot.z)
+	else:
+		_village_backdrop.position.y = backdrop_y()
 	_village_backdrop.visible = true
 
 	# Re-bind fauna to the new backdrop instance.
@@ -305,6 +307,16 @@ func rebuild_backdrop() -> void:
 
 func get_wanderer_controller() -> Node3D:
 	return _wanderer_controller
+
+
+## World y of the VillageBackdrop node (ivy-82zn.14.10 option A datum): the generated village
+## hill's crest (VillageTerrain.hero_datum_y, backdrop-local) is lowered to world y = 0 so the hero
+## structure, ivy sim and camera rig stay where they are and the village sits below them.
+## 0 for classic / variant 1 / no backdrop (INV-15).
+func backdrop_y() -> float:
+	if _village_backdrop != null and _village_backdrop.has_method("hero_datum_y"):
+		return -float(_village_backdrop.call("hero_datum_y"))
+	return 0.0
 
 
 func _bind_wanderer() -> void:
@@ -360,9 +372,13 @@ func _apply_village_ground_disc() -> void:
 	var mat := ground_mesh.get_surface_override_material(0) as ShaderMaterial
 	if mat == null:
 		return
-	# Default: no discard
+	# Default: no discard, plane at y = 0.
 	mat.set_shader_parameter("village_disc_radius", 0.0)
 	mat.set_shader_parameter("village_disc_center_xz", Vector2.ZERO)
+	# ivy-82zn.14.10: the visible ground plane sits at the lowered rim datum with the village, else
+	# the y = 0 plane would cover the outer hills (which moved down with the backdrop). Only the
+	# mesh moves: GroundCollision stays at the hero ground (world y 0) for picks near the hero.
+	ground_mesh.position.y = backdrop_y()
 	if not (_village_backdrop is VillageBackdrop):
 		return
 	var backdrop := _village_backdrop as VillageBackdrop
@@ -390,11 +406,12 @@ func _apply_village_camera_lawn_bounds() -> void:
 			var tp = backdrop.get("_terrain_params")
 			if tp != null:
 				var clearance: float = tp.get("camera_ground_clearance_m") if tp.get("camera_ground_clearance_m") != null else 0.35
-				var backdrop_origin := Vector2(
-					backdrop.global_position.x, backdrop.global_position.z)
+				# World-space floor: backdrop-local terrain + the backdrop's world y (ivy-82zn.14.10:
+				# the generated village is lowered by the hill's hero datum). Read live, so a later
+				# re-placement of the backdrop (scenario framing) is followed.
 				floor_fn = func(xz: Vector2) -> float:
-					var local_xz := xz - backdrop_origin
-					return backdrop.call("sample_terrain_y", local_xz) + clearance
+					var o := backdrop.global_position
+					return o.y + backdrop.call("sample_terrain_y", xz - Vector2(o.x, o.z)) + clearance
 	if _camera_rig is CameraRig:
 		var rig := _camera_rig as CameraRig
 		if b.is_empty():
@@ -606,9 +623,10 @@ func _apply_scenario_camera_framing(scenario) -> void:
 	var pivot: Vector3 = scenario.resolve_camera_pivot()
 	# Translate X/Z to centre the structure; lift the rig so CamSun (y=2 local) aims at pivot.y.
 	_camera_rig.position = Vector3(pivot.x, pivot.y - _CANONICAL_CAM_AIM_Y, pivot.z)
-	# Reposition the shared backdrop to the active hero pivot (x, z; y=0 stays on ground).
+	# Reposition the shared backdrop to the active hero pivot (x, z); y = backdrop_y() keeps the hero
+	# ground at world y = 0 on the generated village hill (ivy-82zn.14.10), 0 for classic.
 	if _village_backdrop != null:
-		_village_backdrop.position = Vector3(pivot.x, 0.0, pivot.z)
+		_village_backdrop.position = Vector3(pivot.x, backdrop_y(), pivot.z)
 		_village_backdrop.visible = true
 		if _fauna_controller != null and _village_backdrop is VillageBackdrop:
 			if FaunaIntegration.world_runtime_enabled():

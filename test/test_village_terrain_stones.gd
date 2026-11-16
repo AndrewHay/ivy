@@ -172,13 +172,18 @@ func test_path_stone_y_zero_in_classic() -> void:
 const _PATH_SLOPE_STEP_M := 0.5
 
 
-static func _max_path_slope_deg(seed: int) -> float:
+static func _max_path_slope_deg(seed: int, connectors: bool = false) -> float:
+	## ivy-82zn.14.10 contract change (AC 4): the along-path grade (0.5 m chords) of LANES — path
+	## stretches off every pad and its bank — is capped at max_path_slope_deg (18° on the village
+	## hill). connectors = true measures the door connectors on pad banks instead (cap:
+	## hill_bank_max_deg). The old full-gradient measure included the hill's cross slope (paths are
+	## graded along their length, not levelled across), which is the flank, not the path.
 	var layout := VillageLayout.generate(seed)
 	if layout.fallback:
 		return 0.0
 	var params := VillageTerrainParams.production()
+	VillageTerrain.clear_knoll_centres_cache()
 	var t_seed := VillageTerrain.terrain_seed(layout, params)
-	var cap := params.max_path_slope_deg
 	var max_slope := 0.0
 	for polyline: Variant in layout.path_polylines():
 		var pts: Array = polyline as Array
@@ -193,11 +198,20 @@ static func _max_path_slope_deg(seed: int) -> float:
 			seg_lens.append(len)
 			total += len
 		var dist := 0.0
-		while dist <= total + 0.001:
-			var p := _point_along_polyline(pts, seg_lens, dist)
-			var slope := VillageTerrain.sample_slope_deg(p, layout, params, t_seed)
-			max_slope = maxf(max_slope, slope)
+		while dist + _PATH_SLOPE_STEP_M <= total + 0.001:
+			var p0 := _point_along_polyline(pts, seg_lens, dist)
+			var p1 := _point_along_polyline(pts, seg_lens, dist + _PATH_SLOPE_STEP_M)
 			dist += _PATH_SLOPE_STEP_M
+			var l := p0.distance_to(p1)
+			if l < 0.05:
+				continue
+			var on_bank := VillageTerrain.in_any_pad_terrace(p0, layout, params, t_seed) \
+				or VillageTerrain.in_any_pad_terrace(p1, layout, params, t_seed)
+			if on_bank != connectors:
+				continue
+			var grade := absf(VillageTerrain.sample_y(p1, layout, params, t_seed)
+				- VillageTerrain.sample_y(p0, layout, params, t_seed)) / l
+			max_slope = maxf(max_slope, rad_to_deg(atan(grade)))
 	return max_slope
 
 
@@ -214,8 +228,17 @@ static func _point_along_polyline(pts: Array, seg_lens: Array[float], dist: floa
 	return pts[pts.size() - 1] as Vector2
 
 
+func test_door_connector_slope_cap() -> void:
+	## ivy-82zn.14.10 AC 4: door connectors on a pad bank may take the bank, <= hill_bank_max_deg.
+	var params := VillageTerrainParams.production()
+	for seed: int in [1, 7, 12]:
+		var worst := _max_path_slope_deg(seed, true)
+		assert_lte(worst, params.hill_bank_max_deg + 0.5,
+			"seed %d door connector grade %.2f° <= %.0f°" % [seed, worst, params.hill_bank_max_deg])
+
+
 func test_path_slope_cap() -> void:
-	## AC-VT7: max terrain slope along any path ≤ max_path_slope_deg (8.0°).
+	## AC-VT7: lane grade ≤ max_path_slope_deg (18° since ivy-82zn.14.10; 8° before).
 	var params := VillageTerrainParams.production()
 	var max_slope := _max_path_slope_deg(_TEST_SEED)
 	assert_lte(max_slope, params.max_path_slope_deg + 0.02,
@@ -225,8 +248,10 @@ func test_path_slope_cap() -> void:
 
 func test_path_slope_cap_multiple_seeds() -> void:
 	## AC-VT7: slope cap holds for seeds 1, 3, 5, 7, 12, 240424020.
+	## ivy-82zn.14.1 swell: + 2, 8, 14, 17, 23 (prototype swell broke 8° where a spine enters a
+	## pad skirt; pins the spine-reads-pad-height fix).
 	var params := VillageTerrainParams.production()
-	for seed: int in [1, 3, 5, 7, 12, 240424020]:
+	for seed: int in [1, 2, 3, 5, 7, 8, 12, 14, 17, 23, 240424020]:
 		var layout := VillageLayout.generate(seed)
 		if layout.fallback:
 			continue

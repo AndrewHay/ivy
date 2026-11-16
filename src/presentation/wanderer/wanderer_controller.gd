@@ -200,13 +200,17 @@ func _apply_figure() -> void:
 		_figure_root.visible = false
 		return
 	_figure_root.visible = true
-	# WP7 / AR-VT-WIRE: interpolate terrain Y along path polylines (A1 — opt-in).
-	# Off-path states (DOOR_PAUSE, INSIDE, EXIT_PAUSE, SAYING, SHOWING) stay at datum y=0.
+	# The controller carries the backdrop's transform, so the figure's local y is the backdrop-local
+	# terrain height. ivy-82zn.14.10: in EVERY state (door pauses, saying, showing too) — on the
+	# village hill the old datum y = 0 for off-path states floated or buried the figure by metres.
+	# wanderer_follow_terrain = false keeps the figure at the hero's ground level (debug only).
 	var terrain_y := 0.0
-	var on_path := (_brain.state == WandererBrain.State.WALKING \
-		or _brain.state == WandererBrain.State.EXIT_WALK)
-	if on_path and _backdrop != null and _backdrop.has_method("sample_terrain_y"):
-		terrain_y = _backdrop.call("sample_terrain_y", _brain.pos)
+	if _backdrop != null and _backdrop.has_method("sample_terrain_y"):
+		var tp = _backdrop.get("_terrain_params")
+		if tp == null or tp.get("wanderer_follow_terrain") != false:
+			terrain_y = _backdrop.call("sample_terrain_y", _brain.pos)
+		elif _backdrop.has_method("hero_datum_y"):
+			terrain_y = _backdrop.call("hero_datum_y")
 	_figure_root.position = Vector3(_brain.pos.x, terrain_y, _brain.pos.y)
 	_figure_root.rotation.y = _brain.yaw
 	var pose := WandererFigure.pose(_params.walk_variant, _params, _brain.walk_phase, _brain.motion)

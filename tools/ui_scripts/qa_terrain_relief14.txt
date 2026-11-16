@@ -1,0 +1,21 @@
+# Taller relief + slope shading before/after (ivy-82zn.14.1): seed 7 daytime key angles.
+# Run once with --outdir=res://.tmp/village_terrain/relief14/before (pre-change)
+# and once with --outdir=res://.tmp/village_terrain/relief14/after.
+SPEED pause
+WAIT 2500
+VILLAGE_MODE generated_village 7
+WAIT 3500
+# ivy-82zn.14.1 swell: the default gameplay camera IS CamSun at load, so the old s7_default
+# shot duplicated s7_camsun. CamShade (rig child 1, mirror of CamSun) replaces it.
+CAMERA sun
+SCREENSHOT s7_camsun.png
+CAMERA shade
+SCREENSHOT s7_camshade.png
+# Low raking view across the lawn
+ORBIT 45 35 1
+SCREENSHOT s7_terrain_rake.png
+ORBIT 135 22 1
+SCREENSHOT s7_terrain_rake2.png
+# Top-down
+ORBIT 0 50 42
+SCREENSHOT s7_top.png

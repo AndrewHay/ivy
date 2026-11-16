@@ -8,6 +8,7 @@ extends Resource
 const SCHEMA := "village_terrain_playground.v1"
 const PRESET_PRODUCTION := "Production"
 const CUSTOM_PRESET := "Custom"
+const PRESET_NO_HILL := "No hill (A/B)"
 
 # ── Stage ──────────────────────────────────────────────────────────────────────
 ## 0 = rolling (production), 1 = flat legacy (sample_y ≡ 0, INV-15), 2 = high relief (A/B only).
@@ -17,7 +18,11 @@ const CUSTOM_PRESET := "Custom"
 
 # ── Base noise (SD-VILLAGE-TERRAIN-2 §Base) ────────────────────────────────────
 ## Peak magnitude of zero-mean base noise h ∈ ≈[−a,+a]. 0.0 ⇒ flat base.
-@export var base_amplitude_m: float = 0.64
+## ivy-82zn.14.1: 0.64 → 0.56 (knolls now carry the tall relief; keeps open-lawn slope ≤ 8°).
+## ivy-82zn.14.10 / ivy-sx7x: 0.56 → 0.30. The path-quiet multiplier was inverted (the open lawn
+## got the 0.52 quiet floor, paths full amplitude); fixed, so the open lawn keeps the same
+## ~0.29 m effective amplitude it had and only the 5 m path corridors are quieter now.
+@export var base_amplitude_m: float = 0.30
 ## Primary wavelength of fbm_height_01.
 @export var base_feature_m: float = 48.0
 ## fBm octaves.
@@ -40,12 +45,14 @@ const CUSTOM_PRESET := "Custom"
 @export var rim_eps_m: float = 0.05
 
 # ── Caps (SD-VILLAGE-TERRAIN-2 §Caps) ─────────────────────────────────────────
-## Hard clamp on positive h (A2).
-@export var max_rise_m: float = 0.8
-## Hard clamp on negative h; covers pond basin (A2).
-@export var max_depression_m: float = 0.6
+## Hard clamp on positive h (A2). ivy-82zn.14.1: 0.8 → 1.6 (taller open-lawn relief).
+@export var max_rise_m: float = 1.6
+## Hard clamp on negative h; covers pond basin (A2). ivy-82zn.14.1: 0.6 → 0.9.
+@export var max_depression_m: float = 0.9
 ## Mechanical ceiling on sample_slope_deg along every path polyline (A2).
-@export var max_path_slope_deg: float = 8.0
+## ivy-82zn.14.10: 8 → 18. The village hill falls ~8.5 m from the hero to the village edge; the
+## raw hill reaches ~17° along lanes, so an 8° cap built metre-high path embankments.
+@export var max_path_slope_deg: float = 18.0
 
 # ── Hero sanctum (SD-VILLAGE-TERRAIN-2 §Hero) ─────────────────────────────────
 ## Flat-disc radius about HERO_DOOR_STOOP; h_target = 0 (ivy sim / planting sanctity).
@@ -60,6 +67,18 @@ const CUSTOM_PRESET := "Custom"
 @export var pad_skirt_m: float = 2.0
 ## Mechanical cap on pad skirt slope (foundation readability).
 @export var pad_edge_slope_max_deg: float = 8.0
+
+# ── Open-lawn relief envelope (ivy-82zn.14.1; were private consts in VillageTerrain) ──
+## Base relief stays fully quiet within this of a grown pad rect.
+@export var open_lawn_pad_quiet_m: float = 2.25
+## Distance over which relief ramps back to full beyond the pad quiet band.
+@export var open_lawn_pad_fade_m: float = 14.0
+## Distance beyond the hero flat disc over which relief ramps to full.
+@export var hero_relief_fade_m: float = 10.0
+## Distance beyond the plaza rect over which relief ramps to full.
+@export var plaza_relief_fade_m: float = 10.0
+## Distance beyond 0.85 × pond rim over which relief ramps to full.
+@export var pond_relief_fade_m: float = 12.0
 
 # ── Pond basin (SD-VILLAGE-TERRAIN-2 §Pond) ────────────────────────────────────
 ## Basin floor relative to local field (negative). AR-VT-GAP-1.
@@ -86,16 +105,59 @@ const CUSTOM_PRESET := "Custom"
 # ── Knolls (SD-VILLAGE-TERRAIN-2 §Knoll) ─────────────────────────────────────
 ## Seeded additive mounds (A3 relief character).
 @export var knoll_count: int = 2
-## Peak per mound (clamped by max_rise_m).
-@export var knoll_height_m: float = 0.70
-## Mound footprint radius.
-@export var knoll_radius_m: float = 12.0
-## Min centre-to-centre spacing.
-@export var knoll_min_sep_m: float = 10.0
-## No mound centre within this of HERO_DOOR_STOOP.
-@export var knoll_hero_clear_m: float = 12.0
+## Peak per mound (clamped by max_rise_m). ivy-82zn.14.1: 0.70 → 1.00. ivy-82zn.14.5: 1.00 → 0.95
+## (seeds 10 / 28 flank + base noise 8.09° / 8.12° → 7.79° / 7.82°, HEAD 7.70° / 5.54°).
+@export var knoll_height_m: float = 0.95
+## Mound footprint radius. ivy-82zn.14.1: 12 → 18 (wider so the taller mound stays ≤ 8°).
+@export var knoll_radius_m: float = 18.0
+## Min centre-to-centre spacing. ivy-82zn.14.1: 10 → 28 (stops mounds stacking into a cap crease).
+@export var knoll_min_sep_m: float = 28.0
+## No mound centre within this of HERO_DOOR_STOOP. ivy-82zn.14.1: 12 → 26 (keeps the mound
+## flank off the hero relief fade ramp, which otherwise steepens it past 8°).
+@export var knoll_hero_clear_m: float = 26.0
+## Min distance from a mound centre to any path polyline (ivy-82zn.14.1; was knoll_radius_m).
+@export var knoll_path_clear_m: float = 18.0
+## Min distance from a mound centre to any grown cottage pad rect (ivy-82zn.14.1).
+@export var knoll_pad_clear_m: float = 18.0
 ## Reject mound centres whose azimuth-from-G is within this of the sun E/W azimuths.
 @export var knoll_sun_corridor_half_deg: float = 35.0
+
+# ── Village swell (ivy-82zn.14.1; architect plan ivy-82zn.14.4) ──────────────
+## A low-frequency field that the stamp ANCHORS read (pad heights, plaza, pond, path spine), so
+## pads / plaza / paths sit at gently different heights while each stays flat. Without it every
+## anchor sat at exactly 0 m and the CamSun frame was pinned to datum. 0 = off (fixer-tree terrain).
+## ivy-82zn.14.10: 0.5 → 0.25. The hill now carries the anchors' height differences; a +0.4 m swell
+## at the outermost cottage ate the hero-to-edge fall below one cottage on seeds 11 and 13.
+@export var swell_amp_m: float = 0.25
+## Swell wavelength (single octave, no warp). Long so the field stays gentle.
+@export var swell_feature_m: float = 80.0
+## Swell ramps from 0 to full over this beyond the hero flat disc + skirt.
+@export var swell_hero_fade_m: float = 10.0
+## Swell ramps to 0 over this inside the rim taper band (rim seam AC-VT8 untouched).
+@export var swell_rim_fade_m: float = 12.0
+## Swell scale inside the E/W sun corridors (ramps back to 1 over 15° outside them). 1 = no effect.
+@export var swell_sun_corridor_gain: float = 1.0
+
+# ── Village hill (ivy-82zn.14.10; architect plan ivy-82zn.14.9) ──────────────
+# Village-scale large layer: the hero stands on a crest and the ground falls about one cottage
+# (ridge 6.84 m) to the village edge. The hero stays at world y = 0; World lowers the village
+# by VillageTerrain.hero_datum_y (option A datum). 0 rise = the pre-hill detail terrain.
+## Crest height above the lawn rim datum (m). 0 = no hill.
+@export var hill_rise_m: float = 8.5
+## Profile shape: 0 = straight cone, 1 = smoothstep (flat crest shoulder and soft toe).
+@export var hill_shoulder: float = 0.3
+## Falloff exponent on the normalised distance: >1 broad crown, <1 quick drop then long toe.
+@export var hill_falloff_pow: float = 1.0
+## Hill centre moved from the hero stoop toward the hamlet centre (0 = on the hero, 1 = on G).
+@export var hill_centre_shift: float = 0.0
+## Extra flat crest radius beyond the hero flat disc + skirt (m).
+@export var hill_crest_extra_m: float = 0.0
+## Where the fall ends beyond the farthest cottage pad corner (m; negative ends it inside).
+@export var hill_end_margin_m: float = 2.0
+## Plaza: 1 = tilts with the hill, 0 = level terrace cut into the slope.
+@export var plaza_hill_follow: float = 1.0
+## Steepest bank a terrace (cottage pad, pond, level plaza) cuts into the hill (°).
+@export var hill_bank_max_deg: float = 30.0
 
 # ── Mesh (SD-VILLAGE-TERRAIN-2 §Mesh) ─────────────────────────────────────────
 ## Lawn mesh cell size (resolution vs tri budget).
@@ -112,6 +174,16 @@ const CUSTOM_PRESET := "Custom"
 # ── Material (SD-VILLAGE-TERRAIN-2 §Material) ─────────────────────────────────
 ## Lawn shader matches outer-hill rim albedo (fuzzy, pairs with ivy-ska0.1 tint tokens).
 @export var rim_tint_match_on: bool = true
+## village_ground.gdshader terrain_slope_dark: albedo dim at full slope (0 = off). ivy-82zn.14.1.
+@export var ground_slope_dark: float = 0.35
+## Slope (°) at which the full ground_slope_dark applies (linear ramp from 0°).
+## ivy-82zn.14.10: 10 → 30, else the whole hill flank is uniformly dimmed 35%.
+@export var ground_slope_full_deg: float = 30.0
+## Height tint: albedo × (1 ± tint) at ± ground_height_range_m (rises lighter, hollows darker).
+@export var ground_height_tint: float = 0.12
+## Height (m) above/below the rim datum where the height tint saturates.
+## ivy-82zn.14.10: 1.2 → 8.5 (= hill_rise_m), so the crest reads lighter than the village edge.
+@export var ground_height_range_m: float = 8.5
 
 
 # ── Constructor helpers ────────────────────────────────────────────────────────
@@ -200,6 +272,7 @@ static func preset_tips() -> Dictionary:
 		PRESET_PRODUCTION: "Gentle rolling lawn with knolls, pond basin, and cottage pads.",
 		"Flat legacy": "Pre-terrain flat lawn — byte-parity with classic (INV-15).",
 		"High relief": "Taller amplitude and more knolls — A/B playground only.",
+		PRESET_NO_HILL: "Production without the village hill (hill_rise_m 0) — A/B the hill.",
 	}
 
 
@@ -218,11 +291,15 @@ static func presets() -> Dictionary:
 		"Flat legacy": {"variant": 1},
 		"High relief": {
 			"variant": 2,
-			"base_amplitude_m": 0.80,
+			# ivy-82zn.14.1: kept above the (taller) production relief so A/B still reads.
+			"base_amplitude_m": 0.90,
 			"knoll_count": 4,
-			"knoll_height_m": 0.80,
+			"knoll_height_m": 1.60,
+			"max_rise_m": 2.2,
 			"center_bias_gain": 1.25,
+			"swell_amp_m": 0.8,
 		},
+		PRESET_NO_HILL: {"variant": 0, "hill_rise_m": 0.0},
 	}
 
 
