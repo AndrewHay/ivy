@@ -209,9 +209,12 @@ static func enrich_annotations(
 	if world == null:
 		return annotations.duplicate(true)
 	var space: PhysicsDirectSpaceState3D = world.direct_space_state
+	var inside := camera_inside_collider(cam, space)
 	var out: Array = []
 	for entry in annotations:
 		var copy: Dictionary = entry.duplicate(true)
+		# ivy-b1e.11: a camera inside a proxy sees a view no player sees; say so.
+		copy["camera_inside_collider"] = inside
 		copy["world_anchors"] = _world_anchors_for_entry(cam, space, entry, viewport_size)
 		copy["nearby_plant"] = _nearby_plant_refs(sim, copy["world_anchors"])
 		out.append(copy)
@@ -269,6 +272,9 @@ static func _append_ray_hit(
 	var to := from + dir * 200.0
 	var query := PhysicsRayQueryParameters3D.create(from, to)
 	query.collide_with_areas = false
+	# ivy-b1e.11: the first FRONT face is what the player sees; never a solid's inside.
+	query.hit_back_faces = false
+	query.hit_from_inside = false
 	var hit := space.intersect_ray(query)
 	if hit.is_empty():
 		return
@@ -277,6 +283,48 @@ static func _append_ray_hit(
 		"normal": [hit.normal.x, hit.normal.y, hit.normal.z],
 		"collider": str(hit.collider.name) if hit.collider != null else "",
 	})
+
+
+const _INSIDE_PROBE_LENGTH := 200.0
+const _INSIDE_PROBE_STEP := 0.001
+const _INSIDE_PROBE_MAX_HITS := 64
+
+
+## Name of the collider the camera sits inside, or "" (ivy-b1e.11). Parity along the view
+## line: front faces met walking out from the camera are entries, front faces met walking
+## back from the far end are exits; more exits than entries means the camera starts inside
+## a closed solid. Works for trimesh proxies (no back-face hits) and convex shapes alike.
+static func camera_inside_collider(cam: Camera3D, space: PhysicsDirectSpaceState3D) -> String:
+	var origin := cam.global_position
+	var far := origin + (-cam.global_basis.z).normalized() * _INSIDE_PROBE_LENGTH
+	var entries := _front_hits_along(space, origin, far)
+	var exits := _front_hits_along(space, far, origin)
+	if exits.size() <= entries.size():
+		return ""
+	# The exit nearest the camera is the last one met walking back from the far end.
+	var nearest: Dictionary = exits[exits.size() - 1]
+	return str(nearest.collider.name) if nearest.collider != null else ""
+
+
+static func _front_hits_along(
+	space: PhysicsDirectSpaceState3D, from: Vector3, to: Vector3
+) -> Array:
+	var hits: Array = []
+	var dir := (to - from).normalized()
+	var start := from
+	for _i in range(_INSIDE_PROBE_MAX_HITS):
+		var query := PhysicsRayQueryParameters3D.create(start, to)
+		query.collide_with_areas = false
+		query.hit_back_faces = false
+		query.hit_from_inside = false
+		var hit := space.intersect_ray(query)
+		if hit.is_empty():
+			break
+		hits.append(hit)
+		start = hit.position + dir * _INSIDE_PROBE_STEP
+		if (to - start).dot(dir) <= 0.0:
+			break
+	return hits
 
 
 static func _nearby_plant_refs(sim: Node, anchors: Array) -> Array:
