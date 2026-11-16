@@ -2028,47 +2028,73 @@ def _hero_has_baked_geometry(obj):
     return centroid.length > 0.25
 
 
-def wall_storey_z_base(cfg, yaw_deg):
-    for si, sides in enumerate(cfg["storey_sides"]):
-        for side_yaw, _names in sides:
-            if float(side_yaw) == float(yaw_deg):
-                return si * WALL_H
-    return 0.0
+# Hero wall object suffix: <kit>_<yaw>_<index>, plus Blender's ".001" when two storeys
+# place the same kit piece at the same yaw/index (the tower; ivy-b1e.22).
+_HERO_WALL_NAME_RE = re.compile(r"^(Wall_UnevenBrick_.+)_(\d+)_(\d+)(?:\.\d{3})?$")
 
 
-def wall_placement_matrix(cfg, d, world_offset, yaw_deg, idx, z_base=0.0):
-    """World matrix for a sim wall piece matching ``place_wall_run`` placement."""
+def parse_hero_wall_name(suffix):
+    """(kit name, yaw degrees, bay index) of a hero wall object suffix, or None."""
+    m = _HERO_WALL_NAME_RE.match(suffix)
+    if m is None:
+        return None
+    return m.group(1), float(m.group(2)), int(m.group(3))
+
+
+def hero_wall_storey(hero_obj, world_offset):
+    """Storey index from the hero object's own height, not from its yaw: both tower
+    storeys have walls at every yaw (ivy-b1e.22)."""
+    if _hero_has_baked_geometry(hero_obj):
+        base_z = min(v.co.z for v in hero_obj.data.vertices)
+    else:
+        base_z = hero_obj.matrix_world.translation.z
+    return max(0, int(round((base_z - world_offset.z) / WALL_H)))
+
+
+def wall_placement_matrix(cfg, d, world_offset, yaw_deg, idx, storey=0, kit_name=None):
+    """World matrix for a sim wall piece matching ``place_wall_run`` placement.
+
+    ``kit_name``, when given, must be the piece the config puts at that storey, yaw
+    and index; a mismatch means the storey was derived wrongly, so it raises."""
     yaw_deg = float(yaw_deg)
     idx = int(idx)
+    storeys = cfg["storey_sides"]
+    if storey < 0 or storey >= len(storeys):
+        raise ValueError(f"structure '{cfg['name']}': storey {storey} out of range")
     half = d["half"]
     n, tang = side_vectors(yaw_deg)
     yr = math.radians(yaw_deg)
-    for si, sides in enumerate(cfg["storey_sides"]):
-        storey_z = si * WALL_H
-        for side_yaw, names in sides:
-            if float(side_yaw) != yaw_deg:
-                continue
-            placements = resolve_wall_placements(cfg, d, names)
-            if idx < 0 or idx >= len(placements):
-                raise ValueError(
-                    f"structure '{cfg['name']}': wall index {idx} out of range for yaw {yaw_deg}"
-                )
-            _nm, tang_off, sx = placements[idx]
-            loc = n * (half - EXT_OFFSET) + tang * tang_off
-            loc.z = z_base + storey_z
-            mat = Matrix.Translation(loc + world_offset) @ Matrix.Rotation(yr, 4, "Z")
-            if sx != 1.0:
-                mat @= Matrix.Scale(sx, 4, Vector((1.0, 0.0, 0.0)))
-            return mat
-    raise ValueError(f"structure '{cfg['name']}': no storey side with yaw {yaw_deg}")
+    for side_yaw, names in storeys[storey]:
+        if float(side_yaw) != yaw_deg:
+            continue
+        placements = resolve_wall_placements(cfg, d, names)
+        if idx < 0 or idx >= len(placements):
+            raise ValueError(
+                f"structure '{cfg['name']}': wall index {idx} out of range for yaw {yaw_deg}"
+            )
+        nm, tang_off, sx = placements[idx]
+        if kit_name is not None and nm != kit_name:
+            raise ValueError(
+                f"structure '{cfg['name']}': storey {storey} yaw {yaw_deg} index {idx} "
+                f"is {nm}, hero object is {kit_name}"
+            )
+        loc = n * (half - EXT_OFFSET) + tang * tang_off
+        loc.z = storey * WALL_H
+        mat = Matrix.Translation(loc + world_offset) @ Matrix.Rotation(yr, 4, "Z")
+        if sx != 1.0:
+            mat @= Matrix.Scale(sx, 4, Vector((1.0, 0.0, 0.0)))
+        return mat
+    raise ValueError(f"structure '{cfg['name']}': storey {storey} has no side with yaw {yaw_deg}")
 
 
-def hero_wall_sim_matrix(hero_obj, cfg, d, world_offset, yaw_deg, idx):
+def hero_wall_sim_matrix(hero_obj, cfg, d, world_offset, kit_name, yaw_deg, idx):
     mw = hero_obj.matrix_world.copy()
     if not _hero_has_baked_geometry(hero_obj):
         return mw
-    z_base = wall_storey_z_base(cfg, yaw_deg)
-    return wall_placement_matrix(cfg, d, world_offset, yaw_deg, idx, z_base=z_base)
+    return wall_placement_matrix(
+        cfg, d, world_offset, yaw_deg, idx,
+        storey=hero_wall_storey(hero_obj, world_offset), kit_name=kit_name,
+    )
 
 
 def export_collection(objects, path, root_name):
@@ -2136,24 +2162,23 @@ def sync_sim_walls_from_hero(name, hero_col, sim_col, clay, cfg, d, world_offset
     """Place sim wall solids at the same world transforms as hero wall pieces."""
     hero_prefix = f"{name}_hero_"
     parts = []
-    wall_re = re.compile(r"^Wall_UnevenBrick_.+_(\d+)_(\d+)$")
     for obj in hero_col.all_objects:
         if obj.type != "MESH" or not obj.name.startswith(hero_prefix):
             continue
         suffix = obj.name[len(hero_prefix):]
         if not suffix.startswith("Wall_UnevenBrick_"):
             continue
-        m = wall_re.match(suffix)
-        if m is None:
-            print(f"  skip hero wall with unexpected name: {obj.name}", flush=True)
-            continue
-        yaw_s, idx_s = m.group(1), m.group(2)
-        kit_nm = suffix[: -(len(yaw_s) + len(idx_s) + 2)]
-        sim_name = f"{name}_sim_{kit_nm}_{yaw_s}_{idx_s}"
+        parsed = parse_hero_wall_name(suffix)
+        if parsed is None:
+            raise SystemExit(f"hero wall with unexpected name: {obj.name}")
+        kit_nm, yaw, idx = parsed
+        # Same name as place_wall_run gives; Blender adds .001 for the upper storey,
+        # exactly as in the full build.
+        sim_name = f"{name}_sim_{kit_nm}_{int(yaw)}_{idx}"
         sim_obj = bpy.data.objects.new(sim_name, solid_data(kit_nm).copy())
         sim_col.objects.link(sim_obj)
         sim_obj.matrix_world = hero_wall_sim_matrix(
-            obj, cfg, d, world_offset, float(yaw_s), int(idx_s),
+            obj, cfg, d, world_offset, kit_nm, yaw, idx,
         )
         assign_material(sim_obj, clay)
         parts.append(sim_obj)

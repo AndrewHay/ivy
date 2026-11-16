@@ -134,9 +134,11 @@ Notes:
   the main checkout's kit path: the absolute `…/ivy/assets/_local/medieval_village_megakit/glTF` as the
   build's first argument, and `--kit <that path>` to `rebuild_sim_from_hero.py`.
 - **`rebuild_sim_from_hero.py`** rebuilds only the sim from the saved blend (hero untouched). It is
-  cottage-aware (ivy-b1e.18). **Do not use it for `tower`**: it drops the upper storey's walls
-  (ivy-b1e.22); rebuild the tower sim with the full build instead (output to a scratch dir and copy
-  `tower_sim.glb` if the hero must not change).
+  cottage-aware (ivy-b1e.18). On multi-storey ring structures (`tower`) each hero wall's storey comes
+  from the object's own height, and Blender's `.001` duplicate names are accepted, so the rebuild
+  reproduces the full build's wall set (ivy-b1e.22: node bounds identical to the full-build
+  `tower_sim.glb`). A hero wall whose name cannot be parsed, or whose kit piece does not match the
+  config at that storey, yaw and bay, stops the rebuild instead of being skipped.
 - **Aperture checks** in the build log: every door/window prints `SEALED` (centre ray hits its panel) and
   `edges COVERED 9/9` (9 probes just inside the kit piece's real hole all hit sim solid; ivy-b1e.19).
   Apertures in `open_apertures` print `edges skipped (open by design)`. The closing
