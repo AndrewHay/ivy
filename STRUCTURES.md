@@ -279,14 +279,34 @@ with explicit paths instead of `--structures`; the three paths go together and `
 
 These numbers were ratified on 2026-11-13 (`ivy-b1e.4`, owner ruling) and are the constants at the top
 of `tools/growth_surface_audit.gd` (`ivy-b1e.12`). `--samples` is the class W count; class R gets half
-of it. Three method details: class W samples inside a slot narrower than 0.10 m, or seen from outside
-only through one (a window pane behind closed shutter boards), are skipped (the growth surface bridges
-such a slot; `ivy-8mqi`); a sample whose 0.25 m viewpoint lands inside a growth-surface solid is judged
+of it. Three method details: a hero sample reached from open air only through an opening narrower
+than 0.10 m, of any shape (a slot, a crack between two hero pieces, a notch, the gaps between closed
+shutter boards), is not judged, on the terms of IMPLEMENTATION.md SD-MESH-19.4.2 (`ivy-8mqi`,
+`ivy-b1e.29`, `ivy-b1e.30`, amended `ivy-b1e.31`). The opening width at a point on a path is the
+least hero chord through it (the hit distances either way, each cast at most 0.10 m, a miss reading
+wide), over 8 directions 22.5° apart perpendicular to the path and along the surface normal of every
+hero face those 16 casts hit (normals within 1° merged). The normal chord catches a path that crosses
+a thin sheet at an angle, where the perpendicular casts slide past the short sides of the gap (the
+closed-shutter case); a chord between two hero faces never reads less than the gap between them. A
+coarse hero proximity query every 0.05 m finds where hero lies near the path and only there is it
+stepped every 0.9 mm, so every opening up to 0.098 m wide (its own width, the least distance between
+its faces) and 1 mm long along the path is found and none 0.10 m or wider is; a slit of width w in a
+sheet of thickness T crossed at any angle that still lets a straight path through it is found when
+w is at most 0.098 m and at most 2T (clause 2a). Three paths are tested: the class W viewpoint segment (0.015 to 0.25 m
+off the face), every way out of a proxy solid the audit tries (classes W and R), and the escape rays
+below. Such a narrow-opening candidate is judged after all when any of 34 escape rays from 0.015 m
+off the face (the 17 level or rising world directions and the 17 sky-probe directions about the face
+normal) meets no hero skin and threads no narrow opening until it leaves the hero bounds grown by
+0.10 m (`judged_by_escape`), or when the audit has no narrowest width and position to show for it.
+Every exemption is listed (node, position, side, would-be `g`, the path that threaded the opening,
+its narrowest width and where, clear escapes 0) and summarised under each (a) verdict: how many, how
+many with would-be `|g|` over 0.03 m, and the worst. A sample whose 0.25 m viewpoint lands inside a
+growth-surface solid is judged
 from the nearest point just outside that solid, or, when that way out is below the ground, behind hero
-skin, through a bridged slot or not open to the sky, from the point where its line of sight leaves the
+skin, through a narrow opening or not open to the sky, from the point where its line of sight leaves the
 solid (within 1 m), and not at all only when both ways out fail (`ivy-8mqi`, `ivy-b1e.27`: a proxy over
 the relief beside a recessed wall swallows the viewpoint, and its nearest way out runs through that
-relief). Every draw (a) does not judge is counted by reason in the report, and those turned down for
+relief). Every other draw (a) does not judge is counted by reason in the report, and those turned down for
 want of a way out of a proxy solid are listed with position, would-be `g` and how many of 17 level or
 rising rays from the viewpoint leave the hero (0: sealed inside it); and an inside probe for (c) only counts when no other proxy face lies
 within 0.05 m of it (a hit beside an edge is not 0.10 m deep). The "0.20 m of solid behind the face"

@@ -81,8 +81,21 @@ const SDF_MIN_SOLID := 0.20
 const SDF_RAYS := 4000
 ## Height above a hero sample at which the slot test looks sideways for opposing walls.
 const SLOT_PROBE_LIFT := 0.015
-## Spacing of the further slot checks along the line of sight, out to VISIBLE_CLEARANCE.
-const SLOT_SIGHT_STEP := 0.01
+## SD-MESH-19.4.2 opening test. The width at a point on a path is read in OPENING_DIRS directions
+## 22.5 degrees apart about it (overstating a slit's width by at most 1/cos 11.25 = 1.020, so a
+## 0.098 m slit reads at most 0.09992). A width under SLOT_MAX_WIDTH - OPENING_WIDTH_TOL is narrow:
+## the tolerance absorbs the float error of the hit distances, so a 0.100 m slit never is.
+const OPENING_DIRS := 8
+const OPENING_WIDTH_TOL := 0.00002
+## Coarse pass: a hero proximity query of this radius every OPENING_COARSE_STEP along the path. A
+## narrow point has hero within SLOT_MAX_WIDTH / 2 of it, so within 0.056 m of the nearest coarse
+## point; only there is the path stepped finely.
+const OPENING_COARSE_STEP := 0.05
+const OPENING_NEAR_RADIUS := 0.08
+## Fine pass step: under 0.001 m, so every opening at least 0.001 m long along the path holds a step.
+const OPENING_FINE_STEP := 0.0009
+## A clear escape ray is checked for narrow openings until it leaves the hero bounds grown by this.
+const ESCAPE_BOUNDS_GROW := 0.10
 ## A viewpoint inside a growth-surface solid is moved to this far outside its nearest face, along
 ## the SDF gradient, in at most PROXY_EXIT_TRIES moves.
 const PROXY_EXIT_MARGIN := 0.02
@@ -106,6 +119,8 @@ var _sdf = null  # MeshSdf
 var _bounds: AABB = AABB()
 var _probe_dirs: Array[Vector3] = []
 var _two_sided: StaticBody3D = null
+var _hero_bounds: AABB = AABB()
+var _near_query: PhysicsShapeQueryParameters3D
 
 
 ## Category of a hero glTF node (extends tools/diagnose_hero_deviation.py classify_node).
@@ -220,11 +235,25 @@ func setup(space: PhysicsDirectSpaceState3D, pieces: Array, sdf) -> void:
 	_query.collide_with_areas = false
 	_query.collide_with_bodies = true
 	_bounds = sdf.mesh_aabb
+	var first_vertex := true
 	for piece in _pieces:
 		piece["category"] = classify(piece["name"])
 		var xf: Transform3D = piece["transform"]
 		for v in (piece["faces"] as PackedVector3Array):
-			_bounds = _bounds.expand(xf * v)
+			var w: Vector3 = xf * v
+			_bounds = _bounds.expand(w)
+			if first_vertex:
+				_hero_bounds = AABB(w, Vector3.ZERO)
+				first_vertex = false
+			else:
+				_hero_bounds = _hero_bounds.expand(w)
+	var sphere := SphereShape3D.new()
+	sphere.radius = OPENING_NEAR_RADIUS
+	_near_query = PhysicsShapeQueryParameters3D.new()
+	_near_query.shape = sphere
+	_near_query.collision_mask = HERO_MASK
+	_near_query.collide_with_areas = false
+	_near_query.collide_with_bodies = true
 	# One direction along the normal, then rings at 45 and 75 degrees from it.
 	_probe_dirs = [Vector3(0.0, 0.0, 1.0)]
 	for ring in [[45.0, 0.0], [75.0, 22.5]]:
@@ -313,18 +342,23 @@ func _exterior_normal(p: Vector3, n: Vector3) -> Vector3:
 	return _exterior_side(p, n)["dir"]
 
 
-## {dir, reason, sight_reason, reject_dir}: dir is the outward normal of a hero sample, or ZERO
-## when neither side is exposed exterior. Then `reason` says why, for the side that came closest:
-## a proxy-exit reason over not_open_to_sky over not_visible, with `reject_dir` that side's normal.
-## `reason` is the nearest way out's (the SDF gradient); `sight_reason` the line of sight's, when
-## that was tried as well.
+## {dir, reason, sight_reason, reject_dir, candidates}: dir is the outward normal of a hero sample,
+## or ZERO when neither side is exposed exterior. Then `reason` says why, for the side that came
+## closest: a proxy-exit reason over not_open_to_sky over not_visible, with `reject_dir` that side's
+## normal. `reason` is the nearest way out's (the SDF gradient); `sight_reason` the line of sight's,
+## when that was tried as well. `candidates` lists the sides that are SD-MESH-19.4.2 narrow-opening
+## candidates by path P2: every way out of the proxy solid tried was refused and at least one of
+## them threads a narrow opening. Each is {dir, path ("gradient" or "sight"), width, width_position}
+## with the narrowest opening that refusal measured.
 func _exterior_side(p: Vector3, n: Vector3) -> Dictionary:
 	var best := ""
 	var best_sight := ""
 	var best_dir := Vector3.ZERO
+	var candidates: Array = []
 	for dir in [n, -n]:
 		var reason := ""
 		var sight_reason := ""
+		var evidence := {}
 		var eye: Vector3 = p + dir * VISIBLE_CLEARANCE
 		var hit := _cast(eye, p - dir * 0.02, HERO_MASK)
 		if hit.is_empty() or (hit["position"] as Vector3).distance_to(p) > 0.004:
@@ -333,8 +367,10 @@ func _exterior_side(p: Vector3, n: Vector3) -> Dictionary:
 			var exit := _clear_of_proxy(eye, dir)
 			if exit[0] == Vector3.INF:
 				reason = exit[1]
+				if reason == REJECT_EXIT_SLOT:
+					evidence = _evidence("gradient", exit[2])
 			elif _open_to_sky(exit[0], dir):
-				return {"dir": dir, "reason": "", "sight_reason": "", "reject_dir": Vector3.ZERO}
+				return {"dir": dir, "reason": "", "sight_reason": "", "reject_dir": Vector3.ZERO, "candidates": []}
 			else:
 				reason = REJECT_NO_SKY
 			# ivy-b1e.27: the nearest way out of a proxy solid is not the only one. A viewpoint
@@ -344,15 +380,35 @@ func _exterior_side(p: Vector3, n: Vector3) -> Dictionary:
 				var sight := _sight_exit(eye, dir)
 				if sight[0] == Vector3.INF:
 					sight_reason = sight[1]
+					if sight_reason == REJECT_EXIT_SLOT:
+						var seen := _evidence("sight", sight[2])
+						if evidence.is_empty() or float(seen["width"]) < float(evidence["width"]):
+							evidence = seen
 				elif _open_to_sky(sight[0], dir):
-					return {"dir": dir, "reason": "", "sight_reason": "", "reject_dir": Vector3.ZERO}
+					return {"dir": dir, "reason": "", "sight_reason": "", "reject_dir": Vector3.ZERO, "candidates": []}
 				else:
 					sight_reason = REJECT_NO_SKY
+			# SD-MESH-19.4.2 item 4: every way out tried refused, one of them through a narrow opening.
+			var all_refused: bool = reason in PROXY_EXIT_REJECTS \
+					and (sight_reason.is_empty() or sight_reason in PROXY_EXIT_REJECTS)
+			if all_refused and REJECT_EXIT_SLOT in [reason, sight_reason]:
+				evidence["dir"] = dir
+				candidates.append(evidence)
 		if _reject_rank(reason) > _reject_rank(best):
 			best = reason
 			best_sight = sight_reason
 			best_dir = dir
-	return {"dir": Vector3.ZERO, "reason": best, "sight_reason": best_sight, "reject_dir": best_dir}
+	return {"dir": Vector3.ZERO, "reason": best, "sight_reason": best_sight, "reject_dir": best_dir,
+		"candidates": candidates}
+
+
+## A narrow-opening candidate's evidence: the path that threaded the opening and, from the opening
+## test's result `found` ({width, position}, or empty), its narrowest width and where it was read.
+## Without a result the width is INF, which the fail-safe of item 6 judges.
+static func _evidence(path: String, found: Dictionary) -> Dictionary:
+	if found.is_empty():
+		return {"path": path, "width": INF, "width_position": Vector3.INF}
+	return {"path": path, "width": float(found["width"]), "width_position": found["position"]}
 
 
 ## Of the 17 level or rising directions to the faces, edges and corners of a cube around `point`,
@@ -392,7 +448,7 @@ static func _reject_rank(reason: String) -> int:
 func _clear_of_proxy(eye: Vector3, _dir: Vector3) -> Array:
 	var phi: float = _sdf.signed_distance(eye)
 	if phi >= 0.0:
-		return [eye, ""]
+		return [eye, "", {}]
 	var q := eye
 	for i in PROXY_EXIT_TRIES:
 		q += _sdf.gradient_normalized(q) * (PROXY_EXIT_MARGIN - phi)
@@ -414,25 +470,29 @@ func _sight_exit(eye: Vector3, dir: Vector3) -> Array:
 	while phi < 0.0:
 		t += PROXY_EXIT_MARGIN - phi
 		if t > SIGHT_EXIT_REACH:
-			return [Vector3.INF, REJECT_EXIT_NONE]
+			return [Vector3.INF, REJECT_EXIT_NONE, {}]
 		q = eye + dir * t
 		phi = _sdf.signed_distance(q)
 	return _checked_exit(eye, q, phi)
 
 
 ## The tests a way out of a proxy solid, from `eye` to `q` (where the SDF reads `phi`), must pass.
+## [point, reason, opening]: `opening` is the narrowest opening ({width, position}) when the way out
+## is refused as exit_through_slot, else empty.
 func _checked_exit(eye: Vector3, q: Vector3, phi: float) -> Array:
 	if phi < 0.0:
-		return [Vector3.INF, REJECT_EXIT_NONE]
+		return [Vector3.INF, REJECT_EXIT_NONE, {}]
 	if q.y < 0.0:
-		return [Vector3.INF, REJECT_EXIT_GROUND]
+		return [Vector3.INF, REJECT_EXIT_GROUND, {}]
 	if not _cast(eye, q, HERO_MASK).is_empty():
-		return [Vector3.INF, REJECT_EXIT_HERO]
-	# The way out may itself run through a gap the growth surface bridges (between shutter boards).
+		return [Vector3.INF, REJECT_EXIT_HERO, {}]
+	# The way out may itself run through a gap the growth surface bridges (between shutter boards,
+	# or a crack between two hero pieces): path P2 of SD-MESH-19.4.2.
 	var leg := q - eye
-	if _slot_along(eye, leg.normalized(), 0.0, leg.length()):
-		return [Vector3.INF, REJECT_EXIT_SLOT]
-	return [q, ""]
+	var opening := _narrowest_opening(eye, leg.normalized(), 0.0, leg.length())
+	if not opening.is_empty():
+		return [Vector3.INF, REJECT_EXIT_SLOT, opening]
+	return [q, "", {}]
 
 
 # ------------------------------------------------------------------------------------------------
@@ -468,29 +528,160 @@ func _gap_at(p: Vector3, n_out: Vector3) -> Array:
 ## (SD-MESH-19.2). The growth surface bridges such a slot, so the surface behind it is not judged
 ## (ivy-8mqi: a window pane behind closed shutter boards).
 func _in_narrow_slot(p: Vector3, n_out: Vector3) -> bool:
-	return _slot_along(p, n_out, SLOT_PROBE_LIFT, VISIBLE_CLEARANCE)
+	return not _narrowest_opening(p, n_out, SLOT_PROBE_LIFT, VISIBLE_CLEARANCE).is_empty()
 
 
-## True when, somewhere from `start` to `length` along `dir` from `origin`, hero walls stand on
-## two opposite sides of that line closer together than SLOT_MAX_WIDTH.
-func _slot_along(origin: Vector3, dir: Vector3, start: float, length: float) -> bool:
+## SD-MESH-19.4.2 item 1 (amended, ivy-b1e.31): the opening width at `x` across a path along the
+## unit `dir` (`basis` is _basis_around(dir)). The least of two kinds of chord, each the sum of the
+## hero hit distances either way from `x`, each cast at most SLOT_MAX_WIDTH; a chord in which
+## either cast misses reads wide (INF):
+## - perpendicular chords: OPENING_DIRS directions 22.5 degrees apart perpendicular to the path;
+## - normal chords: one along the surface normal of every hero face those 16 casts hit (normals
+##   within 1 degree of parallel, either sign, merged). On a path crossing a thin sheet at an angle
+##   the perpendicular casts can slide past the short sides of the slit, but a face they do touch
+##   carries the slit's own normal, and the chord along it reads the slit's true width. A normal
+##   chord runs between two hero faces, so it never reads less than the gap between parallel faces.
+func _opening_width(x: Vector3, basis: Basis) -> float:
+	var width := INF
+	var normals: Array[Vector3] = []
+	for k in OPENING_DIRS:
+		var ang := PI * k / OPENING_DIRS
+		var t := basis.x * cos(ang) + basis.y * sin(ang)
+		var fwd := _cast(x, x + t * SLOT_MAX_WIDTH, HERO_MASK)
+		var back := _cast(x, x - t * SLOT_MAX_WIDTH, HERO_MASK)
+		if not fwd.is_empty() and not back.is_empty():
+			width = minf(width, (fwd["position"] as Vector3).distance_to(x) + (back["position"] as Vector3).distance_to(x))
+		for hit in [fwd, back]:
+			if not hit.is_empty():
+				_add_distinct_normal(normals, hit["normal"])
+	for nrm in normals:
+		width = minf(width, _chord(x, nrm))
+	return width
+
+
+## Appends the unit `nrm` to `normals` unless one within 1 degree of it, either sign, is there
+## (|cos| >= cos 1 degree = 0.99985).
+static func _add_distinct_normal(normals: Array[Vector3], nrm: Vector3) -> void:
+	var u := nrm.normalized()
+	if u == Vector3.ZERO:
+		return
+	for m in normals:
+		if absf(m.dot(u)) >= 0.99985:
+			return
+	normals.append(u)
+
+
+## The hero chord through `x` along the unit `u`: hit distances along +u and -u, each cast at most
+## SLOT_MAX_WIDTH, summed; INF if either cast misses.
+func _chord(x: Vector3, u: Vector3) -> float:
+	var a := _cast(x, x + u * SLOT_MAX_WIDTH, HERO_MASK)
+	if a.is_empty():
+		return INF
+	var b := _cast(x, x - u * SLOT_MAX_WIDTH, HERO_MASK)
+	if b.is_empty():
+		return INF
+	return (a["position"] as Vector3).distance_to(x) + (b["position"] as Vector3).distance_to(x)
+
+
+## True when hero skin lies within OPENING_NEAR_RADIUS of `x`.
+func _hero_near(x: Vector3) -> bool:
+	_near_query.transform = Transform3D(Basis.IDENTITY, x)
+	return not _space.intersect_shape(_near_query, 1).is_empty()
+
+
+## SD-MESH-19.4.2 items 1-2: does the path from `start` to `length` along the unit `dir` from
+## `origin` (endpoints included) thread an opening narrower than SLOT_MAX_WIDTH? Returns the
+## narrowest one as {width, position}, or {} when there is none. `first_only` stops at the first.
+##
+## Resolution contract (item 2): flags every opening up to 0.098 m wide and at least 0.001 m long
+## along the path, at any position along it and orientation about it; never one 0.10 m or wider,
+## the width being the opening's own (least distance between its faces). Clause 2a: a slit of width
+## w in a sheet of thickness T, crossed at any angle alpha with T tan(alpha) < w and any rotation
+## about the path, is flagged on every path through it that touches no hero when w <= 0.098 and
+## w <= 2T, reading a width within w..1.0205w (the normal chord of _opening_width). A coarse
+## proximity query every OPENING_COARSE_STEP finds where hero lies near the path; only those
+## stretches are stepped every OPENING_FINE_STEP (ivy-b1e.29 ruling).
+func _narrowest_opening(origin: Vector3, dir: Vector3, start: float, length: float, first_only := false) -> Dictionary:
+	if length < start:
+		return {}
 	var basis := _basis_around(dir)
-	var lift := start
-	while lift < length:
-		var eye := origin + dir * lift
-		for k in 4:
-			var ang := deg_to_rad(45.0 * k)
-			var t := basis.x * cos(ang) + basis.y * sin(ang)
-			var fwd := _cast(eye, eye + t * SLOT_MAX_WIDTH, HERO_MASK)
-			if fwd.is_empty():
-				continue
-			var back := _cast(eye, eye - t * SLOT_MAX_WIDTH, HERO_MASK)
-			if back.is_empty():
-				continue
-			if (fwd["position"] as Vector3).distance_to(eye) + (back["position"] as Vector3).distance_to(eye) < SLOT_MAX_WIDTH:
-				return true
-		lift += SLOT_SIGHT_STEP
-	return false
+	var half := OPENING_COARSE_STEP * 0.6
+	# Stretches [a, b] of the path to step finely, merged as they are found.
+	var stretches: Array = []
+	var s := start
+	while true:
+		if _hero_near(origin + dir * s):
+			var a := maxf(start, s - half)
+			var b := minf(length, s + half)
+			if not stretches.is_empty() and a <= float(stretches[-1][1]):
+				stretches[-1][1] = b
+			else:
+				stretches.append([a, b])
+		if s >= length:
+			break
+		s = minf(length, s + OPENING_COARSE_STEP)
+	var best := {}
+	var limit := SLOT_MAX_WIDTH - OPENING_WIDTH_TOL
+	for stretch in stretches:
+		var b: float = stretch[1]
+		var f: float = stretch[0]
+		while true:
+			var x := origin + dir * f
+			var w := _opening_width(x, basis)
+			if w < limit and (best.is_empty() or w < float(best["width"])):
+				best = {"width": w, "position": x}
+				if first_only:
+					return best
+			if f >= b:
+				break
+			f = minf(b, f + OPENING_FINE_STEP)
+	return best
+
+
+## Distance along the unit `dir` from `o` (inside `box`) to where the ray leaves `box`.
+static func _exit_distance(o: Vector3, dir: Vector3, box: AABB) -> float:
+	var t := INF
+	for axis in 3:
+		if absf(dir[axis]) < 1e-9:
+			continue
+		var bound: float = box.end[axis] if dir[axis] > 0.0 else box.position[axis]
+		t = minf(t, maxf(0.0, (bound - o[axis]) / dir[axis]))
+	return 0.0 if t == INF else t
+
+
+## SD-MESH-19.4.2 item 5: the 34 escape directions from side `n_s` of a hero sample, the 17 level or
+## rising world directions of _hero_escapes and the 17 _probe_dirs about `n_s`.
+func _escape_dirs(n_s: Vector3) -> Array[Vector3]:
+	var out: Array[Vector3] = []
+	for ix in [-1, 0, 1]:
+		for iy in [0, 1]:
+			for iz in [-1, 0, 1]:
+				if ix == 0 and iy == 0 and iz == 0:
+					continue
+				out.append(Vector3(ix, iy, iz).normalized())
+	var basis := _basis_around(n_s)
+	for d in _probe_dirs:
+		out.append((basis * d).normalized())
+	return out
+
+
+## SD-MESH-19.4.2 item 5: how many clear escapes side `n_s` of hero sample `p` has (path P3). From
+## o = p + n_s * SLOT_PROBE_LIFT, a ray is clear when it meets no hero skin out to FAR and threads
+## no narrow opening until it leaves the hero bounds grown by ESCAPE_BOUNDS_GROW. Stops counting at
+## `stop_at` (0: count all 34).
+func _clear_escapes(p: Vector3, n_s: Vector3, stop_at := 0) -> int:
+	var o := p + n_s * SLOT_PROBE_LIFT
+	var grown := _hero_bounds.grow(ESCAPE_BOUNDS_GROW)
+	var clear := 0
+	for d in _escape_dirs(n_s):
+		if not _cast(o, o + d * FAR, HERO_MASK).is_empty():
+			continue
+		if not _narrowest_opening(o, d, 0.0, _exit_distance(o, d, grown), true).is_empty():
+			continue
+		clear += 1
+		if stop_at > 0 and clear >= stop_at:
+			break
+	return clear
 
 
 ## Distribution of signed gaps. `clip_p95` is the p95 of -g (how proud the hero stands),
@@ -603,7 +794,6 @@ func _sample_class(surface: String, target: int, rng: RandomNumberGenerator,
 	var gaps: Array = []
 	var sdf_fallback := 0
 	var absent := 0
-	var in_slot := 0
 	var drawn := 0
 	var rejected := {}
 	var rejected_samples := {}
@@ -613,6 +803,13 @@ func _sample_class(surface: String, target: int, rng: RandomNumberGenerator,
 	rejected[REJECT_NO_SKY] = 0
 	rejected[REJECT_NOT_VISIBLE] = 0
 	var below_ground := 0
+	# SD-MESH-19.4.2: narrow-opening exemptions by path, the candidates judged after all, and the
+	# list of every exemption (whole counts; the list stops at REJECT_LIST_MAX).
+	var exempt_in_slot := 0
+	var exempt_exit_slot := 0
+	var judged_by_escape := 0
+	var judged_no_evidence := 0
+	var exemptions: Array = []
 	var max_draws := target * 200
 	while gaps.size() < target and drawn < max_draws and not cumulative.is_empty():
 		drawn += 1
@@ -632,6 +829,44 @@ func _sample_class(surface: String, target: int, rng: RandomNumberGenerator,
 		# Godot front faces are wound clockwise, so this is the front-facing normal.
 		var side := _exterior_side(p, (c - a).cross(b - a).normalized())
 		var n_out: Vector3 = side["dir"]
+		# SD-MESH-19.4.2 item 4: narrow-opening candidates. P2: a side every way out of whose proxy
+		# solid was refused, one through a narrow opening. P1 (class W): the exterior side's own
+		# viewpoint segment threads one.
+		var candidates: Array = side["candidates"]
+		if n_out != Vector3.ZERO and surface == "W":
+			var seen := _narrowest_opening(p, n_out, SLOT_PROBE_LIFT, VISIBLE_CLEARANCE)
+			if not seen.is_empty():
+				var ev := _evidence("viewpoint", seen)
+				ev["dir"] = n_out
+				candidates = [ev]
+		if not candidates.is_empty():
+			var verdict := _resolve_candidates(p, candidates)
+			if verdict["judge"]:
+				n_out = verdict["dir"]
+				if verdict["no_evidence"]:
+					judged_no_evidence += 1
+				else:
+					judged_by_escape += 1
+			else:
+				var ex: Dictionary = verdict["candidate"]
+				var ndir: Vector3 = ex["dir"]
+				var wpos: Vector3 = ex["width_position"]
+				if ex["path"] == "viewpoint":
+					exempt_in_slot += 1
+				else:
+					exempt_exit_slot += 1
+				if exemptions.size() < REJECT_LIST_MAX:
+					exemptions.append({
+						"node": _pieces[tri_piece[ti]]["name"],
+						"position": [p.x, p.y, p.z],
+						"dir": [ndir.x, ndir.y, ndir.z],
+						"g": float(_gap_at(p, ndir)[0]),
+						"path": ex["path"],
+						"width": ex["width"],
+						"width_position": [wpos.x, wpos.y, wpos.z],
+						"clear_escapes": 0,
+					})
+				continue
 		if n_out == Vector3.ZERO:
 			var why: String = side["reason"]
 			rejected[why] = int(rejected.get(why, 0)) + 1
@@ -648,10 +883,8 @@ func _sample_class(surface: String, target: int, rng: RandomNumberGenerator,
 				})
 			continue
 		# Class R is judged against the tile field as modelled (troughs included): its float
-		# gate already allows for the crest envelope.
-		if surface == "W" and _in_narrow_slot(p, n_out):
-			in_slot += 1
-			continue
+		# gate already allows for the crest envelope; its viewpoint segment is not tested (P1 is
+		# class W only, SD-MESH-19.4.2 item 3).
 		var measured := _gap_at(p, n_out)
 		var g: float = measured[0]
 		if measured[1] == 1:
@@ -668,7 +901,39 @@ func _sample_class(surface: String, target: int, rng: RandomNumberGenerator,
 		by_node[piece["name"]].append(g)
 	rejected["below_ground"] = below_ground
 	return {"gaps": gaps, "area": total_area, "drawn": drawn, "sdf_fallback": sdf_fallback,
-		"absent": absent, "in_slot": in_slot, "rejected": rejected, "rejected_samples": rejected_samples}
+		"absent": absent, "in_slot": exempt_in_slot, "rejected": rejected, "rejected_samples": rejected_samples,
+		"exempt_in_slot": exempt_in_slot, "exempt_exit_slot": exempt_exit_slot,
+		"judged_by_escape": judged_by_escape, "judged_no_evidence": judged_no_evidence,
+		"exemptions": exemptions, "exemption_summary": exemption_summary(exemptions, exempt_in_slot + exempt_exit_slot)}
+
+
+## SD-MESH-19.4.2 items 5-6 for one hero sample `p`: the first candidate side with a clear escape
+## is judged; so is a candidate without its evidence (a width under SLOT_MAX_WIDTH and where it
+## was read). Otherwise the sample is exempt on its first candidate.
+## {judge, dir, no_evidence, candidate}.
+func _resolve_candidates(p: Vector3, candidates: Array) -> Dictionary:
+	for cand in candidates:
+		if _clear_escapes(p, cand["dir"], 1) > 0:
+			return {"judge": true, "dir": cand["dir"], "no_evidence": false, "candidate": cand}
+	var first: Dictionary = candidates[0]
+	var wpos: Vector3 = first["width_position"]
+	if not (float(first["width"]) < SLOT_MAX_WIDTH) or not wpos.is_finite():
+		return {"judge": true, "dir": first["dir"], "no_evidence": true, "candidate": first}
+	return {"judge": false, "dir": first["dir"], "no_evidence": false, "candidate": first}
+
+
+## The one-line account of a class's exemptions (SD-MESH-19.4.2 "What must still be reported"):
+## how many, how many with would-be |g| over GAP_SHARE_LINE, and the worst. `count` is the whole
+## count (the list may stop at REJECT_LIST_MAX).
+static func exemption_summary(exemptions: Array, count: int) -> Dictionary:
+	var over := 0
+	var worst := {}
+	for e in exemptions:
+		if absf(float(e["g"])) > GAP_SHARE_LINE:
+			over += 1
+		if worst.is_empty() or absf(float(e["g"])) > absf(float(worst["g"])):
+			worst = e
+	return {"count": count, "over_line": over, "worst": worst}
 
 
 func _audit_gap(target_w: int, target_r: int, seed_value: int) -> Dictionary:
@@ -691,7 +956,9 @@ func _audit_gap(target_w: int, target_r: int, seed_value: int) -> Dictionary:
 		var d: Dictionary = row[1]
 		var st := gap_stats(d["gaps"])
 		st["target"] = row[2]
-		for key in ["area", "drawn", "sdf_fallback", "absent", "in_slot", "rejected", "rejected_samples"]:
+		for key in ["area", "drawn", "sdf_fallback", "absent", "in_slot", "rejected", "rejected_samples",
+				"exempt_in_slot", "exempt_exit_slot", "judged_by_escape", "judged_no_evidence",
+				"exemptions", "exemption_summary"]:
 			st[key] = d[key]
 		out[row[0]] = st
 	out["walls"]["fails"] = judge_walls(out["walls"], w_categories, target_w, drawn_w["absent"])
@@ -1123,6 +1390,31 @@ static func _format_rejections(lines: PackedStringArray, cls: String, st: Dictio
 				s["dir"][0], s["dir"][1], s["dir"][2], s["g"]])
 
 
+## SD-MESH-19.4.2: the summary line under a class's (a) verdict, then every listed exemption
+## (worst would-be g first).
+static func _format_exemptions(lines: PackedStringArray, cls: String, st: Dictionary) -> void:
+	if not st.has("exemption_summary"):
+		return
+	var sm: Dictionary = st["exemption_summary"]
+	var worst_txt := "none"
+	var worst: Dictionary = sm["worst"]
+	if not worst.is_empty():
+		worst_txt = "%+.4f on %s at (%.3f, %.3f, %.3f) through a %.4f m opening" % [
+			worst["g"], worst["node"], worst["position"][0], worst["position"][1], worst["position"][2], worst["width"]]
+	lines.append("        %s narrow-opening exemptions (SD-MESH-19.4.2): %d (viewpoint %d, way out %d), would-be |g| > %.2f: %d, worst %s; judged by a clear escape: %d, judged for want of evidence: %d" % [
+		cls, sm["count"], st["exempt_in_slot"], st["exempt_exit_slot"], GAP_SHARE_LINE, sm["over_line"], worst_txt,
+		st["judged_by_escape"], st["judged_no_evidence"]])
+	var sorted: Array = (st["exemptions"] as Array).duplicate()
+	sorted.sort_custom(func(x, y): return absf(x["g"]) > absf(y["g"]))
+	for e in sorted:
+		lines.append("          exempt %-46s at (%.3f, %.3f, %.3f) side (%.2f, %.2f, %.2f) would-be g %+.4f  %-9s opening %.4f m at (%.3f, %.3f, %.3f)  clear escapes %d" % [
+			e["node"], e["position"][0], e["position"][1], e["position"][2], e["dir"][0], e["dir"][1], e["dir"][2],
+			e["g"], e["path"], e["width"], e["width_position"][0], e["width_position"][1], e["width_position"][2],
+			e["clear_escapes"]])
+	if int(sm["count"]) > sorted.size():
+		lines.append("          ... %d more not listed (list stops at %d)" % [int(sm["count"]) - sorted.size(), REJECT_LIST_MAX])
+
+
 static func format_report(structure_id: String, report: Dictionary) -> String:
 	var a: Dictionary = report["a"]
 	var b: Dictionary = report["b"]
@@ -1135,14 +1427,15 @@ static func format_report(structure_id: String, report: Dictionary) -> String:
 	if int(w.get("n", 0)) == 0:
 		lines.append("      W walls and flats: no ivy-reachable hero samples found -> FAIL")
 	else:
-		lines.append("      W walls and flats: n=%d of %d drawn (target %d, hero area %.1f m2, in slots under %.2f m: %d)" % [
-			w["n"], w["drawn"], w["target"], w["area"], SLOT_MAX_WIDTH, w["in_slot"]])
+		lines.append("      W walls and flats: n=%d of %d drawn (target %d, hero area %.1f m2, reached only through openings under %.2f m: %d)" % [
+			w["n"], w["drawn"], w["target"], w["area"], SLOT_MAX_WIDTH, int(w["exempt_in_slot"]) + int(w["exempt_exit_slot"])])
 		lines.append("        median %+.4f  p95|g| %.4f  p99|g| %.4f  max|g| %.4f  floating>%.2f: %.1f%%  clipping>%.2f: %.1f%%  no proxy in reach: %d  SDF fallback: %d" % [
 			w["median"], w["p95_abs"], w["p99_abs"], w["max_abs"], GAP_SHARE_LINE, 100.0 * w["float_share"],
 			GAP_SHARE_LINE, 100.0 * w["clip_share"], w["absent"], w["sdf_fallback"]])
 		lines.append("        -> %s (p95 <= %.2f, p99 <= %.2f, max <= %.2f, category median <= %.2f, none without proxy)%s" % [
 			_verdict(w["pass"]), GAP_W_P95_MAX, GAP_W_P99_MAX, GAP_W_ABS_MAX, GAP_W_CATEGORY_MEDIAN_MAX,
 			"" if w["pass"] else ": " + "; ".join(PackedStringArray(w["fails"]))])
+	_format_exemptions(lines, "W", w)
 	for row in [["W", w], ["R", r]]:
 		_format_rejections(lines, row[0], row[1])
 	if not r["present"]:
@@ -1157,6 +1450,7 @@ static func format_report(structure_id: String, report: Dictionary) -> String:
 		lines.append("        -> %s (proud p95 <= %.2f, float p95 <= %.2f, max <= %.2f, none without proxy)%s" % [
 			_verdict(r["pass"]), GAP_R_CLIP_P95_MAX, GAP_R_FLOAT_P95_MAX, GAP_R_ABS_MAX,
 			"" if r["pass"] else ": " + "; ".join(PackedStringArray(r["fails"]))])
+		_format_exemptions(lines, "R", r)
 	var cats: Array = a["by_category"].keys()
 	cats.sort_custom(func(x, y): return a["by_category"][x]["p95_abs"] > a["by_category"][y]["p95_abs"])
 	for cat in cats:

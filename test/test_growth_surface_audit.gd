@@ -365,7 +365,246 @@ func test_floating_proxy_over_a_visible_wall_fails_when_the_nearest_way_out_cros
 	assert_gte(float(a["max_abs"]), 0.055)
 
 
+## SD-MESH-19.4.2 fixtures U and J (ivy-b1e.29 ruling, items 4 and 6). A hero shell (x 0.10-0.80,
+## y 0.20-0.602, z 0.20-1.80 from `o`) with a closed cavity inside it (x 0.30-0.65, y 0.40-0.60,
+## z 0.40-1.60) under a 2 mm top skin. A 1.5 mm crack runs through that skin along z at x = 0.40.
+## Every skin is under 0.25 m thick, so no viewpoint starts inside hero material. The proxy is the
+## solid shell box: what ivy needs. The cavity's back face (x = 0.65, facing -x) has its 0.25 m
+## viewpoint at x = 0.40, inside the proxy; the nearest way out (the SDF gradient, straight up)
+## threads the crack, the line of sight (-x) crosses the front wall. The back face floats 0.15 m
+## behind the proxy's back face. With `side_opening` (fixture J) the z- side wall has a
+## 0.30 x 0.20 m opening (x 0.45-0.75, the cavity's full height), in line with the level escape
+## direction -z from the back face.
+const CRACK_X := 0.40
+const CRACK_WIDTH := 0.0015
+const SKIN := 0.002
+
+
+func _cavity_proxy(o: Vector3) -> Array[AABB]:
+	return [AABB(o + Vector3(0.10, 0.20, 0.20), Vector3(0.70, 0.40 + SKIN, 1.60))]
+
+
+func _cavity_hero(o: Vector3, side_opening: bool) -> Array[AABB]:
+	var top := 0.60
+	var c0 := CRACK_X - CRACK_WIDTH * 0.5
+	var c1 := CRACK_X + CRACK_WIDTH * 0.5
+	var boxes: Array[AABB] = [
+		AABB(o + Vector3(0.10, 0.20, 0.20), Vector3(0.70, 0.20, 1.60)),  # bottom
+		AABB(o + Vector3(0.10, 0.40, 0.20), Vector3(0.20, 0.20, 1.60)),  # front wall
+		AABB(o + Vector3(0.30, 0.40, 1.60), Vector3(0.35, 0.20, 0.20)),  # side wall z+
+		AABB(o + Vector3(0.10, top, 0.20), Vector3(c0 - 0.10, SKIN, 1.60)),  # top skin, front of the crack
+		AABB(o + Vector3(c1, top, 0.20), Vector3(0.80 - c1, SKIN, 1.60)),  # top skin, behind it
+		AABB(o + Vector3(c0, top, 0.20), Vector3(CRACK_WIDTH, SKIN, 0.20)),  # crack ends
+		AABB(o + Vector3(c0, top, 1.60), Vector3(CRACK_WIDTH, SKIN, 0.20)),
+	]
+	if side_opening:
+		boxes.append_array([
+			AABB(o + Vector3(0.65, 0.40, 0.40), Vector3(0.15, 0.20, 1.40)),  # back wall beside the cavity
+			AABB(o + Vector3(0.75, 0.40, 0.20), Vector3(0.05, 0.20, 0.20)),  # back wall beside the opening
+			AABB(o + Vector3(0.30, 0.40, 0.20), Vector3(0.15, 0.20, 0.20)),  # side wall z- beside it
+		])
+	else:
+		boxes.append_array([
+			AABB(o + Vector3(0.65, 0.40, 0.20), Vector3(0.15, 0.20, 1.60)),  # back wall
+			AABB(o + Vector3(0.30, 0.40, 0.20), Vector3(0.35, 0.20, 0.20)),  # side wall z-
+		])
+	return boxes
+
+
+## Fixture U: the cavity is shut in. Its faces are reached from open air only through the 1.5 mm
+## crack, so they are not judged: every exemption is listed with its opening (< 0.005 m) and 0
+## clear escapes, and (a) passes. Red against the 0.01 m / 4-direction slot test, which steps over
+## the 2 mm skin on most viewpoints and judges the back face at +0.15 m.
+func test_shut_in_cavity_seen_only_through_a_crack_is_not_judged() -> void:
+	var offset := Vector3(220.0, 0.5, 0.0)
+	var report: Dictionary = await _run_case(offset, _cavity_proxy(offset), _cavity_hero(offset, false))
+	var a: Dictionary = report["a"]["walls"]
+	assert_true(a["pass"], "(a) the shut-in cavity is not judged: %s" % [a["fails"]])
+	assert_lte(float(a["max_abs"]), Audit.GAP_W_ABS_MAX)
+	var exemptions: Array = a.get("exemptions", [])
+	assert_gt(exemptions.size(), 0, "the cavity's faces are listed as narrow-opening exemptions")
+	assert_eq(int(a.get("exempt_exit_slot", -1)) + int(a.get("exempt_in_slot", -1)), exemptions.size(),
+		"every exemption is listed")
+	assert_eq(int(a.get("judged_by_escape", -1)), 0, "no way out of the cavity is clear")
+	var back_face := 0
+	for e in exemptions:
+		assert_lt(float(e["width"]), 0.005, "exempt through the crack, not something wider: %s" % [e])
+		assert_eq(int(e["clear_escapes"]), 0)
+		assert_eq((e["width_position"] as Array).size(), 3, "the opening's position is recorded")
+		assert_true(String(e["path"]) in ["viewpoint", "gradient", "sight"])
+		if absf(float(e["position"][0]) - offset.x - 0.65) < 0.001:
+			back_face += 1
+			assert_gt(float(e["g"]), 0.0, "the would-be gap is kept: the back face floats")
+			assert_almost_eq(float(e["width_position"][0]) - offset.x, CRACK_X, 0.001,
+				"the narrowest point is the crack")
+	assert_gt(back_face, 0, "back-face samples are among the exemptions")
+	var summary: Dictionary = a.get("exemption_summary", {})
+	assert_eq(int(summary.get("count", -1)), exemptions.size())
+	assert_gt(int(summary.get("over_line", -1)), 0, "exemptions with would-be |g| > 0.03 m are counted")
+	assert_gt(absf(float((summary.get("worst", {}) as Dictionary).get("g", 0.0))), 0.06,
+		"the worst would-be gap is the floating back face, printed beside the verdict")
+	var text := Audit.format_report("fixture U", report)
+	assert_string_contains(text, "narrow-opening exemptions")
+
+
+## Fixture J: the same cavity with a 0.30 x 0.20 m opening in its side wall. The back face's level
+## escape -z leaves through it, so the back face is judged after all (judged_by_escape > 0) and (a)
+## fails on its float, though its tried ways out still thread only the crack.
+func test_cavity_with_a_clear_way_out_is_judged_and_fails() -> void:
+	var offset := Vector3(240.0, 0.5, 0.0)
+	var report: Dictionary = await _run_case(offset, _cavity_proxy(offset), _cavity_hero(offset, true))
+	var a: Dictionary = report["a"]["walls"]
+	assert_gt(int(a.get("judged_by_escape", 0)), 0, "candidates with a clear escape are judged")
+	assert_false(a["pass"], "(a) fails: the back face floats behind the proxy")
+	assert_gt(float(a["max_abs"]), Audit.GAP_W_ABS_MAX)
+	for e in a.get("exemptions", []):
+		assert_eq(int(e["clear_escapes"]), 0, "an exemption never has a clear escape")
+
+
+## SD-MESH-19.4.2 item 2, the resolution contract: every opening up to 0.098 m wide and at least
+## 0.001 m long along the path is flagged, at any orientation about the path and any position along
+## it; one 0.10 m or wider never is. Slits between two 1 mm plates across a path along +x, at widths
+## 0.0014-0.102 m, rotated 0-45 degrees about the path (the 8 test directions are 22.5 degrees
+## apart, so 11.25 and 33.75 are the worst cases), shifted across one 0.01 m step in 0.25 mm
+## increments, with the path through the slit's middle and off it.
+func test_opening_test_meets_the_resolution_contract() -> void:
+	var widths: Array[float] = [0.0014, 0.05, 0.098, 0.100, 0.102]
+	var angles: Array[float] = [0.0, 11.25, 22.5, 33.75, 45.0]
+	var pieces: Array = []
+	var centres := {}
+	for iw in widths.size():
+		for ia in angles.size():
+			var w: float = widths[iw]
+			var centre := Vector3(1.0 + ia, 1.0, 1.0 + iw)
+			var xf := Transform3D(Basis(Vector3.RIGHT, deg_to_rad(angles[ia])), centre)
+			centres[[iw, ia]] = xf
+			for half in [AABB(Vector3(0.0, -0.2, w * 0.5), Vector3(0.001, 0.4, 0.2)),
+					AABB(Vector3(0.0, -0.2, -w * 0.5 - 0.2), Vector3(0.001, 0.4, 0.2))]:
+				pieces.append({"name": "t_hero_Wall_slit_%d_%d" % [iw, ia], "faces": _box_faces(half),
+					"transform": xf})
+	# The opening test reads hero only; a token proxy keeps setup() and its SDF small.
+	var audit = await _audit_for_pieces(pieces, [AABB(Vector3(0.0, -5.0, 0.0), Vector3(0.1, 0.1, 0.1))])
+	var misses: Array = []
+	for key in centres:
+		var w: float = widths[key[0]]
+		var xf: Transform3D = centres[key]
+		var across: Vector3 = xf.basis * Vector3.BACK
+		for off in [0.0, 0.3 * w]:
+			for k in 41:
+				var shift := 0.00025 * k
+				var origin: Vector3 = xf.origin + across * off - Vector3.RIGHT * (0.005 + shift)
+				var found: Dictionary = audit._narrowest_opening(origin, Vector3.RIGHT, 0.0, 0.02)
+				var flagged := not found.is_empty()
+				if flagged != (w < 0.099):
+					misses.append("w %.4f at %.2f deg, off %.4f, shift %.5f: %s" % [w, angles[key[1]], off, shift,
+						"flagged" if flagged else "missed"])
+				elif flagged:
+					assert_between(float(found["width"]), w - 1e-5, w * 1.0205,
+						"width reads within the 22.5 degree overstatement")
+					var at: Vector3 = found["position"]
+					assert_between(at.x - xf.origin.x, -1e-5, 0.001 + 1e-5, "measured inside the slit")
+	assert_eq(misses.size(), 0, "resolution contract broken in %d cases: %s" % [misses.size(), misses.slice(0, 8)])
+	_free_case()
+	await get_tree().physics_frame
+
+
+## SD-MESH-19.4.2 clause 2a (ivy-b1e.31): a slit of width w between two hero plates of thickness T
+## (sheet in local x 0..T, slit across local z), crossed by a path at alpha from the sheet normal and
+## rotated by gamma about the path. Every path through it that touches no hero is flagged when
+## w <= 0.098 and w <= 2T, reading a width within w..1.0205w; a slit 0.10 m or wider never is. The
+## perpendicular chords alone slide past the short plate sides on a steep path (the ivy-8mqi
+## shutter blind spot); the chord along the plate side's own normal catches it.
+func test_opening_test_catches_oblique_passage_through_thin_sheets() -> void:
+	# [w, T, wide]
+	var cases := [[0.04, 0.02, false], [0.06, 0.03, false], [0.098, 0.049, false], [0.0015, 0.002, false],
+		[0.10, 0.03, true], [0.102, 0.002, true]]
+	var alphas: Array[float] = [15.0, 30.0, 45.0, 60.0]
+	var gammas: Array[float] = [0.0, 5.625, 11.25]
+	var pieces: Array = []
+	var entries: Array = []
+	var i := 0
+	for c in cases:
+		for alpha in alphas:
+			for gamma in gammas:
+				var base := Vector3(1.0 + i, 1.0, 1.0)
+				var a := deg_to_rad(alpha)
+				var d := Vector3(cos(a), 0.0, sin(a))
+				var xf := Transform3D(Basis(d, deg_to_rad(gamma)), base)
+				var w: float = c[0]
+				var t: float = c[1]
+				for half in [AABB(Vector3(0.0, -0.2, w * 0.5), Vector3(t, 0.4, 0.3)),
+						AABB(Vector3(0.0, -0.2, -w * 0.5 - 0.3), Vector3(t, 0.4, 0.3))]:
+					pieces.append({"name": "t_hero_Wall_obl_%d" % i, "faces": _box_faces(half), "transform": xf})
+				entries.append([base, w, t, alpha, gamma, c[2]])
+				i += 1
+	var audit = await _audit_for_pieces(pieces, [AABB(Vector3(0.0, -5.0, 0.0), Vector3(0.1, 0.1, 0.1))])
+	var misses: Array = []
+	var by_case := {}
+	var checked := 0
+	for e in entries:
+		var base: Vector3 = e[0]
+		var w: float = e[1]
+		var t: float = e[2]
+		var a := deg_to_rad(float(e[3]))
+		var wide: bool = e[5]
+		var d := Vector3(cos(a), 0.0, sin(a))
+		# Entry points along the slit mouth whose straight path clears both plates.
+		var span := w - t * tan(a)
+		if span <= 0.002:
+			continue
+		var rot := Basis(d, deg_to_rad(float(e[4])))
+		var dir: Vector3 = rot * d
+		var length := 0.10 + t / cos(a)
+		for k in 11:
+			var z_in := -w * 0.5 + 0.0005 + (span - 0.001) * k / 10.0
+			var origin: Vector3 = base + rot * (Vector3(0.0, 0.0, z_in) - d * 0.05)
+			var label := "w %.4f T %.3f alpha %.0f gamma %.3f k %d" % [w, t, e[3], e[4], k]
+			assert_true(audit._cast(origin, origin + dir * length, Audit.HERO_MASK).is_empty(),
+				"%s: the path clears both plates" % label)
+			checked += 1
+			var found: Dictionary = audit._narrowest_opening(origin, dir, 0.0, length)
+			var kind := ""
+			if wide and not found.is_empty():
+				kind = "flagged wide"
+				misses.append("%s: flagged a wide slit at %.5f" % [label, float(found["width"])])
+			elif not wide and found.is_empty():
+				kind = "missed"
+				misses.append("%s: missed" % label)
+			elif not wide and float(found["width"]) > w * 1.0205:
+				kind = "read wide"
+				misses.append("%s: read %.5f" % [label, float(found["width"])])
+			if kind != "":
+				var bucket := "w %.4f alpha %.0f %s" % [w, e[3], kind]
+				by_case[bucket] = int(by_case.get(bucket, 0)) + 1
+	gut.p("oblique passage: %d paths checked, %d misses; by case %s" % [checked, misses.size(), by_case])
+	assert_gt(checked, 0)
+	assert_eq(misses.size(), 0, "oblique passage contract broken in %d cases: %s" % [misses.size(), misses.slice(0, 12)])
+	_free_case()
+	await get_tree().physics_frame
+
+
 var _case_nodes: Array[Node] = []
+
+
+## An audit set up over hero `pieces` (with their own transforms) and `proxy_boxes`.
+func _audit_for_pieces(pieces: Array, proxy_boxes: Array[AABB]):
+	var proxy := StaticBody3D.new()
+	proxy.collision_layer = Audit.PROXY_MASK
+	proxy.collision_mask = 0
+	add_child(proxy)
+	for box in proxy_boxes:
+		var shape := ConcavePolygonShape3D.new()
+		shape.set_faces(_box_faces(box))
+		var col := CollisionShape3D.new()
+		col.shape = shape
+		proxy.add_child(col)
+	var hero_body: StaticBody3D = Audit.make_hero_body(self, pieces)
+	_case_nodes = [proxy, hero_body]
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var audit = Audit.new()
+	audit.setup(proxy.get_world_3d().direct_space_state, pieces, _analytic_sdf(proxy_boxes))
+	return audit
 
 
 ## An audit set up over `proxy_boxes` and `hero_boxes`, for calling its helpers directly.

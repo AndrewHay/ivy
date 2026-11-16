@@ -934,7 +934,7 @@ and after the closure fix. This ruling does not fix it.
 - How the tower's cone rim is closed (solid cone rim, or a fill down to the wall top) when
   `ivy-b1e.8` builds the tower surface.
 
-#### SD-MESH-19.4.2 — Gate (a): hero faces reached only through openings under 0.10 m (ruled 2026-11-16, `ivy-b1e.29`; ratified by the owner 2026-11-16; items 1, 2 and the tower paragraph amended 2026-11-16, `ivy-b1e.31`, **AWAITING OWNER RE-RATIFICATION**)
+#### SD-MESH-19.4.2 — Gate (a): hero faces reached only through openings under 0.10 m (ruled 2026-11-16, `ivy-b1e.29`; ratified by the owner 2026-11-16; items 1, 2 and the tower paragraph amended 2026-11-16, `ivy-b1e.31`, re-ratified by the owner 2026-11-16)
 
 **What stays ratified and what is new.** Items 3 to 7, the reporting, the fail-safe and fixtures U
 and J are as the owner ratified them. Three parts are amended by `ivy-b1e.31` and wait for the
@@ -972,7 +972,7 @@ exemption can only be granted to a face that is actually shut in.
    least, over 8 directions `t_k` at 22.5° spacing in the plane perpendicular to `d`, of
    (hero hit distance along `+t_k`) + (hero hit distance along `−t_k`), each cast hero-only and at
    most `SLOT_MAX_WIDTH` (0.10 m) long. If either cast misses, that direction reads wide.
-   **Amended (`ivy-b1e.31`, awaiting owner re-ratification): the normal chord.** Every one of those
+   **Amended (`ivy-b1e.31`, re-ratified by the owner 2026-11-16): the normal chord.** Every one of those
    16 casts that hits hero returns the hit face's normal `N`. For each distinct `N` (two normals
    within 1° of parallel, either sign, may be treated as the same), also measure the chord through `x` along
    the line `x ± s·N`: hero-only casts from `x` along `+N` and along `−N`, each at most 0.10 m, and
@@ -997,7 +997,7 @@ exemption can only be granted to a face that is actually shut in.
    path the opening's own width is the one ivy meets.)* The method is the programmer's choice.
    Example: a coarse hero proximity query (sphere of radius 0.125 m every 0.05 m), and 0.001 m steps
    only where hero lies within reach. Fixed 0.01 m steps everywhere do not meet this contract.
-   **2a. Oblique passage (amended, `ivy-b1e.31`, awaiting owner re-ratification).** For a slit of
+   **2a. Oblique passage (amended, `ivy-b1e.31`, re-ratified by the owner 2026-11-16).** For a slit of
    width `w` between two parallel faces in a sheet of thickness `T`, crossed by a path at any angle
    α from the sheet normal up to the steepest at which the path clears the sheet (`T·tan α < w`),
    rotated by any angle about the path: every path that passes through the slit without touching hero
