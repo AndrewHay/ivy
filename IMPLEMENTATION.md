@@ -934,7 +934,7 @@ and after the closure fix. This ruling does not fix it.
 - How the tower's cone rim is closed (solid cone rim, or a fill down to the wall top) when
   `ivy-b1e.8` builds the tower surface.
 
-#### SD-MESH-19.4.2 — Gate (a): hero faces reached only through openings under 0.10 m (ruled 2026-11-16, `ivy-b1e.29`; awaiting owner ratification)
+#### SD-MESH-19.4.2 — Gate (a): hero faces reached only through openings under 0.10 m (ruled 2026-11-16, `ivy-b1e.29`; ratified by the owner 2026-11-16)
 
 **Question.** Tower candidate c2 (`ivy-b1e.8`, `.tmp/b1e8/tower/c2/`) fails (a) W on max only
 (p95 0.0010, p99 0.0027, max 0.1577). Exactly two judged samples exceed 0.03 m: +0.1577 at

@@ -2253,14 +2253,14 @@ Architect** (`ivy-b1e.5`), then `ivy-b1e.6` (build the article and probe).
 unsealing doors or windows; code or test edits.
 
 **2026-11-16 — SG-9 gate (a): hero faces reached only through openings under 0.10 m (Systems
-Designer, `ivy-b1e.29`). AWAITING OWNER RATIFICATION.** No number changes. It changes what gate (a)
-counts, so the owner ratifies it. Until then the tower must not be recorded as passing SG-9 on the
-strength of it.
+Designer, `ivy-b1e.29`). RATIFIED BY THE OWNER 2026-11-16.** No number changes. It changes what
+gate (a) counts, which is why the owner ratified it. The escalated question below was not ratified
+and stays open.
 Inputs: `ivy-b1e.8` tower candidate c2 (fails (a) W on max only, 0.1577 m, from two samples inside
 the west wall's hollow, reached only through a ~1.4 × 3 mm cornice-to-cone crack or a 9 cm corner
 notch); `ivy-8mqi` (slot-along-sightline rule); `ivy-b1e.26` review B1 (never drop a sample
 silently); `ivy-b1e.27` (sightline exit, rejection counts).
-**Decided (proposed):** SD-MESH-19.2's "slots under 0.10 m are not ivy-reachable" covers openings of
+**Decided:** SD-MESH-19.2's "slots under 0.10 m are not ivy-reachable" covers openings of
 any shape. The audit's opening test is specified to a resolution contract: any opening ≤ 0.098 m
 wide and ≥ 0.001 m long along the path, in any orientation, is caught. It is applied to the
 viewpoint segment, to every way out of a proxy solid, and to escape rays. A face is left unjudged
