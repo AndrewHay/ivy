@@ -42,7 +42,19 @@
     "merge_straight_runs": true,
     "hero_corner_pieces": false,
     "intermediate_floor": true,
-    "corner_chamfer": 0.15
+    "corner_chamfer": 0.15,
+    "growth_surface": {
+      "fill": [
+        {"name": "StoreySeamW", "min": [5.24, 2.99, -1.76], "max": [5.44, 3.125, 1.76]},
+        {"name": "StoreySeamE", "min": [8.56, 2.99, -1.76], "max": [8.76, 3.125, 1.76]},
+        {"name": "StoreySeamN", "min": [5.24, 2.99, 1.56], "max": [8.76, 3.125, 1.76]},
+        {"name": "StoreySeamS", "min": [5.24, 2.99, -1.76], "max": [8.76, 3.125, -1.56]},
+        {"name": "RoofSeatW", "min": [5.24, 6.11, -1.76], "max": [5.554, 6.241, 1.76]},
+        {"name": "RoofSeatE", "min": [8.446, 6.11, -1.76], "max": [8.76, 6.241, 1.76]},
+        {"name": "RoofSeatN", "min": [5.24, 6.11, 1.446], "max": [8.76, 6.241, 1.76]},
+        {"name": "RoofSeatS", "min": [5.24, 6.11, -1.76], "max": [8.76, 6.241, -1.446]}
+      ]
+    }
   },
   "ivy": {
     "name": "ivy",

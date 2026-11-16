@@ -35,7 +35,9 @@ class ReliefExemptionTest(unittest.TestCase):
 
     def test_exemption_off_for_growth_surface_structures_only(self):
         self.assertFalse(gates.relief_exempt_for("ivy"))
-        self.assertTrue(gates.relief_exempt_for("tower"))
+        # ivy-b1e.8: the tower's sim is builder output with a growth_surface block (its fills).
+        self.assertFalse(gates.relief_exempt_for("tower"))
+        # The square's sim is builder output too, but defaults fit: no block, so still exempt.
         self.assertTrue(gates.relief_exempt_for("square"))
 
 
