@@ -58,14 +58,17 @@ lip and ~150 to cover the tower. A day/night cycle slow enough to enjoy makes co
 hour; a cycle fast enough for coverage makes the sun strobe and collapses `τ_L = 3 days` into
 seconds.
 
-**Resolution: separate the simulation clock from the presentation clock. Only the presentation
-clock changes with speed.**
+**Resolution: separate the simulation clock from the presentation clock.** *(Amended 2026-11-16,
+ivy-gri2, owner ruling: since the SD-TIME-2 segment-slot clock landed (4295f5d, 2026-10-24),
+playback speed is allowed to change how much the plant grows per game-day. The original resolution,
+"only the presentation clock changes with speed", no longer holds. SD-TIME-1/2/3 below describe the
+landed clock.)*
 
 | ID | Rule |
 |---|---|
-| SD-TIME-1 | **The simulation tick is fixed at `dt_sim = 1/24 game-day` (one game-hour), at every speed.** Speed changes only how many ticks are executed per real second. Nothing about the plant depends on wall-clock time or frame rate. This is the mechanism by which INV-4 and INV-7 hold; it is not an optimization and may not be traded away. |
-| SD-TIME-2 | Speeds: **Pause** (0) · **Watch ×1** = 60 s wall-clock per game-day (0.4 ticks/s) · **Fast ×10** = 6 s/day (4 ticks/s) · **Grow ×50** = 1.2 s/day (20 ticks/s). Grow speed reaches 150 game-days in 180 s, satisfying AS-5's 3-minute budget by construction. |
-| SD-TIME-3 | Changing speed mid-run, or pausing, **must not change the result**. Directly testable: a run held at Watch for 20 days then Grow to day 60 must produce byte-identical tip count and total stem length to a run held at Grow throughout. This is a required test, not a nice-to-have. |
+| SD-TIME-1 | **Each growth step is a segment slot, and its size depends on speed.** `SimClock.dt_sim() = 1 / (24 · segments_per_sim_hour)`: 1/360 game-day at Normal and Fast (15 slots per sim-hour), 1/1440 at Grow (60 slots per sim-hour). `Physiology.accumulate_budget` adds `segment_length · fraction` per step, so at full vigour a slot buys up to one internode whatever its size. Light-EWMA, the light field and the diel gate integrate with `dt_sim()`, so they are step-size-independent. Nothing depends on frame rate: `advance_real` turns wall time into whole steps (at most `MAX_TICKS_PER_FRAME = 8` per frame), and `advance_ticks` gives a deterministic manual driver. With speed held fixed, INV-4 and INV-7 still hold. *(Amended 2026-11-16, ivy-gri2. This row used to require a fixed `dt_sim = 1/24` at every speed.)* |
+| SD-TIME-2 | Speeds (`src/core/sim_clock.gd` constants, not `IvyParams`): **Pause** (0) · **Normal** = 15 wall-s per sim-hour (360 s per daylit game-day), 15 slots per sim-hour, 1 step/s · **Fast** = Normal's slot cadence at `FAST_TIME_MULTIPLIER = 10`× calendar speed (36 s per game-day, 10 steps/s) · **Grow** = Normal's calendar (360 s per game-day) with `GROW_SEGMENTS_PER_SIM_HOUR = 60` slots per sim-hour (4 steps/s). Geometric night (`sin_elevation ≤ 0`) runs `NIGHT_TIME_COMPRESSION = 8`× faster in wall time at every speed. Hotkeys 1/2/3 select Normal/Fast/Grow. AS-5's 150-day wall-clock budget is measured through `ADVANCE_DAYS` / `advance_ticks`, not real-time playback. |
+| SD-TIME-3 | **Growth per game-day depends on speed (owner ruling, 2026-11-16, ivy-gri2).** At full vigour a tip can add up to 10.8 m per game-day at Normal or Fast (360 slots × 0.03 m) and up to 43.2 m at Grow (1,440 slots), so one game-day at Grow grows up to 4× the stem of one at Normal. Fast matches Normal step for step over the same game-days. Changing speed or pausing keeps the calendar position: `set_speed` preserves `display_game_day()`, and only the density of later steps changes. Two runs with the same seed and the same speed history are bit-identical (INV-7). Runs with different speed histories are **not** expected to match. Canonical metrics (SG-1, AS-*) are defined by the `ADVANCE_DAYS` script driver. It steps `ticks_per_game_day_for(clock.speed)` slots per day, and under `SPEED pause` (as in `qa_m25_dump_only.txt`) that falls through to Normal's 360, so canonical numbers are Normal-density growth. *(Amended 2026-11-16. This row used to require byte-identical results across speed changes.)* |
 | SD-TIME-4 | **Render-sun blending.** At Grow speed the sun would traverse the sky in 1.2 s, which strobes. The *rendered* `DirectionalLight3D` and sky are driven by `S_render = slerp(S_dayavg, S(t), b)` where `b = smoothstep(10 s, 30 s, T_day_wallclock)` and `S_dayavg` is the irradiance-weighted mean sun direction for the fixed date. `b = 1` at Watch (instantaneous, real day/night), `b = 0` at Fast and Grow (steady daily-average lighting). Sky exposure and ambient blend the same way. **The light field is never blended — it always uses `S(t)` at tick resolution.** The plant's inputs are untouched; only the picture changes. **W-059 implementation (2026-08-10):** `sky_sun.gd::update()` sets `Environment.background_energy_multiplier = background_energy_for(lit)` and `ambient_light_energy = ambient_energy_for(lit)` on the same frame as the light direction, where `lit = smoothstep(0, TWILIGHT_SIN, s_render.y)` — so sky and ambient track the same rendered sun scalar. `light_color` also tracks `light_color_for(s_render.y)` (warm orange at low elevation → near-white at noon). These three writes are the "sky exposure and ambient" path the rule specifies. Colours: `ProceduralSkyMaterial` (deep blue zenith / pale horizon / dark ground); sun disc rendered automatically by Godot 4 at the `DirectionalLight3D` position. |
 | SD-TIME-5 | When `b < 1`, the time-control UI shows a "time-lapse — average daylight" indicator, so the player is never misled into thinking day/night stopped. |
 | SD-TIME-6 | Fixed epoch: **latitude 51.5° N, longitude 0°, timezone UTC, day-of-year 105 (15 April)**. Chosen because at this declination sunrise/sunset sit close to due east/west, which maximizes the cleanliness of the north/south asymmetry AS-2 depends on, and day length (~13.5 h) is generous enough for growth. Runs start at **06:00 local**, so the first thing the player sees is dawn. |
@@ -1455,7 +1458,7 @@ Phase 1 has: tuning the simulator to pass its own metrics.
 | SD-RNG-2 | A branch's stream is `hash(parent_seed, branch_index)`, so a variable tip count cannot perturb sibling streams. |
 | SD-RNG-3 | Draw order within a segment is fixed and documented: correlated-random update → adhesion → gradients → collision → branch draw → node/leaf draws. Reordering changes results. |
 | SD-RNG-4 | Field sample jitter (SD-ENV-4) is hashed, not drawn from a stream, so it cannot desync anything. |
-| SD-RNG-5 | AS-4 determinism is verified as: identical tip count, identical total stem length to the bit, and identical leaf count — plus identical canonical screenshots. SD-TIME-3 extends this across speed changes. |
+| SD-RNG-5 | AS-4 determinism is verified as: identical tip count, identical total stem length to the bit, and identical leaf count — plus identical canonical screenshots. It holds for the same seed and the same speed history. Under the 2026-11-16 SD-TIME-3 amendment, it does not extend across different speed histories. |
 | SD-RNG-6 | **Leaf attribute draws are hashed, not streamed** *(added 2026-08-10; documents shipped behaviour)*. Every stochastic leaf attribute in `LeafPlacer` is drawn via `Hash64.unit_float(tip.id, tip.node_count, channel)` (per SD-RNG-4), **not** from the per-tip RNG stream, so the leaf model can change without desyncing stem growth — the direct protection of INV-7, which has regressed twice. **Reserved channels:** field jitter `0–14`, suppression `42`, tier `43`, variant `44`, variant-redraw `45`, (reserved value-jitter `46`), internode `99`. **Node draw order:** internode(99) → suppression(42) → tier(43) → variant(44) → redraw(45, only on adjacency conflict). Reordering or reusing a channel changes every plant; new leaf attributes must claim a new channel. |
 
 ---
@@ -1472,7 +1475,7 @@ Phase 1 has: tuning the simulator to pass its own metrics.
 | SD-EDGE-6 | Tip grows into existing ivy | Permitted. No self-collision (SD-GEO-3); crowding handles density. |
 | SD-EDGE-7 | All tips dead or dormant before coverage | The run continues; coverage plateaus; the debug readout shows `live tips = 0`. AS-1 fails loudly rather than silently. |
 | SD-EDGE-8 | Branch spawns coincident with parent | SD-GEO-6 angular separation and 0.005 m offset. |
-| SD-EDGE-9 | Speed changed or paused mid-run | No effect on results (SD-TIME-1, SD-TIME-3). |
+| SD-EDGE-9 | Speed changed or paused mid-run | The calendar position is preserved. Later growth per game-day follows the new speed's slot density (SD-TIME-1, SD-TIME-3). Pause advances nothing. |
 | SD-EDGE-10 | §30 parameter edited mid-run (G6) | Takes effect next tick, future growth only (SD-PHYS-4, INV-2). `segment_length` must not re-segment existing stems; `light_memory` recomputes `a` only. |
 | SD-EDGE-11 | Re-seed to a different anchor | Plant and crowding reset; light field kept but re-warmed 12 game-days (SD-AGENCY, SD-TIME-7). |
 | SD-EDGE-12 | Uniform field ⇒ zero gradient | `L` and `C` are bounded forms with `+g_L` and `+2` in the denominator; they return the zero vector. No divide-by-zero. |
@@ -1514,8 +1517,8 @@ All of these live in the same authoritative resource as the §30 defaults (INV-6
 
 | Parameter | Default | Introduced by |
 |---|---:|---|
-| `sim_tick` | 1/24 game-day | SD-TIME-1 |
-| `speed_watch` / `speed_fast` / `speed_grow` | 60 / 6 / 1.2 s per game-day | SD-TIME-2 |
+| `sim_tick` | 1/24 game-day | SD-TIME-1. Legacy: the growth step is `SimClock.dt_sim()`. Still read by some tests and tools as a nominal game-hour. |
+| `speed_watch` / `speed_fast` / `speed_grow` | 60 / 6 / 1.2 s per game-day | SD-TIME-2. **Inert** (`OVERLAY_INERT`). The rates are `SimClock` constants. |
 | `render_sun_blend_lo` / `_hi` | 10 / 30 s per game-day | SD-TIME-4 |
 | `latitude` / `longitude` / `day_of_year` / `start_hour` | 51.5 / 0.0 / 105 / 6.0 | SD-TIME-6 |
 | `light_warmup_days` | 12 | SD-TIME-7 |
@@ -3171,7 +3174,7 @@ reference these types directly.
 | `src/core/conv.gd` | `Conv` | **Every** coordinate convention in SD-CONV, as constants and static helpers. No basis may be constructed inline anywhere else (SD-CONV-7). |
 | `src/core/hash64.gd` | `Hash64` | splitmix64 mixing, `unit_float`, `jitter_vec3` (SD-ENV-4, SD-RNG-4). |
 | `src/core/rng_stream.gd` | `RngStream : RefCounted` | Per-tip event-advanced stream with `derive(branch_index)` (SD-RNG-1/2). |
-| `src/core/sim_clock.gd` | `SimClock : RefCounted` | Fixed `dt_sim`, speed → ticks/s, deterministic manual driver (SD-TIME-1/2). |
+| `src/core/sim_clock.gd` | `SimClock : RefCounted` | Speed-dependent segment-slot `dt_sim`, speed → ticks/s, night compression, deterministic manual driver (SD-TIME-1/2/3). |
 
 ### Parameters
 
@@ -5486,7 +5489,7 @@ the sunny-side rubric-2 symptom. Measured day-150: 74.58 / 96.23 / 50.62 — all
 | `test_physiology.gd` | SD-PHYS, §10–§18, §24–§26 | `f_L(12)=1`, `f_L(3)≈0.625`, `f_C(1)≈0.449`, `f_S(F_max)=0.5`; `w_P/w_R/w_L/w_C` at `H∈{0,1}`; `p_b≈0.0497` at ideal; budget loop emits `floor(B/h)` and is bounded at 8 (SD-PHYS-2) |
 | `test_geometry.gd` | SD-GEO | §21 sum against a hand-computed case; SD-GEO-2 fallbacks (`‖U‖<1e−4 ⇒ d=P`; `d<1e−5` skips adhesion); **`F` resets at `d_contact=0.02`, not at `d_A=0.15`** (SD-GEO-1); ground clamp + 5-strike dormancy (SD-GEO-4); post-collision point satisfies `Φ ≥ −0.005` (blacklist item 1) |
 | `test_tip_lifecycle.gd` | SD-TIP | Every transition in the table; cap taper `q`; never-retire-FLOATING (SD-TIP-5); top-of-tower protection (SD-TIP-6); `retire_margin` prevents thrash; dormant tips keep geometry (INV-2) |
-| `test_time.gd` | SD-TIME, INV-3a | **Speed-invariance (SD-TIME-3): a run held at Watch for 20 days then Grow to day 60 produces an identical `RunHash` to a run held at Grow throughout** — the single most important test in the suite; diel gate mean-preservation `mean(ĝ) ≈ 1.0 ± 0.02` over 24 ticks (SD-TIME-8b); `ĝ≈2.1` at noon, `≈0.11` at night (SD-TIME-8c); **AS-3 clause (b) in miniature — total elongation over one game-day with the gate on is within ±5% of the same seed with `diel_gate_enabled = false`**; gate value never reaches any directional term |
+| `test_time.gd` | SD-TIME, INV-3a | Slot size per speed (`test_tick_size_depends_on_speed`); Normal 1, Fast 10, Grow 4 steps/s; pause advances nothing; a speed change preserves the game-day; night wall clock runs 8× and blocks growth ticks. *(The former speed-invariance `RunHash` test was dropped with the 2026-11-16 SD-TIME-3 amendment.)* Diel gate mean-preservation `mean(ĝ) ≈ 1.0 ± 0.02` over 24 ticks (SD-TIME-8b); `ĝ≈2.1` at noon, `≈0.11` at night (SD-TIME-8c); **AS-3 clause (b) in miniature — total elongation over one game-day with the gate on is within ±5% of the same seed with `diel_gate_enabled = false`**; gate value never reaches any directional term |
 | `test_leaf_placement.gd` | SD-LEAF-2..8 | **Node count depends on metres grown, not tick count** (INV-4); tip suppression zone empty; internode lengthens at low `f_L`; phyllotaxy flatten weight; adjacency rule (no atlas id within 2 nodes, SD-LEAF-6); normal-offset ladder produces 5 distinct shells; width CV ≤ 0.35 over 2,000 leaves (blacklist item 5); `w/h == atlas.aspect` |
 | `test_determinism.gd` | AS-4, SD-RNG-5 | Two 30-game-day headless runs → identical tip count, bit-identical total length, identical leaf count, identical `RunHash`, identical per-tip draw counts |
 | `test_metric.gd` | SD-METRIC, ratified AS-1 | Bucket mapping round-trips; opening buckets excluded from the denominator; a synthetic saturated mat measures 100%; **sun/shade halves are split about the seed anchor's azimuth, not a compass constant**; the AS-1 coupling rule holds (the two half floors average to ≥ the overall floor); 12-sector asymmetry reports correctly on a synthetic one-sided plant |
@@ -5657,7 +5660,7 @@ W-025 (3D composition root), W-026 (parameter resource) and W-027 (UI-script ver
 2. `src/core/conv.gd` — the single highest-risk detail in the project; land it and its test before
    any geometry exists (SD-CONV, W-017).
 3. `src/core/hash64.gd`, `rng_stream.gd`, `sim_clock.gd` — determinism must be structural from tick
-   zero, not retrofitted (SD-RNG, SD-TIME-1, W-018).
+   zero, not retrofitted (SD-RNG, SD-TIME-1/3, W-018).
 4. `src/main/main.tscn` / `main.gd` + `src/world/world.tscn` + the AR-SCENE-7 project settings —
    the 3D shell everything renders into.
 5. `src/world/tower_spec.gd`, `tower_builder.gd`, `tower_sdf.gd`, `surface_query.gd` — the exact
