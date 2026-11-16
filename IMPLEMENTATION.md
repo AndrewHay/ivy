@@ -934,7 +934,14 @@ and after the closure fix. This ruling does not fix it.
 - How the tower's cone rim is closed (solid cone rim, or a fill down to the wall top) when
   `ivy-b1e.8` builds the tower surface.
 
-#### SD-MESH-19.4.2 — Gate (a): hero faces reached only through openings under 0.10 m (ruled 2026-11-16, `ivy-b1e.29`; ratified by the owner 2026-11-16)
+#### SD-MESH-19.4.2 — Gate (a): hero faces reached only through openings under 0.10 m (ruled 2026-11-16, `ivy-b1e.29`; ratified by the owner 2026-11-16; items 1, 2 and the tower paragraph amended 2026-11-16, `ivy-b1e.31`, **AWAITING OWNER RE-RATIFICATION**)
+
+**What stays ratified and what is new.** Items 3 to 7, the reporting, the fail-safe and fixtures U
+and J are as the owner ratified them. Three parts are amended by `ivy-b1e.31` and wait for the
+owner: item 1 gains a second kind of chord (the normal chord), item 2 gains an oblique-passage
+clause (2a) and states its "never flag" line in terms of the opening's own width, and the tower
+paragraph is replaced because its premise was wrong. The amendment widens what counts as a narrow
+opening only for paths that cross a thin sheet at an angle; no number changes.
 
 **Question.** Tower candidate c2 (`ivy-b1e.8`, `.tmp/b1e8/tower/c2/`) fails (a) W on max only
 (p95 0.0010, p99 0.0027, max 0.1577). Exactly two judged samples exceed 0.03 m: +0.1577 at
@@ -944,6 +951,11 @@ inside the west wall's hollow (two plaster sheets 0.20 m apart, open ends). The 
 there, as ivy needs. The audit's way out from their viewpoints threads a crack of about
 1.4 × 3 mm between the cornice top and the cone, or the 9 cm corner notch. The slot test
 (`_slot_along`: 4 directions, 0.01 m steps) misses it. Are such faces judged?
+*Correction (`ivy-b1e.31`): the premise in this paragraph is wrong about the hero. The implementation
+(`ivy-b1e.30`) measured both faces: they sit at the bottom of the wall hollow, which is open to the
+sky, and their way out is straight up through no hero skin and no opening under 0.10 m. See "The
+tower's two samples" below. The question and the ruling still stand for faces that really are shut in
+(fixture U).*
 
 **Principle.** SD-MESH-19.2 already says it: ivy never passes an opening under 0.10 m, so a hero face
 that open air reaches only through one is not ivy-reachable. The gap is in how the audit detects the
@@ -959,15 +971,46 @@ exemption can only be granted to a face that is actually shut in.
 1. **Opening width.** At a point `x` on a straight path with direction `d`, the opening width is the
    least, over 8 directions `t_k` at 22.5° spacing in the plane perpendicular to `d`, of
    (hero hit distance along `+t_k`) + (hero hit distance along `−t_k`), each cast hero-only and at
-   most `SLOT_MAX_WIDTH` (0.10 m) long. If either cast misses, that direction reads wide. A path
-   **threads a narrow opening** when the width is under 0.10 m at any point on it, endpoints
-   included. 22.5° spacing overstates a width by at most 1/cos 11.25° = 1.020.
+   most `SLOT_MAX_WIDTH` (0.10 m) long. If either cast misses, that direction reads wide.
+   **Amended (`ivy-b1e.31`, awaiting owner re-ratification): the normal chord.** Every one of those
+   16 casts that hits hero returns the hit face's normal `N`. For each distinct `N` (two normals
+   within 1° of parallel, either sign, may be treated as the same), also measure the chord through `x` along
+   the line `x ± s·N`: hero-only casts from `x` along `+N` and along `−N`, each at most 0.10 m, and
+   the chord is their sum if both hit (a miss reads wide). The width at `x` is the least of the 8
+   perpendicular chords and these normal chords. *Why:* the perpendicular chords measure an opening
+   only where its two faces cross the plane perpendicular to the path. A path that crosses a thin
+   sheet at an angle (an escape ray at 45° through the 0.04 m gaps between 0.03 m shutter boards)
+   passes through the gap while that plane slides past the short board sides, so the gap read wide
+   and the ray counted as a clear escape (`ivy-b1e.30`). The board side the perpendicular cast does
+   touch has the gap's own normal, and the chord along it is the gap's true width. A normal chord is
+   still a chord between two hero faces through `x`, so it never reads less than the distance
+   between two parallel faces, and it does not create the 45° reading across a concave corner (its
+   other end runs parallel to the second wall).
+   A path **threads a narrow opening** when the width is under 0.10 m at any point on it, endpoints
+   included. 22.5° spacing overstates a perpendicular width by at most 1/cos 11.25° = 1.020; a
+   normal chord across two parallel faces reads the width exactly.
 2. **Resolution, as a contract.** The test must flag every opening of width ≤ 0.098 m whose extent
    along the path is ≥ 0.001 m, at any position along the path and any orientation about it. It must
-   never flag an opening whose width perpendicular to the path is ≥ 0.10 m. The method is the
-   programmer's choice. Example: a coarse hero proximity query (sphere of radius 0.125 m every
-   0.05 m), and 0.001 m steps only where hero lies within reach. Fixed 0.01 m steps everywhere do
-   not meet this contract.
+   never flag an opening whose width (the distance between its two faces, in whatever direction it
+   is least) is ≥ 0.10 m. *(Amended wording, `ivy-b1e.31`: the ratified text said "width
+   perpendicular to the path". For a path square to the opening the two are the same; for an oblique
+   path the opening's own width is the one ivy meets.)* The method is the programmer's choice.
+   Example: a coarse hero proximity query (sphere of radius 0.125 m every 0.05 m), and 0.001 m steps
+   only where hero lies within reach. Fixed 0.01 m steps everywhere do not meet this contract.
+   **2a. Oblique passage (amended, `ivy-b1e.31`, awaiting owner re-ratification).** For a slit of
+   width `w` between two parallel faces in a sheet of thickness `T`, crossed by a path at any angle
+   α from the sheet normal up to the steepest at which the path clears the sheet (`T·tan α < w`),
+   rotated by any angle about the path: every path that passes through the slit without touching hero
+   is flagged when **`w` ≤ 0.098 m and `w` ≤ 2·`T`**, and its read width is within `w` … 1.0205·`w`.
+   No path through a slit with `w` ≥ 0.10 m is flagged, whatever `T` and α. Outside the guaranteed
+   region (`w` > 2·`T`: a wide slit in a thin sheet, crossed steeply) the test may read the slit
+   wide; that turns an escape ray into a clear escape and judges the sample, the safe direction
+   (failure-mode table). Checked by the Systems Designer before ruling, beside the audit and without
+   changing it (`.tmp/b1e31/test_normal_chord.gd`, `.tmp/b1e31/test_oblique_contract.gd`): `w`/`T`
+   0.04/0.02, 0.06/0.03, 0.098/0.049 flagged and 0.10/0.03, 0.102/0.002 never, at α 15°, 30°, 45°,
+   60° and 0°, 5.6°, 11.25° about the path; the ivy-8mqi pane went from 90 clear escapes over 363
+   points to 0; fixture J kept every clear escape it had (24 points); fixture U stayed at 0; the
+   item-2 resolution grid had no misses; the `ivy-b1e.27` band's viewpoint segment flagged nothing.
 3. **Paths tested.** (P1) the viewpoint segment, from `p + n·SLOT_PROBE_LIFT` to the eye at
    `VISIBLE_CLEARANCE` (today's `_in_narrow_slot`, class W only). (P2) every way out of a proxy solid
    the audit tries (the gradient exit and the line-of-sight exit, `ivy-b1e.27`), classes W and R.
@@ -1004,13 +1047,57 @@ The gate fails through items 5 and 6. A shut-in face with a wide view out is jud
 candidate with no evidence. A large would-be gap is never hidden: it is printed beside the verdict.
 SG-7(b), the human read, still covers what the audit cannot see.
 
-**The tower's two samples.** **Not judged** under this rule, provided the implementing bead's listing
-shows each as a narrow-opening exemption with its narrowest width at the cornice-to-cone crack
-(about 0.0014 m) or the corner notch (about 0.09 m), near x 5.24–5.44, y 6.1–6.25, and 0 clear
-escapes. Every other judged c2 sample is at or under 0.03 m (`gaps_baked.txt`), so (a) W max then
-passes and p95/p99 barely move. If either sample shows a clear escape, it stays judged and the tower
-keeps failing (a). The remedy then is the hero, an owner-run Blender step: close the crack and notch,
-or cap the wall-hollow ends. It is not an exception.
+**The tower's two samples (replaced, `ivy-b1e.31`).** *The ratified text said both samples were not
+judged, provided the listing showed them reached only through a ~1.4 mm crack or a 9 cm notch with
+0 clear escapes. The listing (`ivy-b1e.30`) showed the opposite, so that proviso failed.* Both
+samples are **judged**, are not exempt under this rule as ratified or as amended, and tower c2
+**fails (a)** W on max (0.1577 m). Measured (`ivy-b1e.30`, probe `.tmp/b1e30/probe_driver.gd`):
+
+| Sample | Way out | Narrow opening on P1 or P2 | Clear escapes |
+|---|---|---|---|
+| +0.1577 at (5.364, 6.098, 1.446), `Wall_UnevenBrick_Straight_0_0_001`, side (0, 0, −1) | gradient exit straight up, 0.176 m, to (5.299, 6.261, 1.196); crosses no hero skin | none (width reads wide at every point) | 5 of 34, straight up among them |
+| +0.0392 at (5.410, 6.202, −1.446), `Wall_UnevenBrick_Straight_180_2`, side (0, 0, +1) | gradient exit straight up, 0.059 m; crosses no hero skin | none | 5 of 34 |
+
+Neither sample is even a candidate (item 4), so no amendment to the opening test touches them.
+
+*Why they are open.* The tower's walls are hero kit sheets (outer and inner skin about 0.20 m
+apart, x 5.24 and 5.44 on the west wall) with open tops. `tools/structure_configs.json` → `tower`
+has `half` 1.85, `roof_half` 1.76, `hero_corner_pieces` false and `merge_straight_runs` true, so
+the straight walls run corner to corner and overlap at the corners, and nothing caps them.
+`add_roof_cap` in `tools/build_structures.py` places `RoofCone` (`place_conical_roof`, radius
+`roof_half` = 1.76 m, 32 segments, height `TOWER_CONE_HEIGHT` 1.20 m) with its base at `total_h`,
+the wall top. A disc of radius 1.76 m about the tower axis (scene x 7.0, z 0) is the circle
+inscribed in the walls' outer faces: it reaches the outer skin only at the middle of each wall and
+leaves the hollow between the skins open to the sky everywhere else, fully open where the inner skin
+is more than 1.76 m from the axis (beyond about |z| 0.82 m along the west wall, and likewise along
+the other three walls) and all the way into the four corners. The samples are 2.17–2.18 m from the
+axis. Casts straight down from 3 m above, at x 5.26–5.41 over the samples, reach the faces without
+touching hero. So these are faces at the bottom of a 0.20 m wide, open-topped trench, 0.06–0.18 m
+deep, which ivy could enter. The proxy is solid over it, so the gap is real; under SD-MESH-19.2 a
+0.20 m wide opening is not a slot under 0.10 m, and (a) is right to fail.
+
+*The hero fix (owner-run, Blender).* Close the top of the wall hollow on all four walls with a
+wall-top cap, so no part of the trench is open to the sky:
+- **What:** one closed solid (a coping ring), square in plan, centred on the tower axis: outer
+  half-width 1.76 m (flush with the walls' outer skins) and inner half-width at or inside the inner
+  skins' faces (1.56 m if the skins are 0.20 m apart; take the measured inner-skin face), so it spans
+  the whole hollow and overlaps each skin by at least 1 mm (the growth-surface builder's overlap
+  rule). Four straight boxes, one per wall, mitred or overlapping at the corners, are equivalent.
+- **Where:** its top at the wall top (`total_h`, the base of `RoofCone`; in the scene about
+  y 6.26 m, where sample 1's way out leaves the proxy), at least 0.02 m thick, below or touching
+  the cone's base, not above it. It must cover the four corners, where the cone does not reach.
+- **How, durably:** the tower hero is generated by `tools/build_structures.py`, so a cap added by
+  hand in `tower.blend` is lost the next time the tower is rebuilt. The lasting fix is a hero part
+  added next to `RoofCone` in the tower path of that script (a programmer change), then an
+  owner-run Blender rebuild that exports `assets/structures/tower_hero.glb`; a hand edit in
+  Blender followed by export is acceptable as a stopgap if it is recorded on `ivy-b1e.8`.
+- **Done when:** viewed straight down in Blender, no hollow is visible between the skins anywhere
+  along the four walls; then the tower growth surface is rebuilt and re-baked from the new hero,
+  and a seed-1 re-audit shows casts down from 3 m above (5.26–5.41, ±1.45) hitting the cap, both
+  faces either no longer drawn (not open to the sky) or judged at `|g|` ≤ 0.03 m, and (a) W max
+  ≤ 0.05 m. If (a) still fails on other samples, report them; do not exempt them.
+
+No exception is granted to the tower, and none is needed to judge this rule correct.
 
 **How the rule can fail.**
 
@@ -1021,6 +1108,28 @@ or cap the wall-hollow ends. It is not an exception.
 | A crack the player can see (a 5 cm gap that shows a hero interior) exempts the faces behind it | correct for ivy (the builder bridges it) | A look defect for SG-7(b), not gate (a). |
 | The proxy behind a crack is wrong (a hollow or open sheet in the proxy) | not gate (a)'s to catch | Gate (c) inside and closure. |
 | Fine stepping makes the audit slow | cost | Report wall time before and after per structure. Over 2× is reported, not a gate. |
+| A wide slit (`w` > 2·`T`) in a thin sheet, crossed steeply, reads wide on an escape ray (`ivy-b1e.31`) | escape counted clear, sample judged: possible false FAIL | Safe direction. Outside contract 2a; report it. |
+| A path running along a concave edge, within about 0.07 m of both walls, reads the 45° chord across the corner as an opening under 0.10 m (`ivy-b1e.30` F1, `ivy-b1e.31`) | possible false exemption: false PASS | Accepted, see "Concave corners" below. Listed with its would-be `g`; summary line. |
+
+**Concave corners (decided, `ivy-b1e.31`).** The perpendicular chords of item 1 read
+(a + b)·√2 across a 90° inside edge at a point a and b from its two walls, so a path running along
+the edge within about 0.07 m of both reads a narrow opening, and an escape ray starting at that same
+point can never be clear. HEAD's 4-direction test did the same, so no verdict changed. **Accepted
+without a rule change**, for four reasons. (1) SD-MESH-19.3 rounds every inside edge of the reference
+surface with a 0.05 m fillet, so a correct proxy is within 0.021 m of the hero there; an exemption in
+that zone hides at most fillet gap, inside the 0.03 m p99 line. (2) The cottage cases cited are not
+corner chords on the evidence: `Wall_Plaster_Window_Wide_Flat_left_0` and `_front_0` read exactly
+0.0611 m at five points spread over y 0.903–0.920 m, two walls and several metres. A corner chord
+changes with distance to the second wall; a constant reading is a 0.0611 m gap between two
+horizontal hero faces, a real slot under the sill that the builder bridges, and the would-be gaps
+(+0.0961, +0.0904, +0.0334, +0.0312, +0.0235) are its depth. Those exemptions are right. (3) The
+rule that would remove the corner reading, "narrow where the 0.05 m closing ball cannot reach", breaks
+the ratified resolution contract: that ball sinks about 0.04 m into a 0.098 m slit, so such a slit
+in any sheet thinner than about 0.08 m would read open. (4) The normal chord added to item 1 does not
+add corner readings. The residual case, a badly wrong proxy within 0.07 m of an inside edge, is
+listed with its would-be gap and can head the summary line. A Code Reviewer or QA who finds an
+exemption whose opening is a corner chord (narrowest point at `o`, two perpendicular walls, no
+opposite face) with would-be `|g|` over 0.03 m reports it to the Systems Designer.
 
 **Must stay judged (a test fixture).** A hero cavity whose only exits the audit tries thread a
 1.5 mm crack, under a solid proxy, with its back face floating ≥ 0.06 m behind the proxy, plus one
@@ -1031,6 +1140,15 @@ and clear escapes 0, and (a) passes. The fixture is red first against today's co
 be missed by the current 0.01 m / 4-direction test. The `ivy-b1e.27` visible-wall regression test
 (`test_floating_proxy_over_a_visible_wall_fails_when_the_nearest_way_out_crosses_hero_skin`) must
 still fail (a).
+
+**Must stay not judged (`ivy-b1e.31`).** The `ivy-8mqi` test
+(`test_surface_seen_only_through_gaps_between_closed_shutter_boards_is_not_judged`) is unchanged
+and must pass: the pane behind the boards is not judged and (a) passes with max under 0.05 m. Its
+contract does not change. A new test,
+`test_opening_test_catches_oblique_passage_through_thin_sheets`, holds contract 2a: slits `w`/`T`
+0.04/0.02, 0.06/0.03 and 0.098/0.049 m flagged on every path that clears the plates, and 0.10/0.03
+and 0.102/0.002 m never, at α 15°, 30°, 45°, 60° from the sheet normal and 0°, 5.625°, 11.25°
+about the path, 11 entry positions across each passable window, read width within `w` … 1.0205·`w`.
 
 **Escalated, not decided.** Should the clear-escape guard also govern the other proxy-exit
 rejections (`exit_blocked_by_hero`, `no_exit_found`), making `ivy-b1e.27`'s "eye_escapes 0, sealed"
@@ -1150,7 +1268,8 @@ be a far node. Floating far nodes are reported so a change in free-shoot behavio
 | Closed solid thinner than 0.10 m (a 0.05 m eave lip) | No inside probe (SD-MESH-19.4.1); its faces are still held to (c) face. 0.10–0.20 m: probed at mid-thickness. |
 | Proxy missing over part of the hero (cottage west roof) | Counted at 0.60 m, fails the class's percentiles, and the non-zero "no proxy in reach" count fails by itself. |
 | Hero has a slot under 0.10 m | Closed in the growth surface; samples inside are excluded; ivy crosses it flush. |
-| Hero face inside a hollow wall body, seen only through a crack or notch under 0.10 m (tower west wall, `ivy-b1e.29`) | Not judged by (a) and listed with its would-be gap (SD-MESH-19.4.2). If any clear way out of 0.10 m or more exists from the face, it is judged. |
+| Hero face inside a hollow wall body, seen only through a crack or notch under 0.10 m (fixture U, `ivy-b1e.29`) | Not judged by (a) and listed with its would-be gap (SD-MESH-19.4.2). If any clear way out of 0.10 m or more exists from the face, it is judged. |
+| Hero wall hollow open to the sky, its floor below a solid proxy (tower c2 corners: `RoofCone` covers only the inscribed circle; `ivy-b1e.31`) | Judged; (a) fails on the float. Hero defect: cap the hollow (SD-MESH-19.4.2, "The tower's two samples"). Never an exception. |
 | Hero has 1–3 cm geometric relief over a large area | Fails (a) p95. Escalate to the Director with the measured share; do not exempt a category. |
 | Sharp-edge trilinear error on a clean asset exceeds the (c) cap | Report the measured max and escalate; a finer pitch for that asset (SD-MESH-16 header pitch) is an owner decision. |
 | Probe yields too few crossings | Inconclusive = fail (D0). |
