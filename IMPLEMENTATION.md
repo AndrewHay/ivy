@@ -7279,6 +7279,14 @@ draped on `mesh_surface_y` + 2 cm (C5); grass, scatter, stones, fauna, wanderer 
   `_validate_full` (30–82 ms per attempt). The generator builds no field. Consumers build it once, cached
   on the layout (AR-LF-D10). The LUT (`VillageSiteTerrain.u_at`) is cheaper (2.6 ms cold) but reads up to
   1.3° off the field. Use it only if the AC is evaluated with the same LUT.
+- *2026-11-17 (ivy-82zn.14.24, GA cost bound; see AR-LF-PERF P4/P5):* the retry rule above gains two
+  deterministic stops. (i) **Near miss:** open max ≤ `max_path_slope_deg` + `path_near_miss_deg`
+  (**1.0°**, range 0–4; 0 = the rule exactly as written above) is accepted at once with
+  `path_cap_fallback` (no retry). (ii) **Retry budget:** once the rank holds a path-only layout ≤
+  `path_steep_accept_deg`, at most **one** more attempt runs in that rank, then the best is kept with the
+  flag. Layouts over 18° keep retrying as above. On seeds 1–20 both stops ship the same layouts the rule
+  above ships (seeds 3 at 14.2°, 20 at 14.8° flagged; seed 1 passes on its next attempt) and save 3
+  attempts each on seeds 3 and 20.
 
 ~~**Slope cap.** `max_path_slope_deg` = 14° (range 8–20; was 18° under the hill, 8° originally).
 Metric: `sample_slope_deg` (gradient magnitude, eps 0.4 m) at ≤ 1 m steps along every polyline.
@@ -7964,7 +7972,8 @@ the village disc (sites tested only when `xz` is inside their `bound_r`).
 **Test impact:** `test_village_world_scale.gd`, `test_generated_village_backdrop.gd`,
 `test_village_grass_scatter.gd`, `test_village_grass_mesh.gd`, `test_hills_heightfield.gd` (pin the
 radii constants) update in WP3. `test_village_gen_v3.gd` timing limits (mean 600 / worst 1500 ms) must
-hold unchanged in every WP; `test_generated_village_sweep.gd` (50 seeds) invariants must hold; its
+hold unchanged in every WP (*2026-11-17: unless the user approves the AR-LF-PERF limits; never raised
+without that yes*); `test_generated_village_sweep.gd` (50 seeds) invariants must hold; its
 diversity / crossing-free counts may move and may be re-baselined only with the sweep output in the
 bead notes. Any test that pins generated cottage centres for a seed is expected to change from WP2 on
 (the terrain rejects sites); re-pin from a run, never by hand.
@@ -8059,7 +8068,8 @@ depends on it. Epic ivy-82zn.14 depends on ivy-82zn.14.20.
    mismatch; if the human still sees a seam (AC-LTF6), file a follow-up to put the far mesh inside
    r ≤ 100 m on the lit lawn shader. Not in scope now.
 3. **Generate timing** (search + field build + path check per attempt + site fn) → D4 numbers, raw LUT for
-   site checks, memoised site results; timing test limits are not raised.
+   site checks, memoised site results; timing test limits are not raised. *2026-11-17 (ivy-82zn.14.24):
+   measured and planned in AR-LF-PERF; a new worst limit is recommended there, pending the user.*
 4. **Forest and ridge tests move** because Rg now sits on L → re-baseline only with probe output in notes.
 5. **E/W "flat sector" ink in the hills shader** was designed for flat east/west land; on capped shoulders
    it may read as haze → human call (no fog redesign, SD non-goal).
@@ -8067,6 +8077,77 @@ depends on it. Epic ivy-82zn.14 depends on ivy-82zn.14.20.
    `field_signature`; the playground always regenerates the layout on `layout`-class knobs.
 7. **Pond drape assumes the Cartesian triangulation** → the pond is ≥ 20 m inside `r_j`; boundary clip
    cells never touch it (assert in `test_no_grass_inside_pond_water.gd`).
+
+### AR-LF-PERF — Generate timing budget with terrain fitting *(ivy-82zn.14.24, 2026-11-17)*
+
+**Where the limits come from.** DESIGN V7 set 300 / 700 ms (ivy-oan3). On 2026-11-07 the user relaxed
+it to **mean ≤ 600 / worst ≤ 1500 ms** on the 11 `PROBE_SEEDS` of `test_village_gen_v3.gd` (1–10 +
+240424020), when retries made the path-first generator miss 300 / 700 (ivy-oan3.6 notes). Only the user
+can change them again. `generate()` runs once, on the main thread, when a generated-village scenario
+loads (backdrop `_ready` → `_make_layout`), so the limit is a one-time load stall the player waits through.
+
+**Profile** (WP2 working tree, path cap off = `max_path_slope_deg` 90, seeds 1–20 + 240424020;
+`.tmp/ga_14_24/stage_profile_s1_10.txt`, `stage_profile_s11_20.txt`, `flat_stage_probe.txt`,
+`plots_split_probe.txt`). ms per seed unless marked per attempt:
+
+| Stage | Cost | Note |
+|---|---|---|
+| Offset search (`rank_offsets`) | 63–86 (mean 72) | once per seed; lazy rank 1–2 verify 0–10 |
+| Reserve (grid + pond), per attempt | 32–68 (flat: 19) | grid 16 (blocks 5.6 + clearance 10.3); pond **validate ≈ 1.9 ms per try** dominates; `pond_site` plane only 1.6–9 ms per attempt |
+| Network + branches, per attempt | 20–90 | not terrain |
+| Plots, per attempt | 86–450 (flat 60–380) | site `evaluate` 13–76 ms (8–52 calls, ~13 ms of it cold U-lattice misses on a rank's first attempt); the rest is the sampler, and capacity tries (25–256 ms each) after rejections starve selection |
+| Resample/smooth + build, per attempt | 35–118 | not terrain |
+| Validate, per v1–v6-valid attempt | 35–109 | **field build 13–15 + `max_path_slope` 18–65**; v1–v6 3–32 |
+| Attempts | 1–5 (mean 1.7) | cap off still fails on the **door cap** (25° within 3 m of a stoop): seeds 5, 6, 12, 15 had `terrain:path_cap` attempts with open max ≤ 13° |
+| **generate()** | **mean 761, worst 2288 (seed 5)** on 1–20 + 240424020; flat (no terrain) mean 494, worst 1635 (seed 19, falls back) | pre-WP2 probe set 480 / 753 |
+
+**Projection** (`.tmp/ga_14_24/projection_probe.gd`: real WP2 attempts re-costed, SD-20 restated loop
+with the production 14° cap emulated; `projection_prod_*.txt` = SD rule only, `projection_plan_*.txt` =
+this plan): SD-20 open-land check + pond reorder alone → probe set **688 / 1671**, seeds 1–20 mean 719,
+worst 2000 (seeds 3 and 20 burn 4 attempts on path retries). **This plan → probe set 585 / 1491,
+seeds 1–20 mean 587, worst 1491** (seed 5: two v1–v6 failures, not terrain paths), mean 1.45–1.60
+attempts, 2 flagged (3, 20), 0 authored. Not yet in the projection: SD-19/-18 additions (`plaza_ring_ok`
+≤ 10 ms in the search, plaza + pond replay in `evaluate`, +5% rejections; about +15–25 ms) and P6
+(about −10–15 ms). **Expected after WP2: mean ≈ 590–600, worst ≈ 1490 on the probe set.** WP3 proxy
+(`max_site_slope_deg` 8 → rejections 10.5 → 18.5 per seed, `projection_wp3proxy_*.txt`): +34 ms mean
+on the SD rule; WP3's 22 m spacing will add rejections and sep-ladder attempts on top.
+
+**Plan (one implementation; flat `variant 1` and classic stay byte-identical):**
+
+- **P1 (SD-20 / SD change 6) Open-land path check** replaces the field build + field path scan in
+  `_validate_full`: 2–14 ms instead of 35–80 per v1–v6-valid attempt. The generator builds no field; the
+  backdrop builds it once at load (≈ 14 ms, outside `generate`, same as the success path today, where the
+  field was cached on the layout). `VillageTerrainField.max_path_slope` stays for readout/tests only.
+- **P2 (SD-20) No door cap in the generator** removes the false `terrain:path_cap` failures above
+  (seed 6: 4 → 1 attempts, seed 5: 5 → 3).
+- **P3 Pond loop reorder** in `_reserve_stage1` (landscape only): plane first, `validate` only for flat
+  centres, steep ones validated lazily (ascending slope) only when no flat one exists; same tries, same
+  break index, so the RNG stream and the chosen centre are identical (probe: identical on every replayed
+  attempt of 21 seeds). Saves 0–28 ms per attempt (mean ≈ 8). Hoist the constant `trial` layout out of
+  the loop.
+- **P4 Near-miss accept** (`path_near_miss_deg` 1.0) and **P5 retry budget** (one more attempt once the
+  rank holds a path-only layout ≤ 18°): SD-20 note of 2026-11-17. Deterministic, no wall-clock rule.
+  Seeds 3 / 20: 1671 → 468 and 2000 → 310 ms with the same shipped layouts.
+- **P6 Headroom:** (a) build the attempt-independent occupancy-grid blocks once per `generate()` and
+  `copy()` them per attempt before the pond circle (−5 ms per attempt, identical grid, flat included);
+  (b) typed sdf grids in `VillageSiteTerrain.evaluate` (rect / disc loops instead of a `Callable` per
+  node in `grid_sdf`; same formula, bit-identical values).
+- **Instrumentation:** `stage_ms` gains `1a_pond`, `5x_site_eval`, `8a_validate_v`, `8b_open_path`, so
+  the next profile needs no replay probe.
+
+**Decision.** WP2 proceeds with **600 / 1500 unchanged** (projected 590–600 / ≈ 1490: it should pass, with
+almost no headroom). The **worst** limit is the weak one: it is really an attempt-count limit (search +
+3 attempts ≈ 1.5 s), and the generator without any terrain already reaches 1635 ms on seed 19 and 1463
+on seed 15. Any probe seed that rolls a 4th attempt (v1–v6 failures are about 30% of attempts) fails
+the test, and WP3 raises that rate. **GA recommendation for the user: mean ≤ 650 / worst ≤ 2000 ms** on
+the probe set, from WP2 on. **Player cost:** the generated-village load stall grows by at most +50 ms
+on average (≤ 0.65 s) and by +0.5 s on the unluckiest seeds (≤ 2.0 s instead of 1.5 s); against the
+pre-WP2 actuals (480 / 753 ms), about +150 ms mean. Classic village load is unaffected. **Until the
+user says yes, 600 / 1500 stand**: if WP2 misses only the worst limit (mean ≤ 600, the worst seed
+fails on v1–v6 retries, not paths), the programmer records the numbers and stops for the user. If WP3
+goes over mean 650, it goes back to the SD (spacing / reach), not to a higher limit. If the user declines,
+the alternative is a generator perf bead before WP3 (plot capacity tries and `5a_candidates_initial`,
+50–146 ms per attempt), not terrain work.
 
 ### AR-LF-COMPAT — Backward compatibility
 
