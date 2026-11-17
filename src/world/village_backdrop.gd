@@ -119,8 +119,30 @@ func sample_terrain_y(xz: Vector2) -> float:
 	return VillageTerrain.sample_y(xz, _layout, _terrain_params, _terrain_seed)
 
 
-## Local height of the hero flat disc (VillageTerrain.hero_datum_y). World lowers this backdrop by
-## it so the hero ground stays at world y = 0 (ivy-82zn.14.10 option A). 0 for classic / variant 1.
+## World-space terrain Y at a world XZ (AR-LF-KEEP datum plumbing): the one place for the
+## local ↔ world conversion (camera floor, tests). Uses this node's global transform.
+func sample_terrain_world_y(world_xz: Vector2) -> float:
+	var o := global_position
+	return o.y + sample_terrain_y(world_xz - Vector2(o.x, o.z))
+
+
+## The resolved VillageTerrainField (null for classic / variant 1).
+func terrain_field():
+	if _terrain_params == null or _layout == null or VillageTerrain.is_flat(_layout, _terrain_params):
+		return null
+	return VillageTerrain.field(_layout, _terrain_params)
+
+
+## Lowest vertex of the lawn + far terrain meshes (backdrop frame); 0 when flat (AR-LF-D7).
+func terrain_mesh_min_y() -> float:
+	var f = terrain_field()
+	if f == null:
+		return 0.0
+	return float(f.terrain_min_y())
+
+
+## Local height of the hero pad (VillageTerrain.hero_datum_y = y_hero). World lowers this backdrop
+## by it so the hero ground stays at world y = 0 (datum option A). 0 for classic / variant 1.
 func hero_datum_y() -> float:
 	if _terrain_params == null or _layout == null:
 		return 0.0
@@ -144,7 +166,10 @@ func _ready() -> void:
 	_layout = _make_layout()
 	# Terrain init must happen before any consumer step (AR-VT-WIRE / WP2).
 	# _terrain_params / _terrain_seed are pure math — safe to compute before add_child subtree.
-	_terrain_params = VillageTerrainParams.production()
+	# The params the layout was generated with (AR-LF-D10); null = production.
+	_terrain_params = _layout.terrain_params as VillageTerrainParams
+	if _terrain_params == null:
+		_terrain_params = VillageTerrainParams.production()
 	_terrain_seed = VillageTerrain.terrain_seed(_layout, _terrain_params)
 	var pond_center := VillagePondPlacement.resolve_center(_layout)
 	VillagePondShape.set_active(VillagePondShape.at(pond_center))
@@ -909,7 +934,7 @@ func _add_village_lawn_ground() -> void:
 func _add_lawn_terrain() -> void:
 	var mesh := VillageTerrain.build_mesh(_layout, _terrain_params)
 	var mat := _lawn_ground_material()
-	VillageTerrain.apply_ground_material(mat, _terrain_params)
+	VillageTerrain.apply_ground_material(mat, _terrain_params, terrain_field())
 	mesh.surface_set_material(0, mat)
 	var mi := MeshInstance3D.new()
 	mi.name = "LawnTerrain"
@@ -1141,9 +1166,20 @@ func _add_pond_polygon_ring(
 # ── Horizon hill ring ─────────────────────────────────────────────────────────
 
 func _hill_material(params: HillsParams) -> ShaderMaterial:
+	return make_hill_material(_layout, params, _terrain_params)
+
+
+## Far hills material (game and terrain playground share it, G7). Landscape far mesh: the same
+## slope / height factors as the lawn at the join loop (AR-LF-D9).
+static func make_hill_material(layout: VillageLayout, params: HillsParams,
+		terrain_params: VillageTerrainParams) -> ShaderMaterial:
 	var mat := ShaderMaterial.new()
 	mat.shader = load("res://src/render/shaders/village_ground_hills.gdshader") as Shader
-	HillsFogTint.apply_terrain_shader(mat, _layout, params)
+	HillsFogTint.apply_terrain_shader(mat, layout, params)
+	if terrain_params != null and HillsHeightfield.delegates_to_village_terrain(layout, params) \
+			and not VillageTerrain.is_flat(layout, terrain_params):
+		VillageTerrain.apply_ground_material(mat, terrain_params, VillageTerrain.field(layout, terrain_params))
+		mat.set_shader_parameter("u_terrain_tint_on", true)
 	return mat
 
 

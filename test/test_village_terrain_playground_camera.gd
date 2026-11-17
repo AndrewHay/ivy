@@ -139,8 +139,6 @@ func test_presets_set_the_orbit_state_without_a_jump() -> void:
 func test_pick_hits_the_terrain_surface_not_the_datum_plane() -> void:
 	var pg: Node = _make_pg()
 	pg._params.base_amplitude_m = 4.0
-	pg._params.max_rise_m = 6.0
-	pg._params.max_depression_m = 4.0
 	await get_tree().process_frame
 	pg._on_knob_changed("base_amplitude_m", 4.0)
 	assert_true(await _await_idle(pg), "rebuild finishes")

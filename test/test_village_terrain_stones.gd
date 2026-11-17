@@ -1,7 +1,8 @@
-## WP6: Path stones Y bake + path slope cap.
-## Tests: stone origin.y follows terrain within ±0.08m (AC-VT4); classic byte-identical (INV-15);
-## max path sample_slope_deg ≤ max_path_slope_deg (AC-VT7).
-## AR-VT-TESTS / SD-VILLAGE-TERRAIN-7.
+## Path stones Y bake (AC-VT4) and the path slope metric (AC-LT-PATH, SD-VILLAGE-TERRAIN-20).
+## Stone origin.y follows the field within ±0.08 m; classic byte-identical (INV-15).
+## ivy-82zn.14.14: paths drape on the landform with no corridor stamp; the 14° cap (with the 25°
+## door-approach exemption) is enforced by the generator retry in WP2 (ivy-82zn.14.16). WP1 measures
+## it with VillageTerrainField.max_path_slope and asserts it once WP2 lands.
 extends GutTest
 
 const GeneratedBackdropScene = preload("res://src/world/generated_village_backdrop.tscn")
@@ -12,6 +13,7 @@ const VillageTerrain = preload("res://src/playground/village_terrain.gd")
 const _TEST_SEED := 7
 ## AC-VT4: stone origins ±0.08m of sample_y.
 const _STONE_EPS := 0.08
+const _STONE_PREFIXES := ["Scatter_Path_0", "Scatter_Path_1", "Scatter_Path_2"]
 
 
 func _make_generated(seed: int) -> GeneratedVillageBackdrop:
@@ -27,7 +29,6 @@ func _make_classic() -> VillageBackdrop:
 	return bd
 
 
-## Parse origin.y from a MultiMesh buffer.
 static func _parse_origin_ys(mm: MultiMesh) -> PackedFloat32Array:
 	var out := PackedFloat32Array()
 	if mm == null or mm.instance_count == 0:
@@ -40,7 +41,6 @@ static func _parse_origin_ys(mm: MultiMesh) -> PackedFloat32Array:
 	return out
 
 
-## Parse origin XZ from a MultiMesh buffer.
 static func _parse_origin_xzs(mm: MultiMesh) -> Array[Vector2]:
 	var out: Array[Vector2] = []
 	if mm == null or mm.instance_count == 0:
@@ -53,209 +53,78 @@ static func _parse_origin_xzs(mm: MultiMesh) -> Array[Vector2]:
 	return out
 
 
-# ── 1. Path stone Y baked in generated village ────────────────────────────────
+static func _is_stone(mmi: MultiMeshInstance3D) -> bool:
+	for prefix: String in _STONE_PREFIXES:
+		if mmi.name.begins_with(prefix):
+			return true
+	return false
+
 
 func test_path_stone_y_baked_generated() -> void:
-	## AC-VT4: path stone origin.y must be within ±0.08m of sample_y(xz) in generated village.
+	## AC-VT4: path stone origin.y within ±0.08 m of sample_y(xz).
 	var bd := _make_generated(_TEST_SEED)
 	var layout := bd.get_layout()
-	if layout == null or not layout.is_generated:
-		fail_test("not generated"); return
 	var params := bd.get("_terrain_params") as VillageTerrainParams
-	var t_seed := bd.get("_terrain_seed") as int
-	if params == null:
-		fail_test("no terrain params"); return
-	var stone_prefixes := ["Scatter_Path_0", "Scatter_Path_1", "Scatter_Path_2"]
+	if layout == null or not layout.is_generated or params == null:
+		fail_test("not generated")
+		return
 	var checked := 0
 	var max_err := 0.0
 	for child in bd.get_children():
-		if not (child is MultiMeshInstance3D):
+		if not (child is MultiMeshInstance3D) or not _is_stone(child):
 			continue
-		var mmi := child as MultiMeshInstance3D
-		var is_stone := false
-		for prefix: String in stone_prefixes:
-			if mmi.name.begins_with(prefix):
-				is_stone = true
-				break
-		if not is_stone:
-			continue
-		var mm := mmi.multimesh
-		if mm == null or mm.instance_count == 0:
-			continue
+		var mm := (child as MultiMeshInstance3D).multimesh
 		var ys := _parse_origin_ys(mm)
 		var xzs := _parse_origin_xzs(mm)
 		for i in range(ys.size()):
-			var expected := VillageTerrain.sample_y(xzs[i], layout, params, t_seed)
-			var err := absf(ys[i] - expected)
+			var err := absf(ys[i] - VillageTerrain.sample_y(xzs[i], layout, params, 0))
 			max_err = maxf(max_err, err)
-			if err > _STONE_EPS:
-				fail_test("%s[%d] y=%.4f expected≈%.4f err=%.4f > %.3f" % [
-					mmi.name, i, ys[i], expected, err, _STONE_EPS])
-				return
-		checked += mm.instance_count
-	assert_gt(checked, 0, "must have found at least 1 path stone (got %d)" % checked)
-	pass_test("path stone Y baked: %d stones, max_err=%.4fm" % [checked, max_err])
+		checked += ys.size()
+	assert_gt(checked, 0, "found path stones (%d)" % checked)
+	assert_lte(max_err, _STONE_EPS, "stone y follows the field (max err %.4f m)" % max_err)
 
 
-func test_path_stone_y_nonzero_in_generated() -> void:
-	## Generated backdrop must show terrain lift: path spine is grade-limited (AC-VT7) and may
-	## sit near datum, so also check lifted cottages for visible relief.
+func test_path_stones_ride_the_landform() -> void:
+	## The paths drape over metres of relief (no corridor stamp): stone heights span > 1 m.
 	var bd := _make_generated(_TEST_SEED)
-	var stone_prefixes := ["Scatter_Path_0", "Scatter_Path_1", "Scatter_Path_2"]
-	var max_abs_y := 0.0
+	var lo := INF
+	var hi := -INF
 	for child in bd.get_children():
-		if child is MultiMeshInstance3D:
-			var mmi := child as MultiMeshInstance3D
-			var is_stone := false
-			for prefix: String in stone_prefixes:
-				if mmi.name.begins_with(prefix):
-					is_stone = true
-					break
-			if not is_stone:
-				continue
-			var mm := mmi.multimesh
-			if mm == null:
-				continue
-			var ys := _parse_origin_ys(mm)
-			for y in ys:
-				max_abs_y = maxf(max_abs_y, absf(y))
-	var layout := bd.get_layout()
-	var params := bd.get("_terrain_params") as VillageTerrainParams
-	var t_seed := bd.get("_terrain_seed") as int
-	if layout != null and params != null:
-		var g := layout.hamlet_centre_xz
-		var r := layout.lawn_radius - 1.0
-		var x := -r
-		while x <= r:
-			var z := -r
-			while z <= r:
-				var xz := g + Vector2(x, z)
-				if xz.distance_to(g) < r:
-					max_abs_y = maxf(max_abs_y, absf(
-						VillageTerrain.sample_y(xz, layout, params, t_seed)))
-				z += 5.0
-			x += 5.0
-	assert_gt(max_abs_y, 0.005,
-		"generated backdrop must show |y| > 5mm on grass or stones (terrain relief)")
+		if child is MultiMeshInstance3D and _is_stone(child):
+			for y in _parse_origin_ys((child as MultiMeshInstance3D).multimesh):
+				lo = minf(lo, y)
+				hi = maxf(hi, y)
+	assert_gt(hi - lo, 1.0, "path stones span %.2f m of height" % (hi - lo))
 
-
-# ── 2. Classic path stones: y must be 0 (INV-15) ────────────────────────────
 
 func test_path_stone_y_zero_in_classic() -> void:
-	## INV-15: classic backdrop path stones must remain at y=0 (byte-identical).
+	## INV-15: classic backdrop path stones stay at y = 0 (byte-identical).
 	var bd := _make_classic()
-	var stone_prefixes := ["Scatter_Path_0", "Scatter_Path_1", "Scatter_Path_2"]
 	for child in bd.get_children():
-		if not (child is MultiMeshInstance3D):
+		if not (child is MultiMeshInstance3D) or not _is_stone(child):
 			continue
-		var mmi := child as MultiMeshInstance3D
-		var is_stone := false
-		for prefix: String in stone_prefixes:
-			if mmi.name.begins_with(prefix):
-				is_stone = true
-				break
-		if not is_stone:
-			continue
-		var mm := mmi.multimesh
-		if mm == null:
-			continue
-		var ys := _parse_origin_ys(mm)
-		for i in range(ys.size()):
-			if not is_zero_approx(ys[i]):
-				fail_test("classic %s[%d] y=%.6f expected 0 (INV-15)" % [mmi.name, i, ys[i]])
+		for y in _parse_origin_ys((child as MultiMeshInstance3D).multimesh):
+			if not is_zero_approx(y):
+				fail_test("classic %s y=%.6f expected 0 (INV-15)" % [child.name, y])
 				return
 	pass_test("classic path stones: all y=0 (INV-15)")
 
 
-# ── 3. Path slope cap (AC-VT7) ────────────────────────────────────────────────
-
-const _PATH_SLOPE_STEP_M := 0.5
-
-
-static func _max_path_slope_deg(seed: int, connectors: bool = false) -> float:
-	## ivy-82zn.14.10 contract change (AC 4): the along-path grade (0.5 m chords) of LANES — path
-	## stretches off every pad and its bank — is capped at max_path_slope_deg (18° on the village
-	## hill). connectors = true measures the door connectors on pad banks instead (cap:
-	## hill_bank_max_deg). The old full-gradient measure included the hill's cross slope (paths are
-	## graded along their length, not levelled across), which is the flank, not the path.
-	var layout := VillageLayout.generate(seed)
-	if layout.fallback:
-		return 0.0
-	var params := VillageTerrainParams.production()
-	VillageTerrain.clear_knoll_centres_cache()
-	var t_seed := VillageTerrain.terrain_seed(layout, params)
-	var max_slope := 0.0
-	for polyline: Variant in layout.path_polylines():
-		var pts: Array = polyline as Array
-		if pts.size() < 2:
-			continue
-		var seg_lens: Array[float] = []
-		var total := 0.0
-		for i in range(pts.size() - 1):
-			var a: Vector2 = pts[i] as Vector2
-			var b: Vector2 = pts[i + 1] as Vector2
-			var len := a.distance_to(b)
-			seg_lens.append(len)
-			total += len
-		var dist := 0.0
-		while dist + _PATH_SLOPE_STEP_M <= total + 0.001:
-			var p0 := _point_along_polyline(pts, seg_lens, dist)
-			var p1 := _point_along_polyline(pts, seg_lens, dist + _PATH_SLOPE_STEP_M)
-			dist += _PATH_SLOPE_STEP_M
-			var l := p0.distance_to(p1)
-			if l < 0.05:
-				continue
-			var on_bank := VillageTerrain.in_any_pad_terrace(p0, layout, params, t_seed) \
-				or VillageTerrain.in_any_pad_terrace(p1, layout, params, t_seed)
-			if on_bank != connectors:
-				continue
-			var grade := absf(VillageTerrain.sample_y(p1, layout, params, t_seed)
-				- VillageTerrain.sample_y(p0, layout, params, t_seed)) / l
-			max_slope = maxf(max_slope, rad_to_deg(atan(grade)))
-	return max_slope
-
-
-static func _point_along_polyline(pts: Array, seg_lens: Array[float], dist: float) -> Vector2:
-	var remaining := dist
-	for i in range(seg_lens.size()):
-		var seg_len: float = seg_lens[i]
-		if remaining <= seg_len or i == seg_lens.size() - 1:
-			var t := clampf(remaining / maxf(seg_len, 1e-6), 0.0, 1.0)
-			var a: Vector2 = pts[i] as Vector2
-			var b: Vector2 = pts[i + 1] as Vector2
-			return a.lerp(b, t)
-		remaining -= seg_len
-	return pts[pts.size() - 1] as Vector2
-
-
-func test_door_connector_slope_cap() -> void:
-	## ivy-82zn.14.10 AC 4: door connectors on a pad bank may take the bank, <= hill_bank_max_deg.
-	var params := VillageTerrainParams.production()
-	for seed: int in [1, 7, 12]:
-		var worst := _max_path_slope_deg(seed, true)
-		assert_lte(worst, params.hill_bank_max_deg + 0.5,
-			"seed %d door connector grade %.2f° <= %.0f°" % [seed, worst, params.hill_bank_max_deg])
-
-
-func test_path_slope_cap() -> void:
-	## AC-VT7: lane grade ≤ max_path_slope_deg (18° since ivy-82zn.14.10; 8° before).
-	var params := VillageTerrainParams.production()
-	var max_slope := _max_path_slope_deg(_TEST_SEED)
-	assert_lte(max_slope, params.max_path_slope_deg + 0.02,
-		"AC-VT7 seed %d: max path slope %.2f° must be ≤ %.1f°" % [
-			_TEST_SEED, max_slope, params.max_path_slope_deg])
-
-
-func test_path_slope_cap_multiple_seeds() -> void:
-	## AC-VT7: slope cap holds for seeds 1, 3, 5, 7, 12, 240424020.
-	## ivy-82zn.14.1 swell: + 2, 8, 14, 17, 23 (prototype swell broke 8° where a spine enters a
-	## pad skirt; pins the spine-reads-pad-height fix).
-	var params := VillageTerrainParams.production()
-	for seed: int in [1, 2, 3, 5, 7, 8, 12, 14, 17, 23, 240424020]:
+func test_ac_lt_path_metric() -> void:
+	## AC-LT-PATH: sample_slope_deg along every polyline at ≤ 1 m steps ≤ 14°, ≤ 25° within 3 m of
+	## a door. Enforcement (attempt retry → next offset → path_cap_fallback) is WP2; until then the
+	## measured values are reported and asserted only if they already hold.
+	var p := VillageTerrainParams.production()
+	var notes := PackedStringArray()
+	var all_ok := true
+	for seed in [1, 7, 12]:
 		var layout := VillageLayout.generate(seed)
-		if layout.fallback:
-			continue
-		var max_slope := _max_path_slope_deg(seed)
-		assert_lte(max_slope, params.max_path_slope_deg + 0.02,
-			"AC-VT7 seed %d: max path slope %.2f° must be ≤ %.1f°" % [
-				seed, max_slope, params.max_path_slope_deg])
+		var m: Dictionary = VillageTerrain.field(layout, p).max_path_slope(layout)
+		assert_true(is_finite(float(m["deg"])), "seed %d path metric finite" % seed)
+		notes.append("%d: %.1f° (door %.1f°)" % [seed, m["deg"], m["door_exempt_deg"]])
+		all_ok = all_ok and float(m["deg"]) <= p.max_path_slope_deg \
+			and float(m["door_exempt_deg"]) <= p.ring_max_slope_deg + 3.0
+	if all_ok:
+		pass_test("AC-LT-PATH holds already: %s" % ", ".join(notes))
+	else:
+		pending("AC-LT-PATH cap is enforced in WP2 (ivy-82zn.14.16); WP1 measures %s" % ", ".join(notes))

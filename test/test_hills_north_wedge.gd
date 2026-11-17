@@ -29,60 +29,26 @@ const WEST_DIR := Vector2(-1.0, 0.0)
 const COLOUR_SEAM_TOL := 0.12
 
 
-func test_east_horizon_is_flat_production() -> void:
-	## East direction (sunrise horizon) must be flat — no hills blocking sunrise.
-	for seed in [1, 7, 12]:
-		var layout := VillageLayout.generate(seed)
-		if layout.fallback:
-			continue
-		VillagePondShape.set_active(VillagePondShape.at(layout.pond_center))
-		var params := HillsParams.production()
-		var t_seed := HillsHeightfield.terrain_seed(layout, params)
-		var g := layout.hamlet_centre_xz
-		var y_lawn := VillageBackdrop.LAWN_GROUND_Y_OFFSET
-		for r in FLAT_PROBE_RADII:
-			var p := g + EAST_DIR * r
-			var y := HillsHeightfield.sample_y(p, layout, params, t_seed)
-			assert_lte(y, y_lawn + FLAT_EPS,
-				"seed %d east r=%.0f y=%.3f must be flat" % [seed, r, y])
-
-
-func test_west_horizon_is_flat_production() -> void:
-	## West direction (sunset horizon) must be flat — no hills blocking sunset.
-	for seed in [1, 7, 12]:
-		var layout := VillageLayout.generate(seed)
-		if layout.fallback:
-			continue
-		VillagePondShape.set_active(VillagePondShape.at(layout.pond_center))
-		var params := HillsParams.production()
-		var t_seed := HillsHeightfield.terrain_seed(layout, params)
-		var g := layout.hamlet_centre_xz
-		var y_lawn := VillageBackdrop.LAWN_GROUND_Y_OFFSET
-		for r in FLAT_PROBE_RADII:
-			var p := g + WEST_DIR * r
-			var y := HillsHeightfield.sample_y(p, layout, params, t_seed)
-			assert_lte(y, y_lawn + FLAT_EPS,
-				"seed %d west r=%.0f y=%.3f must be flat" % [seed, r, y])
+## ivy-82zn.14.14: test_east/west_horizon_is_flat_production (FLAT_EPS) are retired — the east /
+## west horizons now carry the rolling landform under the Solar sun-corridor soft cap, asserted as
+## an elevation angle by test_village_terrain_sun_corridor.gd (AC-LT-SUN, AR-LF-TESTS).
 
 
 func test_north_has_height_production() -> void:
-	## North (−Z) must have elevated ground in the hill zone.
+	## The north ridge Rg (now added on top of the landform) still lifts the north wedge > 5 m.
+	const VillageTerrain = preload("res://src/playground/village_terrain.gd")
+	const VillageTerrainParams = preload("res://src/playground/village_terrain_params.gd")
 	for seed in [1, 7, 12]:
 		var layout := VillageLayout.generate(seed)
 		if layout.fallback:
 			continue
-		VillagePondShape.set_active(VillagePondShape.at(layout.pond_center))
-		var params := HillsParams.production()
-		var t_seed := HillsHeightfield.terrain_seed(layout, params)
+		var f = VillageTerrain.field(layout, VillageTerrainParams.production(), HillsParams.production())
 		var g := layout.hamlet_centre_xz
-		var y_lawn := VillageBackdrop.LAWN_GROUND_Y_OFFSET
 		var max_lift := 0.0
-		for r_i in [80, 90, 97, 110, 117]:
-			var p := g + NORTH_DIR * float(r_i)
-			var y := HillsHeightfield.sample_y(p, layout, params, t_seed)
-			max_lift = maxf(max_lift, y - y_lawn)
-		assert_gt(max_lift, 5.0,
-			"seed %d north must have > 5 m lift (got %.2f m)" % [seed, max_lift])
+		for r_i in [110, 130, 155, 190, 225]:
+			max_lift = maxf(max_lift, float(f.far_ridges(g + NORTH_DIR * float(r_i))))
+		assert_gt(max_lift, 5.0, "seed %d north ridge lift %.2f m" % [seed, max_lift])
+		assert_eq(float(f.far_ridges(g + EAST_DIR * 200.0)), 0.0, "seed %d no ridge due east" % seed)
 
 
 func test_no_forest_trees_outside_north_wedge() -> void:

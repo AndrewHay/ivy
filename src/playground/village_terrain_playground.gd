@@ -23,6 +23,18 @@ const IvyParams = preload("res://src/params/ivy_params.gd")
 const Solar = preload("res://src/env/solar.gd")
 const VillageTerrainGrassHost = preload("res://src/playground/village_terrain_grass_host.gd")
 const VillageTerrainVillageHost = preload("res://src/playground/village_terrain_village_host.gd")
+const HillsParams = preload("res://src/playground/hills_params.gd")
+const HillsHeightfield = preload("res://src/playground/hills_heightfield.gd")
+
+## Camera presets reachable from the panel and --camera= (AR-LF-PLAYGROUND; ivy-82zn.15).
+const CAMERA_PRESETS := [
+	"camsun", "east_horizon", "west_horizon", "wide_overview", "old_rim_seam",
+	"edge_outward", "edge_inward", "raking", "top", "hero_approach", "pond_oblique", "orbit",
+]
+## Old-rim seam view: low eye at r = 50 m looking out across the old r = 56 m lawn edge.
+const _SEAM_EYE_R_M := 50.0
+const _SEAM_LOOK_R_M := 90.0
+const _SEAM_AZIMUTH_DEG := 150.0
 
 ## Knobs that only change village_ground.gdshader uniforms (VillageTerrain.apply_ground_material):
 ## they update the material in place, never the mesh (ivy-82zn.14.7).
@@ -151,6 +163,14 @@ const _PICK_FALLBACK_M := 20.0
 
 var _pond_snapshot: Variant
 var _sky_sun: SkySun
+## Far terrain (the production polar far mesh + hills material) on the stage (AR-LF-PLAYGROUND).
+var _far_mi: MeshInstance3D
+var _hills_params: HillsParams = HillsParams.production()
+## A debounced rebuild that regenerates the layout ("layout" regen class, AR-LF-D11).
+var _relayout_pending := false
+## Timing of the last VillageLayout.generate (ms) and its offset search (ms) for the readout.
+var _gen_ms := 0.0
+var _noise_option: OptionButton
 ## Callable(err: int) invoked after a capture save. Tests replace this to avoid
 ## calling get_tree().quit() from inside the GUT runner (AR-VT-PLAYGROUND §quit-hook).
 var _capture_done_fn: Callable
@@ -219,7 +239,11 @@ func _process(_delta: float) -> void:
 	var t0 := Time.get_ticks_usec()
 	if _rebuild_due_usec >= 0 and t0 >= _rebuild_due_usec:
 		_rebuild_due_usec = -1
-		_start_rebuild()
+		if _relayout_pending:
+			_relayout_pending = false
+			_rebuild_layout_and_stage()
+		else:
+			_start_rebuild()
 	elif _phase != Phase.IDLE:
 		_step_rebuild(int(_slice_budget_ms * 1000.0))
 	_perf_max_frame_usec = maxi(_perf_max_frame_usec, Time.get_ticks_usec() - t0)
@@ -400,7 +424,10 @@ func _terrain_surface_y(world: Vector3) -> float:
 		return o.y
 	var local := Vector2(world.x - o.x, world.z - o.z)
 	if local.distance_to(_layout.hamlet_centre_xz) >= _layout.lawn_radius:
-		return o.y
+		# Far terrain: the same field the far mesh is built from.
+		if _build_params == null or VillageTerrain.is_flat(_layout, _build_params):
+			return o.y
+		return o.y + VillageTerrain.sample_y(local, _layout, _build_params)
 	return o.y + VillageTerrain.lut_sample(_terrain_lut, local)
 
 
@@ -495,10 +522,10 @@ func _apply_cli_overrides() -> void:
 			_params.base_amplitude_m = float(arg.get_slice("=", 1))
 		if arg.begins_with("--base-feature="):
 			_params.base_feature_m = float(arg.get_slice("=", 1))
-		if arg.begins_with("--knoll-height="):
-			_params.knoll_height_m = float(arg.get_slice("=", 1))
-		if arg.begins_with("--knoll-radius="):
-			_params.knoll_radius_m = float(arg.get_slice("=", 1))
+		if arg.begins_with("--landform-height="):
+			_params.landform_height_m = float(arg.get_slice("=", 1))
+		if arg.begins_with("--landform-noise="):
+			_params.landform_noise = int(arg.get_slice("=", 1))
 		if arg.begins_with("--noise-octaves="):
 			_params.noise_octaves = int(arg.get_slice("=", 1))
 		if arg.begins_with("--noise-persistence="):
@@ -519,7 +546,12 @@ func _rebuild_layout_and_stage(sync_preview: bool = false) -> void:
 	## New layout: fresh stage, then a rebuild started now (no debounce). sync_preview runs the
 	## warm-up + coarse preview inside this call (startup, so LawnTerrain exists after _ready).
 	_wait_grass_task()
-	_layout = VillageLayout.generate(_params.layout_seed)
+	# The production generator with the playground's params (snapshot, so knob edits never leak
+	# into a layout mid-build): offset search + layout, exactly as the game (G7, AR-LF-D10).
+	var t_gen := Time.get_ticks_usec()
+	_layout = VillageLayout.generate(_params.layout_seed, _params.duplicate_params())
+	_gen_ms = float(Time.get_ticks_usec() - t_gen) / 1000.0
+	_write_back_auto_offset()
 	VillagePondShape.set_active(VillagePondShape.at(_layout.pond_center))
 	_apply_stage_datum(_params)
 	_clear_stage()
@@ -527,6 +559,10 @@ func _rebuild_layout_and_stage(sync_preview: bool = false) -> void:
 	_terrain_mi.name = "LawnTerrain"
 	_terrain_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_stage.add_child(_terrain_mi)
+	_far_mi = MeshInstance3D.new()
+	_far_mi.name = "FarTerrain"
+	_far_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_stage.add_child(_far_mi)
 	_rebuild_due_usec = -1
 	_perf_t0_usec = Time.get_ticks_usec()
 	_perf_max_frame_usec = 0
@@ -538,11 +574,44 @@ func _rebuild_layout_and_stage(sync_preview: bool = false) -> void:
 	_apply_playground_fog()
 
 
+func _write_back_auto_offset() -> void:
+	## Auto mode writes the chosen offset into the manual fields, so switching to manual (or a
+	## copy-out) reproduces it (AR-LF-PLAYGROUND).
+	if _layout == null or _layout.landform.is_empty():
+		return
+	if _params.landform_offset_mode != VillageTerrainParams.OFFSET_AUTO:
+		return
+	var off: Vector2 = _layout.landform.get("offset", Vector2.ZERO)
+	_params.landform_offset_x = off.x
+	_params.landform_offset_z = off.y
+	_params.landform_rot_deg = float(_layout.landform.get("rot_deg", 0.0))
+	if _knob_panel:
+		_knob_panel.refresh_values()
+
+
+func _show_far_terrain() -> void:
+	## The production far mesh and hills material (HillsHeightfield.build_mesh for flat / classic).
+	if _far_mi == null or _layout == null:
+		return
+	var mesh: ArrayMesh
+	if VillageTerrain.is_flat(_layout, _build_params):
+		var hp := _hills_params.duplicate_params()
+		if not _layout.is_generated:
+			hp.variant = 1
+		mesh = HillsHeightfield.build_flat_legacy_mesh(_layout, hp) if _build_params.variant == 1 \
+			else HillsHeightfield.build_mesh(_layout, hp)
+	else:
+		mesh = VillageTerrain.build_far_mesh(_layout, _build_params, _hills_params)
+	mesh.surface_set_material(0, VillageBackdrop.make_hill_material(_layout, _hills_params, _build_params))
+	_far_mi.mesh = mesh
+
+
 func _clear_stage() -> void:
 	for c in _stage.get_children():
 		c.name = "_removing_%s" % c.name
 		c.queue_free()
 	_terrain_mi = null
+	_far_mi = null
 	_grass_host = null
 	_grass_building = null
 	_grass_queue.clear()
@@ -610,27 +679,25 @@ func _start_rebuild() -> void:
 	if _is_flat():
 		var lut := VillageTerrain.build_sample_lut(_layout, _build_params, _build_t_seed, _COARSE_STEP_M)
 		_show_mesh(VillageTerrain.build_mesh(_layout, _build_params), _build_params.terrain_mesh_step_m, lut)
+		_show_far_terrain()
 		_perf_mark("coarse_ms")
 		_finish_terrain()
 		return
-	# Static caches are keyed by the params signature; clearing keeps them from growing per edit.
-	VillageTerrain.clear_knoll_centres_cache()
+	# LUT / mesh caches are keyed by the field signature; clearing keeps them from growing per edit.
+	VillageTerrain.clear_caches()
 	_phase = Phase.WARM_PAD
 
 
 func _step_rebuild(budget_usec: int) -> void:
 	match _phase:
 		Phase.WARM_PAD:
-			# Knoll centres + cottage pad table (one frame).
-			VillageTerrain.sample_y(VillageLayout.HERO_DOOR_STOOP, _layout, _build_params, _build_t_seed)
+			# Resolve the field (sites, pond level) in its own frame.
+			VillageTerrain.field(_layout, _build_params, _hills_params)
 			_phase = Phase.WARM_SPINE
 		Phase.WARM_SPINE:
-			# Path spine (the longest single step) in its own frame, before any LUT slice.
-			for poly: Variant in _layout.path_polylines():
-				var pts: Array = poly as Array
-				if pts.size() >= 2:
-					var mid := (pts[0] as Vector2).lerp(pts[1] as Vector2, 0.5)
-					VillageTerrain.sample_y(mid, _layout, _build_params, _build_t_seed)
+			# Far terrain (polar mesh, ~10k samples) in its own frame, before any LUT slice.
+			_show_far_terrain()
+			_perf_mark("far_ms")
 			_lut_job = VillageTerrain.lut_job_begin(_layout, _build_params, _build_t_seed, _COARSE_STEP_M)
 			_phase = Phase.COARSE
 		Phase.COARSE:
@@ -645,7 +712,8 @@ func _step_rebuild(budget_usec: int) -> void:
 			if VillageTerrain.lut_job_step(_lut_job, budget_usec):
 				var step := maxf(_build_params.terrain_mesh_step_m, 0.1)
 				var lut: Dictionary = _lut_job["lut"]
-				var mesh := VillageTerrain.mesh_from_lut(_layout, step, lut)
+				# Join-loop vertices exact (shared with the far mesh), as in the game.
+				var mesh := VillageTerrain.mesh_from_lut(_layout, step, lut, _build_params)
 				if mesh == null:
 					mesh = VillageTerrain.build_mesh(_layout, _build_params)
 				_show_mesh(mesh, step, lut)
@@ -989,8 +1057,15 @@ func _make_production_material() -> ShaderMaterial:
 	## ivy-82zn.14.1: slope shading + height tint come from the same params as the game.
 	var mat := ShaderMaterial.new()
 	mat.shader = load(_PRODUCTION_SHADER_PATH) as Shader
-	VillageTerrain.apply_ground_material(mat, _params)
+	VillageTerrain.apply_ground_material(mat, _params, _stage_field())
 	return mat
+
+
+func _stage_field():
+	## The field behind the stage (null when flat), as the game's VillageBackdrop.terrain_field().
+	if _layout == null or _build_params == null or VillageTerrain.is_flat(_layout, _build_params):
+		return null
+	return VillageTerrain.field(_layout, _build_params, _hills_params)
 
 
 func _make_debug_material() -> ShaderMaterial:
@@ -1008,7 +1083,9 @@ func _make_debug_material() -> ShaderMaterial:
 	mat.set_shader_parameter("disc_r", _layout.lawn_radius)
 	mat.set_shader_parameter("ve_scale", _debug_ve)
 	mat.set_shader_parameter("contour_m", _debug_contour_m)
-	mat.set_shader_parameter("h_range", _params.max_rise_m + 0.1)
+	# World y: the stage is lowered by y_hero, so 0 = the hero pad; ramp over the tint range.
+	mat.set_shader_parameter("h_zero", 0.0)
+	mat.set_shader_parameter("h_range", _params.ground_height_range_m)
 	return mat
 
 
@@ -1026,7 +1103,12 @@ func _apply_material_knobs() -> void:
 	## Ground shading uniforms in place (no rebuild). The debug shader does not read them.
 	var mat := _terrain_material()
 	if mat != null and not _is_debug_material(mat):
-		VillageTerrain.apply_ground_material(mat, _params)
+		VillageTerrain.apply_ground_material(mat, _params, _stage_field())
+	# The far hills share the factors (AR-LF-D9).
+	if _far_mi != null and _far_mi.mesh != null and _stage_field() != null:
+		var fm := _far_mi.mesh.surface_get_material(0) as ShaderMaterial
+		if fm != null:
+			VillageTerrain.apply_ground_material(fm, _params, _stage_field())
 
 
 func _set_debug_relief(on: bool) -> void:
@@ -1114,38 +1196,57 @@ func hud_text() -> String:
 			"h: %.3f … %.3f m  |  slope_max: %.1f° (%.0f m grid)\nhero pad: %.3f m  |  pond basin: %.3f m"
 			% [s["min_h"], s["max_h"], s["max_slope_deg"], _shown_step_m, s["hero_h"], s["pond_basin_h"]]
 		)
-		t += "\n" + hill_hud_line()
+		for line in landform_readout_lines():
+			t += "\n" + line
 	var over := VillageTerrainKnobSpec.gentle_limit_violations(_params)
 	if not over.is_empty():
 		t += "\nBeyond gentle limits: " + ", ".join(over)
-	var caps := VillageTerrainKnobSpec.relief_cap_notes(_params)
-	if not caps.is_empty():
-		t += "\nCapped: " + ", ".join(caps)
 	return t
 
 
-## Tallest cottage ridge: VillageBackdrop.WALL_TOP + Roof_RoundTiles_4x6 / 4x8 glTF max y.
-const COTTAGE_RIDGE_M := VillageBackdrop.WALL_TOP + 3.7178683280944824
+func landform_readout() -> Dictionary:
+	## The numbers the mechanical ACs test (SD-VILLAGE-TERRAIN-22 readout), beside the view the
+	## human judges. Rejection / spacing / path-cap fields arrive with WP2 / WP3 ("—" until then).
+	var out := {}
+	if _layout == null:
+		return out
+	var lf: Dictionary = _layout.landform
+	var m: Dictionary = lf.get("measures", {})
+	var diag: Dictionary = _layout.terrain_diag
+	out["offset"] = lf.get("offset", Vector2.ZERO)
+	out["index"] = int(lf.get("index", -1))
+	out["rank"] = int(lf.get("rank", -1))
+	for k in ["s_hero", "up_hero", "down_hero", "span_v", "p95_v", "plaza_tilt_deg"]:
+		out[k] = float(m.get(k, NAN))
+	out["offset_fallback"] = bool(diag.get("offset_fallback", false))
+	out["path_cap_fallback"] = diag.get("path_cap_fallback", null)
+	out["pond_steep"] = diag.get("pond_steep", null)
+	out["rejected_sites"] = diag.get("rejected_sites", null)
+	out["sep_relaxed_to"] = diag.get("sep_relaxed_to", null)
+	out["generate_ms"] = _gen_ms
+	out["search_ms"] = float(diag.get("search_ms", NAN))
+	var f = _stage_field()
+	out["y_hero"] = float(f.y_hero) if f != null else 0.0
+	out["max_path_slope_deg"] = float(f.max_path_slope(_layout)["deg"]) if f != null else 0.0
+	return out
 
 
-func hill_hud_line() -> String:
-	## ivy-82zn.14.10: the hero-to-village-edge fall the human asked for, against one cottage, read
-	## from the LUT on screen (no extra sampling). The outermost cottage = farthest from the stoop.
-	if _layout == null or _terrain_lut.is_empty() or _layout.cottages.is_empty():
-		return "hill: (no village)"
-	var far_c := Vector2.ZERO
-	var far_d := -1.0
-	for spec: Dictionary in _layout.cottages:
-		var c := spec["centre"] as Vector2
-		var d := c.distance_to(VillageLayout.HERO_DOOR_STOOP)
-		if d > far_d:
-			far_d = d
-			far_c = c
-	var hero_h := VillageTerrain.lut_sample(_terrain_lut, VillageLayout.HERO_DOOR_STOOP)
-	var fall := hero_h - VillageTerrain.lut_sample(_terrain_lut, far_c)
-	var verdict := "≥" if fall >= COTTAGE_RIDGE_M else "<"
-	return "hill: crest %.2f m  |  fall to outermost cottage %.2f m %s cottage ridge %.2f m" % [
-		hero_h, fall, verdict, COTTAGE_RIDGE_M]
+func landform_readout_lines() -> PackedStringArray:
+	var r := landform_readout()
+	var lines := PackedStringArray()
+	if r.is_empty() or _layout.landform.is_empty():
+		lines.append("landform: (flat / classic)")
+		return lines
+	var dash := func(v: Variant) -> String: return "—" if v == null else str(v)
+	lines.append("landform: offset %s  cand %d  rank %d  |  y_hero %.2f m" % [
+		str(r["offset"]), r["index"], r["rank"], r["y_hero"]])
+	lines.append("hero slope %.1f°  up %.1f / down %.1f m  |  span %.2f m  p95 %.1f°  plaza tilt %.1f°" % [
+		r["s_hero"], r["up_hero"], r["down_hero"], r["span_v"], r["p95_v"], r["plaza_tilt_deg"]])
+	lines.append("max path slope %.1f°  |  rejected sites %s  sep relaxed %s  |  fallback offset %s path %s pond-steep %s" % [
+		r["max_path_slope_deg"], dash.call(r["rejected_sites"]), dash.call(r["sep_relaxed_to"]),
+		str(r["offset_fallback"]), dash.call(r["path_cap_fallback"]), dash.call(r["pond_steep"])])
+	lines.append("generate %.0f ms (search %.0f ms)" % [r["generate_ms"], r["search_ms"]])
+	return lines
 
 
 func _update_hud() -> void:
@@ -1273,11 +1374,7 @@ func _compute_pond_water_y(pond: Vector2, t_seed: int, params: VillageTerrainPar
 	## Marker only (the village host builds the production water). VillageTerrain.pond_water_y with
 	## the bank-outline minimum taken over every 24th outline point — 30 sample_y calls instead of
 	## 720, so the marker refresh stays inside the playground's frame budget (ivy-82zn.14.10).
-	var outline := VillagePondShape.at(pond).bank_outer_outline_world_xz()
-	var lo := INF
-	for i in range(0, outline.size(), 24):
-		lo = minf(lo, VillageTerrain.sample_y(outline[i], _layout, params, t_seed))
-	return VillageTerrain.pond_water_y(_layout, params, t_seed, lo)
+	return VillageTerrain.pond_water_y(_layout, params, t_seed)
 
 
 # ── UI ────────────────────────────────────────────────────────────────────────
@@ -1358,10 +1455,25 @@ func _make_camera_panel() -> Control:
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 6)
 	panel.add_child(col)
+	# Landform noise selector (structurally different algorithms inside variant 0, AR-LF-D2).
+	var noise_title := Label.new()
+	noise_title.text = "Landform noise"
+	col.add_child(noise_title)
+	_noise_option = OptionButton.new()
+	_noise_option.name = "NoiseSelector"
+	for lbl in VillageTerrainKnobSpec.NOISE_LABELS:
+		_noise_option.add_item(lbl)
+	_noise_option.select(_params.landform_noise)
+	_noise_option.item_selected.connect(_on_noise_selected)
+	col.add_child(_noise_option)
 	var title := Label.new()
 	title.text = "Camera"
 	col.add_child(title)
 	col.add_child(_labeled_button("CamSun", func(): _apply_camera_preset("camsun")))
+	col.add_child(_labeled_button("East horizon", func(): _apply_camera_preset("east_horizon")))
+	col.add_child(_labeled_button("West horizon", func(): _apply_camera_preset("west_horizon")))
+	col.add_child(_labeled_button("Wide overview", func(): _apply_camera_preset("wide_overview")))
+	col.add_child(_labeled_button("Old-rim seam", func(): _apply_camera_preset("old_rim_seam")))
 	col.add_child(_labeled_button("Edge outward", func(): _apply_camera_preset("edge_outward")))
 	col.add_child(_labeled_button("Edge inward", func(): _apply_camera_preset("edge_inward")))
 	col.add_child(_labeled_button("Raking light", func(): _apply_camera_preset("raking")))
@@ -1485,10 +1597,24 @@ func _on_knob_changed(name: String, value: Variant) -> void:
 			_knob_panel.refresh_values()
 		return
 	_params.set(name, value)
+	if name == "landform_noise" and _noise_option != null:
+		_noise_option.select(int(value))
 	_update_hud()  # limit lines follow the knob at once; stats follow the rebuild
-	if name in MATERIAL_ONLY_KNOBS:
-		_apply_material_knobs()
-		return
+	# AR-LF-D11 regen classes: material = uniforms, consumer = nothing, terrain = field + meshes
+	# (same layout), layout = VillageLayout.generate(seed, params) again (debounced).
+	match VillageTerrainKnobSpec.regen_class(name):
+		VillageTerrainKnobSpec.REGEN_MATERIAL:
+			_apply_material_knobs()
+		VillageTerrainKnobSpec.REGEN_CONSUMER:
+			pass
+		VillageTerrainKnobSpec.REGEN_TERRAIN:
+			_request_rebuild()
+		_:
+			_request_relayout()
+
+
+func _request_relayout() -> void:
+	_relayout_pending = true
 	_request_rebuild()
 
 
@@ -1496,7 +1622,13 @@ func _on_variant_changed(v: int) -> void:
 	_params.variant = v
 	if _knob_panel:
 		_knob_panel.set_variant(v)
-	_request_rebuild()
+	_request_relayout()
+
+
+func _on_noise_selected(idx: int) -> void:
+	_on_knob_changed("landform_noise", idx)
+	if _knob_panel:
+		_knob_panel.refresh_values()
 
 
 func _on_preset_selected(name: String) -> void:
@@ -1527,6 +1659,7 @@ func _apply_playground_fog() -> void:
 	if _layout == null:
 		return
 	if _sky_sun != null:
+		_sky_sun.set_fog_model(HeroFog.FogModel.WORLD_AROUND_HERO)
 		_sky_sun.set_fog_depth(_layout.fog_begin, _layout.fog_end)
 		_sky_sun.set_fog_anchor(ForestPlaygroundCamera.hero_fog_anchor_world())
 		return
@@ -1549,8 +1682,11 @@ func _apply_playground_fog() -> void:
 
 
 func _disable_fog_for_top_view() -> void:
-	## CamTop should not be fogged — fog distance is < lawn_radius from top.
+	## CamTop / Wide overview should not be fogged. The production WORLD_AROUND_HERO fog ignores
+	## set_fog_depth (from 100+ m up everything is in it), so these playground-only views switch to
+	## camera-depth fog pushed past the far mesh; _apply_playground_fog restores the game model.
 	if _sky_sun != null:
+		_sky_sun.set_fog_model(HeroFog.FogModel.CAMERA_DEPTH)
 		_sky_sun.set_fog_depth(500.0, 1000.0)
 		return
 	if _world_env != null and _world_env.environment != null:
@@ -1574,8 +1710,9 @@ func _set_camera_preset_view(name: String) -> void:
 	_last_preset = name
 	var aim := ForestPlaygroundCamera.aim_point()
 
-	# Restore normal fog for most presets; disable for top.
-	if name != "top":
+	# Restore normal fog for most presets; disable for the top and wide overview views (the
+	# hero-centred fog ends at 95 m, well inside both frames).
+	if name != "top" and name != "camtop" and name != "wide_overview":
 		_apply_playground_fog()
 	else:
 		_disable_fog_for_top_view()
@@ -1600,8 +1737,60 @@ func _set_camera_preset_view(name: String) -> void:
 			_apply_hero_approach()
 		"pond_oblique", "pond-oblique":
 			_apply_pond_oblique()
+		"east_horizon", "east-horizon":
+			_apply_sun_horizon(VillageTerrain.sun_corridor_azimuths().x)
+		"west_horizon", "west-horizon":
+			_apply_sun_horizon(VillageTerrain.sun_corridor_azimuths().y)
+		"wide_overview", "wide-overview", "wide":
+			_apply_wide_overview()
+		"old_rim_seam", "old-rim-seam", "seam":
+			_apply_old_rim_seam()
 		_:
 			ForestPlaygroundCamera.apply_camsun(_camera)
+
+
+func _local_to_world(xz: Vector2, y: float) -> Vector3:
+	## Backdrop-frame point → world (the stage is the backdrop, lowered by y_hero).
+	return _stage.position + Vector3(xz.x, y, xz.y)
+
+
+func _local_ground_y(xz: Vector2) -> float:
+	if _build_params == null or VillageTerrain.is_flat(_layout, _build_params):
+		return 0.0
+	return VillageTerrain.sample_y(xz, _layout, _build_params)
+
+
+func _apply_sun_horizon(az_deg: float) -> void:
+	## Eye at H0, y_hero + sun_eye_height_m, looking level along the sunrise / sunset azimuth
+	## (the AC-LT-SUN sightline; SD-VILLAGE-TERRAIN-22 East / West horizon).
+	var h0 := VillageLayout.HERO_DOOR_STOOP
+	var y_eye := VillageTerrain.hero_datum_y(_layout, _params) + _params.sun_eye_height_m
+	var a := deg_to_rad(az_deg)
+	var dir := Vector2(sin(a), -cos(a))
+	_camera.global_position = _local_to_world(h0, y_eye)
+	_camera.look_at(_local_to_world(h0 + dir * 200.0, y_eye), Vector3.UP)
+	_camera.fov = 60.0
+
+
+func _apply_wide_overview() -> void:
+	## About 120 m up and 160 m south of G, looking at G: the landform, the village and the seam.
+	var g := _layout.hamlet_centre_xz
+	var y0 := VillageTerrain.hero_datum_y(_layout, _params)
+	_camera.global_position = _local_to_world(g + Vector2(0.0, 160.0), y0 + 120.0)
+	_camera.look_at(_local_to_world(g, y0), Vector3.UP)
+	_camera.fov = 55.0
+
+
+func _apply_old_rim_seam() -> void:
+	## Low eye at r = 50 m from G looking out across the old r = 56 m lawn edge and the join loop.
+	var g := _layout.hamlet_centre_xz
+	var a := deg_to_rad(_SEAM_AZIMUTH_DEG)
+	var dir := Vector2(sin(a), -cos(a))
+	var eye_xz := g + dir * _SEAM_EYE_R_M
+	var look_xz := g + dir * _SEAM_LOOK_R_M
+	_camera.global_position = _local_to_world(eye_xz, _local_ground_y(eye_xz) + 1.7)
+	_camera.look_at(_local_to_world(look_xz, _local_ground_y(look_xz)), Vector3.UP)
+	_camera.fov = 65.0
 
 
 func _apply_orbit_camera() -> void:

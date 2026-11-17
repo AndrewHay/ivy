@@ -1,14 +1,15 @@
-## ivy-82zn.14.10 — village hill in the game World (AC 1, AC 7): option A datum. The hero ground stays
-## at world y = 0; World lowers VillageBackdrop and the visible ground plane by hero_datum_y; every
-## consumer that turns a lawn XZ into a world Y (camera floor, wanderer, fauna, garden props) sits on
-## the lowered terrain. Classic / variant 1 keep every offset at 0 (AC-VT1 / INV-15).
+## ivy-82zn.14.14 (WP1) — the landscape-first field in the game World (replaces
+## test_village_terrain_hill_world.gd). Datum option A: hero pad at world y 0; camera floor in world
+## space via sample_terrain_world_y; Garden_* seated; fauna hover above the anchor ground;
+## World/Ground discard = HillsParams.r_outer_m and the plane below the terrain minimum (AR-LF-D7);
+## classic keeps every offset at 0 (AC-VT1 / INV-15).
 extends GutTest
 
 const MainScene = preload("res://src/main/main.tscn")
 const SquareScenario = preload("res://assets/structures/scenarios/square.tres")
 const GameModes = preload("res://src/world/game_modes.gd")
-const VillageTerrain = preload("res://src/playground/village_terrain.gd")
 const VillageTerrainParams = preload("res://src/playground/village_terrain_params.gd")
+const HillsParams = preload("res://src/playground/hills_params.gd")
 const GeneratedBackdropScene = preload("res://src/world/generated_village_backdrop.tscn")
 const FaunaMotionScript = preload("res://src/presentation/fauna/fauna_motion.gd")
 
@@ -29,20 +30,24 @@ func _boot_generated() -> Node:
 	return world
 
 
-func test_world_lowers_village_so_hero_ground_is_world_zero() -> void:
+func test_hero_pad_is_world_zero_and_ground_plane_below_the_terrain() -> void:
 	var world: Node = await _boot_generated()
 	var bd := world.get_node_or_null("VillageBackdrop") as VillageBackdrop
 	assert_not_null(bd, "generated backdrop")
 	if bd == null:
 		return
 	var datum := bd.hero_datum_y()
-	assert_gt(datum, 6.0, "seed 7 hill: hero datum is the crest (%.2f m)" % datum)
-	assert_almost_eq(bd.global_position.y, -datum, 1e-4, "backdrop lowered by the hero datum")
-	var stoop_world_y := bd.global_position.y + bd.sample_terrain_y(VillageLayout.HERO_DOOR_STOOP)
-	assert_almost_eq(stoop_world_y, 0.0, 0.02, "hero ground at world y 0")
-	var ground_mesh := world.get_node("Ground/GroundMesh") as Node3D
-	assert_almost_eq(ground_mesh.global_position.y, bd.global_position.y, 1e-4,
-		"visible ground plane lowered with the village (outer hills not covered)")
+	assert_almost_eq(bd.global_position.y, -datum, 1e-4, "backdrop lowered by y_hero")
+	var stoop_world := bd.sample_terrain_world_y(
+		VillageLayout.HERO_DOOR_STOOP + Vector2(bd.global_position.x, bd.global_position.z))
+	assert_almost_eq(stoop_world, 0.0, 0.02, "hero pad at world y 0")
+	var ground_mesh := world.get_node("Ground/GroundMesh") as MeshInstance3D
+	var min_y := bd.terrain_mesh_min_y()
+	assert_lt(ground_mesh.global_position.y, bd.global_position.y + min_y,
+		"World/Ground plane below the lowest terrain vertex (AR-LF-D7)")
+	var mat := ground_mesh.get_surface_override_material(0) as ShaderMaterial
+	assert_almost_eq(float(mat.get_shader_parameter("village_disc_radius")), HillsParams.production().r_outer_m,
+		1e-4, "discard radius = r_outer_m")
 	var collision := world.get_node("Ground/GroundCollision") as Node3D
 	assert_almost_eq(collision.global_position.y, 0.0, 1e-4, "ground collision stays at the hero ground")
 
@@ -62,9 +67,10 @@ func test_camera_floor_is_terrain_in_world_space() -> void:
 	for local: Vector2 in [VillageLayout.HERO_DOOR_STOOP, layout.hamlet_centre_xz,
 			layout.hamlet_centre_xz + Vector2(20.0, -10.0)]:
 		var world_xz := local + Vector2(o.x, o.z)
-		var want := o.y + bd.sample_terrain_y(local) + clearance
-		assert_almost_eq(float(floor_fn.call(world_xz)), want, 0.05,
-			"camera floor at %s on the lowered terrain" % local)
+		var want := bd.sample_terrain_world_y(world_xz) + clearance
+		assert_almost_eq(float(floor_fn.call(world_xz)), want, 1e-4, "camera floor at %s" % local)
+		assert_almost_eq(bd.sample_terrain_world_y(world_xz), o.y + bd.sample_terrain_y(local), 1e-5,
+			"sample_terrain_world_y = backdrop y + local terrain")
 
 
 func test_garden_props_sit_on_the_terrain() -> void:
@@ -77,14 +83,12 @@ func test_garden_props_sit_on_the_terrain() -> void:
 		if not str(c.name).begins_with("Garden_"):
 			continue
 		var p := (c as Node3D).position
-		assert_almost_eq(p.y, bd.sample_terrain_y(Vector2(p.x, p.z)), 0.05,
-			"%s seated on the terrain (not buried under the crest)" % c.name)
+		assert_almost_eq(p.y, bd.sample_terrain_y(Vector2(p.x, p.z)), 0.05, "%s seated" % c.name)
 		n += 1
 	assert_gt(n, 0, "garden props checked")
 
 
 func test_fauna_hovers_above_the_anchor_ground() -> void:
-	## Anchors carry the terrain y (backdrop-local); the hover is added on top, in world space.
 	var env := FaunaEnvironment.new()
 	var a := FaunaAnchor.new()
 	a.kind = FaunaConstants.AnchorKind.FLOWER
@@ -107,4 +111,7 @@ func test_classic_keeps_every_offset_at_zero() -> void:
 	if bd == null:
 		return
 	assert_eq(bd.global_position.y, 0.0, "classic backdrop at y 0 (INV-15)")
-	assert_eq((world.get_node("Ground/GroundMesh") as Node3D).global_position.y, 0.0, "classic ground at y 0")
+	var gm := world.get_node("Ground/GroundMesh") as MeshInstance3D
+	assert_eq(gm.global_position.y, 0.0, "classic ground at y 0")
+	var mat := gm.get_surface_override_material(0) as ShaderMaterial
+	assert_eq(float(mat.get_shader_parameter("village_disc_radius")), 0.0, "classic: no discard")

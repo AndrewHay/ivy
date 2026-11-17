@@ -230,19 +230,19 @@ func test_generated_hill_inner_in_mesh() -> void:
 		return
 	var verts := _mesh_verts(node.mesh)
 	var g := VillageLayout.VILLAGE_GREEN_G
-	var prod := HillsParams.production()
-	var y_lawn := VillageBackdrop.LAWN_GROUND_Y_OFFSET
-	var inner_r := _min_xz_at_y_about(g, verts, y_lawn, 0.25)
 	var layout := bd.get_layout()
-	## The mesh builder skirts ~6 m inside the lawn so the meadow shader seam is covered
-	## (inner = maxf(lawn_r - 6.0, lawn_r * 0.88) ≈ lawn_r - 6.0 = 50.0 m for lawn_r=56).
-	## rework5: step formula changed from iterative (~2.55m) to direct computation
-	## (~5.4m for outer=310m). A larger step means the innermost vertex can be up to one
-	## step inside the inner boundary. Tolerance = 8.0 covers step up to 8 m.
-	var expected_inner := layout.lawn_radius - 6.0   # mesh builder inner formula
-	assert_almost_eq(inner_r, expected_inner, 8.0,
-		"Generated HillTerrain inner skirt at %.2f; expected near lawn_r - 6.0 = %.1f (seam skirt)" \
-		% [inner_r, expected_inner])
+	## ivy-82zn.14.14 contract change (AR-LF-D6): no skirt under the lawn any more. The far mesh's
+	## inner boundary IS the join loop on r_j = lawn_radius (shared vertices with LawnTerrain),
+	## and it reaches HillsParams.r_outer_m.
+	var inner_r := INF
+	var outer_r := 0.0
+	for v: Vector3 in verts:
+		var r := Vector2(v.x, v.z).distance_to(g)
+		inner_r = minf(inner_r, r)
+		outer_r = maxf(outer_r, r)
+	assert_almost_eq(inner_r, layout.lawn_radius, 1e-3,
+		"HillTerrain inner boundary on the join circle (%.3f)" % inner_r)
+	assert_almost_eq(outer_r, HillsParams.production().r_outer_m, 1e-3, "HillTerrain reaches r_outer_m")
 
 
 func test_generated_pine_count_and_radii() -> void:

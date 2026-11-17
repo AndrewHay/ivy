@@ -35,6 +35,8 @@ static func stats(sampler: GDScript, layout: VillageLayout, params: VillageTerra
 	var n := 0
 	var n_vis := 0
 	var max_slope := 0.0
+	# ivy-82zn.14.14: heights relative to y_hero (the hero pad; World puts it at world y 0).
+	var datum: float = sampler.hero_datum_y(layout, params)
 	var x := -60.0
 	while x <= 60.0:
 		var z := -60.0
@@ -45,7 +47,7 @@ static func stats(sampler: GDScript, layout: VillageLayout, params: VillageTerra
 			if dz > 3.0 and absf(x) < 1.33 * dz and d >= 8.0 and d <= 45.0 \
 					and p.distance_to(layout.hamlet_centre_xz) < layout.lawn_radius \
 					and p.distance_to(VillageLayout.HERO_DOOR_STOOP) > params.hero_flat_r_m:
-				var h: float = sampler.sample_y(p, layout, params, t_seed)
+				var h: float = sampler.sample_y(p, layout, params, t_seed) - datum
 				min_h = minf(min_h, h)
 				max_h = maxf(max_h, h)
 				sum_abs += absf(h)

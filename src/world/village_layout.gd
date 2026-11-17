@@ -22,7 +22,10 @@ const HILLS_TERRAIN_SALT := 0xB1175C3
 const HILLS_FOREST_SALT := 0xF0E557A
 ## Terrain salt streams for VillageTerrain (AR-VT-FILES / SD-VILLAGE-TERRAIN-5).
 const VILLAGE_TERRAIN_SALT := 0x7E44A1
+## Legacy knoll stream (knolls removed by AR-LANDSCAPE-FIRST; the constant stays reserved).
 const VILLAGE_TERRAIN_KNOLL_SALT := 0x7E44A1 ^ 0x5B
+## Landform L stream and offset-search candidates (SD-VILLAGE-TERRAIN-17 / -18).
+const VILLAGE_LANDFORM_SALT := 0x7E44A2
 ## Classic authored graph: 7 door nodes 0..6, hero stoop index 7 (INV-15; unchanged).
 const CLASSIC_HAMLET_COUNT := 7
 const CLASSIC_HERO_NODE := 7
@@ -305,6 +308,13 @@ var pond_path_clearance_m: float = VillagePondSite.PATH_CLEARANCE_M
 var plaza_side_m: float = 0.0
 var plaza_rect: Rect2 = Rect2()
 var plaza_keep_clear: Rect2 = Rect2()
+## Terrain (AR-LF-D10): the VillageTerrainParams generate() ran with (null = production), the
+## chosen landform {index, offset, rot_deg, rank, measures, fallback}, terrain diagnostics, and an
+## untyped cache slot for the resolved VillageTerrainField (VillageTerrain.field).
+var terrain_params: Resource = null
+var landform: Dictionary = {}
+var terrain_diag: Dictionary = {}
+var terrain_field = null
 
 
 # ── Constructors ──────────────────────────────────────────────────────────────
@@ -333,9 +343,10 @@ static func authored() -> VillageLayout:
 
 
 ## Returns a procedurally generated layout (v3 path-first via `VillageGeneratorV3`).
-static func generate(seed: int) -> VillageLayout:
+## terrain_params: VillageTerrainParams (null = production); the landform search reads it (AR-LF-D4).
+static func generate(seed: int, terrain_params: Resource = null) -> VillageLayout:
 	var gen_script: GDScript = load("res://src/world/village_gen/village_generator.gd") as GDScript
-	return gen_script.generate(seed) as VillageLayout
+	return gen_script.generate(seed, terrain_params) as VillageLayout
 
 ## Legacy lattice + fan-band placement + hex network (unused by `generate()`; retained until cleanup).
 static func _generate_legacy_lattice(seed: int) -> VillageLayout:

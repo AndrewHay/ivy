@@ -21,10 +21,11 @@ func _init() -> void:
 	VillagePondShape.set_active(VillagePondShape.at(layout.pond_center))
 	var t_seed := VillageTerrain.terrain_seed(layout, params)
 
-	VillageTerrain.clear_knoll_centres_cache()
+	VillageTerrain.clear_caches()
+	VillageTerrain.invalidate(layout)
 	var t0 := Time.get_ticks_usec()
 	VillageTerrain.sample_y(VillageLayout.HERO_DOOR_STOOP, layout, params, t_seed)
-	var t_first := Time.get_ticks_usec() - t0
+	var t_first := Time.get_ticks_usec() - t0  # field build (sites, pond level)
 
 	t0 = Time.get_ticks_usec()
 	for i in range(200):
@@ -68,15 +69,11 @@ func _init() -> void:
 	print("[vt-timing] lut_hash step=%d coarse6=%d lut1=%d" % [
 		hash(lut2["data"]), hash(lut6["data"]), hash(lut1["data"])])
 
-	# Path spine build: first sample on a path after a cache clear.
-	VillageTerrain.clear_knoll_centres_cache()
-	VillageTerrain.sample_y(VillageLayout.HERO_DOOR_STOOP, layout, params, t_seed)
-	var path0: Array = layout.path_polylines()[0]
-	var on_path: Vector2 = (path0[0] as Vector2).lerp(path0[1] as Vector2, 0.5)
+	# Far mesh (polar, join loop) — the playground builds it in its own frame.
 	t0 = Time.get_ticks_usec()
-	VillageTerrain.sample_y(on_path, layout, params, t_seed)
-	var t_spine := Time.get_ticks_usec() - t0
-	print("[vt-timing] first_path_sample_ms(spine build)=%.1f" % (t_spine / 1000.0))
+	VillageTerrain.build_far_mesh(layout, params)
+	var t_far := Time.get_ticks_usec() - t0
+	print("[vt-timing] far_mesh_ms=%.1f" % (t_far / 1000.0))
 
 	# Grass blade placement (production VillageScatterPositions, same ctx as VillageBackdrop).
 	t0 = Time.get_ticks_usec()

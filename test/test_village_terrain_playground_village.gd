@@ -104,8 +104,10 @@ func test_village_reseats_after_shape_change_with_status() -> void:
 	await get_tree().process_frame
 	assert_true(await _await_idle(pg), "initial build finishes")
 	var before := _village(pg)
-	var y0: float = (before._cottage_origins[0] as Vector3).y
-	pg._on_knob_changed("swell_amp_m", 2.0)
+	var water_before := before.get_node("PondWater") as MeshInstance3D
+	var y0: float = water_before.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX][0].y
+	# ivy-82zn.14.14: a terrain-class knob (same layout, field rebuilt) re-seats the village in place.
+	pg._on_knob_changed("pond_freeboard_m", 0.35)
 	var saw_status := false
 	for _i in range(_IDLE_FRAME_CAP):
 		await get_tree().process_frame
@@ -121,7 +123,9 @@ func test_village_reseats_after_shape_change_with_status() -> void:
 		return
 	assert_ne(after, before, "village rebuilt for the new terrain")
 	_assert_cottages_on_terrain(pg, after)
-	assert_ne((after._cottage_origins[0] as Vector3).y, y0, "cottage moved with the terrain")
+	var water_after := after.get_node("PondWater") as MeshInstance3D
+	assert_lt(float(water_after.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX][0].y), y0 - 0.1,
+		"pond water dropped with the larger freeboard")
 
 
 func test_sliced_pond_bank_equals_the_production_ring() -> void:
@@ -184,20 +188,23 @@ func test_pond_depth_and_plaza_relief_change_the_village_ground() -> void:
 	assert_true(await _await_idle(pg), "initial build finishes")
 	var layout: VillageLayout = pg._layout
 	var pond0 := VillageTerrain.lut_sample(pg._terrain_lut, layout.pond_center)
-	var plaza_c := layout.plaza_rect.get_center()
-	var plaza0 := VillageTerrain.lut_sample(pg._terrain_lut, plaza_c)
-	# The final clamp to -(max_depression_m + 0.05) also caps the basin, so open it with the depth.
-	# Separate edits: a raised plaza also pulls the pond basin up (reported in ivy-82zn.14.8 notes;
-	# test_pond_depth_response_characterization logs it).
-	pg._on_knob_changed("max_depression_m", 4.0)
+	# ivy-82zn.14.14: no caps any more (max_depression_m / plaza_relief_m removed). The plaza is a
+	# fitted plane; plaza_max_tilt_deg 0 levels it (a layout-class knob: the layout regenerates).
+	var rect := layout.plaza_rect
+	# Inner points (corners can sit in a pad / hero ring, which have priority over the plaza).
+	var tilt := func() -> float:
+		var f = VillageTerrain.field(pg._layout, pg._build_params)
+		var c := rect.get_center()
+		return absf(f.sample_y(c - Vector2(4.0, 4.0)) - f.sample_y(c + Vector2(4.0, 4.0)))
+	var tilt0: float = tilt.call()
 	pg._on_knob_changed("pond_depth_m", -3.0)
 	assert_true(await _await_idle(pg), "rebuild finishes")
 	var pond1 := VillageTerrain.lut_sample(pg._terrain_lut, layout.pond_center)
 	pg._on_knob_changed("pond_depth_m", -0.6)
-	pg._on_knob_changed("plaza_relief_m", 1.5)
+	pg._on_knob_changed("plaza_max_tilt_deg", 0.0)
 	assert_true(await _await_idle(pg), "rebuild finishes")
-	var plaza1 := VillageTerrain.lut_sample(pg._terrain_lut, plaza_c)
-	gut.p("pond basin %.2f -> %.2f m, plaza %.2f -> %.2f m" % [pond0, pond1, plaza0, plaza1])
+	var tilt1: float = tilt.call()
+	gut.p("pond basin %.2f -> %.2f m, plaza corner Δ %.2f -> %.2f m" % [pond0, pond1, tilt0, tilt1])
 	assert_lt(pond1, pond0 - 1.5, "deeper pond_depth_m lowers the basin under the water")
-	assert_gt(plaza1, plaza0 + 1.0, "plaza_relief_m raises the plaza")
+	assert_lt(tilt1, 0.05, "plaza_max_tilt_deg 0 levels the plaza")
 	assert_not_null(_village(pg), "village present on the new ground")

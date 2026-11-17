@@ -5,6 +5,11 @@ shader_type spatial;
 render_mode cull_back, unshaded;
 
 #include "res://src/render/shaders/wind_gust.gdshaderinc"
+// Same slope / height factors as the lawn (AR-LF-D9). Applied to the u_lawn_colour seam override
+// (weighted by meadow_ring), so at r_j the far mesh returns u_lawn_colour × the lawn's factors.
+// u_terrain_tint_on = false (default; classic / flat legacy) keeps the old output (INV-15).
+#include "res://src/render/shaders/terrain_tint.gdshaderinc"
+uniform bool u_terrain_tint_on = false;
 
 // Calibrated rendered lawn colour — set by apply_terrain_shader to the measured
 // pixel colour of the rendered lawn surface.  With unshaded mode, the meadow_ring
@@ -49,8 +54,10 @@ uniform float u_azimuth_fade_width_rad: hint_range(0.0, 3.14159) = 0.349066;  //
 
 varying vec3 v_world_pos;
 varying vec3 v_world_nrm;
+varying float v_local_y;
 
 void vertex() {
+	v_local_y = VERTEX.y;
 	v_world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	v_world_nrm = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
 }
@@ -160,7 +167,12 @@ void fragment() {
 	// Override with the measured rendered lawn colour at r = lawn_radius,
 	// smoothly releasing to the lit hill colour by r = lawn_radius + 50 m.
 	// This closes the razor-line seam visible between the grass disc and the hill terrain.
-	col = mix(col, u_lawn_colour, meadow_ring);
+	vec3 lawn_c = u_lawn_colour;
+	if (u_terrain_tint_on) {
+		float ny_t = clamp(normalize(v_world_nrm).y, 0.0, 1.0);
+		lawn_c = u_lawn_colour * terrain_slope_dim(ny_t) * terrain_height_factor(v_local_y);
+	}
+	col = mix(col, lawn_c, meadow_ring);
 
 	ALBEDO    = col;
 	ROUGHNESS = 0.96;

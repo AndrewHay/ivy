@@ -32,11 +32,28 @@ static var last_diag: Dictionary = {}
 static var last_stage7_debug: Dictionary = {}
 
 
-static func generate(seed: int) -> VillageLayout:
+static func generate(seed: int, terrain_params: Resource = null) -> VillageLayout:
 	var norm: int = seed & 0x7FFFFFFF
 	last_diag = {}
 	var t_all := Time.get_ticks_usec()
 	var attempts_log: Array = []
+	# Landform offset search, once, before the attempt loop (AR-LF-D4): G, H0 and the plaza are
+	# constants, so it needs no layout. Rank retry and site rejection arrive in WP2 (AR-LF-D5).
+	var tp: VillageTerrainParams = terrain_params as VillageTerrainParams
+	if tp == null:
+		tp = VillageTerrainParams.production()
+	var landform := {}
+	var searches := 0
+	var t_search := Time.get_ticks_usec()
+	if tp.variant != 1:
+		var ranked := VillageLandform.rank_offsets(norm, tp)
+		searches = 1
+		var best: Dictionary = ranked[0]
+		landform = {
+			"index": best["index"], "offset": best["offset"], "rot_deg": best["rot_deg"], "rank": 0,
+			"measures": best["measures"], "fallback": not bool(best["pass"]),
+		}
+	var search_ms := float(Time.get_ticks_usec() - t_search) / 1000.0
 	for attempt: int in range(4):
 		var t_att := Time.get_ticks_usec()
 		var attempt_seed := _attempt_seed(norm, attempt)
@@ -52,15 +69,27 @@ static func generate(seed: int) -> VillageLayout:
 		rec["attempts"] = attempts_log.duplicate(true)
 		rec["attempts_used"] = attempt + 1
 		rec["total_ms"] = float(Time.get_ticks_usec() - t_all) / 1000.0
+		rec["landform"] = landform
+		rec["rank"] = 0
+		rec["landform_searches"] = searches
+		rec["search_ms"] = search_ms
 		last_diag = rec
 		if rec.get("ok", false):
-			return rec["layout"] as VillageLayout
+			var layout := rec["layout"] as VillageLayout
+			layout.terrain_params = terrain_params
+			layout.landform = landform.duplicate(true)
+			layout.terrain_diag = {
+				"offset_fallback": bool(landform.get("fallback", false)),
+				"search_ms": search_ms,
+			}
+			return layout
 		if attempt >= 3:
 			break
 	push_warning("VillageGeneratorV3: falling back to authored() after failed attempts")
 	var fb := _Layout.authored()
 	fb.fallback = true
 	fb.is_generated = false
+	last_diag["landform_searches"] = searches
 	last_diag["fallback_layout"] = true
 	last_diag["attempts"] = attempts_log
 	last_diag["attempts_used"] = attempts_log.size()

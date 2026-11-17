@@ -42,7 +42,7 @@ func test_lut_job_in_slices_matches_one_shot_lut() -> void:
 	var layout := VillageLayout.generate(7)
 	VillagePondShape.set_active(VillagePondShape.at(layout.pond_center))
 	var t_seed := VillageTerrain.terrain_seed(layout, params)
-	VillageTerrain.clear_knoll_centres_cache()
+	VillageTerrain.clear_caches()
 	var job := VillageTerrain.lut_job_begin(layout, params, t_seed, 6.0)
 	var steps := 0
 	while not VillageTerrain.lut_job_step(job, 2000):
@@ -52,7 +52,7 @@ func test_lut_job_in_slices_matches_one_shot_lut() -> void:
 			return
 	assert_gt(steps, 1, "a 2 ms budget must split the 6 m LUT over several steps")
 	var sliced: PackedFloat32Array = (job["lut"] as Dictionary)["data"]
-	VillageTerrain.clear_knoll_centres_cache()
+	VillageTerrain.clear_caches()
 	var one_shot := VillageTerrain.build_sample_lut(layout, params, t_seed, 6.0)
 	assert_eq(hash(sliced), hash(one_shot["data"]), "sliced LUT must equal the one-shot LUT")
 
@@ -66,7 +66,8 @@ func test_mesh_from_lut_equals_build_mesh() -> void:
 	var mesh := VillageTerrain.build_mesh(layout, params)
 	var step := maxf(params.terrain_mesh_step_m, 0.1)
 	var lut := VillageTerrain.build_sample_lut(layout, params, t_seed, step)
-	var mesh2 := VillageTerrain.mesh_from_lut(layout, step, lut)
+	# ivy-82zn.14.14: with params the join-loop vertices take the exact field (as build_mesh).
+	var mesh2 := VillageTerrain.mesh_from_lut(layout, step, lut, params)
 	assert_not_null(mesh2)
 	if mesh2 == null:
 		return
@@ -169,7 +170,7 @@ func test_shape_change_shows_coarse_preview_then_full_mesh() -> void:
 	await get_tree().process_frame
 	assert_true(await _await_idle(pg), "initial rebuild must finish")
 	var full_verts := _terrain(pg).mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX].size() as int
-	pg._on_knob_changed("knoll_height_m", 0.6)
+	pg._on_knob_changed("pond_depth_m", -0.8)  # terrain class: same layout, field + meshes rebuilt
 	var saw_coarse := false
 	for _i in range(_IDLE_FRAME_CAP):
 		await get_tree().process_frame
@@ -250,4 +251,6 @@ func test_exit_restores_pond_shape_and_terrain_batch_state() -> void:
 	remove_child(pg)
 	pg.free()
 	assert_eq(VillagePondShape.active(), before, "pond shape restored on exit")
-	assert_eq(VillageTerrain._sig_batch_depth, 0, "no open terrain sig batch after exit")
+	# ivy-82zn.14.14: no static signature batch any more (the field cache lives on the layout).
+	assert_false((VillageTerrain as GDScript).get_script_constant_map().has("_sig_batch_depth"),
+		"no global terrain batch state")

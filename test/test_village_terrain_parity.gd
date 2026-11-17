@@ -1,110 +1,85 @@
-## AC-VT2: sample_y grid hash + knoll_centres deterministic across rebuild for seeds 1/7/12/240424020.
-## SD-VILLAGE-TERRAIN-5 / AR-VT-DECIDE-3 determinism via _derive + VILLAGE_TERRAIN_SALT.
+## ivy-82zn.14.14 (WP1) — AC-LT-DET: same seed ⇒ identical sample_y grid hash (4 m grid, r ≤ 310 m)
+## and identical chosen offset; two runs equal; game (GeneratedVillageBackdrop) vs playground
+## (VillageLayout.generate(seed, params)) equal, including the far mesh on the join loop (G7 pin).
 extends GutTest
 
 const VillageTerrainParams = preload("res://src/playground/village_terrain_params.gd")
 const VillageTerrain = preload("res://src/playground/village_terrain.gd")
+const HillsHeightfield = preload("res://src/playground/hills_heightfield.gd")
+const HillsParams = preload("res://src/playground/hills_params.gd")
+const GeneratedBackdropScene = preload("res://src/world/generated_village_backdrop.tscn")
 
-const _PARITY_SEEDS: Array[int] = [1, 7, 12, 240424020]
-const _GRID_HALF := 40.0
-const _GRID_STEP := 5.0
-
-
-static func _sample_y_hash(
-		layout: VillageLayout,
-		params: VillageTerrainParams,
-		t_seed: int) -> String:
-	var parts: PackedStringArray = []
-	var x := -_GRID_HALF
-	while x <= _GRID_HALF:
-		var z := -_GRID_HALF
-		while z <= _GRID_HALF:
-			var xz := layout.hamlet_centre_xz + Vector2(x, z)
-			var y := VillageTerrain.sample_y(xz, layout, params, t_seed)
-			parts.append("%.6f" % y)
-			z += _GRID_STEP
-		x += _GRID_STEP
-	return ",".join(parts).sha256_text()
+const _SEEDS: Array[int] = [1, 7, 12]
 
 
-static func _knoll_hash(centres: Array[Vector2]) -> String:
-	var parts: PackedStringArray = []
-	for c: Vector2 in centres:
-		parts.append("%.6f,%.6f" % [c.x, c.y])
-	return ",".join(parts).sha256_text()
+static func _grid_hash(f, g: Vector2, step: float = 4.0, r_max: float = 310.0) -> String:
+	var parts := PackedFloat32Array()
+	var n := int(r_max / step)
+	for ix in range(-n, n + 1):
+		for iz in range(-n, n + 1):
+			var q := Vector2(float(ix), float(iz)) * step
+			if q.length() <= r_max:
+				parts.append(f.sample_y(g + q))
+	return parts.to_byte_array().hex_encode().sha256_text()
 
 
-func test_sample_y_hash_deterministic() -> void:
-	# AC-VT2: identical rebuild → identical sample_y grid hash
-	for seed: int in _PARITY_SEEDS:
-		var layout1 := VillageLayout.generate(seed)
-		if layout1.fallback:
-			pass_test("fallback skip seed %d" % seed)
-			continue
-		var params1 := VillageTerrainParams.production()
-		var ts1 := VillageTerrain.terrain_seed(layout1, params1)
-		var h1 := _sample_y_hash(layout1, params1, ts1)
-
-		var layout2 := VillageLayout.generate(seed)
-		var params2 := VillageTerrainParams.production()
-		var ts2 := VillageTerrain.terrain_seed(layout2, params2)
-		var h2 := _sample_y_hash(layout2, params2, ts2)
-
-		assert_eq(h1, h2, "sample_y hash deterministic for seed %d" % seed)
+func test_two_runs_identical() -> void:
+	var p := VillageTerrainParams.production()
+	for seed in _SEEDS:
+		var a := VillageLayout.generate(seed)
+		var b := VillageLayout.generate(seed)
+		assert_eq(a.landform["offset"], b.landform["offset"], "seed %d chosen offset" % seed)
+		assert_eq(a.landform["index"], b.landform["index"], "seed %d chosen candidate" % seed)
+		var ha := _grid_hash(VillageTerrain.field(a, p), a.hamlet_centre_xz)
+		var hb := _grid_hash(VillageTerrain.field(b, p), b.hamlet_centre_xz)
+		assert_eq(ha, hb, "seed %d sample_y grid hash" % seed)
 
 
-func test_knoll_centres_deterministic() -> void:
-	# AC-VT2: knoll_centres identical across rebuilds
-	for seed: int in _PARITY_SEEDS:
-		var layout1 := VillageLayout.generate(seed)
-		if layout1.fallback:
-			pass_test("fallback skip seed %d" % seed)
-			continue
-		var params := VillageTerrainParams.production()
-		var ts1 := VillageTerrain.terrain_seed(layout1, params)
-		var c1 := VillageTerrain.knoll_centres(layout1, params, ts1)
-
-		var layout2 := VillageLayout.generate(seed)
-		var ts2 := VillageTerrain.terrain_seed(layout2, params)
-		var c2 := VillageTerrain.knoll_centres(layout2, params, ts2)
-
-		assert_eq(c1.size(), c2.size(), "knoll count deterministic seed %d" % seed)
-		for i in range(c1.size()):
-			assert_almost_eq(c1[i].x, c2[i].x, 0.001,
-				"knoll[%d].x deterministic seed %d" % [i, seed])
-			assert_almost_eq(c1[i].y, c2[i].y, 0.001,
-				"knoll[%d].y deterministic seed %d" % [i, seed])
+func test_playground_path_matches_production_path() -> void:
+	## The playground generates with its own (production-default) params resource.
+	for seed in _SEEDS:
+		var game := VillageLayout.generate(seed)
+		var play := VillageLayout.generate(seed, VillageTerrainParams.production())
+		assert_eq(game.landform["offset"], play.landform["offset"], "seed %d offset" % seed)
+		var hg := _grid_hash(VillageTerrain.field(game, VillageTerrainParams.production()),
+			game.hamlet_centre_xz, 8.0)
+		var hp := _grid_hash(VillageTerrain.field(play, play.terrain_params), play.hamlet_centre_xz, 8.0)
+		assert_eq(hg, hp, "seed %d field hash game vs playground" % seed)
 
 
-func test_terrain_seed_differs_for_different_village_seeds() -> void:
-	var layout1 := VillageLayout.generate(1)
-	var layout7 := VillageLayout.generate(7)
-	if layout1.fallback or layout7.fallback:
-		pass_test("fallback skip")
-		return
-	var params := VillageTerrainParams.production()
-	var ts1 := VillageTerrain.terrain_seed(layout1, params)
-	var ts7 := VillageTerrain.terrain_seed(layout7, params)
-	assert_ne(ts1, ts7, "terrain_seed differs for seeds 1 vs 7")
+func test_game_backdrop_field_and_far_mesh_match() -> void:
+	var seed := 7
+	var bd := GeneratedBackdropScene.instantiate() as GeneratedVillageBackdrop
+	bd.set_village_seed(seed)
+	add_child_autofree(bd)
+	await get_tree().process_frame
+	var play := VillageLayout.generate(seed, VillageTerrainParams.production())
+	var fg = bd.terrain_field()
+	var fp = VillageTerrain.field(play, play.terrain_params)
+	assert_not_null(fg, "game field")
+	assert_eq(_grid_hash(fg, bd.get_layout().hamlet_centre_xz, 8.0), _grid_hash(fp, play.hamlet_centre_xz, 8.0),
+		"game backdrop field == playground field")
+	# Far mesh vertex hash on the join loop.
+	var hill := bd.get_node("HillTerrain") as MeshInstance3D
+	var verts: PackedVector3Array = hill.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+	var far_p := HillsHeightfield.build_mesh(play, HillsParams.production())
+	var verts_p: PackedVector3Array = far_p.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+	var loop := VillageTerrain.join_loop(play, play.terrain_params)
+	assert_eq(verts.size(), verts_p.size(), "far mesh vertex count")
+	var a := PackedFloat32Array()
+	var b := PackedFloat32Array()
+	for i in range(loop.size()):
+		a.append(verts[i].y)
+		b.append(verts_p[i].y)
+	assert_eq(a.to_byte_array().hex_encode(), b.to_byte_array().hex_encode(), "far mesh join-loop y hash")
 
 
-func test_terrain_seed_uses_layout_seed_when_generation_seed_zero() -> void:
-	# When layout.generation_seed == 0 (authored), uses params.layout_seed
-	var layout := VillageLayout.authored()
-	assert_eq(layout.generation_seed, 0, "authored layout has generation_seed=0")
-	var params := VillageTerrainParams.production()
-	params.layout_seed = 42
-	var ts := VillageTerrain.terrain_seed(layout, params)
-	assert_gt(ts, 0, "terrain_seed non-zero from params.layout_seed fallback")
-	# Verify it's derived from layout_seed
-	params.layout_seed = 43
-	var ts2 := VillageTerrain.terrain_seed(layout, params)
-	assert_ne(ts, ts2, "different layout_seed → different terrain_seed")
+func test_salts() -> void:
+	assert_eq(VillageLayout.VILLAGE_TERRAIN_SALT, 0x7E44A1, "detail salt unchanged")
+	assert_eq(VillageLayout.VILLAGE_LANDFORM_SALT, 0x7E44A2, "landform salt")
 
 
-func test_salt_constants_exist_in_village_layout() -> void:
-	# AR-VT-FILES: VILLAGE_TERRAIN_SALT and VILLAGE_TERRAIN_KNOLL_SALT must exist (SD-VILLAGE-TERRAIN-5)
-	assert_eq(VillageLayout.VILLAGE_TERRAIN_SALT, 0x7E44A1,
-		"VILLAGE_TERRAIN_SALT = 0x7E44A1")
-	assert_eq(VillageLayout.VILLAGE_TERRAIN_KNOLL_SALT, 0x7E44A1 ^ 0x5B,
-		"VILLAGE_TERRAIN_KNOLL_SALT = 0x7E44A1 ^ 0x5B")
+func test_terrain_seed_differs_between_seeds() -> void:
+	var p := VillageTerrainParams.production()
+	assert_ne(VillageTerrain.terrain_seed(VillageLayout.generate(1), p),
+		VillageTerrain.terrain_seed(VillageLayout.generate(7), p), "seed 1 vs 7")

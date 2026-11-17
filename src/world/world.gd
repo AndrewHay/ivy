@@ -52,6 +52,9 @@ var _wanderer_controller: Node3D = null
 
 ## CamSun local origin y when the rig sits at the tower — horizontal cameras aim here.
 const _CANONICAL_CAM_AIM_Y := 2.0
+const HillsParams = preload("res://src/playground/hills_params.gd")
+## World/Ground plane sits this far below the lowest generated terrain vertex (AR-LF-D7).
+const GROUND_BELOW_TERRAIN_M := 0.5
 
 
 func _ready() -> void:
@@ -389,11 +392,14 @@ func _apply_village_ground_disc() -> void:
 	var terrain_params = backdrop.get("_terrain_params")
 	if terrain_params != null and terrain_params.get("variant") == 1:
 		return
-	# World-space disc centre: backdrop repositioned to pivot (see World.rebuild_backdrop).
+	# AR-LF-D7: the landscape covers r ≤ HillsParams.r_outer_m about G with the lawn + far meshes,
+	# and valleys sit below the hero datum, so the plane is discarded out to r_outer and lowered
+	# below the lowest terrain vertex (GroundCollision stays at world y 0).
 	var world_centre := Vector2(backdrop.global_position.x, backdrop.global_position.z) \
 		+ layout.hamlet_centre_xz
 	mat.set_shader_parameter("village_disc_center_xz", world_centre)
-	mat.set_shader_parameter("village_disc_radius", layout.lawn_radius)
+	mat.set_shader_parameter("village_disc_radius", HillsParams.production().r_outer_m)
+	ground_mesh.position.y = backdrop_y() + backdrop.terrain_mesh_min_y() - GROUND_BELOW_TERRAIN_M
 
 
 func _apply_village_camera_lawn_bounds() -> void:
@@ -410,8 +416,7 @@ func _apply_village_camera_lawn_bounds() -> void:
 				# the generated village is lowered by the hill's hero datum). Read live, so a later
 				# re-placement of the backdrop (scenario framing) is followed.
 				floor_fn = func(xz: Vector2) -> float:
-					var o := backdrop.global_position
-					return o.y + backdrop.call("sample_terrain_y", xz - Vector2(o.x, o.z)) + clearance
+					return backdrop.sample_terrain_world_y(xz) + clearance
 	if _camera_rig is CameraRig:
 		var rig := _camera_rig as CameraRig
 		if b.is_empty():

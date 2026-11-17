@@ -53,30 +53,37 @@ func test_authored_layout_returns_zero() -> void:
 	pass_test("all authored layout probes returned 0.0")
 
 
-func test_outside_disc_returns_zero() -> void:
-	# SD-VILLAGE-TERRAIN-3 step 1: r >= lawn_radius → Y_BASE = 0.0
-	var layout := VillageLayout.generate(7)
-	if layout.fallback:
-		pass_test("fallback skip")
-		return
-	var params := VillageTerrainParams.production()
-	var t_seed := VillageTerrain.terrain_seed(layout, params)
-	var g := layout.hamlet_centre_xz
-	var outside := g + Vector2(layout.lawn_radius + 5.0, 0.0)
-	var y := VillageTerrain.sample_y(outside, layout, params, t_seed)
-	assert_almost_eq(y, 0.0, 0.001, "outside disc r>lawn_radius → 0.0")
+## ivy-82zn.14.14: the old "outside the disc / at the rim → 0" contract is retired for variant 0
+## (one field from the hero to the far mesh edge, AC-LT-SEAM). Variant 1 and classic keep the flat
+## lawn and the flat legacy hills (AR-LF-TESTS row test_village_terrain_flat_parity).
+
+const HillsHeightfield = preload("res://src/playground/hills_heightfield.gd")
+const HillsParams = preload("res://src/playground/hills_params.gd")
 
 
-func test_exact_rim_returns_zero() -> void:
-	# At exactly r = lawn_radius, rim_taper should force h → 0
-	var layout := VillageLayout.generate(7)
-	if layout.fallback:
-		pass_test("fallback skip")
-		return
-	var params := VillageTerrainParams.production()
-	var t_seed := VillageTerrain.terrain_seed(layout, params)
+func test_variant1_hills_are_flat_legacy() -> void:
+	var p := VillageTerrainParams.production()
+	p.variant = 1
+	var layout := VillageLayout.generate(7, p)
+	var hp := HillsParams.production()
+	assert_false(HillsHeightfield.delegates_to_village_terrain(layout, hp), "variant 1 does not delegate")
+	var legacy := HillsParams.production()
+	legacy.variant = 1
 	var g := layout.hamlet_centre_xz
-	var xz := g + Vector2(layout.lawn_radius, 0.0)
-	var y := VillageTerrain.sample_y(xz, layout, params, t_seed)
-	# At exact boundary, step 1 returns Y_BASE = 0.0
-	assert_almost_eq(y, 0.0, 0.001, "at r=lawn_radius → 0.0")
+	for r in [30.0, 70.0, 120.0, 200.0]:
+		var xz := g + Vector2(r, 0.0)
+		assert_eq(HillsHeightfield.sample_y(xz, layout, hp), HillsHeightfield.sample_y(xz, layout, legacy),
+			"variant 1 hills == flat legacy at r %.0f" % r)
+	var mesh := HillsHeightfield.build_mesh(layout, hp)
+	var legacy_mesh := HillsHeightfield.build_flat_legacy_mesh(layout, hp)
+	assert_eq(mesh.surface_get_array_len(0), legacy_mesh.surface_get_array_len(0), "flat legacy hills mesh")
+
+
+func test_classic_hills_are_flat_legacy() -> void:
+	var layout := VillageLayout.authored()
+	var hp := HillsParams.production()
+	assert_false(HillsHeightfield.delegates_to_village_terrain(layout, hp), "classic does not delegate")
+	assert_almost_eq(HillsHeightfield.sample_y(Vector2(0.0, 10.0), layout, hp),
+		VillageBackdrop.LAWN_GROUND_Y_OFFSET, 1e-6, "classic: inside hill_inner (20 m) at the lawn datum")
+	assert_gt(HillsHeightfield.sample_y(Vector2(0.0, 60.0), layout, hp),
+		VillageBackdrop.LAWN_GROUND_Y_OFFSET, "classic: the legacy ramp rises outside hill_inner")

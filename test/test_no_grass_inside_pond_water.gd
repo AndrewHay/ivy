@@ -24,10 +24,9 @@ func _make_generated(seed: int) -> GeneratedVillageBackdrop:
 	return bd
 
 
-## ivy-82zn.14.10 contract change: the water level is VillageTerrain.pond_water_y (basin anchor +
-## lip − inset, never above the lowest bank outline point − 2 cm), on the village hill the basin
-## sits on a terrace at the hill height, so the old AR-VT-GAP-1 formula on the detail base field
-## (_compose_base) no longer names the pond's height.
+## ivy-82zn.14.14 contract change (SD-VILLAGE-TERRAIN-19, AR-LF-GAP-7): the water level is the
+## lowest point of the capped field on the bank circle (r = BANK_OUTER_M) − pond_freeboard_m, never
+## above the lowest bank outline point − 2 cm (VillageTerrain.pond_water_y).
 static func _expected_water_y(
 		pond_center: Vector2,
 		layout: VillageLayout,
@@ -118,6 +117,30 @@ func _check_water_y_formula(seed: int) -> void:
 
 	pass_test("AC-VT3 seed=%d: water_y=%.4f (expected=%.4f, floor=%.4f, lip=%.4f)" % [
 		seed, actual_water_y, expected_water_y, floor_y, lip_y])
+
+
+func test_ac_lt_pond_water_from_the_lowest_bank_point() -> void:
+	## AC-LT-POND (WP1 part): y_w = min(capped field on r = BANK_OUTER_M) − freeboard; the water
+	## stays ≤ the lowest rendered bank-outline point − 0.02 m; the pond is ≥ 20 m inside the join
+	## circle, so the drape never meets a clipped boundary cell (AR-LF-RISK-7).
+	var params := VillageTerrainParams.production()
+	for seed: int in _TEST_SEEDS:
+		var layout := VillageLayout.generate(seed)
+		var f = VillageTerrain.field(layout, params)
+		var lo := INF
+		for i in range(360):
+			var a := TAU * float(i) / 360.0
+			lo = minf(lo, f.sample_unfit_y(layout.pond_center + Vector2(cos(a), sin(a)) * VillagePondSite.BANK_OUTER_M))
+		var water := VillageTerrain.pond_water_y(layout, params)
+		assert_lte(water, lo - params.pond_freeboard_m + 0.01,
+			"seed %d water %.3f from the lowest bank point %.3f − freeboard" % [seed, water, lo])
+		var lut := VillageTerrain.mesh_surface_lut(layout, params)
+		var bank_min := INF
+		for xz in VillagePondShape.at(layout.pond_center).bank_outer_outline_world_xz():
+			bank_min = minf(bank_min, VillageTerrain.mesh_surface_y_from_lut(xz, layout, params, lut))
+		assert_lte(water, bank_min - 0.02 + 0.005, "seed %d water ≤ bank-mesh min − 0.02" % seed)
+		var r_pond := layout.pond_center.distance_to(layout.hamlet_centre_xz) + VillagePondSite.BANK_OUTER_M
+		assert_lte(r_pond, layout.lawn_radius - 4.0, "seed %d pond well inside the join circle" % seed)
 
 
 # ── AC-VT3 part 2: bank vertices follow sample_y per-vertex ──────────────────
