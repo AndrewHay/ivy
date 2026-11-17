@@ -140,7 +140,7 @@ static func all_knobs() -> Array[Dictionary]:
 
 	# Mesh
 	_add_float(rows, "terrain_mesh_step_m", "Mesh cell (m)", "Mesh", 1.0, 3.5, 0.25, LANDSCAPE, T,
-		"Lawn mesh cell; the join loop follows it.")
+		"Lawn mesh cell; the join loop follows it. Coarsened in 0.25 m steps to fit the 16k tri cap (1 m -> 1.25 m at r_j 56).")
 	_add_float(rows, "normal_eps_m", "Normal eps (m)", "Mesh", 0.1, 0.6, 0.05, LANDSCAPE, T)
 
 	# Consumer

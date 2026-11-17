@@ -315,6 +315,12 @@ var terrain_params: Resource = null
 var landform: Dictionary = {}
 var terrain_diag: Dictionary = {}
 var terrain_field = null
+## The HillsParams this layout's terrain is drawn with (null = production). The façade
+## (VillageTerrain.sample_y / field(layout, params) / VillageBackdrop.terrain_field) resolves the
+## field for these; a caller passing other HillsParams gets its own cached field (ivy-82zn.14.21).
+var hills_params: Resource = null
+## Fields for HillsParams other than hills_params, keyed "field_sig|hills_sig" (VillageTerrain.field).
+var terrain_field_variants: Dictionary = {}
 
 
 # ── Constructors ──────────────────────────────────────────────────────────────

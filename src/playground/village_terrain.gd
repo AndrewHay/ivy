@@ -53,19 +53,48 @@ static func is_flat(layout: VillageLayout, params: VillageTerrainParams) -> bool
 	return params == null or params.variant == 1 or not layout.is_generated
 
 
+static func layout_hills(layout: VillageLayout) -> HillsParams:
+	## The HillsParams the layout's own terrain uses: layout.hills_params, else production.
+	var hp := layout.hills_params as HillsParams
+	return hp if hp != null else production_hills()
+
+
 static func field(layout: VillageLayout, params: VillageTerrainParams, hills_params: HillsParams = null):
-	## The resolved VillageTerrainField for (layout, params, hills_params), cached on
-	## layout.terrain_field while both signatures match (AR-LF-D10). No global field cache.
-	var hp := hills_params if hills_params != null else production_hills()
+	## The resolved VillageTerrainField for (layout, params, hills_params), cached on the layout
+	## (AR-LF-D10). No global field cache. Keyed on the HillsParams actually passed
+	## (ivy-82zn.14.21 F5): null means the layout's own hills (layout_hills), whose field lives in
+	## layout.terrain_field; any other HillsParams (value-different) gets its own entry in
+	## layout.terrain_field_variants, so mixed callers never rebuild each other's field or drop
+	## its mesh_min_y. A value-equal copy has the same signature and resolves the same instance.
+	var own := layout_hills(layout)
+	var hp := hills_params if hills_params != null else own
 	var sig := params.field_signature()
 	var hsig := hills_signature(hp)
-	var f = layout.terrain_field
-	if f != null and f.signature == sig and f.hills_signature == hsig:
+	var is_own := hp == own or hsig == hills_signature(own)
+	if is_own:
+		var f = layout.terrain_field
+		if f != null and f.signature == sig and f.hills_signature == hsig:
+			return f
+		f = _build_field(layout, params, hp, sig, hsig)
+		layout.terrain_field = f
 		return f
-	f = VillageTerrainField.build(layout, params, hp)
+	var key := "%d|%d" % [sig, hsig]
+	var variants: Dictionary = layout.terrain_field_variants
+	if variants.has(key):
+		return variants[key]
+	for k: String in variants.keys():
+		if int(variants[k].signature) != sig:
+			variants.erase(k)  # stale terrain knobs
+	var fv = _build_field(layout, params, hp, sig, hsig)
+	variants[key] = fv
+	return fv
+
+
+static func _build_field(layout: VillageLayout, params: VillageTerrainParams, hp: HillsParams,
+		sig: int, hsig: int):
+	var f = VillageTerrainField.build(layout, params, hp)
 	f.signature = sig
 	f.hills_signature = hsig
-	layout.terrain_field = f
 	return f
 
 
@@ -136,6 +165,7 @@ static func clear_caches() -> void:
 
 static func invalidate(layout: VillageLayout) -> void:
 	layout.terrain_field = null
+	layout.terrain_field_variants.clear()
 
 
 # ── Ground material (shared terrain_tint.gdshaderinc, AR-LF-D9) ───────────────
@@ -367,7 +397,32 @@ static func _crossings_horizontal(zl: float, g: Vector2, r: float) -> Array[Vect
 
 static func join_loop(layout: VillageLayout, params: VillageTerrainParams) -> PackedVector2Array:
 	## The shared vertices of the lawn and far meshes, sorted by angle (AR-LF-D6).
-	return _join_data(layout, maxf(params.terrain_mesh_step_m, 0.1))["points"]
+	return _join_data(layout, mesh_step(layout, params.terrain_mesh_step_m))["points"]
+
+
+## Increment by which mesh_step coarsens a step that would exceed NEAR_TRI_HARD_CAP.
+const _MESH_STEP_COARSEN_M := 0.25
+
+
+static func near_tri_bound(r: float, step: float) -> int:
+	## Upper bound on the lawn mesh triangles at (r_j, step): cells fully inside the disc have total
+	## area <= PI r^2 (2 tris each); the circle crosses each of the cols + 1 grid lines per axis at
+	## most twice, so it visits <= 4 (cols + 1) boundary cells, each clipped to <= 6 vertices
+	## (<= 4 tris).
+	var cols := int(ceil(2.0 * r / step))
+	return int(ceil(2.0 * PI * r * r / (step * step))) + 16 * (cols + 1)
+
+
+static func mesh_step(layout: VillageLayout, requested_m: float) -> float:
+	## The lawn mesh / join loop cell actually used: requested_m (>= 0.1), coarsened in 0.25 m
+	## increments until near_tri_bound fits NEAR_TRI_HARD_CAP (ivy-82zn.14.21 F1). The game's 2 m
+	## is never touched; the playground knob minimum (1 m) becomes 1.25 m at r_j 56 and 1.5 m at
+	## r_j 64. build_mesh, mesh_from_lut, join_loop and mesh_surface_lut all go through here, so the
+	## lawn and far meshes always share one loop and no row is ever dropped.
+	var s := maxf(requested_m, 0.1)
+	while near_tri_bound(layout.lawn_radius, s) > NEAR_TRI_HARD_CAP:
+		s += _MESH_STEP_COARSEN_M
+	return s
 
 
 # ── Near (lawn) mesh (SD-VILLAGE-TERRAIN-8, AR-LF-D6 boundary clip) ───────────
@@ -377,7 +432,7 @@ static func build_mesh(layout: VillageLayout, params: VillageTerrainParams) -> A
 	## the lightweight fan (INV-15).
 	if is_flat(layout, params):
 		return _build_flat_fan(layout)
-	var step := maxf(params.terrain_mesh_step_m, 0.1)
+	var step := mesh_step(layout, params.terrain_mesh_step_m)
 	var mesh_key := "%s|mesh" % _sample_lut_cache_key(layout, params, step)
 	if _displaced_mesh_cache.has(mesh_key):
 		return _displaced_mesh_cache[mesh_key]
@@ -395,6 +450,9 @@ static func mesh_from_lut(layout: VillageLayout, step: float, lut: Dictionary,
 	## two triangles [c0, c1, c2], [c0, c2, c3]; boundary cells clipped to the circle with the join
 	## loop points as vertices. With params, loop vertices take the exact field y and normal
 	## (shared with the far mesh); without (a coarse preview), the LUT. Null when no triangles.
+	## `step` is coarsened by mesh_step so the triangles fit NEAR_TRI_HARD_CAP; pass a LUT built at
+	## mesh_step(layout, step) for vertices on LUT nodes (otherwise they are bilinear in the LUT).
+	step = mesh_step(layout, step)
 	var f = null
 	if params != null and not is_flat(layout, params):
 		f = field(layout, params)
@@ -423,8 +481,6 @@ static func mesh_from_lut(layout: VillageLayout, step: float, lut: Dictionary,
 				inside.append(is_in)
 				if is_in:
 					n_in += 1
-			if tris + 6 > NEAR_TRI_HARD_CAP:
-				break
 			if n_in == 4:
 				for tri: Array in [[0, 1, 2], [0, 2, 3]]:
 					for idx: int in tri:
@@ -456,7 +512,7 @@ static func mesh_from_lut(layout: VillageLayout, step: float, lut: Dictionary,
 	if tris <= 0:
 		return null
 	if f != null:
-		f.note_mesh_min(lo)
+		f.note_mesh_min(lo, VillageTerrainField.MESH_LAWN)
 	return st.commit()
 
 
@@ -594,7 +650,7 @@ static func build_far_mesh(layout: VillageLayout, params: VillageTerrainParams,
 	arrays[Mesh.ARRAY_INDEX] = idx
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	f.note_mesh_min(lo)
+	f.note_mesh_min(lo, VillageTerrainField.MESH_FAR)
 	return mesh
 
 
@@ -616,10 +672,10 @@ static func _tri(idx: PackedInt32Array, verts: PackedVector3Array, a: int, b: in
 # ── Rendered lawn surface (pond bank drape, ivy-82zn.14.10) ───────────────────
 
 static func mesh_surface_lut(layout: VillageLayout, params: VillageTerrainParams) -> Dictionary:
-	## The LUT build_mesh triangulates (terrain_mesh_step_m cells; cached). {} for flat / classic.
+	## The LUT build_mesh triangulates (mesh_step cells; cached). {} for flat / classic.
 	if is_flat(layout, params):
 		return {}
-	return build_sample_lut(layout, params, 0, maxf(params.terrain_mesh_step_m, 0.1))
+	return build_sample_lut(layout, params, 0, mesh_step(layout, params.terrain_mesh_step_m))
 
 
 static func mesh_surface_y_from_lut(

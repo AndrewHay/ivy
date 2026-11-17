@@ -5,6 +5,10 @@ extends GutTest
 
 const VillageTerrain = preload("res://src/playground/village_terrain.gd")
 const VillageTerrainParams = preload("res://src/playground/village_terrain_params.gd")
+const HillsHeightfield = preload("res://src/playground/hills_heightfield.gd")
+const HillsParams = preload("res://src/playground/hills_params.gd")
+const VillageBackdrop = preload("res://src/world/village_backdrop.gd")
+const World = preload("res://src/world/world.gd")
 
 const _SEEDS: Array[int] = [1, 7, 12]
 
@@ -176,3 +180,104 @@ func test_field_is_cached_on_the_layout_and_rebuilt_on_edit() -> void:
 	var f2 = VillageTerrain.field(layout, p)
 	assert_ne(f2, f1, "terrain knob rebuilds the field")
 	assert_same(layout.terrain_field, f2, "cache lives on the layout")
+
+
+func _touch_all_callers(layout: VillageLayout, p: VillageTerrainParams, hp: HillsParams) -> Array:
+	## Every field consumer once, in game order; returns the field each façade call resolved.
+	var xz := layout.hamlet_centre_xz + Vector2(0.0, -150.0)
+	var out := []
+	VillageTerrain.sample_y(xz, layout, p)
+	out.append(VillageTerrain.field(layout, p))
+	HillsHeightfield.sample_y(xz, layout, hp)
+	out.append(VillageTerrain.field(layout, p))
+	VillageBackdrop.make_hill_material(layout, hp, p)
+	out.append(VillageTerrain.field(layout, p))
+	HillsHeightfield.build_mesh(layout, hp)
+	out.append(VillageTerrain.field(layout, p))
+	return out
+
+
+func test_field_cache_is_coherent_with_caller_hills_params() -> void:
+	## ivy-82zn.14.21 F5: the façade (production / layout hills) and HillsHeightfield (caller's
+	## HillsParams) used to share one slot keyed by both signatures, so a non-production
+	## HillsParams rebuilt the field back and forth and dropped mesh_min_y.
+	var p := VillageTerrainParams.production()
+	# (a) Value-equal copy: one instance for every caller, mesh_min_y kept.
+	var layout := _layout(7)
+	VillageTerrain.clear_caches()
+	VillageTerrain.build_mesh(layout, p)
+	var f0 = VillageTerrain.field(layout, p)
+	var copy := HillsParams.production().duplicate_params()
+	for f in _touch_all_callers(layout, p, copy):
+		assert_same(f, f0, "value-equal copy: façade resolves the one field")
+	assert_same(VillageTerrain.field(layout, p, copy), f0, "HillsHeightfield key == façade key")
+	assert_false(is_nan(float(f0.mesh_min_y)), "mesh_min_y survives")
+	# (b) Changed ridge knob, not registered on the layout: the caller gets its own field and the
+	# façade field is never rebuilt (no ping-pong) and keeps its mesh_min_y.
+	var ridge := copy.duplicate_params()
+	ridge.height_scale_m = copy.height_scale_m * 1.5
+	for f in _touch_all_callers(layout, p, ridge):
+		assert_same(f, f0, "changed ridge (unregistered): façade field not rebuilt")
+	var fr = VillageTerrain.field(layout, p, ridge)
+	assert_ne(fr, f0, "changed ridge knob resolves its own field")
+	assert_same(VillageTerrain.field(layout, p, ridge), fr, "and keeps it across calls")
+	assert_false(is_nan(float(fr.mesh_min_y)), "ridge field keeps its far-mesh min")
+	assert_false(is_nan(float(f0.mesh_min_y)), "façade field keeps mesh_min_y")
+	# (c) Changed ridge knob registered as the layout's hills (playground): every caller, façade
+	# included, resolves the same instance.
+	var layout2 := _layout(7)
+	layout2.hills_params = ridge
+	VillageTerrain.build_mesh(layout2, p)
+	var g0 = VillageTerrain.field(layout2, p)
+	for f in _touch_all_callers(layout2, p, ridge):
+		assert_same(f, g0, "registered ridge: one instance for façade and HillsHeightfield")
+	assert_same(VillageTerrain.field(layout2, p, ridge), g0, "HillsHeightfield key == façade key")
+	var xz := layout2.hamlet_centre_xz + Vector2(0.0, -150.0)
+	assert_eq(VillageTerrain.sample_y(xz, layout2, p), HillsHeightfield.sample_y(xz, layout2, ridge),
+		"façade and HillsHeightfield agree on the registered ridge")
+	VillageTerrain.clear_caches()
+
+
+func test_backdrop_terrain_field_survives_caller_hills_params() -> void:
+	## F5 through the game node: VillageBackdrop.terrain_field() is not rebuilt by a far caller.
+	var bd := (load("res://src/world/generated_village_backdrop.tscn") as PackedScene).instantiate()
+	bd.set_village_seed(7)
+	add_child_autofree(bd)
+	await get_tree().process_frame
+	var f0 = bd.terrain_field()
+	var min0 := float(f0.mesh_min_y)
+	assert_false(is_nan(min0), "backdrop built both meshes")
+	var ridge := HillsParams.production().duplicate_params()
+	ridge.height_scale_m *= 1.5
+	var layout: VillageLayout = bd.get_layout()
+	HillsHeightfield.sample_y(layout.hamlet_centre_xz + Vector2(0.0, -150.0), layout, ridge)
+	assert_same(bd.terrain_field(), f0, "backdrop field not rebuilt")
+	assert_eq(float(bd.terrain_field().mesh_min_y), min0, "mesh_min_y survives")
+
+
+func _mesh_min_y(mesh: ArrayMesh) -> float:
+	var lo := INF
+	for v: Vector3 in mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]:
+		lo = minf(lo, v.y)
+	return lo
+
+
+func test_ground_plane_sits_below_the_far_mesh_when_read_early() -> void:
+	## ivy-82zn.14.21 F6: terrain_min_y returned the lawn-only min once the lawn mesh had noted its
+	## vertices, so World/Ground (min − GROUND_BELOW_TERRAIN_M) could sit above far valleys.
+	var p := VillageTerrainParams.production()
+	for seed in _SEEDS:
+		VillageTerrain.clear_caches()
+		var layout := _layout(seed)
+		var near := VillageTerrain.build_mesh(layout, p)
+		var f = VillageTerrain.field(layout, p)
+		var ground_early: float = float(f.terrain_min_y()) - World.GROUND_BELOW_TERRAIN_M
+		var far := VillageTerrain.build_far_mesh(layout, p)
+		var far_min := _mesh_min_y(far)
+		gut.p("seed %d: early ground %.3f, far min %.3f" % [seed, ground_early, far_min])
+		assert_lt(ground_early, far_min,
+			"seed %d: ground read before the far mesh (%.2f) below far min (%.2f)" % [seed, ground_early, far_min])
+		var both := minf(_mesh_min_y(near), far_min)
+		assert_almost_eq(float(f.terrain_min_y()), both, 1e-4,
+			"seed %d: once both meshes exist, terrain_min_y = min of both" % seed)
+	VillageTerrain.clear_caches()

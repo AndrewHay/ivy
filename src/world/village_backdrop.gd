@@ -1178,7 +1178,9 @@ static func make_hill_material(layout: VillageLayout, params: HillsParams,
 	HillsFogTint.apply_terrain_shader(mat, layout, params)
 	if terrain_params != null and HillsHeightfield.delegates_to_village_terrain(layout, params) \
 			and not VillageTerrain.is_flat(layout, terrain_params):
-		VillageTerrain.apply_ground_material(mat, terrain_params, VillageTerrain.field(layout, terrain_params))
+		# The field of the HillsParams this material is for: the same instance as the far mesh
+		# built with `params` (ivy-82zn.14.21 F5).
+		VillageTerrain.apply_ground_material(mat, terrain_params, VillageTerrain.field(layout, terrain_params, params))
 		mat.set_shader_parameter("u_terrain_tint_on", true)
 	return mat
 

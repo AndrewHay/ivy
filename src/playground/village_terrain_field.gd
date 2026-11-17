@@ -32,7 +32,12 @@ var pond_water_y := 0.0
 ## Bank level: min of the capped field on the circle r = BANK_OUTER_M.
 var pond_bank_y := 0.0
 ## Lowest vertex of the built meshes (World/Ground sits below it, AR-LF-D7). NAN until built.
+## mesh_min_y is the min over whatever is built; lawn_min_y / far_min_y per mesh.
 var mesh_min_y := NAN
+var lawn_min_y := NAN
+var far_min_y := NAN
+const MESH_LAWN := "lawn"
+const MESH_FAR := "far"
 var diag: Dictionary = {}
 ## Cache keys (VillageTerrain.field).
 var signature := 0
@@ -278,17 +283,24 @@ func _pond_outline_min() -> float:
 	return lo
 
 
-func note_mesh_min(y: float) -> void:
+func note_mesh_min(y: float, which: String) -> void:
+	## Record the lowest vertex of a built mesh: which = MESH_LAWN or MESH_FAR.
+	if which == MESH_LAWN:
+		lawn_min_y = y if is_nan(lawn_min_y) else minf(lawn_min_y, y)
+	else:
+		far_min_y = y if is_nan(far_min_y) else minf(far_min_y, y)
 	mesh_min_y = y if is_nan(mesh_min_y) else minf(mesh_min_y, y)
 
 
 func terrain_min_y() -> float:
-	## Lowest built-mesh vertex; a coarse polar scan when no mesh has been built yet.
+	## Lowest vertex of the lawn + far meshes once both are built; until then the coarse polar scan
+	## (min'd with any mesh already built), so World/Ground never sits above an unbuilt far valley
+	## (ivy-82zn.14.21 F6).
 	if flat:
 		return 0.0
-	if not is_nan(mesh_min_y):
-		return mesh_min_y
-	var lo := INF
+	if not is_nan(lawn_min_y) and not is_nan(far_min_y):
+		return minf(lawn_min_y, far_min_y)
+	var lo := mesh_min_y if not is_nan(mesh_min_y) else INF
 	var r_out := hills_params.r_outer_m
 	for k in range(41):
 		var r := r_out * float(k) / 40.0

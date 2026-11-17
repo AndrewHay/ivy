@@ -550,6 +550,9 @@ func _rebuild_layout_and_stage(sync_preview: bool = false) -> void:
 	# into a layout mid-build): offset search + layout, exactly as the game (G7, AR-LF-D10).
 	var t_gen := Time.get_ticks_usec()
 	_layout = VillageLayout.generate(_params.layout_seed, _params.duplicate_params())
+	# The stage's hills are the layout's own, so façade calls (lawn mesh, sample_y) and the far
+	# mesh / hills material resolve one field (ivy-82zn.14.21 F5).
+	_layout.hills_params = _hills_params
 	_gen_ms = float(Time.get_ticks_usec() - t_gen) / 1000.0
 	_write_back_auto_offset()
 	VillagePondShape.set_active(VillagePondShape.at(_layout.pond_center))
@@ -705,12 +708,13 @@ func _step_rebuild(budget_usec: int) -> void:
 				var lut: Dictionary = _lut_job["lut"]
 				_show_mesh(VillageTerrain.mesh_from_lut(_layout, _COARSE_STEP_M, lut), _COARSE_STEP_M, lut)
 				_perf_mark("coarse_ms")
-				var step := maxf(_build_params.terrain_mesh_step_m, 0.1)
+				# Same (cap-coarsened) cell as the game's build_mesh (ivy-82zn.14.21 F1).
+				var step := VillageTerrain.mesh_step(_layout, _build_params.terrain_mesh_step_m)
 				_lut_job = VillageTerrain.lut_job_begin(_layout, _build_params, _build_t_seed, step)
 				_phase = Phase.FULL
 		Phase.FULL:
 			if VillageTerrain.lut_job_step(_lut_job, budget_usec):
-				var step := maxf(_build_params.terrain_mesh_step_m, 0.1)
+				var step := VillageTerrain.mesh_step(_layout, _build_params.terrain_mesh_step_m)
 				var lut: Dictionary = _lut_job["lut"]
 				# Join-loop vertices exact (shared with the far mesh), as in the game.
 				var mesh := VillageTerrain.mesh_from_lut(_layout, step, lut, _build_params)

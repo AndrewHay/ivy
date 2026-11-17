@@ -99,6 +99,44 @@ func test_near_and_far_meshes_share_join_loop_vertices() -> void:
 	assert_lte(worst_n, 1e-5, "loop vertex normal identical (%.6f)" % worst_n)
 
 
+func _knob_min(knob: String) -> float:
+	for row: Dictionary in VillageTerrainKnobSpec.all_knobs():
+		if row["name"] == knob:
+			return float(row["min"])
+	return NAN
+
+
+func test_near_mesh_keeps_every_row_at_the_knob_minimum_step() -> void:
+	## ivy-82zn.14.21 F1: at terrain_mesh_step_m = knob min the old tri cap broke out of every row
+	## past ~16k tris, leaving a hole and an open seam. Checked at today's r_j and WP3's 64 m.
+	var step_min := _knob_min("terrain_mesh_step_m")
+	assert_false(is_nan(step_min), "terrain_mesh_step_m knob exists")
+	for r_j in [VillageLayout.GENERATED_LAWN_RADIUS, 64.0]:
+		var layout := VillageLayout.generate(_SEED)
+		layout.lawn_radius = r_j
+		var p := VillageTerrainParams.production()
+		p.terrain_mesh_step_m = step_min
+		VillageTerrain.clear_caches()
+		var near := VillageTerrain.build_mesh(layout, p)
+		var tris := near.surface_get_array_len(0) / 3
+		assert_lte(tris, VillageTerrain.NEAR_TRI_HARD_CAP, "r_j %.0f: near mesh within the hard cap (%d)" % [r_j, tris])
+		var nm := _vertex_map(near)
+		var loop: PackedVector2Array = VillageTerrain.join_loop(layout, p)
+		var missing := 0
+		for q: Vector2 in loop:
+			if not nm.has(Vector2i(roundi(q.x * 1000.0), roundi(q.y * 1000.0))):
+				missing += 1
+		assert_eq(missing, 0, "r_j %.0f: every join-loop point (%d) is a lawn vertex" % [r_j, loop.size()])
+		# The far mesh zips to the same loop, so the seam is closed.
+		var fm := _vertex_map(VillageTerrain.build_far_mesh(layout, p))
+		var far_missing := 0
+		for q: Vector2 in loop:
+			if not fm.has(Vector2i(roundi(q.x * 1000.0), roundi(q.y * 1000.0))):
+				far_missing += 1
+		assert_eq(far_missing, 0, "r_j %.0f: every join-loop point is a far vertex" % r_j)
+	VillageTerrain.clear_caches()
+
+
 func test_far_mesh_inner_boundary_is_the_loop_polygon() -> void:
 	## Every loop segment is an edge of exactly one far-mesh triangle: no crack, no overlap.
 	var far := HillsHeightfield.build_mesh(_layout, _hp)
