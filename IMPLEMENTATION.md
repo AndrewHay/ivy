@@ -7004,7 +7004,28 @@ its own level patch **on a slope**, not on a crest and not in a hollow (C1).
   `up_hero ≥ hero_not_crest_m (1.5)` (land rises somewhere nearby, so not a crest);
   `down_hero ≥ hero_not_hollow_m (1.5)` (land falls somewhere nearby, so not a hollow);
   `relief_span_min_m (5.0) ≤ span_v ≤ relief_span_max_m (8.0)`;
-  `p95_v ≤ village_slope_p95_max_deg (14)`.
+  `p95_v ≤ village_slope_p95_max_deg (14)`;
+  **`hero_ring_ok`** *(added 2026-11-17, ivy-82zn.14.22)*: the measured hero ring (-19 steps 1–5,
+  on exact `cap_sun(L + D)` about H0, T = core mean of `L + D`) finds a w* ≤ `hero_ring_max_m` (10 m).
+  Because the hero never moves, this is the hero rule: an offset whose hero ring cannot meet
+  `ring_max_slope_deg` is rejected, and the search picks another place for the land.
+  - *Where it runs.* In the verify loop, after the exact p95 check, on passing candidates in rank order
+    until `VERIFY_RANKS` (3) candidates pass both checks. If one fails, it moves to the failing list with
+    `violation = (best ladder peak − ring_max_slope_deg) / 4`, and its best peak is kept in
+    `measures["hero_ring_peak_deg"]`. Passing candidates store `measures["hero_ring_w"]`. Manual mode
+    (`_evaluate_full`) runs the same check and reports it (pass = false if it fails, still used).
+  - *Effect, seeds 1–20* (`.tmp/sd_14_22/hero_search_probe.txt`): coarse-passing candidates drop from
+    418 to **356** (12–23 per seed, −15%); every seed keeps at least 11, so there are **0 fallbacks**.
+    Rank 0 changes on **3 / 20** seeds: **7** (idx 20 → 36; s_hero 4.3 → 5.5°, span 6.59 → 6.50 m),
+    11 (26 → 30) and 15 (63 → 18). The other 17 keep their offset. Seed 7 is a probe seed, so its
+    before/after PNG baseline moves.
+  - *Alternatives rejected.* Widening `hero_ring_max_m` to 12 m keeps 384 candidates, but it puts a
+    level blend out to r = 19 m around the hero on every seed, which flattens the village heart against
+    GD intent, and the hard rule already leaves enough candidates. Accepting a looser hero tolerance
+    would leave 24–37° rings beside the gameplay anchor (AC-LTF4).
+  - *Cost.* About 9.3 ms per check in the probe, or less with D cached. 3–4 checks per seed. If
+    AC-LT-PERF (≤ 150 ms) fails with the checks in the verify loop, check lazily instead: rank 0 inside
+    `rank_offsets`, and ranks 1–2 by the D5 loop just before it uses that rank. This needs no SD re-review.
 - **Score** (lower is better, among the passing candidates):
   `|span_v − relief_span_target_m (6.5)| + 0.5·max(0, |Δang(aspect, 180°)| − 90°)/90°`.
   This is a soft preference for a south-facing hero slope, which matches the north ridge backdrop and
@@ -7023,24 +7044,87 @@ now `y_hero` (the hero pad target, -19), not a crest height.
 
 ### SD-VILLAGE-TERRAIN-19 — Village fitting rules (cores, rings, rejection)
 
-**Ring width (one rule for every level core).** A level core of half-extent `r_c` on ground of site
+> **Ring width revised 2026-11-17 (ivy-82zn.14.22, review ivy-82zn.14.15 F2).** The plane-slope formula
+> below is **superseded** as the deciding rule by the *measured ring width*. The old text is kept, struck,
+> for history. Site slope `s` (core plane fit) still gates cottages (`max_site_slope_deg`) and the hero
+> (-18 `hero_site_slope_*`); it no longer sets the ring width.
+
+~~**Ring width (one rule for every level core).** A level core of half-extent `r_c` on ground of site
 slope `s` (degrees, plane fit of `L + D` over the core) needs a blend ring of width
-
-```
-w = 1.5 · tan(s) · r_c / (tan(ring_max_slope_deg) − 1.25 · tan(s))
-w = clamp(w, ring_min_m, ring_max_m)
-```
-
+`w = 1.5 · tan(s) · r_c / (tan(ring_max_slope_deg) − 1.25 · tan(s))`, `w = clamp(w, ring_min_m, ring_max_m)`.
 This keeps the ring's peak slope at or below `ring_max_slope_deg`. The smoothstep blend has a peak
-weight slope of 1.5/w at mid-ring, and the residual natural slope adds about 1.25·tan(s). **Rejection:**
+weight slope of 1.5/w at mid-ring, and the residual natural slope adds about 1.25·tan(s). Rejection:
 if the denominator is ≤ 0, or the unclamped w is greater than `ring_max_m`, or `s > max_site_slope_deg`,
-the site is rejected (see the per-site rules below). Worked numbers at defaults (ring max 22°):
-cottage `r_c` 4.6 m → s = 8°: w ≈ 4.2 m; s = 10°: w ≈ 6.6 m. Hero `r_c` 7 m, s = 9°: w ≈ 8.1 m.
+the site is rejected. Worked numbers at defaults (ring max 22°): cottage `r_c` 4.6 m → s = 8°: w ≈ 4.2 m;
+s = 10°: w ≈ 6.6 m. Hero `r_c` 7 m, s = 9°: w ≈ 8.1 m.~~
+
+**Why no plane slope can feed the formula (probe evidence).** The formula assumes the ground under the
+ring is the same plane as the core. On the landform it is not, but the problem is **curvature, not a
+steeper plane**: over seeds 1–20 the plane fit over the hero annulus (7 < r ≤ 17 m) is 2–6°, the same
+as the core (2–8°), while the 90th-percentile point gradient in that annulus is 6–14°. The hero sits
+on a level patch of a curved slope, so the height gap `|F − T|` grows faster than any plane predicts.
+Isolated ring peak (only that site's lerp on the capped unfit field, 0.5 m grid), 19 hero rings and
+152 cottage rings, sites the rule accepts that still peak over 25°:
+
+| Slope fed to the formula | Hero over 25° (worst) | Cottage over 25° (worst) |
+|---|---|---|
+| core plane (WP1 code) | 10 / 19 (37.1°) | 24 / 146 (36.2°) |
+| plane over core + annulus | 13 / 19 (39.0°) | 35 / 146 (37.3°) |
+| max(core, annulus plane) | 10 / 19 (36.3°) | 24 / 146 (36.2°) |
+| two-slope (core in numerator, annulus in denominator) | 11 / 19 (37.1°) | 29 / 146 (37.3°) |
+| two-slope with annulus p90 point gradient | 4 / 17 (33.1°) | 10 / 141 (27.9°) |
+
+No variant is safe, so the width is **measured** instead. The cost is small (below).
+
+**Ring width (one rule for every level core: measured).** For a site with core C, target T and ring
+clamp `[w_min, w_max]`:
+
+1. **Grid.** 1 m nodes over the core's bounding box grown by `w_max + 1` m. `U(x)` = the capped raw
+   field `cap_sun(L + D)`. In the plot sampler that is the raw LUT (bilinear); in the offset search it is
+   exact `capped_raw_y`, with D cached per node because D does not depend on the offset. `Rg` is 0 inside
+   70 m, so this equals the field's `sample_unfit_y` there.
+2. **Candidate surface.** `y_w(x) = lerp(U(x), T, fer(sdf(x), 0, w))`. For a cottage candidate, first apply
+   the sites the field will apply around it, in field priority order: already-selected pads (layout
+   order), then the candidate, then the hero (its width is known from the search). Plaza and pond are
+   not replayed. Their keep-outs already hold cottages clear, and the field test covers any residue.
+3. **Slope.** `slope(x) = atan(|∇y_w|)` by central differences, h = 1 m, at the nodes with
+   −1 m < sdf(x) < w + 1 m.
+4. **Pass(w).** Every such node has slope ≤ `ring_max_slope_deg` (**22°**). A node that also lies inside
+   another site's ring or core (sdf_j < w_j) only needs ≤ `ring_max_slope_deg + RING_OVERLAP_TOL_DEG`
+   (3°, so **25°**). The candidate only changes nodes with sdf < w, so this check covers every ring it
+   touches.
+5. **Width.** `w*` = the first w on the ladder `w_min, w_min + 0.5, …, w_max` (`RING_LADDER_STEP_M` 0.5)
+   that passes. Search upward, not by bisection: peak(w) is not monotone on 143 of 171 sites by small
+   amounts, and bisection gave a different answer on 4. **No w passes ⇒ the ring fails.**
+6. **One decision, stored.** The search writes the hero's w* to `layout.landform["hero_ring_w"]`, and
+   the sampler writes each cottage's w* to its spec as `ring_w`. `VillageTerrainField` uses the stored
+   value. It recomputes with the same function (exact `sample_unfit_y`) only for layouts that have none
+   (hand-built test layouts, manual offset mode without a search entry).
+
+**Worked numbers at defaults** (ring max 22°; probe `.tmp/sd_14_22/measured_ring_probe.txt`):
+
+| Site | Core slope | Old formula w (isolated peak) | Measured w* (isolated peak) |
+|---|---|---|---|
+| Seed 1 hero | 6.9° | 4.99 m (22.1°) | **5.0 m** (21.2°) |
+| Seed 10 hero | 8.0° | 6.42 m (28.2°) | **8.5 m** (20.9°) |
+| Seed 17 hero | 6.0° | 4.08 m (29.9°) | **6.5 m** (21.4°) |
+| Seed 7 hero (today's offset idx 20) | 4.3° | 4.0 m (29.3°) | **none ≤ 10 m** (24.3° at best) ⇒ offset rejected by -18; the new rank 0 is idx 36, w* 6.5 m |
+| Hero, 16 accepted seeds | 2–8° | — | 4.0–8.5 m (median 4.5) |
+| Cottages, 141 accepted | ≤ 10° | — | p50 3.0 m, p90 5.0–5.5 m, max 8.0 m |
+
+**Field check of the measured widths** (all sites applied, `sample_slope_deg` eps 0.4, 96 × 24 samples
+per ring, nodes not shared with another ring): worst hero ring **23.0°**, worst cottage ring **24.5°**,
+both ≤ 25°. Where two rings overlapped, the WP1 layouts (old 8.6–15 m spacing) reached 32.6°. Step 2's
+neighbour replay and step 4's 25° limit exist to catch exactly that.
+
+**Cost.** One ladder step on the 1 m grid takes about 0.75 ms (exact field samples; less with the LUT).
+Ladders stop early: on average 2.4 steps for a cottage. A hero check in the search takes ≤ 9.3 ms per
+candidate (D not cached in the probe). See -18 for where that cost sits.
 
 | Site | Core C_i | Target T_i | Ring | Rejection / re-placement |
 |---|---|---|---|---|
-| **Hero** | disc r = `hero_flat_r_m` (**7 m**, 5–9) about H0 | `y_hero` = mean of `L + D` over the core (raw, pre-cap; the cap ramps in only beyond 12 m) | formula, clamp [`hero_ring_min_m` **4**, `hero_ring_max_m` **10**] | Hero is never moved; -18 guarantees `s_hero ≤ 9°`. |
-| **Cottage pads** | `cottage_exterior_rect(spec).grow(pad_margin_m 0.6)`; `r_c` = half diagonal (≈ 4.6 m for 4.2 × 6.2) | mean of capped F over the core (so pads settle into the land) | formula, clamp [`pad_ring_min_m` **3**, `pad_ring_max_m` **9**] | A site with `s > max_site_slope_deg` (**10°**, 4–16) or a failing ring formula is **rejected in the plot sampler** (`PlotSampler.select` / `append_to_selection` skip it like a wall-gap conflict); the sampler then takes the next candidate. Never bulldozed. |
+| **Hero** | disc r = `hero_flat_r_m` (**7 m**, 5–9) about H0 | `y_hero` = mean of `L + D` over the core (raw, pre-cap; the cap ramps in only beyond 12 m) | measured w*, ladder [`hero_ring_min_m` **4**, `hero_ring_max_m` **10**] (unchanged; widening to 12 m was probed and is not needed, see -18) | Hero is never moved. -18 guarantees `s_hero ≤ 9°` **and** that the hero ring passes (hard rule `hero_ring_ok`, 2026-11-17). The landform moves instead. |
+| **Cottage pads** | `cottage_exterior_rect(spec).grow(pad_margin_m 0.6)`; `r_c` = half diagonal (≈ 4.6 m for 4.2 × 6.2) | mean of capped F over the core (so pads settle into the land) | measured w*, ladder [`pad_ring_min_m` **3**, `pad_ring_max_m` **9**], with the neighbour replay of step 2 | A site with `s > max_site_slope_deg` (**10°**, 4–16) or a failing measured ring (overlaps included) is **rejected in the plot sampler** (`PlotSampler.select` / `append_to_selection` skip it like a wall-gap conflict); the sampler then takes the next candidate. Never bulldozed. ~~or a failing ring formula~~ (2026-11-17) |
 | **Pond** | water disc r = `MEAN_WATER_RADIUS_M · pond_floor_scale` | water level `y_w` = min of capped F on the circle r = `BANK_OUTER_M` (4.875 m) − `pond_freeboard_m` (**0.15**); the basin keeps the existing depth/lip shape relative to `y_w` (`pond_depth_m` −0.6, lip 0.12) | `pond_skirt_m` (2.0) beyond `BANK_OUTER_M + pond_rim_extra_m` | Pond centre site slope (plane fit over r ≤ `BANK_OUTER_M`) ≤ `pond_max_site_slope_deg` (**6°**, 2–10), else `VillagePondPlacement` takes its next candidate. Soft score: prefer sites below the village median of cottage targets (water sits low). Because `y_w` comes from the lowest bank point, the pond is cut into the slope on the uphill side and never dammed above the ground on the downhill side. |
 | **Plaza** | `layout.plaza_rect` (18 m square at G) | least-squares **plane** of capped F over the rect (2 m grid); its tilt is scaled down to at most `plaza_max_tilt_deg` (**6°**, 0–10). Removes bumps, keeps the hillside lean. | `plaza_ring_m` (**5**, 2–8), fixed | Not moved. If the raw plane tilt is over 10°, set `terrain_diag["plaza_steep"]` (feeds -18 scoring as a violation). |
 
@@ -7049,8 +7133,26 @@ fade beyond the hero ring, the plaza/pond relief fades, knolls, swell and the Vi
 get **no** height stamp (-20).
 
 **Overlaps.** Rings may overlap. The lerp chain resolves them by priority and is C1. Where an overlap
-produces a slope above `ring_max_slope_deg + 3°`, AC-LT-RING fails and the later cottage site (layout
-order) is treated as rejected, so the sampler re-places it.
+produces a slope above `ring_max_slope_deg + 3°`, the later cottage site (layout order) is rejected
+at selection time by the measured ring (step 2 replays the selected neighbours, step 4 applies 25°), so
+the sampler re-places it. The AR pair rule (`|T_i − T_j| ≤ tan(25°) · gap / 1.5`, AR-LF-LAYOUT) may stay
+as a cheap pre-screen, but the measured ring is the binding test. With WP3 spacing (22 m centres,
+half-diagonals 4.6 m, so ≥ 12.8 m between cores, against a ring p90 of 5–5.5 m each), overlapping pad
+rings become rare.
+
+**Expected site rejection rate** (`.tmp/sd_14_22/pad_reject_probe.txt`: 1140 random 5.4 × 7.4 m cores
+on the chosen landform of seeds 1–20, outside the plaza / hero / pond keep-outs, isolated):
+
+| Centre radius from G | Site slope > 10° | Measured ring fails | Total rejected | Old formula rejected |
+|---|---|---|---|---|
+| 15–37 m (today's reach) | 4.5% | 3.1% | **7.5%** | 4.5% |
+| 37–46 m (WP3 reach) | 9.0% | 2.9% | **11.8%** | 9.0% |
+
+The measured ring adds about 3 points of rejection on top of the slope gate, at either radius. Over
+the whole disc out to 46 m, about 1 candidate in 10 is lost, so the sampler needs about 1.1× the
+candidates. The free-RSA capacity table in -21 (P(8 fit) = 1.00 at 22 m and 46 m) has that margin, so 8-cottage
+packing is not expected to get noticeably worse. AC-LT-SEP still counts `sep_relaxed_to` seeds, so a
+packing regression shows up there.
 
 **Consumers unchanged in shape:** cottage origin y = `T_i` (AC-VT6 vs `T_i`); pond water = `y_w`, bank
 draped on `mesh_surface_y` + 2 cm (C5); grass, scatter, stones, fauna, wanderer and camera floor all read
@@ -7186,7 +7288,8 @@ them for v1 JSON): Village hill group (8 fields), knoll group (9), swell group (
 (`cottage_min_sep_m` 15, `village_centre_r_max_m` 37). Edits that match no preset fall to `Custom`.
 
 **Readout (HUD, read-only):** chosen offset and candidate index, `s_hero`, `up/down_hero`, `span_v`,
-`p95_v`, max path slope, number of rejected cottage sites, `sep_relaxed_to`, and the fallback flags.
+`p95_v`, hero ring w* and its peak (`hero_ring_w`, `hero_ring_peak_deg`; 2026-11-17), max path slope,
+number of rejected cottage sites (split slope / ring), `sep_relaxed_to`, and the fallback flags.
 These are the numbers the mechanical ACs test, shown beside the view the human judges.
 
 **Camera presets (add to -9):** Default gameplay cam, CamSun, East horizon and West horizon (eye at H0 +
@@ -7203,11 +7306,11 @@ so. Every probe reads `VillageTerrain.sample_y` with `VillageTerrainParams.produ
 | **AC-LT-DET** | Same seed ⇒ identical `sample_y` grid hash (4 m grid over r ≤ 310 m) and identical chosen offset, game vs playground; two runs equal. | extend `test_village_terrain_parity.gd` |
 | **AC-LT-SEAM** (replaces AC-VT8) | One function: for generated layouts `HillsHeightfield.sample_y(xz) == VillageTerrain.sample_y(xz)` exactly at 1000 random xz. On circles r ∈ {56, 64, join ring of the near/far meshes} × 360 azimuths: **step** `|y(r+0.05) − y(r−0.05)| ≤ 0.07 m`; **kink** `|y(r+1) − 2y(r) + y(r−1)| ≤ 0.15 m`. Rendered meshes: on the join ring at 256 azimuths, `|near_mesh_y − far_mesh_y| ≤ 0.02 m` (no crack). Ground albedo (CPU mirror of the shader) `L1(albedo(r−0.5), albedo(r+0.5)) ≤ 0.02` on the same circles. | rewrite `test_village_terrain_rim.gd` → seam test |
 | **AC-LT-HERO** (restates AC-VT-HERO) | `|sample_y − y_hero| ≤ 0.02 m` for `|xz − H0| < hero_flat_r_m`; World renders the hero pad at world y = 0 ± 0.02. | `test_village_terrain_heightfield.gd` |
-| **AC-LT-SITE** | For seeds 1/7/12 the chosen offset passes every hard rule in -18 (`offset_fallback` false). In the 20-seed sweep, ≤ 2 seeds fall back. | new `test_village_landform_offset.gd` |
+| **AC-LT-SITE** | For seeds 1/7/12 the chosen offset passes every hard rule in -18, `hero_ring_ok` included (`offset_fallback` false). In the 20-seed sweep, ≤ 2 seeds fall back (SD probe with the hero ring rule: 0). | new `test_village_landform_offset.gd` |
 | **AC-LT-RELIEF** | Fitted field span over the village disc (r ≤ 46 m about G, 2 m grid, pond basin excluded) is in **[5.0, 9.0] m**; **max |T_i − y_hero| ≥ 3.0 m** over the cottages (a storey or more). Seeds 1/7/12 all pass; sweep ≥ 18/20. | new `test_village_landform_relief.gd` |
 | **AC-LT-SLOPE** | Over the village disc outside pad and hero rings and the pond basin: slope p95 ≤ **14°**, max ≤ **24°**. | same file |
 | **AC-LT-PAD** (restates AC-VT5) | Every pad core `|y − T_i| ≤ 0.02 m`; every cottage site plane slope ≤ `max_site_slope_deg` (10°); no rejected site used. | `test_village_terrain_pads.gd` |
-| **AC-LT-RING** | Max slope inside every hero/pad ring ≤ `ring_max_slope_deg` + 3° (**25°**); ring widths within their [min, max]. | same file |
+| **AC-LT-RING** *(restated 2026-11-17, ivy-82zn.14.22)* | Metric: `field.sample_slope_deg` (eps 0.4 m) on the generated field with every site applied, at ≥ 96 azimuths × ≥ 16 radii (or a ≤ 0.5 m grid) over the ring `0 < sdf < w`. **Hero:** max ≤ **25°** (`ring_max_slope_deg` 22 + 3); `w_hero` ∈ [4, 10] and equals `layout.landform["hero_ring_w"]`. **Pads:** max ≤ **25°**, overlap nodes included (no extra allowance); `w_i` ∈ [3, 9] and equals the spec's `ring_w`. Seeds 1/7/12 must pass with **0** exceptions; the 20-seed sweep (generated seeds) ≤ 0 exceptions too, because the rule is measured. If a seed exceeds 25° anyway, fix the selection fidelity (LUT vs exact, grid). Do **not** raise the tolerance. SD probe: hero worst 23.0°, pad worst 24.5° (`.tmp/sd_14_22/measured_ring_probe.txt`). The 3° covers selection-vs-field differences (raw LUT vs exact, 1 m FD vs eps 0.4, plaza/pond rings not replayed). ~~Max slope inside every hero/pad ring ≤ 25°; ring widths within their [min, max].~~ | same file (`test_ac_lt_ring_report` becomes an asserting test) |
 | **AC-LT-SEP** | Every cottage pair centre distance ≥ `cottage_min_sep_m` − 0.01 (22 m); count = 8; all centres r ≤ 46 m; corners ≤ 54 m. Seeds 1/7/12: `sep_relaxed_to` unset. Sweep: ≤ 1 relaxed seed, never below 18 m. | extend `test_village_generator*.gd` |
 | **AC-LT-DRESS** | Every pine at r ≥ 56 m from G and ≥ 2 m from every cottage rect; grass density 0 at r ≥ 64 m and monotone non-increasing over r 56–64 m. | extend backdrop tests |
 | **AC-LT-PATH** (restates AC-VT7) | Along every polyline at ≤ 1 m steps, `sample_slope_deg ≤ 14°`, except within 3 m of a door stoop where ≤ 25°. Seeds 1/7/12: `path_cap_fallback` unset. | `test_village_terrain_stones.gd` |
@@ -7234,7 +7337,8 @@ the old rim. AC-VTF1 ("gentle, not ski slopes") is replaced by AC-LTF1/2; AC-VTF
 | Failure | Behaviour |
 |---|---|
 | No offset passes the -18 rules | Least-violation candidate; `offset_fallback`; build continues; AC-LT-SITE counts it. |
-| Cottage site too steep / ring fails | Plot sampler skips the site and takes the next one; never bulldoze. |
+| Cottage site too steep / measured ring fails (overlaps included) | Plot sampler skips the site and takes the next one; never bulldoze. Expected rate is about 7.5% (r ≤ 37 m) to 12% (37–46 m) of candidates. |
+| Hero ring cannot meet 22° within `hero_ring_max_m` | The offset fails `hero_ring_ok` in -18 and the next candidate is used. If no candidate passes: least violation, `offset_fallback`, hero ring at the ladder's best w (AC-LT-SITE counts it). |
 | Fewer than 8 cottages at the min sep | Relax by 1 m down to 18 m (`sep_relaxed_to`); the count never drops. |
 | Path over the 14° cap | Attempt retry → next offset → `path_cap_fallback`, least violation kept. |
 | Pond site over 6° | Next pond candidate; if none, the flattest candidate plus a diag flag. |
@@ -7637,8 +7741,13 @@ static func capped_raw_y(xz: Vector2, ctx: Dictionary, sun_az: Vector2) -> float
 static func rank_offsets(norm_seed: int, params) -> Array[Dictionary]  # passing by score, then failing by violation (AR-LF-D4)
 static func raw_lut(ctx: Dictionary, sun_az: Vector2, cell_m := 2.0) -> Dictionary  # capped raw over r <= 62 m about G; VillageTerrain.lut_sample format
 static func site_plane(lut: Dictionary, core: Rect2) -> Dictionary     # {slope_deg, aspect_deg, mean}; 1 m sample grid over core
-static func ring_width(r_c: float, s_deg: float, ring_max_deg: float, w_min: float, w_max: float) -> Dictionary  # {w, ok}
+static func ring_width(r_c: float, s_deg: float, ring_max_deg: float, w_min: float, w_max: float) -> Dictionary  # {w, ok} — 2026-11-17: no longer decides (SD-19 measured ring); readout estimate only, or delete
 ```
+
+*2026-11-17 (ivy-82zn.14.22):* WP2 adds a measured-ring helper to `VillageLandform` (name is up to the
+programmer). It takes the sample fn or precomputed U grid, the core sdf, T, `[w_min, w_max]`, the
+already-applied neighbour sites and `ring_max_deg`, and returns `{ok, w, peak_deg, best_w, best_peak_deg}`.
+The search (hero), the plot sampler (pads) and the field (fallback recompute) all use this one helper.
 
 ```gdscript
 # src/playground/village_terrain_field.gd  (new)
@@ -7799,7 +7908,7 @@ depends on it. Epic ivy-82zn.14 depends on ivy-82zn.14.20.
 | **AR-LF-GAP-2** | -19 pond soft score "below the village median of cottage targets" | Cottages are placed after the pond, so the median does not exist yet. Use: lowest raw mean among the first 6 slope-valid candidates (AR-LF-LAYOUT). |
 | **AR-LF-GAP-3** | -23 AC-LT-SEAM "ground albedo L1 ≤ 0.02 across the join ring" | Lawn is engine-lit, hills are unshaded with a calibrated `u_lawn_colour`, so a CPU albedo comparison is not like for like. Test instead that both sides apply identical slope/height factors (shared include, same uniforms) and that the hills shader returns `u_lawn_colour × factors` at `r_j`. The lit-vs-unshaded residue stays a human call (AC-LTF6); see R2. |
 | **AR-LF-GAP-4** | -19 plaza "raw tilt > 10° feeds -18 scoring as a violation" | The plaza is fixed at G, so its raw tilt is a **hard rule** in `rank_offsets` (computed only after the hero rules pass). |
-| **AR-LF-GAP-5** | -19 ring overlap "later cottage rejected" | Estimated at selection time with the pair rule in AR-LF-LAYOUT (targets come from the capped raw LUT, identical helper to the field); the exact ring slope is asserted in tests (AC-LT-RING). Selection-vs-field target tolerance: ≤ 0.02 m. |
+| **AR-LF-GAP-5** | -19 ring overlap "later cottage rejected" | *2026-11-17 (ivy-82zn.14.22): superseded. The binding rule is the measured ring of SD-19 with neighbour replay; the pair rule below may remain only as a pre-screen.* Estimated at selection time with the pair rule in AR-LF-LAYOUT (targets come from the capped raw LUT, identical helper to the field); the exact ring slope is asserted in tests (AC-LT-RING). Selection-vs-field target tolerance: ≤ 0.02 m. |
 | **AR-LF-GAP-6** | -21 relax ladder "after all generator attempts" | Runs inside stage 5 of the last attempt of each rank (D5), so the ladder costs no extra network growth. |
 | **AR-LF-GAP-7** | -19 pond basin "keeps the existing depth/lip shape relative to y_w" | Pond target `T(d) = y_w + pond_freeboard_m + basin_profile(d)` with the existing radial basin profile (0 at `BANK_OUTER_M`); `pond_water_y` stays clamped to ≤ min bank-mesh − 0.02. |
 
