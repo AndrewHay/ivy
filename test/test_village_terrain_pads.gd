@@ -62,6 +62,141 @@ func test_field_uses_the_stored_ring_widths() -> void:
 				assert_eq(float(s["w"]), float(layout.landform["hero_ring_w"]), "field hero w = stored")
 
 
+func test_sampler_target_agrees_with_field_target_seeds_1_20() -> void:
+	## Review 2 F2 / AR-LF-GAP-5: the plot sampler's T_i (bilinear 1 m lattice, VillageSiteTerrain)
+	## and the field's T_i (exact sample_unfit_y) agree within 0.02 m for every cottage. The sampler
+	## value is stored on the spec as pad_target. Also records how many seeds kept a moved pond.
+	var p := VillageTerrainParams.production()
+	var worst := 0.0
+	var worst_at := ""
+	var n := 0
+	var moved := PackedStringArray()
+	for seed in range(1, 21):
+		var layout := VillageLayout.generate(seed)
+		if layout.fallback:
+			continue
+		if bool(layout.terrain_diag.get("pond_moved", false)):
+			moved.append(str(seed))
+		var f = VillageTerrain.field(layout, p)
+		for s: Dictionary in f.sites:
+			if s["kind"] != "cottage":
+				continue
+			var spec: Dictionary = layout.cottages[int(s["index"])]
+			assert_true(spec.has("pad_target"), "seed %d cottage %d spec.pad_target stored" % [seed, s["index"]])
+			if not spec.has("pad_target"):
+				continue
+			n += 1
+			var d := absf(float(spec["pad_target"]) - float(s["target"]))
+			if d > worst:
+				worst = d
+				worst_at = "%d/%d" % [seed, s["index"]]
+	gut.p("T_i sampler vs field: %d pads, worst %.4f m at %s; pond_moved kept on seeds [%s]" % [
+		n, worst, worst_at, ", ".join(moved)])
+	assert_gt(n, 0, "pads compared")
+	assert_lte(worst, 0.02, "sampler T_i vs field T_i worst %.4f m at %s (AR-LF-GAP-5)" % [worst, worst_at])
+
+
+func _site_for(layout: VillageLayout, p: VillageTerrainParams) -> VillageSiteTerrain:
+	return VillageSiteTerrain.for_landform(layout.generation_seed, p, layout.landform)
+
+
+func test_pond_recheck_without_a_move_passes_the_stored_widths() -> void:
+	## Review 2 F1: the re-check measures the STORED width with the sampler's helper and grid, so on
+	## an unmoved pond every stored pad passes (same decision the sampler made).
+	var p := VillageTerrainParams.production()
+	for seed in [7, 12]:
+		var layout := VillageLayout.generate(seed)
+		assert_false(bool(layout.terrain_diag.get("pond_moved", false)), "seed %d keeps its stage-1 pond" % seed)
+		var site := _site_for(layout, p)
+		site.set_pond(layout.pond_center)
+		var r := site.recheck_pads_on_pond(layout, layout.pond_center)
+		gut.p("seed %d unmoved re-check: %d pads, peak %.1f°" % [seed, r["rechecked"], r["peak_deg"]])
+		assert_true(bool(r["ok"]), "seed %d stored pad rings pass on their own pond (failed %d)" % [seed, r["failed"]])
+
+
+func test_forced_pond_move_onto_a_pad_fails_the_recheck() -> void:
+	## Review 2 F1 repro: move the pond after selection (as resolve_after_paths can) right beside a
+	## pad. The re-check must run on that pad with the FINAL pond and reject the stored ring.
+	var p := VillageTerrainParams.production()
+	var layout := VillageLayout.generate(7)
+	var site := _site_for(layout, p)
+	var old_c := layout.pond_center
+	site.set_pond(old_c)
+	var spec: Dictionary = layout.cottages[0]
+	var core := site.pad_core(spec)
+	var far := Vector2(1e4, 1e4)
+	# A far-away pond reaches no pad: nothing to re-check.
+	layout.pond_center = far
+	var site_far := _site_for(layout, p)
+	site_far.set_pond(far)
+	var r_far := site_far.recheck_pads_on_pond(layout, far)
+	assert_eq(int(r_far["rechecked"]), 0, "pond reaching no pad: no re-check")
+	# The pond pressed against the pad's core edge.
+	layout.pond_center = Vector2(core.end.x + VillagePondSite.BANK_OUTER_M * 0.5, core.get_center().y)
+	var r := site.recheck_pads_on_pond(layout, old_c)
+	gut.p("forced move to %s: rechecked %d, failed %d, peak %.1f°" % [str(layout.pond_center), r["rechecked"],
+		r["failed"], r["peak_deg"]])
+	assert_gt(int(r["rechecked"]), 0, "the re-check ran on the pads the moved pond reaches")
+	assert_false(bool(r["ok"]), "a pond basin pressed against a pad breaks its stored ring")
+	assert_eq(site.pond["centre"], layout.pond_center, "the site now replays the FINAL pond")
+
+
+func test_moved_pond_decision_rejects_steep_moves_unless_no_flat_site() -> void:
+	## Review 2 F1: a moved pond over pond_max_site_slope_deg fails the attempt (terrain:pond_moved)
+	## when stage 1 found a flat site; when stage 1 had none (pond_steep) the move is kept, flagged.
+	var p := VillageTerrainParams.production()
+	var steep_u := func(xz: Vector2) -> float: return xz.x * 0.3  # ≈ 16.7° plane
+	var site := VillageSiteTerrain.from_fn(steep_u, p)
+	var layout := VillageLayout.new()
+	layout.is_generated = true
+	layout.cottages = []
+	layout.pond_placed = true
+	layout.pond_center = Vector2(10.0, -20.0)
+	var td := {}
+	var reason := VillageGeneratorV3._check_moved_pond(site, layout, Vector2(0.0, -20.0), p, false, td)
+	assert_eq(reason, "terrain:pond_moved", "steep moved pond with a flat stage-1 site fails the attempt")
+	assert_true(bool(td.get("pond_moved", false)), "pond_moved flagged")
+	var td2 := {}
+	var reason2 := VillageGeneratorV3._check_moved_pond(site, layout, Vector2(0.0, -20.0), p, true, td2)
+	assert_eq(reason2, "", "no flat alternative: kept")
+	assert_true(bool(td2.get("pond_steep", false)), "kept steep move is flagged pond_steep")
+	var flat_site := VillageSiteTerrain.from_fn(func(_xz: Vector2) -> float: return 0.0, p)
+	var td3 := {}
+	assert_eq(VillageGeneratorV3._check_moved_pond(flat_site, layout, Vector2(0.0, -20.0), p, false, td3), "",
+		"flat moved pond, no pads: ok")
+	assert_eq(int(td3.get("pond_moved_rechecked", -1)), 0, "re-check ran (0 pads reached)")
+
+
+func test_generated_moved_ponds_were_rechecked_seeds_1_20() -> void:
+	## Review 2 F1: every generated village that kept a moved pond passed the re-check on its final
+	## pond (terrain_diag.pond_moved_rechecked), and re-running it here agrees.
+	var p := VillageTerrainParams.production()
+	var kept := PackedStringArray()
+	var failed_attempts := PackedStringArray()
+	for seed in range(1, 21):
+		var layout := VillageLayout.generate(seed)
+		for a: Dictionary in VillageGeneratorV3.last_diag.get("attempts", []):
+			if str(a["fail_reason"]) == "terrain:pond_moved":
+				failed_attempts.append("%d(%d.%d)" % [seed, a["rank"], a["attempt"]])
+		if layout.fallback or not bool(layout.terrain_diag.get("pond_moved", false)):
+			continue
+		var td := layout.terrain_diag
+		kept.append("%d:%d pads" % [seed, int(td.get("pond_moved_rechecked", -1))])
+		assert_true(td.has("pond_moved_rechecked"), "seed %d moved pond was re-checked" % seed)
+		assert_true(td.has("pond_center_before_move"), "seed %d records the pre-move centre" % seed)
+		if not td.has("pond_center_before_move"):
+			continue
+		var site := _site_for(layout, p)
+		site.set_pond(td["pond_center_before_move"])
+		var r := site.recheck_pads_on_pond(layout, td["pond_center_before_move"])
+		assert_true(bool(r["ok"]), "seed %d kept moved pond passes the re-check" % seed)
+		assert_eq(int(r["rechecked"]), int(td["pond_moved_rechecked"]), "seed %d same pads re-checked" % seed)
+		if float(td.get("pond_site_slope_deg", 0.0)) > p.pond_max_site_slope_deg:
+			assert_true(bool(td.get("pond_steep", false)), "seed %d kept steep moved pond is flagged" % seed)
+	gut.p("kept moved ponds: [%s]; attempts failed terrain:pond_moved: [%s]" % [", ".join(kept),
+		", ".join(failed_attempts)])
+
+
 func test_field_measures_missing_widths_with_the_shared_helper() -> void:
 	## Hand-built layouts (no stored widths) get the measured ring, not the superseded formula.
 	var p := VillageTerrainParams.production()

@@ -121,34 +121,61 @@ func _evaluate(cand: Dictionary, picked: Array) -> Dictionary:
 		memo["slope_reject"] = rej
 		stats["rejected_slope"] = int(stats["rejected_slope"]) + 1
 		return rej
-	# Measured ring grid: integer-aligned 1 m nodes over the core grown by w_max + 2.
-	var w_max: float = params.pad_ring_max_m
-	var box := core.grow(w_max + 2.0)
+	var box := _ring_box(core)
+	var pads: Array = []
+	for e: Variant in picked:
+		var pad: Dictionary = (e as Dictionary).get("_pad", {})
+		if not pad.is_empty():
+			pads.append(pad)
+	var before := _pads_reaching(box, pads)
+	var nkey := "pond@%s;" % (str(pond["centre"]) if not pond.is_empty() else "-")
+	for pad: Dictionary in before:
+		nkey += "%s|%.4f|%.3f;" % [str(pad["rect"]), float(pad["target"]), float(pad["w"])]
+	if memo.has(nkey):
+		return memo[nkey]
+	var ring := _measure_ring(core, target, before, params.pad_ring_min_m, params.pad_ring_max_m)
+	var res := {"ok": bool(ring["ok"]), "reason": "" if bool(ring["ok"]) else "ring", "s_deg": s_deg,
+		"w": float(ring["w"]), "target": target, "peak_deg": float(ring["peak_deg"]), "core": core}
+	if not bool(ring["ok"]):
+		stats["rejected_ring"] = int(stats["rejected_ring"]) + 1
+	memo[nkey] = res
+	return res
+
+
+func _ring_box(core: Rect2) -> Rect2:
+	## Measured ring grid extent: the core grown by pad_ring_max_m + 2 (integer-aligned 1 m nodes).
+	return core.grow(params.pad_ring_max_m + 2.0)
+
+
+static func _bound_meets(s: Dictionary, box: Rect2) -> bool:
+	## A site's bounding disc (bound_c, bound_r) reaches the box.
+	if s.is_empty():
+		return false
+	var bc: Vector2 = s["bound_c"]
+	var near_pt := Vector2(clampf(bc.x, box.position.x, box.end.x), clampf(bc.y, box.position.y, box.end.y))
+	return near_pt.distance_to(bc) < float(s["bound_r"])
+
+
+static func _pads_reaching(box: Rect2, pads: Array) -> Array:
+	## The earlier pads ([{rect, target, w}], layout order) whose ring reaches the box.
+	var out: Array = []
+	for pad: Dictionary in pads:
+		if (pad["rect"] as Rect2).grow(float(pad["w"])).intersects(box):
+			out.append(pad)
+	return out
+
+
+func _measure_ring(core: Rect2, target: float, before: Array, w_min: float, w_max: float) -> Dictionary:
+	## VillageLandform.measured_ring for a pad core on the lattice: plaza then pond baked into U (per
+	## node, only when they reach the grid), the earlier pads `before` and the hero replayed.
+	var box := _ring_box(core)
 	var origin := Vector2(floor(box.position.x), floor(box.position.y))
 	var nx := int(ceil(box.end.x) - origin.x) + 1
 	var nz := int(ceil(box.end.y) - origin.y) + 1
-	var before: Array = []
-	# Plaza then pond, baked into U (per-node targets; replayed only when they reach the box).
 	var bake: Array = []
 	for s: Dictionary in [plaza, pond]:
-		if s.is_empty():
-			continue
-		var bc: Vector2 = s["bound_c"]
-		var near_pt := Vector2(clampf(bc.x, box.position.x, box.end.x), clampf(bc.y, box.position.y, box.end.y))
-		if near_pt.distance_to(bc) < float(s["bound_r"]):
+		if _bound_meets(s, box):
 			bake.append(s)
-	var nkey := "pond@%s;" % (str(pond["centre"]) if not pond.is_empty() else "-")
-	for e: Variant in picked:
-		var pad: Dictionary = (e as Dictionary).get("_pad", {})
-		if pad.is_empty():
-			continue
-		var nr: Rect2 = pad["rect"]
-		if not nr.grow(float(pad["w"])).intersects(box):
-			continue
-		before.append(pad)
-		nkey += "%s|%.4f|%.3f;" % [str(nr), float(pad["target"]), float(pad["w"])]
-	if memo.has(nkey):
-		return memo[nkey]
 	var p_ref = params
 	var grid := {"origin": origin, "nx": nx, "nz": nz,
 		"u_fn": func(p: Vector2, _k: int) -> float:
@@ -169,14 +196,42 @@ func _evaluate(cand: Dictionary, picked: Array) -> Dictionary:
 		if near.distance_to(hc) < hr:
 			a_sites.append({"sdf": VillageLandform.grid_sdf_disc(grid, hc, float(hero["r_c"])),
 				"target": float(hero["target"]), "w": float(hero["w"])})
-	var ring := VillageLandform.measured_ring(grid, sdf, target, params.pad_ring_min_m, w_max,
-		params.ring_max_slope_deg, b_sites, a_sites)
-	var res := {"ok": bool(ring["ok"]), "reason": "" if bool(ring["ok"]) else "ring", "s_deg": s_deg,
-		"w": float(ring["w"]), "target": target, "peak_deg": float(ring["peak_deg"]), "core": core}
-	if not bool(ring["ok"]):
-		stats["rejected_ring"] = int(stats["rejected_ring"]) + 1
-	memo[nkey] = res
-	return res
+	return VillageLandform.measured_ring(grid, sdf, target, w_min, w_max, params.ring_max_slope_deg,
+		b_sites, a_sites)
+
+
+func recheck_pads_on_pond(layout: VillageLayout, old_centre: Vector2) -> Dictionary:
+	## Review 2 F1: resolve_after_paths moved the pond from old_centre to layout.pond_center, but every
+	## pad ring was measured with the old pond baked in. Re-measure, on the FINAL pond (set here), the
+	## STORED ring width (spec.ring_w, spec.pad_target: the field uses exactly these) of every cottage
+	## whose ring reaches the old or the new pond's bound, with the earlier pads and the hero replayed
+	## (same helper and grid as evaluate). Others are unchanged by the move. {ok, rechecked, failed
+	## (cottage index, -1 = none), peak_deg}.
+	var old_pond := pond if not pond.is_empty() and pond["centre"] == old_centre \
+		else VillageTerrainField.pond_site(_u_fn, old_centre, params)
+	set_pond(layout.pond_center)
+	var out := {"ok": true, "rechecked": 0, "failed": -1, "peak_deg": 0.0}
+	var pads: Array = []
+	for i in range(layout.cottages.size()):
+		var spec: Dictionary = layout.cottages[i]
+		var core := pad_core(spec)
+		var w := float(spec.get("ring_w", params.pad_ring_max_m))
+		var t: float
+		if spec.has("pad_target"):
+			t = float(spec["pad_target"])
+		else:
+			t = float(VillageLandform.site_plane_fn(Callable(self, "u_at"), core, 1.0)["mean"])
+		var reach := core.grow(w + 1.0)  # ring nodes plus their one-sided FD neighbours
+		if _bound_meets(old_pond, reach) or _bound_meets(pond, reach):
+			var ring := _measure_ring(core, t, _pads_reaching(_ring_box(core), pads), w, w)
+			out["rechecked"] = int(out["rechecked"]) + 1
+			out["peak_deg"] = maxf(float(out["peak_deg"]), float(ring["peak_deg"]))
+			if not bool(ring["ok"]):
+				out["ok"] = false
+				out["failed"] = i
+				return out
+		pads.append({"rect": core, "target": t, "w": w})
+	return out
 
 
 func zone_sites(layout: VillageLayout) -> Array:

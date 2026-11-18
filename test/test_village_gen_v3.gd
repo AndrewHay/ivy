@@ -8,8 +8,11 @@ const VillageTerrainParams = preload("res://src/playground/village_terrain_param
 ## Canonical probe set (quadrants + ms table in village_gen_v3_probe).
 const PROBE_SEEDS: Array[int] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 240424020]
 
-const TIMING_MEAN_MS_MAX := 600.0
-const TIMING_WORST_MS_MAX := 1500.0
+## User decision 2026-11-18 (ivy-82zn.14.25): limits raised from 600 / 1500 ms to 2000 / 6000 ms for
+## the landscape-first redesign ("Make it way more, 2000/6000 ... We can optimize later"). The
+## generator optimisation pass that may tighten them again is ivy-jbfw.
+const TIMING_MEAN_MS_MAX := 2000.0
+const TIMING_WORST_MS_MAX := 6000.0
 
 
 func test_probe_seeds_non_fallback_zero_violations_path_kinds() -> void:
@@ -270,6 +273,8 @@ func test_probe_seeds_timing_slack() -> void:
 		worst = maxf(worst, ms)
 		assert_false(layout.fallback, "timing seed %d" % seed)
 	var mean := sum_ms / float(PROBE_SEEDS.size())
-	assert_lte(mean, TIMING_MEAN_MS_MAX, "mean ms (DESIGN V7)")
-	assert_lte(worst, TIMING_WORST_MS_MAX, "worst ms (DESIGN V7)")
+	gut.p("probe timing mean %.0f ms, worst %.0f ms (limits %.0f / %.0f)" % [mean, worst,
+		TIMING_MEAN_MS_MAX, TIMING_WORST_MS_MAX])
+	assert_lte(mean, TIMING_MEAN_MS_MAX, "mean ms (user 2026-11-18, ivy-jbfw)")
+	assert_lte(worst, TIMING_WORST_MS_MAX, "worst ms (user 2026-11-18, ivy-jbfw)")
 

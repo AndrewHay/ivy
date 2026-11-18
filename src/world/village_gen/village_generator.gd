@@ -91,6 +91,8 @@ static func generate(seed: int, terrain_params: Resource = null) -> VillageLayou
 				"stage_reached": str(rec.get("stage_reached", "")),
 				"ms": att_ms,
 				"max_path_slope_deg": float(rec.get("path_open_deg", NAN)),
+				## terrain:pond_moved detail ("steep" / "ring:<cottage>"), "" otherwise.
+				"pond_moved_fail": str((rec.get("terrain_diag", {}) as Dictionary).get("pond_moved_fail", "")),
 			})
 			rec["attempts"] = attempts_log.duplicate(true)
 			rec["attempts_used"] = attempts_total
@@ -379,13 +381,17 @@ static func _attempt_generate(norm: int, st: int, attempt_idx: int, terrain: Dic
 	if site != null:
 		layout.landform = (terrain["landform"] as Dictionary).duplicate(true)
 		if layout.pond_center != pond_c:
-			# resolve_after_paths moved the pond: re-check its site slope (SD-19 pond row).
-			var ps := site.pond_site(layout.pond_center)
+			# resolve_after_paths moved the pond (review 2 F1): re-check its site slope (SD-19 pond
+			# row) and the stored pad rings it reaches, on the final pond; failure = normal retry.
+			var t_re := Time.get_ticks_usec()
 			var td2: Dictionary = diag["terrain_diag"]
-			td2["pond_moved"] = true
-			td2["pond_site_slope_deg"] = float(ps["slope_deg"])
-			if float(ps["slope_deg"]) > (terrain["params"] as VillageTerrainParams).pond_max_site_slope_deg:
-				td2["pond_steep"] = true
+			var moved_fail := _check_moved_pond(site, layout, pond_c, terrain["params"] as VillageTerrainParams,
+				bool(td2.get("pond_steep", false)), td2)
+			diag["stage_ms"]["7x_pond_recheck"] = _ms_since(t_re)
+			if moved_fail != "":
+				diag["fail_reason"] = moved_fail
+				diag["stage_reached"] = "pond_moved"
+				return diag
 	t_build = Time.get_ticks_usec()
 
 	var val := _validate_full(layout, picked, net, terrain)
@@ -428,6 +434,32 @@ static func _attempt_generate(norm: int, st: int, attempt_idx: int, terrain: Dic
 	diag["counts_per_kind"] = _kind_counts(layout.path_kinds)
 	diag["stage_reached"] = "complete"
 	return diag
+
+
+static func _check_moved_pond(site: VillageSiteTerrain, layout: VillageLayout, old_c: Vector2,
+		tp: VillageTerrainParams, stage1_steep: bool, td: Dictionary) -> String:
+	## Review 2 F1: the pond moved from old_c to layout.pond_center after the pads were selected.
+	## "" = keep; "terrain:pond_moved" = fail the attempt (normal retry, not path-only):
+	## - moved site slope > pond_max_site_slope_deg while stage 1 had a flat site (stage1_steep false);
+	##   with no flat alternative (stage1_steep) the move is kept, flagged pond_steep;
+	## - any stored pad ring reaching the old or new pond fails on the FINAL pond
+	##   (VillageSiteTerrain.recheck_pads_on_pond, the sampler's measured_ring helper).
+	td["pond_moved"] = true
+	td["pond_center_before_move"] = old_c
+	var ps := site.pond_site(layout.pond_center)
+	td["pond_site_slope_deg"] = float(ps["slope_deg"])
+	if float(ps["slope_deg"]) > tp.pond_max_site_slope_deg:
+		if not stage1_steep:
+			td["pond_moved_fail"] = "steep"
+			return "terrain:pond_moved"
+		td["pond_steep"] = true
+	var r := site.recheck_pads_on_pond(layout, old_c)
+	td["pond_moved_rechecked"] = int(r["rechecked"])
+	td["pond_moved_peak_deg"] = float(r["peak_deg"])
+	if not bool(r["ok"]):
+		td["pond_moved_fail"] = "ring:%d" % int(r["failed"])
+		return "terrain:pond_moved"
+	return ""
 
 
 static func _ms_since(t0_us: int) -> float:

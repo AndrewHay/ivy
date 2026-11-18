@@ -7971,9 +7971,9 @@ the village disc (sites tested only when `xz` is inside their `bound_r`).
 
 **Test impact:** `test_village_world_scale.gd`, `test_generated_village_backdrop.gd`,
 `test_village_grass_scatter.gd`, `test_village_grass_mesh.gd`, `test_hills_heightfield.gd` (pin the
-radii constants) update in WP3. `test_village_gen_v3.gd` timing limits (mean 600 / worst 1500 ms) must
-hold unchanged in every WP (*2026-11-17: unless the user approves the AR-LF-PERF limits; never raised
-without that yes*); `test_generated_village_sweep.gd` (50 seeds) invariants must hold; its
+radii constants) update in WP3. `test_village_gen_v3.gd` timing limits (**mean 2000 / worst 6000 ms**,
+user 2026-11-18; ~~mean 600 / worst 1500 ms~~ replaced 2026-11-18, see AR-LF-PERF) must hold in every WP
+and are never raised without the user's yes; `test_generated_village_sweep.gd` (50 seeds) invariants must hold; its
 diversity / crossing-free counts may move and may be re-baselined only with the sweep output in the
 bead notes. Any test that pins generated cottage centres for a seed is expected to change from WP2 on
 (the terrain rejects sites); re-pin from a run, never by hand.
@@ -8070,6 +8070,8 @@ depends on it. Epic ivy-82zn.14 depends on ivy-82zn.14.20.
 3. **Generate timing** (search + field build + path check per attempt + site fn) → D4 numbers, raw LUT for
    site checks, memoised site results; timing test limits are not raised. *2026-11-17 (ivy-82zn.14.24):
    measured and planned in AR-LF-PERF; a new worst limit is recommended there, pending the user.*
+   *2026-11-18 (user, ivy-82zn.14.25): limits raised to mean ≤ 2000 / worst ≤ 6000 ms for the redesign
+   (~~600 / 1500~~ replaced); optimisation deferred to ivy-jbfw.*
 4. **Forest and ridge tests move** because Rg now sits on L → re-baseline only with probe output in notes.
 5. **E/W "flat sector" ink in the hills shader** was designed for flat east/west land; on capped shoulders
    it may read as haze → human call (no fog redesign, SD non-goal).
@@ -8080,10 +8082,15 @@ depends on it. Epic ivy-82zn.14 depends on ivy-82zn.14.20.
 
 ### AR-LF-PERF — Generate timing budget with terrain fitting *(ivy-82zn.14.24, 2026-11-17)*
 
+**Current limits (user, 2026-11-18, ivy-82zn.14.25): mean ≤ 2000 / worst ≤ 6000 ms** on the 11
+`PROBE_SEEDS` of `test_village_gen_v3.gd`. User: strong limits are unwelcome during the landscape-first
+redesign; optimise later (ivy-jbfw). The 600 / 1500 limits below and the GA's 650 / 2000 recommendation
+were **replaced on 2026-11-18**; the rest of this section is the history of that budget.
+
 **Where the limits come from.** DESIGN V7 set 300 / 700 ms (ivy-oan3). On 2026-11-07 the user relaxed
-it to **mean ≤ 600 / worst ≤ 1500 ms** on the 11 `PROBE_SEEDS` of `test_village_gen_v3.gd` (1–10 +
-240424020), when retries made the path-first generator miss 300 / 700 (ivy-oan3.6 notes). Only the user
-can change them again. `generate()` runs once, on the main thread, when a generated-village scenario
+it to ~~**mean ≤ 600 / worst ≤ 1500 ms**~~ (replaced 2026-11-18 by 2000 / 6000) on the 11 `PROBE_SEEDS`
+of `test_village_gen_v3.gd` (1–10 + 240424020), when retries made the path-first generator miss
+300 / 700 (ivy-oan3.6 notes). Only the user can change them again. `generate()` runs once, on the main thread, when a generated-village scenario
 loads (backdrop `_ready` → `_make_layout`), so the limit is a one-time load stall the player waits through.
 
 **Profile** (WP2 working tree, path cap off = `max_path_slope_deg` 90, seeds 1–20 + 240424020;
@@ -8135,7 +8142,9 @@ on the SD rule; WP3's 22 m spacing will add rejections and sep-ladder attempts o
 - **Instrumentation:** `stage_ms` gains `1a_pond`, `5x_site_eval`, `8a_validate_v`, `8b_open_path`, so
   the next profile needs no replay probe.
 
-**Decision.** WP2 proceeds with **600 / 1500 unchanged** (projected 590–600 / ≈ 1490: it should pass, with
+**Decision** *(superseded 2026-11-18: the user set 2000 / 6000 ms; the 600 / 1500 rule and the 650 / 2000
+recommendation in this paragraph no longer apply, and the SD fallback below is replaced by the ivy-jbfw
+optimisation pass).* WP2 proceeds with **600 / 1500 unchanged** (projected 590–600 / ≈ 1490: it should pass, with
 almost no headroom). The **worst** limit is the weak one: it is really an attempt-count limit (search +
 3 attempts ≈ 1.5 s), and the generator without any terrain already reaches 1635 ms on seed 19 and 1463
 on seed 15. Any probe seed that rolls a 4th attempt (v1–v6 failures are about 30% of attempts) fails

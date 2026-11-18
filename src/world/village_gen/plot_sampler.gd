@@ -554,6 +554,9 @@ static func _store_site(entry: Dictionary, site: Dictionary) -> void:
 		return
 	var spec: Dictionary = entry["spec"] as Dictionary
 	spec["ring_w"] = float(site["w"])
+	## The sampler's T_i (bilinear U lattice), kept for the AR-LF-GAP-5 agreement check against the
+	## field's exact target and for the moved-pond ring re-check (review 2 F1/F2).
+	spec["pad_target"] = float(site["target"])
 	var core: Rect2 = site.get("core", VillageBackdrop.cottage_exterior_rect(spec))
 	entry["_pad"] = {"rect": core, "target": float(site["target"]), "w": float(site["w"])}
 
