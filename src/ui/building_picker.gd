@@ -70,10 +70,22 @@ func _ready() -> void:
 	subtitle.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	panel.add_child(subtitle)
 
+	# Two columns: left = scenarios the village toggle applies to (toggle on top);
+	# right = standalone scenes the toggle ignores — playgrounds first, then tests.
+	var columns := HBoxContainer.new()
+	columns.name = "PickerColumns"
+	columns.add_theme_constant_override("separation", 32)
+	panel.add_child(columns)
+
+	var village_col := _make_column("VillageColumn", "Village scenarios")
+	columns.add_child(village_col)
+	var standalone_col := _make_column("StandaloneColumn", "Playgrounds & tests")
+	columns.add_child(standalone_col)
+
 	# ── Village-mode toggle (AR-VG-WIRE S5) ──────────────────────────────────
 	var mode_row := HBoxContainer.new()
 	mode_row.add_theme_constant_override("separation", 8)
-	panel.add_child(mode_row)
+	village_col.add_child(mode_row)
 
 	_toggle = CheckButton.new()
 	_toggle.name = "VillageModeToggle"
@@ -107,7 +119,7 @@ func _ready() -> void:
 	_seed_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_seed_hint.add_theme_font_size_override("font_size", 11)
 	_seed_hint.modulate = Color(0.75, 0.85, 0.80)
-	panel.add_child(_seed_hint)
+	village_col.add_child(_seed_hint)
 
 	# Restore persisted toggle state without emitting.
 	_toggle.set_pressed_no_signal(_init_mode == GameModes.GENERATED)
@@ -117,15 +129,52 @@ func _ready() -> void:
 	_reroll_btn.pressed.connect(_on_reroll_pressed)
 	# ─────────────────────────────────────────────────────────────────────────
 
+	var playgrounds: Array = []
+	var tests: Array = []
 	for entry in BuildingCatalog.all():
 		if not entry.in_picker:
 			continue
-		var btn := Button.new()
-		btn.text = entry.label
-		btn.custom_minimum_size = Vector2(280, 48)
-		_OverlayStyle.style_button(btn)
-		btn.pressed.connect(_on_entry_pressed.bind(entry.id))
-		panel.add_child(btn)
+		if uses_village_toggle(entry):
+			village_col.add_child(_make_entry_button(entry))
+		elif is_playground(entry):
+			playgrounds.append(entry)
+		else:
+			tests.append(entry)
+	for entry in playgrounds + tests:
+		standalone_col.add_child(_make_entry_button(entry))
+
+
+## True when the "Generated village" toggle changes what this entry loads: it runs an
+## ivy session (not a standalone scene) and does not force its own village mode.
+static func uses_village_toggle(entry) -> bool:
+	return entry.standalone_scene_path.is_empty() and entry.village_mode.is_empty()
+
+
+static func is_playground(entry) -> bool:
+	return entry.standalone_scene_path.begins_with("res://scenes/playground/")
+
+
+func _make_column(node_name: String, heading: String) -> VBoxContainer:
+	var col := VBoxContainer.new()
+	col.name = node_name
+	col.add_theme_constant_override("separation", 14)
+	col.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	var lbl := Label.new()
+	lbl.text = heading
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.add_theme_font_size_override("font_size", 18)
+	lbl.modulate = Color(0.75, 0.85, 0.80)
+	col.add_child(lbl)
+	return col
+
+
+func _make_entry_button(entry) -> Button:
+	var btn := Button.new()
+	btn.text = entry.label
+	btn.custom_minimum_size = Vector2(280, 48)
+	_OverlayStyle.style_button(btn)
+	btn.pressed.connect(_on_entry_pressed.bind(entry.id))
+	return btn
 
 
 func _on_toggle_toggled(pressed: bool) -> void:

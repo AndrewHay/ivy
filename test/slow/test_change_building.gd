@@ -33,6 +33,7 @@ func _boot(building_id: String) -> Node:
 ## (the last thing a session builds) is up.
 func _pick(main: Node, building_id: String) -> void:
 	var picker: Node = main.get_node("UI/BuildingPicker")
+	main._on_village_mode_changed("classic_village")  # the picker now defaults to generated
 	picker._on_entry_pressed(building_id)
 	# After switching buildings, a coarse-cache verification miss can trigger a full
 	# interactive ray bake (~30–60s). Headless runs ~100+ process frames/s; 900 frames

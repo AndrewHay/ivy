@@ -12,6 +12,7 @@ extends GutTest
 
 const BuildingPicker = preload("res://src/ui/building_picker.gd")
 const GameModes = preload("res://src/world/game_modes.gd")
+const BuildingCatalog = preload("res://src/world/building_catalog.gd")
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -177,3 +178,35 @@ func test_set_village_seed_updates_text_field() -> void:
 	var field := picker.find_child("VillageSeedField", true, false) as LineEdit
 	assert_not_null(field)
 	assert_eq(field.text, "777", "set_village_seed must mirror value into VillageSeedField")
+
+
+# ── (j) Two-column layout ─────────────────────────────────────────────────────
+
+func _button_labels(col: Node) -> Array[String]:
+	var out: Array[String] = []
+	for child in col.get_children():
+		if child is Button and not child is CheckButton:
+			out.append((child as Button).text)
+	return out
+
+
+func test_village_column_holds_toggle_and_toggle_scenarios() -> void:
+	var picker := _make_picker()
+	await get_tree().process_frame
+	var col := picker.find_child("VillageColumn", true, false)
+	assert_not_null(col, "Picker must have a VillageColumn")
+	assert_true(col.is_ancestor_of(_get_toggle(picker)), "The toggle sits in the village column")
+	var labels := _button_labels(col)
+	for entry in BuildingCatalog.all():
+		if entry.in_picker and BuildingPicker.uses_village_toggle(entry):
+			assert_has(labels, entry.label)
+	assert_eq(labels.size(), 6, "cylinder, test wall, two eaves, tower, cottage")
+
+
+func test_standalone_column_lists_playgrounds_before_tests() -> void:
+	var picker := _make_picker()
+	await get_tree().process_frame
+	var col := picker.find_child("StandaloneColumn", true, false)
+	assert_not_null(col, "Picker must have a StandaloneColumn")
+	var labels := _button_labels(col)
+	assert_eq(labels, ["Grass wind playground", "Test fauna", "Nature flora lineup"] as Array[String])

@@ -53,6 +53,9 @@ var _village_mode: String = GameModes.CLASSIC
 var _village_seed: int = 0
 ## Held while the picker is open so set_village_seed() can update the display (S5).
 var _picker_ref: Control = null
+## The picker opens with "Generated village" on the first time; after that it keeps
+## whatever the player chose. Script-driven runs never show the picker and stay classic.
+var _picker_mode_defaulted: bool = false
 
 
 func _enter_tree() -> void:
@@ -75,6 +78,9 @@ func _ready() -> void:
 
 
 func _show_building_picker() -> void:
+	if not _picker_mode_defaulted:
+		_picker_mode_defaulted = true
+		_on_village_mode_changed(GameModes.GENERATED)
 	var picker := _BuildingPicker.new() as Control
 	picker.name = "BuildingPicker"
 	# Restore persisted mode so the toggle survives return_to_picker (AR-VG-WIRE).

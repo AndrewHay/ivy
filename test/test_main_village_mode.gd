@@ -27,16 +27,31 @@ func _boot_to_picker() -> Node:
 
 # ── (a) Defaults ──────────────────────────────────────────────────────────────
 
-func test_main_default_village_mode_is_classic() -> void:
+func test_picker_opens_with_generated_village_on() -> void:
 	var main := await _boot_to_picker()
+	assert_eq(str(main.get("_village_mode")), GameModes.GENERATED,
+		"The first picker must default to generated_village")
+	assert_gt(int(main.get("_village_seed")), 0,
+		"The default generated village must have a rolled seed")
+	var toggle := main.find_child("VillageModeToggle", true, false) as CheckButton
+	assert_not_null(toggle)
+	assert_true(toggle.button_pressed, "The toggle must start ON")
+
+
+func test_toggle_off_survives_reopening_picker() -> void:
+	var main := await _boot_to_picker()
+	main._on_village_mode_changed(GameModes.CLASSIC)
+	main.get_node("UI/BuildingPicker").free()
+	main._show_building_picker()
 	assert_eq(str(main.get("_village_mode")), GameModes.CLASSIC,
-		"Main._village_mode must default to classic_village")
+		"Reopening the picker must keep the player's choice, not re-default")
 
 
-func test_main_default_village_seed_is_zero() -> void:
-	var main := await _boot_to_picker()
-	assert_eq(int(main.get("_village_seed")), 0,
-		"Main._village_seed must default to 0")
+func test_script_driven_main_stays_classic() -> void:
+	var main := MainScene.instantiate()
+	assert_eq(str(main.get("_village_mode")), GameModes.CLASSIC,
+		"Before any picker is shown (script-driven runs) the mode is classic")
+	main.free()
 
 
 # ── (b) Picker wiring: the picker created by Main has village_mode_changed connected ──

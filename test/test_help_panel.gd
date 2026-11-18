@@ -56,6 +56,7 @@ func _boot() -> Node:
 	var main := MainScene.instantiate()
 	add_child_autofree(main)
 	await get_tree().process_frame
+	main._on_village_mode_changed("classic_village")  # HUD test: skip the generated build
 	main.get_node("UI/BuildingPicker")._on_entry_pressed("cylinder")
 	for _i in range(900):
 		if main._hud != null:
