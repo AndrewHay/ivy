@@ -1229,9 +1229,20 @@ func landform_readout() -> Dictionary:
 	out["sep_relaxed_to"] = diag.get("sep_relaxed_to", null)
 	out["generate_ms"] = _gen_ms
 	out["search_ms"] = float(diag.get("search_ms", NAN))
+	# ivy-82zn.14.16: measured rings (stored widths), rejections split, path split, flags.
+	out["hero_ring_w"] = float(lf.get("hero_ring_w", NAN))
+	out["hero_ring_peak_deg"] = float(m.get("hero_ring_peak_deg", NAN))
+	out["plaza_ring_w"] = float(lf.get("plaza_ring_w", NAN))
+	out["plaza_ring_peak_deg"] = float(m.get("plaza_ring_peak_deg", NAN))
+	out["rejected_sites_slope"] = diag.get("rejected_sites_slope", null)
+	out["rejected_sites_ring"] = diag.get("rejected_sites_ring", null)
+	out["path_near_miss"] = diag.get("path_near_miss", null)
 	var f = _stage_field()
 	out["y_hero"] = float(f.y_hero) if f != null else 0.0
-	out["max_path_slope_deg"] = float(f.max_path_slope(_layout)["deg"]) if f != null else 0.0
+	var mp: Dictionary = f.max_path_slope(_layout) if f != null else {"deg": 0.0, "zone_deg": 0.0}
+	out["max_path_slope_open_deg"] = float(mp["deg"])
+	out["max_path_slope_zone_deg"] = float(mp["zone_deg"])
+	out["max_path_slope_deg"] = out["max_path_slope_open_deg"]  # alias
 	return out
 
 
@@ -1246,9 +1257,14 @@ func landform_readout_lines() -> PackedStringArray:
 		str(r["offset"]), r["index"], r["rank"], r["y_hero"]])
 	lines.append("hero slope %.1f°  up %.1f / down %.1f m  |  span %.2f m  p95 %.1f°  plaza tilt %.1f°" % [
 		r["s_hero"], r["up_hero"], r["down_hero"], r["span_v"], r["p95_v"], r["plaza_tilt_deg"]])
-	lines.append("max path slope %.1f°  |  rejected sites %s  sep relaxed %s  |  fallback offset %s path %s pond-steep %s" % [
-		r["max_path_slope_deg"], dash.call(r["rejected_sites"]), dash.call(r["sep_relaxed_to"]),
-		str(r["offset_fallback"]), dash.call(r["path_cap_fallback"]), dash.call(r["pond_steep"])])
+	lines.append("hero ring %.1f m (peak %.1f°)  plaza ring %.1f m (peak %.1f°)" % [
+		r["hero_ring_w"], r["hero_ring_peak_deg"], r["plaza_ring_w"], r["plaza_ring_peak_deg"]])
+	lines.append("path max open %.1f° / fit zone %.1f°  |  rejected sites %s (slope %s, ring %s)  sep relaxed %s" % [
+		r["max_path_slope_open_deg"], r["max_path_slope_zone_deg"], dash.call(r["rejected_sites"]),
+		dash.call(r["rejected_sites_slope"]), dash.call(r["rejected_sites_ring"]), dash.call(r["sep_relaxed_to"])])
+	lines.append("fallback offset %s  path %s (near miss %s)  pond-steep %s" % [
+		str(r["offset_fallback"]), dash.call(r["path_cap_fallback"]), dash.call(r["path_near_miss"]),
+		dash.call(r["pond_steep"])])
 	lines.append("generate %.0f ms (search %.0f ms)" % [r["generate_ms"], r["search_ms"]])
 	return lines
 

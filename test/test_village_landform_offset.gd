@@ -195,6 +195,249 @@ func test_flat_variant_skips_the_search() -> void:
 	assert_eq(int(VillageGeneratorV3.last_diag.get("landform_searches", -1)), 0, "no search")
 
 
+# ── Measured ring (SD-VILLAGE-TERRAIN-19 steps 1–6, ivy-82zn.14.22 / WP2) ──────
+
+func _plane_grid(slope_deg: float, half: int) -> Dictionary:
+	## 1 m grid centred on the origin, U = tan(slope)·x.
+	var k := tan(deg_to_rad(slope_deg))
+	return VillageLandform.make_ring_grid(Vector2(-half, -half), 2 * half + 1, 2 * half + 1,
+		func(xz: Vector2) -> float: return k * xz.x)
+
+
+func _disc_sdf(grid: Dictionary, r_c: float) -> PackedFloat32Array:
+	return VillageLandform.grid_sdf(grid, func(xz: Vector2) -> float: return xz.length() - r_c)
+
+
+func test_fbm_fast_path_is_bit_identical() -> void:
+	## L's prepared fBm path (AC-LT-PERF) must equal the reference formula exactly.
+	var p := VillageTerrainParams.production()
+	for rot in [0.0, 30.0]:
+		var ctx := VillageLandform.make_ctx(7, p, Vector2(123.4, -456.7), rot)
+		assert_not_null(ctx.get("_fbm"), "production uses the fast path")
+		for i in range(300):
+			var xz := Vector2(float(i % 20) * 6.3 - 60.0, float(i / 20) * 7.1 - 55.0)
+			var ref := float(p.landform_height_m) * VillageLandform.noise01(VillageLandform.landform_q(xz, ctx), ctx)
+			assert_eq(VillageLandform.L(xz, ctx), ref, "L fast path at %s rot %.0f" % [str(xz), rot])
+	var pb := VillageTerrainParams.production()
+	pb.landform_noise = VillageLandform.NOISE_BILLOW
+	assert_null(VillageLandform.make_ctx(7, pb).get("_fbm"), "other noise types use the reference path")
+
+
+func test_ring_constants() -> void:
+	assert_eq(VillageLandform.RING_LADDER_STEP_M, 0.5, "SD-19 ladder step")
+	assert_eq(VillageLandform.RING_OVERLAP_TOL_DEG, 3.0, "SD-19 overlap tolerance")
+
+
+func test_measured_ring_flat_ground_passes_at_the_minimum() -> void:
+	var g := VillageLandform.make_ring_grid(Vector2(-20, -20), 41, 41, func(_xz: Vector2) -> float: return 0.0)
+	var r := VillageLandform.measured_ring(g, _disc_sdf(g, 4.6), 0.0, 3.0, 9.0, 22.0)
+	assert_true(bool(r["ok"]), "flat ground passes")
+	assert_eq(float(r["w"]), 3.0, "first ladder width")
+	assert_almost_eq(float(r["peak_deg"]), 0.0, 1e-4, "no slope")
+
+
+func test_measured_ring_takes_the_first_passing_ladder_width() -> void:
+	# 8°: under the one-sided metric (ivy-82zn.14.23) a 10° plane no longer fits a 4.6 m core.
+	var g := _plane_grid(8.0, 20)
+	var sdf := _disc_sdf(g, 4.6)
+	var r := VillageLandform.measured_ring(g, sdf, 0.0, 3.0, 9.0, 22.0)
+	assert_true(bool(r["ok"]), "8° plane: a ring fits")
+	var w := float(r["w"])
+	assert_lte(float(r["peak_deg"]), 22.0, "peak at w* within the limit")
+	assert_gt(w, 3.0, "8° plane needs more than the minimum ring")
+	assert_almost_eq(fmod(w - 3.0, 0.5), 0.0, 1e-6, "w* on the 0.5 m ladder")
+	var below := VillageLandform.measured_ring(g, sdf, 0.0, w - 0.5, w - 0.5, 22.0)
+	assert_false(bool(below["ok"]), "the ladder step below w* fails (first passing width)")
+	assert_gt(float(below["peak_deg"]), 22.0, "peak below w* over the limit")
+
+
+func test_measured_ring_fails_when_no_width_passes() -> void:
+	var g := _plane_grid(21.0, 20)
+	var r := VillageLandform.measured_ring(g, _disc_sdf(g, 4.6), 0.0, 3.0, 9.0, 22.0)
+	assert_false(bool(r["ok"]), "21° plane: no ring meets 22°")
+	assert_gt(float(r["best_peak_deg"]), 22.0, "best peak still over")
+	assert_between(float(r["best_w"]), 3.0, 9.0, "best width on the ladder")
+
+
+func test_measured_ring_has_no_overlap_allowance() -> void:
+	## SD-19 step 4 (restated, ivy-82zn.14.23): every node is held to 22°, overlap nodes included. A
+	## width whose isolated peak lies in (22°, 25°) still fails inside another site's ring.
+	var found := false
+	for s in [6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0]:
+		var g := _plane_grid(s, 20)
+		var sdf := _disc_sdf(g, 4.6)
+		var w := 3.0
+		while w <= 9.0 and not found:
+			var iso := VillageLandform.measured_ring(g, sdf, 0.0, w, w, 22.0)
+			var pk := float(iso["peak_deg"])
+			if pk > 22.2 and pk < 24.8:
+				var n_sdf := PackedFloat32Array()
+				n_sdf.resize(sdf.size())
+				n_sdf.fill(9.99)
+				var nb := [{"sdf": n_sdf, "target": 0.0, "w": 10.0}]
+				var ov := VillageLandform.measured_ring(g, sdf, 0.0, w, w, 22.0, nb)
+				assert_false(bool(ov["ok"]), "%.0f° plane, w %.1f: peak %.1f° fails inside another ring too" % [s, w, pk])
+				found = true
+			w += 0.5
+		if found:
+			break
+	assert_true(found, "a (22°, 25°) case exists in the plane sweep")
+
+
+func test_typed_sdf_grids_match_the_callable_form() -> void:
+	## AR-LF-PERF P6b: grid_sdf_rect / grid_sdf_disc are typed loops with the same formula.
+	var g := VillageLandform.make_ring_grid(Vector2(-13, -7), 29, 23, func(_xz: Vector2) -> float: return 0.0)
+	var rect := Rect2(Vector2(-3.3, -1.7), Vector2(5.4, 7.4))
+	assert_eq(VillageLandform.grid_sdf_rect(g, rect),
+		VillageLandform.grid_sdf(g, func(p: Vector2) -> float: return VillageTerrain.rect_sdf(p, rect)), "rect sdf")
+	var c := Vector2(0.0, 2.59)
+	assert_eq(VillageLandform.grid_sdf_disc(g, c, 7.0),
+		VillageLandform.grid_sdf(g, func(p: Vector2) -> float: return p.distance_to(c) - 7.0), "disc sdf")
+
+
+func test_measured_ring_uses_one_sided_differences() -> void:
+	## SD-19 step 3 (restated): gx = max(|y[i+1] − y[i]|, |y[i] − y[i−1]|). A 0.5 m spike on one node
+	## just outside the blend reads 14° by central differences (h/2 on its neighbours, 0 on itself)
+	## but 35° one-sided, so the ring fails.
+	var g := VillageLandform.make_ring_grid(Vector2(-20, -20), 41, 41, func(xz: Vector2) -> float:
+		return 0.5 if xz == Vector2(8, 0) else 0.0)
+	var sdf := _disc_sdf(g, 4.6)
+	var r := VillageLandform.measured_ring(g, sdf, 0.0, 3.0, 3.0, 22.0)
+	assert_false(bool(r["ok"]), "spike caught by the one-sided metric")
+	assert_almost_eq(float(r["peak_deg"]), rad_to_deg(atan(sqrt(0.5))), 0.01, "peak = atan(sqrt(gx² + gz²)), gx = gz = 0.5")
+
+
+func test_measured_ring_accepts_a_per_node_target() -> void:
+	## Plaza ring: the candidate's target is a plane per node. Blending a 15° plane toward itself
+	## leaves it at 15°, so the first ladder width passes.
+	var g := _plane_grid(15.0, 20)
+	var k := tan(deg_to_rad(15.0))
+	var t := PackedFloat32Array()
+	t.resize(41 * 41)
+	for iz in range(41):
+		for ix in range(41):
+			t[iz * 41 + ix] = k * float(ix - 20)
+	var r := VillageLandform.measured_ring(g, _disc_sdf(g, 4.6), t, 5.0, 10.0, 22.0)
+	assert_true(bool(r["ok"]), "per-node target accepted")
+	assert_eq(float(r["w"]), 5.0, "first width")
+	assert_almost_eq(float(r["peak_deg"]), 15.0, 0.01, "plane slope kept")
+
+
+func test_rank_offsets_hero_ring_ok_on_rank_zero() -> void:
+	## SD-18 hero_ring_ok: rank 0 is verified (exact p95 + measured hero ring w* in [4, 10]); the
+	## later passing candidates are verified lazily by the generator (verified = false, AC-LT-PERF).
+	var p := VillageTerrainParams.production()
+	for seed in _SEEDS:
+		var ranked := VillageLandform.rank_offsets(seed, p)
+		var c0: Dictionary = ranked[0]
+		assert_true(bool(c0["pass"]) and bool(c0.get("verified", false)), "seed %d rank 0 verified" % seed)
+		var m: Dictionary = c0["measures"]
+		assert_true(bool(m.get("hero_ring_ok", false)), "seed %d rank 0 hero ring ok" % seed)
+		assert_between(float(m.get("hero_ring_w", -1.0)), p.hero_ring_min_m, p.hero_ring_max_m,
+			"seed %d hero ring w in its clamp" % seed)
+		assert_lte(float(m.get("hero_ring_peak_deg", 99.0)), p.ring_max_slope_deg, "peak at w*")
+		var lazy := 0
+		for c: Dictionary in ranked:
+			if bool(c["pass"]) and not bool(c.get("verified", false)):
+				lazy += 1
+		assert_gte(lazy, VillageLandform.VERIFY_RANKS - 1, "seed %d: ranks 1–2 left for the generator" % seed)
+
+
+func test_lazy_verification_for_later_ranks() -> void:
+	## The generator verifies rank 1+ (p95 + hero ring) when it reaches it (landform_for_rank).
+	var p := VillageTerrainParams.production()
+	var ranked := VillageLandform.rank_offsets(1, p)
+	var r1 := -1
+	for i in range(1, ranked.size()):
+		if bool(ranked[i]["pass"]) and not bool(ranked[i].get("verified", true)):
+			r1 = i
+			break
+	assert_gt(r1, 0, "a lazily verified passing rank exists")
+	var c: Dictionary = ranked[r1].duplicate(true)
+	var ok := VillageLandform.verify_candidate(1, p, c)
+	assert_true(bool(c["verified"]), "verified after the lazy check")
+	assert_eq(bool(c["pass"]), ok, "pass flag follows the check")
+	var hr := VillageLandform.hero_ring(1, p, ranked[r1]["offset"])
+	if float((c["measures"] as Dictionary).get("p95_v", 99.0)) <= p.village_slope_p95_max_deg:
+		assert_almost_eq(float(c["measures"]["hero_ring_w"]), float(hr["w"]), 1e-6, "lazy w* = direct measurement")
+		assert_eq(ok, bool(hr["ok"]), "pass reflects hero_ring_ok")
+
+
+func test_rank_offsets_hero_ring_failure_moves_the_offset() -> void:
+	## SD-18 / SD-19 worked numbers: seed 7's old rank 0 (idx 20) has no hero ring ≤ 10 m; the new
+	## rank 0 is idx 36.
+	var p := VillageTerrainParams.production()
+	var ranked := VillageLandform.rank_offsets(7, p)
+	assert_eq(int(ranked[0]["index"]), 36, "seed 7 rank 0 moves to idx 36")
+	var old: Dictionary = {}
+	for c: Dictionary in ranked:
+		if int(c["index"]) == 20:
+			old = c
+	assert_false(old.is_empty(), "idx 20 present")
+	assert_false(bool(old["pass"]), "idx 20 fails hero_ring_ok")
+	assert_gt(float((old["measures"] as Dictionary).get("hero_ring_peak_deg", 0.0)), p.ring_max_slope_deg,
+		"failing peak recorded")
+	assert_false(bool((old["measures"] as Dictionary).get("hero_ring_ok", true)), "flag recorded")
+
+
+func test_rank_zero_passes_plaza_ring_ok() -> void:
+	## SD-18 plaza_ring_ok (ivy-82zn.14.23): the plaza ring is measured (ladder 5–10 m, per-node
+	## plane target, nothing replayed); rank 0 passes and stores plaza_ring_w.
+	var p := VillageTerrainParams.production()
+	for seed in _SEEDS:
+		var m: Dictionary = VillageLandform.rank_offsets(seed, p)[0]["measures"]
+		assert_true(bool(m.get("plaza_ring_ok", false)), "seed %d rank 0 plaza ring ok" % seed)
+		assert_between(float(m.get("plaza_ring_w", -1.0)), p.plaza_ring_m, p.plaza_ring_max_m, "plaza w in its clamp")
+		assert_lte(float(m.get("plaza_ring_peak_deg", 99.0)), p.ring_max_slope_deg, "plaza peak at w*")
+
+
+func test_seed_16_moves_off_a_failing_plaza_ring() -> void:
+	## SD-18: seed 16's old rank 0 has no plaza ring ≤ 10 m, so the search moves to its next candidate.
+	var p := VillageTerrainParams.production()
+	var ranked := VillageLandform.rank_offsets(16, p)
+	var failed := false
+	for c: Dictionary in ranked:
+		var m: Dictionary = c["measures"]
+		if bool(c.get("verified", false)) and m.has("plaza_ring_ok") and not bool(m["plaza_ring_ok"]):
+			failed = true
+			assert_false(bool(c["pass"]), "plaza-ring failure fails the offset")
+			assert_gt(float(m["plaza_ring_peak_deg"]), p.ring_max_slope_deg, "failing plaza peak recorded")
+	assert_true(failed, "a verified seed-16 candidate failed plaza_ring_ok")
+	assert_true(bool(ranked[0]["measures"].get("plaza_ring_ok", false)), "rank 0 passes")
+
+
+func test_layout_stores_plaza_ring_w_and_the_field_uses_it() -> void:
+	var p := VillageTerrainParams.production()
+	var layout := VillageLayout.generate(7)
+	assert_between(float(layout.landform.get("plaza_ring_w", -1.0)), p.plaza_ring_m, p.plaza_ring_max_m,
+		"layout.landform.plaza_ring_w")
+	var f = VillageTerrain.field(layout, p)
+	for s: Dictionary in f.sites:
+		if s["kind"] == "plaza":
+			assert_eq(float(s["w"]), float(layout.landform["plaza_ring_w"]), "field plaza w = stored")
+
+
+func test_layout_stores_hero_ring_w() -> void:
+	var p := VillageTerrainParams.production()
+	for seed in _SEEDS:
+		var layout := VillageLayout.generate(seed)
+		assert_between(float(layout.landform.get("hero_ring_w", -1.0)), p.hero_ring_min_m, p.hero_ring_max_m,
+			"seed %d layout.landform.hero_ring_w" % seed)
+
+
+func test_manual_mode_reports_the_hero_ring() -> void:
+	var p := VillageTerrainParams.production()
+	p.landform_offset_mode = VillageTerrainParams.OFFSET_MANUAL
+	var best: Dictionary = VillageLandform.rank_offsets(1, VillageTerrainParams.production())[0]
+	p.landform_offset_x = (best["offset"] as Vector2).x
+	p.landform_offset_z = (best["offset"] as Vector2).y
+	var c: Dictionary = VillageLandform.rank_offsets(1, p)[0]
+	var m: Dictionary = c["measures"]
+	assert_true(m.has("hero_ring_ok") and m.has("hero_ring_peak_deg"), "manual mode measures the hero ring")
+	assert_almost_eq(float(m["hero_ring_w"]), float((best["measures"] as Dictionary)["hero_ring_w"]), 1e-6,
+		"same w* as the search")
+
+
 func test_ring_width_worked_numbers() -> void:
 	## SD-VILLAGE-TERRAIN-19 worked numbers (ring max 22°).
 	var a := VillageLandform.ring_width(4.6, 8.0, 22.0, 3.0, 9.0)

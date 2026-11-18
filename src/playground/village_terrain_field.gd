@@ -66,14 +66,11 @@ static func build(p_layout: VillageLayout, p_params: VillageTerrainParams, p_hil
 
 func _resolve() -> void:
 	_g = layout.hamlet_centre_xz
-	var norm := layout.generation_seed if layout.generation_seed > 0 else params.layout_seed
+	var norm := _norm_seed()
 	if layout.landform.is_empty():
 		# Layouts built without generate(seed, params) (hand-built in tests / probes): search here.
-		var best: Dictionary = VillageLandform.rank_offsets(norm, params)[0]
-		layout.landform = {
-			"index": best["index"], "offset": best["offset"], "rot_deg": best["rot_deg"], "rank": 0,
-			"measures": best["measures"], "fallback": not bool(best["pass"]),
-		}
+		var ranked := VillageLandform.rank_offsets(norm, params)
+		layout.landform = VillageGeneratorV3.landform_for_rank(norm, params, ranked, 0)
 	var off: Vector2 = layout.landform.get("offset", Vector2.ZERO)
 	var rot: float = float(layout.landform.get("rot_deg", 0.0))
 	ctx = VillageLandform.make_ctx(norm, params, off, rot)
@@ -92,89 +89,211 @@ func _resolve() -> void:
 
 # ── Sites (SD-VILLAGE-TERRAIN-19) ─────────────────────────────────────────────
 
-func _build_sites() -> void:
-	sites.clear()
-	var unfit := Callable(self, "sample_unfit_y")
-	# Plaza: least-squares plane of the capped field (2 m grid), tilt scaled to ≤ plaza_max_tilt.
-	if layout.plaza_rect.has_area():
-		var rect := layout.plaza_rect
-		var pl := VillageLandform.site_plane_fn(unfit, rect, 2.0)
-		var a := float(pl["a"])
-		var b := float(pl["b"])
-		var raw_tilt := float(pl["slope_deg"])
-		var tilt := raw_tilt
-		if raw_tilt > params.plaza_max_tilt_deg and raw_tilt > 1e-6:
-			var k := tan(deg_to_rad(params.plaza_max_tilt_deg)) / tan(deg_to_rad(raw_tilt))
-			a *= k
-			b *= k
-			tilt = params.plaza_max_tilt_deg
-		var ctr := rect.get_center()
-		# Plane through the fitted mean at the rect centre (the 2 m grid is symmetric about it).
-		var c := float(pl["mean"]) - a * ctr.x - b * ctr.y
-		if raw_tilt > VillageLandform.PLAZA_RAW_TILT_MAX_DEG:
-			diag["plaza_steep"] = true
-		sites.append({
-			"kind": "plaza", "rect": rect, "a": a, "b": b, "c": c, "w": params.plaza_ring_m,
-			"tilt_deg": tilt, "raw_tilt_deg": raw_tilt,
-			"bound_c": ctr, "bound_r": rect.size.length() * 0.5 + params.plaza_ring_m,
-		})
-	# Pond: water level from the lowest bank point (SD-19, AR-LF-GAP-7).
-	if layout.pond_placed:
-		var pc := layout.pond_center
-		var lo := INF
-		for i in range(POND_BANK_SAMPLES):
-			var ang := TAU * float(i) / float(POND_BANK_SAMPLES)
-			lo = minf(lo, sample_unfit_y(pc + Vector2(cos(ang), sin(ang)) * VillagePondSite.BANK_OUTER_M))
-		pond_bank_y = lo
-		var r_core := VillagePondSite.MEAN_WATER_RADIUS_M * params.pond_floor_scale
-		var r_outer := VillagePondSite.BANK_OUTER_M + params.pond_rim_extra_m + params.pond_skirt_m
-		var site_pl := VillageLandform.disc_plane(unfit, pc, VillagePondSite.BANK_OUTER_M, 1.0)
-		sites.append({
-			"kind": "pond", "centre": pc, "r_c": r_core, "w": maxf(r_outer - r_core, 0.01),
-			"level": lo, "s_deg": site_pl["slope_deg"], "bound_c": pc, "bound_r": r_outer,
-		})
-	# Cottage pads (layout order): mean of the capped field over the grown exterior rect.
-	for i in range(layout.cottages.size()):
-		var spec: Dictionary = layout.cottages[i]
-		var core := VillageBackdrop.cottage_exterior_rect(spec).grow(params.pad_margin_m)
-		var r_c := core.size.length() * 0.5
-		var pl := VillageLandform.site_plane_fn(unfit, core, 1.0)
-		var ring := VillageLandform.ring_width(r_c, float(pl["slope_deg"]), params.ring_max_slope_deg,
-			params.pad_ring_min_m, params.pad_ring_max_m)
-		sites.append({
-			"kind": "cottage", "index": i, "rect": core, "r_c": r_c, "s_deg": pl["slope_deg"],
-			"target": pl["mean"], "w": ring["w"], "ring_ok": ring["ok"],
-			"bound_c": core.get_center(), "bound_r": r_c + float(ring["w"]),
-		})
-	# Hero (highest priority): mean of raw L + D over the core, ring by formula.
-	var hring := VillageLandform.ring_width(params.hero_flat_r_m, s_hero, params.ring_max_slope_deg,
-		params.hero_ring_min_m, params.hero_ring_max_m)
-	sites.append({
-		"kind": "hero", "centre": VillageLayout.HERO_DOOR_STOOP, "r_c": params.hero_flat_r_m,
-		"s_deg": s_hero, "target": y_hero, "w": hring["w"], "ring_ok": hring["ok"],
-		"bound_c": VillageLayout.HERO_DOOR_STOOP, "bound_r": params.hero_flat_r_m + float(hring["w"]),
-	})
+## ── Shared site helpers (SD-19 step 2, ivy-82zn.14.23): ONE implementation of the plaza plane and
+## the pond level / basin profile, used by this field and by the generator's VillageSiteTerrain
+## (selection replay) and the offset search (plaza_ring_ok). u_fn = cap_sun(L + D) (+ Rg = 0 here).
+
+static func plaza_site(u_fn: Callable, rect: Rect2, p: VillageTerrainParams, w: float) -> Dictionary:
+	## Plaza: least-squares plane of U over the rect (2 m grid), tilt scaled to ≤ plaza_max_tilt_deg,
+	## through the fitted mean at the rect centre (the 2 m grid is symmetric about it).
+	var pl := VillageLandform.site_plane_fn(u_fn, rect, 2.0)
+	var a := float(pl["a"])
+	var b := float(pl["b"])
+	var raw_tilt := float(pl["slope_deg"])
+	var tilt := raw_tilt
+	if raw_tilt > p.plaza_max_tilt_deg and raw_tilt > 1e-6:
+		var k := tan(deg_to_rad(p.plaza_max_tilt_deg)) / tan(deg_to_rad(raw_tilt))
+		a *= k
+		b *= k
+		tilt = p.plaza_max_tilt_deg
+	var ctr := rect.get_center()
+	var c := float(pl["mean"]) - a * ctr.x - b * ctr.y
+	return {
+		"kind": "plaza", "rect": rect, "a": a, "b": b, "c": c, "w": w,
+		"tilt_deg": tilt, "raw_tilt_deg": raw_tilt,
+		"bound_c": ctr, "bound_r": rect.size.length() * 0.5 + w,
+	}
 
 
-func site_sdf(s: Dictionary, xz: Vector2) -> float:
-	## Signed distance to the site core (negative inside).
+static func pond_site(u_fn: Callable, centre: Vector2, p: VillageTerrainParams) -> Dictionary:
+	## Pond: water level from the lowest U on the bank circle r = BANK_OUTER_M (SD-19, AR-LF-GAP-7);
+	## core = water disc, ring out to BANK_OUTER_M + rim extra + skirt.
+	var lo := INF
+	for i in range(POND_BANK_SAMPLES):
+		var ang := TAU * float(i) / float(POND_BANK_SAMPLES)
+		lo = minf(lo, float(u_fn.call(centre + Vector2(cos(ang), sin(ang)) * VillagePondSite.BANK_OUTER_M)))
+	var r_core := VillagePondSite.MEAN_WATER_RADIUS_M * p.pond_floor_scale
+	var r_outer := VillagePondSite.BANK_OUTER_M + p.pond_rim_extra_m + p.pond_skirt_m
+	return {
+		"kind": "pond", "centre": centre, "r_c": r_core, "w": maxf(r_outer - r_core, 0.01),
+		"level": lo, "bound_c": centre, "bound_r": r_outer,
+	}
+
+
+static func sdf_of(s: Dictionary, xz: Vector2) -> float:
+	## Signed distance to a site core (negative inside).
 	if s.has("rect"):
 		return VillageTerrain.rect_sdf(xz, s["rect"])
 	return xz.distance_to(s["centre"]) - float(s["r_c"])
 
 
-func site_target(s: Dictionary, xz: Vector2) -> float:
+static func target_of(s: Dictionary, xz: Vector2, p: VillageTerrainParams) -> float:
+	## Site target at xz: plaza plane, pond basin profile about its level, else the scalar target.
 	match String(s["kind"]):
 		"plaza":
 			return float(s["a"]) * xz.x + float(s["b"]) * xz.y + float(s["c"])
 		"pond":
 			var d := xz.distance_to(s["centre"])
 			var bank := VillagePondSite.BANK_OUTER_M
-			var sigma := maxf(params.pond_lip_sigma_m, 0.01)
-			var basin := params.pond_depth_m * (1.0 - VillageLandform.smooth01(d / bank))
-			var lip := params.pond_lip_rise_m * exp(-((d - bank) * (d - bank)) / (2.0 * sigma * sigma))
+			var sigma := maxf(p.pond_lip_sigma_m, 0.01)
+			var basin := p.pond_depth_m * (1.0 - VillageLandform.smooth01(d / bank))
+			var lip := p.pond_lip_rise_m * exp(-((d - bank) * (d - bank)) / (2.0 * sigma * sigma))
 			return float(s["level"]) + basin + lip
 	return float(s["target"])
+
+
+static func apply_site(s: Dictionary, xz: Vector2, y: float, p: VillageTerrainParams) -> float:
+	## One step of the SD-17 §5 fit chain: lerp(y, target, fer(sdf, 0, w)) inside the site bound.
+	var br: float = s["bound_r"]
+	if xz.distance_squared_to(s["bound_c"]) > br * br:
+		return y
+	var wgt := VillageLandform.fer(sdf_of(s, xz), 0.0, float(s["w"]))
+	if wgt <= 0.0:
+		return y
+	return lerpf(y, target_of(s, xz, p), wgt)
+
+
+static func measure_plaza_ring(u_fn: Callable, plaza: Dictionary, p: VillageTerrainParams) -> Dictionary:
+	## -18 plaza_ring_ok / -19 plaza row: the measured plaza ring, ladder [plaza_ring_m,
+	## plaza_ring_max_m] on the plaza rect, per-node target = the plaza plane, nothing replayed (the
+	## field applies the plaza first). Integer-aligned 1 m grid, lazy U.
+	var rect: Rect2 = plaza["rect"]
+	var w_max: float = p.plaza_ring_max_m
+	var box := rect.grow(w_max + 2.0)
+	var origin := Vector2(floor(box.position.x), floor(box.position.y))
+	var nx := int(ceil(box.end.x) - origin.x) + 1
+	var nz := int(ceil(box.end.y) - origin.y) + 1
+	var grid := {"origin": origin, "nx": nx, "nz": nz,
+		"u_fn": func(q: Vector2, _k: int) -> float: return float(u_fn.call(q))}
+	var sdf := VillageLandform.grid_sdf_rect(grid, rect)
+	var t := PackedFloat32Array()
+	t.resize(nx * nz)
+	for iz in range(nz):
+		for ix in range(nx):
+			t[iz * nx + ix] = target_of(plaza, origin + Vector2(float(ix), float(iz)), p)
+	return VillageLandform.measured_ring(grid, sdf, t, p.plaza_ring_m, w_max, p.ring_max_slope_deg)
+
+
+func _build_sites() -> void:
+	sites.clear()
+	var unfit := Callable(self, "sample_unfit_y")
+	# Plaza: tilted plane; ring = the stored measured width (landform.plaza_ring_w, -18
+	# plaza_ring_ok), measured here with the same helper only when missing.
+	if layout.plaza_rect.has_area():
+		var plaza := plaza_site(unfit, layout.plaza_rect, params, params.plaza_ring_m)
+		var pw: float
+		if layout.landform.has("plaza_ring_w"):
+			pw = float(layout.landform["plaza_ring_w"])
+		else:
+			pw = float(measure_plaza_ring(unfit, plaza, params)["w"])
+		plaza["w"] = pw
+		plaza["bound_r"] = (plaza["rect"] as Rect2).size.length() * 0.5 + pw
+		if float(plaza["raw_tilt_deg"]) > VillageLandform.PLAZA_RAW_TILT_MAX_DEG:
+			diag["plaza_steep"] = true
+		sites.append(plaza)
+	# Pond: water level from the lowest bank point (SD-19, AR-LF-GAP-7).
+	if layout.pond_placed:
+		var pond := pond_site(unfit, layout.pond_center, params)
+		pond_bank_y = float(pond["level"])
+		pond["s_deg"] = VillageLandform.disc_plane(unfit, layout.pond_center, VillagePondSite.BANK_OUTER_M, 1.0)["slope_deg"]
+		sites.append(pond)
+	# Ring widths: the stored measured values (SD-19 step 6: landform.hero_ring_w from the search,
+	# spec.ring_w from the plot sampler); measured here with the same helper only when missing
+	# (hand-built layouts, manual mode without a search entry). On hero fallback the stored value
+	# is the ladder's best width.
+	var hero_w: float
+	var hero_ok := true
+	if layout.landform.has("hero_ring_w"):
+		hero_w = float(layout.landform["hero_ring_w"])
+		hero_ok = bool((layout.landform.get("measures", {}) as Dictionary).get("hero_ring_ok", true))
+	else:
+		var hr := VillageLandform.hero_ring(_norm_seed(), params, ctx["offset"], float(ctx["rot_deg"]))
+		hero_w = float(hr["w"])
+		hero_ok = bool(hr["ok"])
+	var hero_site := {
+		"kind": "hero", "centre": VillageLayout.HERO_DOOR_STOOP, "r_c": params.hero_flat_r_m,
+		"s_deg": s_hero, "target": y_hero, "w": hero_w, "ring_ok": hero_ok,
+		"bound_c": VillageLayout.HERO_DOOR_STOOP, "bound_r": params.hero_flat_r_m + hero_w,
+	}
+	# Cottage pads (layout order): mean of the capped field over the grown exterior rect.
+	var pads: Array[Dictionary] = []
+	for i in range(layout.cottages.size()):
+		var spec: Dictionary = layout.cottages[i]
+		var core := VillageBackdrop.cottage_exterior_rect(spec).grow(params.pad_margin_m)
+		var r_c := core.size.length() * 0.5
+		var pl := VillageLandform.site_plane_fn(unfit, core, 1.0)
+		var w: float
+		var ok := true
+		if spec.has("ring_w"):
+			w = float(spec["ring_w"])
+		else:
+			var mr := _measure_pad_ring(core, float(pl["mean"]), pads, hero_site)
+			w = float(mr["w"])
+			ok = bool(mr["ok"])
+		var pad := {
+			"kind": "cottage", "index": i, "rect": core, "r_c": r_c, "s_deg": pl["slope_deg"],
+			"target": pl["mean"], "w": w, "ring_ok": ok,
+			"bound_c": core.get_center(), "bound_r": r_c + w,
+		}
+		pads.append(pad)
+		sites.append(pad)
+	sites.append(hero_site)
+
+
+func _norm_seed() -> int:
+	return layout.generation_seed if layout.generation_seed > 0 else params.layout_seed
+
+
+func _measure_pad_ring(core: Rect2, target: float, prev: Array[Dictionary], hero_site: Dictionary) -> Dictionary:
+	## The plot sampler's measured ring (VillageLandform.measured_ring) on exact sample_unfit_y, with
+	## the earlier pads (layout order) and the hero replayed; same integer-aligned 1 m grid.
+	var w_max: float = params.pad_ring_max_m
+	var box := core.grow(w_max + 2.0)
+	var origin := Vector2(floor(box.position.x), floor(box.position.y))
+	var nx := int(ceil(box.end.x) - origin.x) + 1
+	var nz := int(ceil(box.end.y) - origin.y) + 1
+	# Plaza and pond (already in `sites`, field order) are baked into U (SD-19 step 2).
+	var bake: Array = []
+	for s: Dictionary in sites:
+		if s["kind"] == "plaza" or s["kind"] == "pond":
+			bake.append(s)
+	var p_ref := params
+	var grid := {"origin": origin, "nx": nx, "nz": nz,
+		"u_fn": func(p: Vector2, _k: int) -> float:
+			var u := sample_unfit_y(p)
+			for s: Dictionary in bake:
+				u = apply_site(s, p, u, p_ref)
+			return u}
+	var sdf := VillageLandform.grid_sdf_rect(grid, core)
+	var before: Array = []
+	for s: Dictionary in prev:
+		var r: Rect2 = s["rect"]
+		if not r.grow(float(s["w"])).intersects(box):
+			continue
+		before.append({"sdf": VillageLandform.grid_sdf_rect(grid, r), "target": float(s["target"]), "w": float(s["w"])})
+	var after := [{"sdf": VillageLandform.grid_sdf_disc(grid, hero_site["centre"], float(hero_site["r_c"])),
+		"target": float(hero_site["target"]), "w": float(hero_site["w"])}]
+	return VillageLandform.measured_ring(grid, sdf, target, params.pad_ring_min_m, w_max,
+		params.ring_max_slope_deg, before, after)
+
+
+func site_sdf(s: Dictionary, xz: Vector2) -> float:
+	## Signed distance to the site core (negative inside).
+	return sdf_of(s, xz)
+
+
+func site_target(s: Dictionary, xz: Vector2) -> float:
+	return target_of(s, xz, params)
 
 
 func cottage_site(index: int) -> Dictionary:
@@ -238,16 +357,37 @@ func sample_slope_deg(xz: Vector2, eps: float = 0.4) -> float:
 	return rad_to_deg(atan(sqrt(dx * dx + dz * dz)))
 
 
+## Open-land band beyond a site's ring (SD-20 restated: the eps 0.4 slope stencil stays outside
+## every blend).
+const PATH_ZONE_BAND_M := 0.4
+
+
 func max_path_slope(p_layout: VillageLayout = null) -> Dictionary:
-	## Steepest sample_slope_deg along every path polyline at ≤ 1 m steps (SD-20 metric), split
-	## into open path and the door-approach zone. {deg, at, door_exempt_deg}.
+	## AC-LT-PATH on the field (readout / tests): {deg = open-land max, at, n_open, zone_deg,
+	## door_exempt_deg (= zone_deg, kept for old readers)}; sample_slope_deg (eps 0.4) everywhere.
 	var lay := p_layout if p_layout != null else layout
-	var out := {"deg": 0.0, "at": Vector2.ZERO, "door_exempt_deg": 0.0}
 	if flat:
-		return out
+		return {"deg": 0.0, "at": Vector2.ZERO, "n_open": 0, "zone_deg": 0.0, "door_exempt_deg": 0.0}
+	var fn := Callable(self, "sample_slope_deg")
+	var out := path_scan(lay, params, sites, fn, fn)
+	out["door_exempt_deg"] = out["zone_deg"]
+	return out
+
+
+static func path_scan(lay: VillageLayout, p: VillageTerrainParams, zone_sites: Array,
+		open_slope_fn: Callable, zone_slope_fn: Callable = Callable()) -> Dictionary:
+	## SD-VILLAGE-TERRAIN-20 (restated ivy-82zn.14.23), one classification for the generator and
+	## the field: ≤ 1 m samples on every polyline (door connectors included). A sample is in the fit
+	## zone when it is within door_approach_m of a door, or sdf_j < w_j + 0.4 for any site j
+	## (bounding-circle pre-test); otherwise open land, read with open_slope_fn. Zone samples are
+	## read only if zone_slope_fn is given. {deg, at, n_open, zone_deg}.
+	var out := {"deg": 0.0, "at": Vector2.ZERO, "n_open": 0, "zone_deg": 0.0}
 	var doors: Array[Vector2] = []
 	for spec: Dictionary in lay.cottages:
 		doors.append(VillageBackdrop.cottage_door(spec)[0])
+	var door2 := p.door_approach_m * p.door_approach_m
+	var band := PATH_ZONE_BAND_M
+	var has_zone_fn := zone_slope_fn.is_valid()
 	for poly: Variant in lay.path_polylines():
 		var pts: Array = poly as Array
 		for i in range(pts.size() - 1):
@@ -255,18 +395,29 @@ func max_path_slope(p_layout: VillageLayout = null) -> Dictionary:
 			var b: Vector2 = pts[i + 1]
 			var n := maxi(1, ceili(a.distance_to(b)))
 			for k in range(n + 1):
-				var p := a.lerp(b, float(k) / float(n))
-				var s := sample_slope_deg(p)
-				var near_door := false
+				var q := a.lerp(b, float(k) / float(n))
+				var zone := false
 				for d: Vector2 in doors:
-					if p.distance_to(d) <= params.door_approach_m:
-						near_door = true
+					if q.distance_squared_to(d) <= door2:
+						zone = true
 						break
-				if near_door:
-					out["door_exempt_deg"] = maxf(float(out["door_exempt_deg"]), s)
-				elif s > float(out["deg"]):
-					out["deg"] = s
-					out["at"] = p
+				if not zone:
+					for s: Dictionary in zone_sites:
+						var br: float = float(s["bound_r"]) + band
+						if q.distance_squared_to(s["bound_c"]) > br * br:
+							continue
+						if sdf_of(s, q) < float(s["w"]) + band:
+							zone = true
+							break
+				if zone:
+					if has_zone_fn:
+						out["zone_deg"] = maxf(float(out["zone_deg"]), float(zone_slope_fn.call(q)))
+					continue
+				out["n_open"] = int(out["n_open"]) + 1
+				var sl := float(open_slope_fn.call(q))
+				if sl > float(out["deg"]):
+					out["deg"] = sl
+					out["at"] = q
 	return out
 
 

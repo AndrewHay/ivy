@@ -46,6 +46,19 @@ func test_render_outline_is_densified_spline() -> void:
 	assert_gte(VillagePondShape.water_render_outline_xz().size(), 700)
 
 
+func test_point_in_outline_is_vertex_robust_ivy_5anf() -> void:
+	## ivy-5anf: Geometry2D.is_point_in_polygon on the 720-point outline reported these points (8.5 m
+	## and 25 m from the seed-7 generated centre, outline max r 3.3 m) as in the water.
+	var shape := VillagePondShape.at(Vector2(-18.12696, -26.29458))
+	assert_false(shape._is_in_water(Vector2(-25.5273, -30.37608)), "8.5 m away: not in water")
+	assert_false(shape._is_in_water(Vector2(-29.49546, -48.8884)), "25 m away: not in water")
+	assert_true(shape._is_in_water(Vector2(-18.12696, -26.29458)), "centre is in water")
+	var poly := PackedVector2Array([Vector2(0, 0), Vector2(2, 0), Vector2(2, 2), Vector2(0, 2)])
+	assert_true(VillagePondShape.point_in_outline(Vector2(1, 1), poly), "inside square")
+	assert_false(VillagePondShape.point_in_outline(Vector2(3, 1), poly), "outside square")
+	assert_false(VillagePondShape.point_in_outline(Vector2(-1, 0), poly), "ray through a vertex: outside")
+
+
 func test_bank_ring_wraps_water() -> void:
 	var water := VillagePondShape.water_render_outline_xz()
 	var bank := VillagePondShape.bank_outer_outline_xz()

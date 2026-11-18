@@ -85,6 +85,54 @@ func test_resolve_after_paths_fast_on_five_seeds() -> void:
 			"seed=%d re-resolve must stay valid" % seed)
 
 
+# ── Pond site on the landform (ivy-82zn.14.16, SD-VILLAGE-TERRAIN-19 pond row, AR-LF-GAP-2) ──
+
+func _pc(x: float, slope: float, mean: float) -> Dictionary:
+	return {"centre": Vector2(x, 0.0), "slope_deg": slope, "mean": mean}
+
+
+func test_pond_chooser_takes_the_lowest_of_the_first_six_flat_sites() -> void:
+	## Valid candidates in try order; slope ≤ 6° qualifies; the first 6 qualifying ones compete on
+	## raw height (lowest wins, ties → earlier try); later qualifying sites are never considered.
+	var cands: Array = [
+		_pc(1, 8.0, -5.0),   # too steep
+		_pc(2, 3.0, 1.0),
+		_pc(3, 5.9, 0.4),
+		_pc(4, 2.0, 0.4),    # tie with 3: earlier wins
+		_pc(5, 1.0, 2.0),
+		_pc(6, 4.0, 0.9),
+		_pc(7, 6.0, 0.5),    # 6th qualifying
+		_pc(8, 0.5, -9.0),   # 7th qualifying: ignored
+	]
+	var r := VillagePondPlacement.choose_terrain_site(cands, 6.0)
+	assert_eq(r["centre"], Vector2(3, 0), "lowest raw height of the first 6 flat sites")
+	assert_false(bool(r["steep"]), "not steep")
+
+
+func test_pond_chooser_falls_back_to_the_flattest_site() -> void:
+	var r := VillagePondPlacement.choose_terrain_site([_pc(1, 9.0, 0.0), _pc(2, 7.0, 3.0), _pc(3, 8.0, -1.0)], 6.0)
+	assert_eq(r["centre"], Vector2(2, 0), "no flat site: the flattest valid one")
+	assert_true(bool(r["steep"]), "pond_steep")
+
+
+func test_pond_chooser_stops_collecting_after_six() -> void:
+	assert_eq(VillagePondPlacement.POND_TERRAIN_CANDIDATES, 6, "AR-LF-LAYOUT: stop at 6")
+
+
+func test_ac_lt_pond_site_slope_seeds_1_7_12() -> void:
+	## AC-LT-POND: pond centre site slope (raw plane over r ≤ BANK_OUTER_M) ≤ pond_max_site_slope_deg.
+	var p := VillageTerrainParams.production()
+	for seed in [1, 7, 12]:
+		var layout := VillageLayout.generate(seed)
+		assert_false(layout.fallback, "seed %d generated" % seed)
+		assert_false(bool(layout.terrain_diag.get("pond_steep", false)), "seed %d pond_steep unset" % seed)
+		var f = VillageTerrain.field(layout, p)
+		var pl := VillageLandform.disc_plane(Callable(f, "sample_unfit_y"), layout.pond_center,
+			VillagePondSite.BANK_OUTER_M, 1.0)
+		assert_lte(float(pl["slope_deg"]), p.pond_max_site_slope_deg + 0.05,
+			"seed %d pond site slope %.2f°" % [seed, pl["slope_deg"]])
+
+
 func test_generated_pond_not_classic_fallback() -> void:
 	const SEED := 4
 	var layout := VillageLayout.generate(SEED)

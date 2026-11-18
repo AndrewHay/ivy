@@ -113,7 +113,9 @@ static func all_knobs() -> Array[Dictionary]:
 	_add_float(rows, "pond_max_site_slope_deg", "Pond site max (°)", "Fit", 2.0, 10.0, 0.25, LANDSCAPE, L,
 		"Pond site rejection (WP2).")
 	_add_float(rows, "plaza_max_tilt_deg", "Plaza max tilt (°)", "Fit", 0.0, 10.0, 0.25, LANDSCAPE, L)
-	_add_float(rows, "plaza_ring_m", "Plaza ring (m)", "Fit", 2.0, 8.0, 0.25, LANDSCAPE, L)
+	_add_float(rows, "plaza_ring_m", "Plaza ring min (m)", "Fit", 2.0, 8.0, 0.25, LANDSCAPE, L)
+	_add_float(rows, "plaza_ring_max_m", "Plaza ring max (m)", "Fit", 6.0, 14.0, 0.25, LANDSCAPE, L,
+		"Plaza ring ladder maximum (offset search plaza_ring_ok).")
 
 	# Pond basin (terrain class: same layout, field rebuilt)
 	_add_float(rows, "pond_freeboard_m", "Pond freeboard (m)", "Pond", 0.05, 0.4, 0.01, LANDSCAPE, T,
@@ -129,8 +131,12 @@ static func all_knobs() -> Array[Dictionary]:
 
 	# Paths (SD-20)
 	_add_float(rows, "max_path_slope_deg", "Max path slope (°)", "Paths", 8.0, 20.0, 0.5, LANDSCAPE, L,
-		"Path cap (generator retry from WP2).")
+		"Open-land path cap (in fit rings the ring rule applies).")
 	_add_float(rows, "door_approach_m", "Door approach (m)", "Paths", 1.0, 5.0, 0.25, LANDSCAPE, L)
+	_add_float(rows, "path_steep_accept_deg", "Path accept max (°)", "Paths", 14.0, 24.0, 0.5, LANDSCAPE, L,
+		"Keep a rank's best over-cap layout (flagged) if its open-land max is at or under this.")
+	_add_float(rows, "path_near_miss_deg", "Path near miss (°)", "Paths", 0.0, 4.0, 0.1, LANDSCAPE, L,
+		"Accept at once (flagged) within this of the cap. 0 = no near-miss accept.")
 
 	# Village (SD-21; consumed by the generator from WP3)
 	_add_float(rows, "cottage_min_sep_m", "Cottage min spacing (m)", "Village", 15.0, 30.0, 0.5, LANDSCAPE, L,

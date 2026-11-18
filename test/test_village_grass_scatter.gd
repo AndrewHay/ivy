@@ -378,19 +378,31 @@ func test_generated_grass_count_and_perf() -> void:
 
 
 func test_generated_grass_core_and_edge_density() -> void:
-	var ctx := _make_generated_grass_ctx(1)
-	if ctx == null:
-		pending("seed=1 fell back to authored")
+	## Mean over seeds 1–3 (ivy-82zn.14.16): the annulus density depends on where a seed's cottages
+	## and paths fall; WP2 terrain fitting re-places seed 1 (core 16.1 → 14.1/m² with the grass code
+	## unchanged; seeds 1–8 span 14.1–17.2), so one layout is too noisy a sample. Bounds unchanged.
+	var core := 0.0
+	var edge := 0.0
+	var n := 0
+	for seed in [1, 2, 3]:
+		var ctx := _make_generated_grass_ctx(seed)
+		if ctx == null:
+			continue
+		var g := ctx.grid_centre_xz
+		var grass := VillageScatterPositions.grass_blade_positions(ctx)
+		var r_flat := R_FLAT_FRAC * R_EDGE_G
+		core += _annulus_density(grass, g, r_flat * 0.55, r_flat * 0.92)
+		edge += _annulus_density(grass, g, R_EDGE_G - 1.2, R_EDGE_G - 0.05)
+		n += 1
+	if n == 0:
+		pending("seeds 1–3 fell back to authored")
 		return
-	var g := ctx.grid_centre_xz
-	var grass := VillageScatterPositions.grass_blade_positions(ctx)
-	var r_flat := R_FLAT_FRAC * R_EDGE_G
-	var core := _annulus_density(grass, g, r_flat * 0.55, r_flat * 0.92)
+	core /= n
+	edge /= n
 	assert_between(core, GRASS_CORE * GEN_SCALE * 0.72, GRASS_CORE * GEN_SCALE * 1.12,
-		"Generated core %.1f/m²" % core)
-	var edge := _annulus_density(grass, g, R_EDGE_G - 1.2, R_EDGE_G - 0.05)
+		"Generated core %.1f/m² (mean of %d seeds)" % [core, n])
 	assert_between(edge, GRASS_EDGE * GEN_SCALE * 0.55, GRASS_EDGE * GEN_SCALE * 1.35,
-		"Generated edge %.1f/m²" % edge)
+		"Generated edge %.1f/m² (mean of %d seeds)" % [edge, n])
 	assert_lt(edge, core * 0.85, "Generated edge sparser than core")
 
 

@@ -233,7 +233,8 @@ func _check_no_grass_in_water_xz(seed: int) -> void:
 	var violation_count := 0
 	for xf: Transform3D in positions:
 		var p := Vector2(xf.origin.x, xf.origin.z)
-		if Geometry2D.is_point_in_polygon(p, water_outline):
+		# ivy-5anf: vertex-robust test (Geometry2D.is_point_in_polygon gave false positives far outside).
+		if VillagePondShape.point_in_outline(p, water_outline):
 			violation_count += 1
 	assert_eq(violation_count, 0,
 		"AC-VT3 seed=%d: %d grass blades inside water outline" % [seed, violation_count])

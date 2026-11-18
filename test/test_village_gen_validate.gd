@@ -240,3 +240,13 @@ func test_all_aggregator() -> void:
 	var res: Dictionary = _Validate.all(layout)
 	assert_true(res.has("v1"))
 	assert_true(res.has("v6"))
+
+
+func test_v_terrain_path_open_land_only() -> void:
+	## AC-LT-PATH / SD-20 restated (ivy-82zn.14.23): only the open-land max is checked; no door cap.
+	assert_eq(_Validate.v_terrain_path(13.9, 14.0).size(), 0, "within the cap")
+	var over: Array = _Validate.v_terrain_path(15.0, 14.0)
+	assert_eq(over.size(), 1, "open path over 14°")
+	assert_string_contains(str(over[0]), "path_cap")
+	assert_almost_eq(_Validate.path_cap_violation(15.5, 14.0), 1.5, 1e-6, "violation = open max − cap")
+	assert_eq(_Validate.path_cap_violation(12.0, 14.0), 0.0, "no violation under the cap")

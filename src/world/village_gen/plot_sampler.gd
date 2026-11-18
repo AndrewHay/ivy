@@ -300,6 +300,8 @@ static func select(
 	var quadrant_cap_max: int = int(params.get("quadrant_cap_max", 4))
 	var hamlet_g: Vector2 = params.get("hamlet_g", _Layout.VILLAGE_GREEN_G) as Vector2
 	var max_corner_m: float = float(params.get("max_corner_m", _Layout.HAMLET_MAX_CORNER_FROM_G))
+	## Callable(cand, picked) -> {ok, reason, s_deg, w, target, core} or null (flat: unchanged).
+	var terrain_fn: Variant = params.get("terrain_site_fn", null)
 	if cands.is_empty() or n <= 0:
 		return []
 
@@ -351,6 +353,10 @@ static func select(
 		var qi0: int = int(cand.get("quadrant_index", quadrant_index(rect.get_center(), hamlet_g)))
 		if q_counts[qi0] >= quadrant_cap_max:
 			continue
+		## Terrain site rejection last (ivy-82zn.14.16, SD-VILLAGE-TERRAIN-19): skip like a wall gap.
+		var site := _terrain_site(terrain_fn, cand, picked)
+		if not site.is_empty() and not bool(site.get("ok", false)):
+			continue
 		## varied spacing term (along same path)
 		var pid: int = int(cand["path_id"])
 		var s_val: float = float(cand["s"])
@@ -391,9 +397,10 @@ static func select(
 		adjusted *= nmul
 
 		var entry: Dictionary = cand.duplicate(true)
+		_store_site(entry, site)
 		entry["score_selected"] = adjusted
 		entry["spacing_penalty"] = spacing_pen
-		var sp: Dictionary = entry["score_parts"] as Dictionary
+		var sp: Dictionary = entry.get("score_parts", {}) as Dictionary
 		sp["quadrant_balance_pen"] = qpen
 		sp["spread_quadrant_bonus"] = spread_bonus
 		entry["score_parts"] = sp
@@ -417,6 +424,7 @@ static func append_to_selection(
 	var quadrant_cap_max: int = int(params.get("quadrant_cap_max", 4))
 	var hamlet_g: Vector2 = params.get("hamlet_g", _Layout.VILLAGE_GREEN_G) as Vector2
 	var max_corner_m: float = float(params.get("max_corner_m", _Layout.HAMLET_MAX_CORNER_FROM_G))
+	var terrain_fn: Variant = params.get("terrain_site_fn", null)
 	var picked: Array[Dictionary] = []
 	for e: Variant in existing:
 		picked.append((e as Dictionary).duplicate(true))
@@ -477,6 +485,9 @@ static func append_to_selection(
 		var qix: int = int(cand.get("quadrant_index", quadrant_index(rect.get_center(), hamlet_g)))
 		if q_counts[qix] >= quadrant_cap_max:
 			continue
+		var site := _terrain_site(terrain_fn, cand, picked)
+		if not site.is_empty() and not bool(site.get("ok", false)):
+			continue
 		var pid: int = int(cand["path_id"])
 		var s_val: float = float(cand["s"])
 		var spacing_pen: float = 0.0
@@ -514,9 +525,10 @@ static func append_to_selection(
 		adjusted *= nmul
 
 		var entry: Dictionary = cand.duplicate(true)
+		_store_site(entry, site)
 		entry["score_selected"] = adjusted
 		entry["spacing_penalty"] = spacing_pen
-		var sp2: Dictionary = entry["score_parts"] as Dictionary
+		var sp2: Dictionary = entry.get("score_parts", {}) as Dictionary
 		sp2["quadrant_balance_pen"] = qpen2
 		sp2["spread_quadrant_bonus"] = spread_bonus2
 		entry["score_parts"] = sp2
@@ -525,6 +537,25 @@ static func append_to_selection(
 		q_counts[qi2] += 1
 
 	return picked
+
+
+static func _terrain_site(terrain_fn: Variant, cand: Dictionary, picked: Array) -> Dictionary:
+	## {} when there is no terrain fn (flat variant / classic: unchanged behaviour).
+	if not (terrain_fn is Callable) or not (terrain_fn as Callable).is_valid():
+		return {}
+	return (terrain_fn as Callable).call(cand, picked) as Dictionary
+
+
+static func _store_site(entry: Dictionary, site: Dictionary) -> void:
+	## Accepted site: the measured ring width goes on the spec (SD-19 step 6, read by the field) and
+	## the pad core / target / width on the entry, for neighbour replay of later candidates.
+	entry.erase("_site")
+	if site.is_empty():
+		return
+	var spec: Dictionary = entry["spec"] as Dictionary
+	spec["ring_w"] = float(site["w"])
+	var core: Rect2 = site.get("core", VillageBackdrop.cottage_exterior_rect(spec))
+	entry["_pad"] = {"rect": core, "target": float(site["target"]), "w": float(site["w"])}
 
 
 static func _spec_with_pose(

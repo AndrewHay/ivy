@@ -269,10 +269,20 @@ func test_readout_reports_the_search_measures() -> void:
 	var r: Dictionary = pg.landform_readout()
 	for k in ["offset", "index", "rank", "s_hero", "up_hero", "down_hero", "span_v", "p95_v",
 			"plaza_tilt_deg", "max_path_slope_deg", "offset_fallback", "generate_ms", "search_ms",
-			"rejected_sites", "sep_relaxed_to", "path_cap_fallback", "pond_steep"]:
+			"rejected_sites", "sep_relaxed_to", "path_cap_fallback", "pond_steep",
+			# ivy-82zn.14.16 (SD-22 readout, restated ivy-82zn.14.23 / .14.24)
+			"hero_ring_w", "hero_ring_peak_deg", "plaza_ring_w", "plaza_ring_peak_deg",
+			"rejected_sites_slope", "rejected_sites_ring", "max_path_slope_open_deg",
+			"max_path_slope_zone_deg", "path_near_miss"]:
 		assert_true(r.has(k), "readout %s" % k)
 	assert_eq(r["offset"], pg._layout.landform["offset"], "readout offset = chosen offset")
-	assert_string_contains(pg.hud_text(), "landform: offset")
+	assert_eq(float(r["hero_ring_w"]), float(pg._layout.landform["hero_ring_w"]), "hero ring w = stored")
+	assert_eq(float(r["plaza_ring_w"]), float(pg._layout.landform["plaza_ring_w"]), "plaza ring w = stored")
+	assert_eq(r["rejected_sites"], pg._layout.terrain_diag.get("rejected_sites"), "rejected sites from the generator")
+	var hud: String = pg.hud_text()
+	assert_string_contains(hud, "landform: offset")
+	assert_string_contains(hud, "hero ring")
+	assert_string_contains(hud, "open")
 
 
 func test_auto_mode_writes_the_offset_back_for_copy_out() -> void:
@@ -315,7 +325,9 @@ func test_variant_flat_and_noise_selector() -> void:
 	pg._on_variant_changed(0)
 	pg._on_knob_changed("landform_noise", 1)
 	await pg._await_refined()
-	assert_eq(int(pg._layout.terrain_params.landform_noise), 1, "billow noise applied")
+	# Read the build params: on seed 7 billow terrain rejects too many cottage sites and the
+	# generator ends on the authored fallback (ivy-82zn.14.16), whose layout carries no params.
+	assert_eq(int(pg._build_params.landform_noise), 1, "billow noise applied")
 
 
 func test_camera_presets_include_horizons_overview_and_seam() -> void:

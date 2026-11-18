@@ -110,21 +110,60 @@ func test_path_stone_y_zero_in_classic() -> void:
 	pass_test("classic path stones: all y=0 (INV-15)")
 
 
-func test_ac_lt_path_metric() -> void:
-	## AC-LT-PATH: sample_slope_deg along every polyline at ≤ 1 m steps ≤ 14°, ≤ 25° within 3 m of
-	## a door. Enforcement (attempt retry → next offset → path_cap_fallback) is WP2; until then the
-	## measured values are reported and asserted only if they already hold.
+func test_path_scan_skips_fit_zones_and_door_approaches() -> void:
+	## SD-20 restated (ivy-82zn.14.23): open land = sdf_j ≥ w_j + 0.4 for every fit site and more
+	## than door_approach_m from every door; only open samples are read by the open-land slope fn.
 	var p := VillageTerrainParams.production()
-	var notes := PackedStringArray()
-	var all_ok := true
+	var layout := VillageLayout.new()
+	layout.paths = [[Vector2(-40.0, 0.0), Vector2(40.0, 0.0)]]
+	var hero := {"kind": "hero", "centre": Vector2.ZERO, "r_c": 7.0, "w": 4.0, "bound_c": Vector2.ZERO, "bound_r": 11.0}
+	var fn := func(xz: Vector2) -> float: return 99.0 if absf(xz.x) < 11.4 else 5.0
+	var m := VillageTerrainField.path_scan(layout, p, [hero], fn, fn)
+	assert_eq(float(m["deg"]), 5.0, "zone samples excluded from the open-land max")
+	assert_eq(float(m["zone_deg"]), 99.0, "zone samples reported separately")
+	assert_gt(int(m["n_open"]), 40, "open samples counted")
+
+
+func test_ac_lt_path_sweep_seeds_1_20() -> void:
+	## AC-LT-PATH sweep: ≤ 2 seeds flagged, each flagged open max ≤ path_steep_accept_deg, fit zone
+	## ≤ 25° on every seed, no seed uses 12 attempts, mean attempts_used ≤ 3.
+	var p := VillageTerrainParams.production()
+	var flagged := PackedStringArray()
+	var attempts_sum := 0
+	var n := 0
+	for seed in range(1, 21):
+		var layout := VillageLayout.generate(seed)
+		var used := int(VillageGeneratorV3.last_diag.get("attempts_used", 0))
+		attempts_sum += used
+		n += 1
+		assert_lt(used, 12, "seed %d did not need all 12 attempts" % seed)
+		if layout.fallback:
+			continue
+		var m: Dictionary = VillageTerrain.field(layout, p).max_path_slope(layout)
+		assert_lte(float(m["zone_deg"]), p.ring_max_slope_deg + 3.0, "seed %d fit zone ≤ 25° (%.1f°)" % [seed, m["zone_deg"]])
+		if bool(layout.terrain_diag.get("path_cap_fallback", false)):
+			flagged.append("%d (%.2f°)" % [seed, m["deg"]])
+			assert_lte(float(m["deg"]), p.path_steep_accept_deg, "seed %d flagged open max ≤ 18°" % seed)
+		else:
+			assert_lte(float(m["deg"]), p.max_path_slope_deg, "seed %d open path ≤ 14°" % seed)
+	gut.p("flagged: %s; mean attempts %.2f" % [", ".join(flagged), float(attempts_sum) / float(n)])
+	assert_lte(flagged.size(), 2, "≤ 2 flagged seeds")
+	assert_lte(float(attempts_sum) / float(n), 3.0, "mean attempts ≤ 3")
+
+
+func test_ac_lt_path_metric() -> void:
+	## AC-LT-PATH (restated ivy-82zn.14.23): open land ≤ 14° (or the seed is flagged), fit zone
+	## ≤ 25°, the generator's open-land value equals the field's within 0.01°; seeds 1/7/12 unflagged.
+	var p := VillageTerrainParams.production()
 	for seed in [1, 7, 12]:
 		var layout := VillageLayout.generate(seed)
+		assert_false(layout.fallback, "seed %d generated" % seed)
+		assert_false(layout.terrain_diag.has("path_cap_fallback"), "seed %d path_cap_fallback unset" % seed)
 		var m: Dictionary = VillageTerrain.field(layout, p).max_path_slope(layout)
-		assert_true(is_finite(float(m["deg"])), "seed %d path metric finite" % seed)
-		notes.append("%d: %.1f° (door %.1f°)" % [seed, m["deg"], m["door_exempt_deg"]])
-		all_ok = all_ok and float(m["deg"]) <= p.max_path_slope_deg \
-			and float(m["door_exempt_deg"]) <= p.ring_max_slope_deg + 3.0
-	if all_ok:
-		pass_test("AC-LT-PATH holds already: %s" % ", ".join(notes))
-	else:
-		pending("AC-LT-PATH cap is enforced in WP2 (ivy-82zn.14.16); WP1 measures %s" % ", ".join(notes))
+		gut.p("seed %d open path %.2f° zone %.1f°" % [seed, m["deg"], m["zone_deg"]])
+		assert_lte(float(m["deg"]), p.max_path_slope_deg, "seed %d open path ≤ 14°" % seed)
+		assert_lte(float(m["zone_deg"]), p.ring_max_slope_deg + 3.0, "seed %d fit zone ≤ 25°" % seed)
+		assert_almost_eq(float(layout.terrain_diag.get("max_path_slope_open_deg", -1.0)), float(m["deg"]), 0.01,
+			"seed %d generator open-land value = field" % seed)
+		assert_eq(layout.terrain_diag.get("max_path_slope_deg"), layout.terrain_diag.get("max_path_slope_open_deg"),
+			"alias kept")

@@ -29,8 +29,14 @@ const SUN_RAMP_START_M := 12.0
 const SUN_RAMP_LEN_M := 8.0
 ## Raw LUT extent about G (AR-LF-API raw_lut).
 const RAW_LUT_R_M := 62.0
-## Ranks verified exactly (p95 FD) for the generator's rank retry (AR-LF-D5: up to 3).
+## Offset ranks the generator tries (AR-LF-D5: up to 3). rank_offsets verifies rank 0 exactly
+## (FD p95 + hero_ring_ok); the generator verifies ranks 1–2 lazily (verify_candidate).
 const VERIFY_RANKS := 3
+## Measured ring (SD-VILLAGE-TERRAIN-19, ivy-82zn.14.22): width ladder step, overlap tolerance and
+## the node grid. Constants, not knobs.
+const RING_LADDER_STEP_M := 0.5
+const RING_OVERLAP_TOL_DEG := 3.0
+const RING_GRID_M := 1.0
 ## DDF gradient finite-difference step in noise space (well conditioned: simplex is smooth).
 const _DDF_H := 0.01
 
@@ -58,6 +64,7 @@ static func make_ctx(norm_seed: int, params, offset: Vector2 = Vector2.ZERO, rot
 		"sin": sin(r),
 		"params": params,
 	}
+	ctx["_fbm"] = _fbm_prep(int(ctx["l_seed"]), params)
 	var hero := disc_plane(VillageLandform.raw_y.bind(ctx), VillageLayout.HERO_DOOR_STOOP,
 		params.hero_flat_r_m, 1.0)
 	ctx["y_hero_raw"] = hero["mean"]
@@ -170,7 +177,63 @@ static func _simplex1(p: Vector2, seed: int) -> float:
 # ── Raw field ─────────────────────────────────────────────────────────────────
 
 static func L(xz: Vector2, ctx: Dictionary) -> float:
+	var f: Variant = ctx.get("_fbm")
+	if f != null:
+		return _l_fbm(xz, ctx, f)
 	return float(ctx["params"].landform_height_m) * noise01(landform_q(xz, ctx), ctx)
+
+
+static func _fbm_prep(l_seed: int, p) -> Variant:
+	## Prepared production-fBm landform (NOISE_FBM): the FastNoiseLite handles and constants of
+	## HillsNoise.fbm_height_01 hoisted out of the per-sample path. _l_fbm repeats its arithmetic
+	## exactly (same Vector2 / float ops), so L is bit-identical; only the call overhead goes.
+	if int(p.landform_noise) != NOISE_FBM:
+		return null
+	var base: float = p.landform_wavelength_m
+	var oct: Array = []
+	for i in range(int(p.landform_octaves)):
+		oct.append(_hills_noise_handle(l_seed + i * 7919))
+	return [
+		_hills_noise_handle(l_seed + 17), _hills_noise_handle(l_seed + 23),
+		0.4 / maxf(base, 1.0), p.landform_warp * base, Vector2(0.0, float(l_seed % 97) * 0.013),
+		1.0 / maxf(base, 1.0), float(p.landform_persistence), oct, float(p.landform_height_m),
+	]
+
+
+static func _hills_noise_handle(seed: int) -> FastNoiseLite:
+	HillsNoise._noise2d(Vector2.ZERO, seed)  # creates / caches the handle exactly as HillsNoise does
+	return HillsNoise._noise_cache[seed]
+
+
+static func _l_fbm(xz: Vector2, ctx: Dictionary, f: Array) -> float:
+	# landform_q
+	var h0 := VillageLayout.HERO_DOOR_STOOP
+	var d := xz - h0
+	var c: float = ctx["cos"]
+	var s: float = ctx["sin"]
+	var q := Vector2(c * d.x - s * d.y, s * d.x + c * d.y) + h0 + (ctx["offset"] as Vector2)
+	# HillsNoise.domain_warp
+	var wf: float = f[2]
+	var qq: Vector2 = q * wf + (f[4] as Vector2)
+	var qq2 := qq + Vector2(19.1, 7.3)
+	var off := Vector2((f[0] as FastNoiseLite).get_noise_2d(qq.x, qq.y),
+		(f[1] as FastNoiseLite).get_noise_2d(qq2.x, qq2.y))
+	var wp: Vector2 = q + off * float(f[3])
+	# HillsNoise.fbm_height_01 octave loop
+	var amp := 1.0
+	var freq: float = f[5]
+	var pers: float = f[6]
+	var sum := 0.0
+	var norm := 0.0
+	for n: FastNoiseLite in (f[7] as Array):
+		var pp := wp * freq
+		sum += amp * n.get_noise_2d(pp.x, pp.y)
+		norm += amp
+		amp *= pers
+		freq *= 2.0
+	if norm < 1e-6:
+		return float(f[8]) * 0.5
+	return float(f[8]) * clampf(sum / norm * 0.5 + 0.5, 0.0, 1.0)
 
 
 static func D(xz: Vector2, ctx: Dictionary) -> float:
@@ -290,27 +353,22 @@ static func rank_offsets(norm_seed: int, params) -> Array[Dictionary]:
 		else:
 			failing.append(c)
 	passing.sort_custom(_by_score)
-	# Exact p95 on the best passing candidates (rank order) until VERIFY_RANKS pass. Passing
-	# candidates beyond that stay "pass" with verified = false (every coarse rule held).
+	# Verify the best passing candidates in rank order — exact p95, then the measured hero ring
+	# (hard rule hero_ring_ok, SD-18 2026-11-17) — until rank 0 passes both. A failure moves the
+	# candidate to the failing list. The later passing candidates stay "pass" with verified =
+	# false: the generator verifies them (verify_candidate) only when its rank retry reaches them
+	# (SD-18 "Cost": lazy checks keep AC-LT-PERF ≤ 150 ms; extended here to the p95 check).
 	var verified: Array[Dictionary] = []
 	var unverified: Array[Dictionary] = []
-	var d_fd := {}
+	var vc := {"nodes": nodes, "d_grid": d_grid, "d_fd": {}, "ring": {}, "plaza": {}, "base_ctx": base_ctx}
 	for c: Dictionary in passing:
-		if verified.size() >= VERIFY_RANKS:
+		if not verified.is_empty():
 			c["verified"] = false
 			unverified.append(c)
 			continue
-		var ctx := base_ctx.duplicate()
-		ctx["offset"] = c["offset"]
-		var p95 := _exact_p95(ctx, nodes, d_grid, d_fd)
-		(c["measures"] as Dictionary)["p95_v"] = p95
-		c["verified"] = true
-		if p95 <= params.village_slope_p95_max_deg:
+		if _verify(c, params, vc):
 			verified.append(c)
 		else:
-			c["pass"] = false
-			c["score"] = INF
-			c["violation"] = (p95 - params.village_slope_p95_max_deg) / 4.0
 			failing.append(c)
 	failing.sort_custom(_by_violation)
 	var out: Array[Dictionary] = []
@@ -318,6 +376,54 @@ static func rank_offsets(norm_seed: int, params) -> Array[Dictionary]:
 	out.append_array(unverified)
 	out.append_array(failing)
 	return out
+
+
+static func _verify(c: Dictionary, params, vc: Dictionary) -> bool:
+	## Exact p95 then hero_ring_ok for one coarse-passing candidate; updates c in place
+	## (verified, pass, score, violation, measures). vc caches the offset-independent parts.
+	var ctx: Dictionary = (vc["base_ctx"] as Dictionary).duplicate()
+	ctx["offset"] = c["offset"]
+	var m: Dictionary = c["measures"]
+	var p95 := _exact_p95(ctx, vc["nodes"], vc["d_grid"], vc["d_fd"])
+	m["p95_v"] = p95
+	c["verified"] = true
+	if p95 > params.village_slope_p95_max_deg:
+		c["pass"] = false
+		c["score"] = INF
+		c["violation"] = (p95 - params.village_slope_p95_max_deg) / 4.0
+		return false
+	ctx["y_hero_raw"] = float(m["y_hero_raw"])
+	# plaza_ring_ok (SD-18, ivy-82zn.14.23), then hero_ring_ok with the plaza replayed.
+	var pz := _plaza_ring_cached(ctx, params, vc["plaza"])
+	_store_plaza_ring(m, pz["ring"])
+	if not bool(pz["ring"]["ok"]):
+		c["pass"] = false
+		c["score"] = INF
+		c["violation"] = _hero_ring_violation(pz["ring"], params)
+		return false
+	var hr := _hero_ring_cached(ctx, params, vc["ring"], pz["site"])
+	_store_hero_ring(m, hr)
+	if not bool(hr["ok"]):
+		c["pass"] = false
+		c["score"] = INF
+		c["violation"] = _hero_ring_violation(hr, params)
+		return false
+	return true
+
+
+static func verify_candidate(norm_seed: int, params, c: Dictionary) -> bool:
+	## Lazy verification of a passing, unverified candidate (generator rank retry, AR-LF-D5).
+	if bool(c.get("verified", false)):
+		return bool(c["pass"])
+	if not bool(c["pass"]):
+		return false
+	var base_ctx := make_ctx_light(norm_seed, params, Vector2.ZERO, float(c["rot_deg"]))
+	var nodes := _search_nodes(VillageLayout.VILLAGE_GREEN_G)
+	var d_grid := PackedFloat32Array()
+	for p: Vector2 in (nodes["pts"] as PackedVector2Array):
+		d_grid.append(D(p, base_ctx))
+	return _verify(c, params, {"nodes": nodes, "d_grid": d_grid, "d_fd": {}, "ring": {}, "plaza": {},
+		"base_ctx": base_ctx})
 
 
 static func _by_score(a: Dictionary, b: Dictionary) -> bool:
@@ -335,9 +441,11 @@ static func _by_violation(a: Dictionary, b: Dictionary) -> bool:
 static func make_ctx_light(norm_seed: int, params, offset: Vector2, rot_deg: float) -> Dictionary:
 	## make_ctx without the hero mean (the search computes its own hero plane).
 	var r := deg_to_rad(rot_deg)
+	var l_seed := landform_seed(norm_seed)
 	return {
-		"l_seed": landform_seed(norm_seed), "d_seed": detail_seed(norm_seed), "offset": offset,
+		"l_seed": l_seed, "d_seed": detail_seed(norm_seed), "offset": offset,
 		"rot_deg": rot_deg, "cos": cos(r), "sin": sin(r), "params": params, "y_hero_raw": 0.0,
+		"_fbm": _fbm_prep(l_seed, params),
 	}
 
 
@@ -409,7 +517,7 @@ static func _evaluate_coarse(
 	var s_hero: float = pm["slope_deg"]
 	var m := {
 		"s_hero": s_hero, "aspect_deg": pm["aspect_deg"], "up_hero": NAN, "down_hero": NAN,
-		"span_v": NAN, "p95_v": NAN, "plaza_tilt_deg": NAN,
+		"span_v": NAN, "p95_v": NAN, "plaza_tilt_deg": NAN, "y_hero_raw": float(pl["mean"]),
 	}
 	var viol := _range_violation(s_hero, params.hero_site_slope_min_deg, params.hero_site_slope_max_deg,
 		maxf(params.hero_site_slope_max_deg, 1.0))
@@ -496,8 +604,9 @@ static func _evaluate_full(norm_seed: int, params, index: int, offset: Vector2, 
 	var zs := PackedFloat32Array()
 	for q: Vector2 in hero_q:
 		zs.append(raw_y(h0 + q, ctx))
-	var pm := _plane_measures(_plane_from_offsets(hero_q, zs))
-	var m := {"s_hero": pm["slope_deg"], "aspect_deg": pm["aspect_deg"]}
+	var hpl := _plane_from_offsets(hero_q, zs)
+	var pm := _plane_measures(hpl)
+	var m := {"s_hero": pm["slope_deg"], "aspect_deg": pm["aspect_deg"], "y_hero_raw": float(hpl["mean"])}
 	var nodes := _search_nodes(VillageLayout.VILLAGE_GREEN_G)
 	var pts: PackedVector2Array = nodes["pts"]
 	var d_grid := PackedFloat32Array()
@@ -509,8 +618,123 @@ static func _evaluate_full(norm_seed: int, params, index: int, offset: Vector2, 
 		params.hero_site_slope_max_deg, maxf(params.hero_site_slope_max_deg, 1.0))
 	viol += _grid_violation(m, params)
 	viol += maxf(0.0, float(m["p95_v"]) - params.village_slope_p95_max_deg) / 4.0
+	# Plaza and hero ring hard rules (SD-18 2026-11-17): reported, a failure makes pass = false.
+	ctx["y_hero_raw"] = float(m["y_hero_raw"])
+	var pz := _plaza_ring_cached(ctx, params, {})
+	_store_plaza_ring(m, pz["ring"])
+	if not bool(pz["ring"]["ok"]):
+		viol += _hero_ring_violation(pz["ring"], params)
+	var hr := _hero_ring_cached(ctx, params, {}, pz["site"])
+	_store_hero_ring(m, hr)
+	if not bool(hr["ok"]):
+		viol += _hero_ring_violation(hr, params)
 	return {"index": index, "offset": offset, "rot_deg": rot_deg, "pass": viol <= 0.0,
 		"score": _score(m, params), "violation": viol, "measures": m}
+
+
+static func hero_ring(norm_seed: int, params, offset: Vector2, rot_deg: float = 0.0) -> Dictionary:
+	## Measured hero ring for one offset (SD-19 on exact cap_sun(L + D) about H0, T = core mean of
+	## L + D, the measured plaza replayed). {ok, w, peak_deg, best_w, best_peak_deg}. Used for ranks
+	## the search did not verify and by the field when no width is stored.
+	var ctx := make_ctx(norm_seed, params, offset, rot_deg)
+	var pz := _plaza_ring_cached(ctx, params, {})
+	return _hero_ring_cached(ctx, params, {}, pz["site"])
+
+
+static func plaza_ring(norm_seed: int, params, offset: Vector2, rot_deg: float = 0.0) -> Dictionary:
+	## Measured plaza ring for one offset (SD-18 plaza_ring_ok). {ok, w, peak_deg, ...}.
+	var ctx := make_ctx(norm_seed, params, offset, rot_deg)
+	return _plaza_ring_cached(ctx, params, {})["ring"]
+
+
+static func _plaza_ring_cached(ctx: Dictionary, params, cache: Dictionary) -> Dictionary:
+	## {ring, site}: the plaza site (VillageTerrainField.plaza_site on exact U, the field's own
+	## helper) with w = the measured width (best width on failure). cache: D per lattice node
+	## (offset independent), shared across candidates. ctx must carry y_hero_raw (sun cap).
+	if cache.is_empty():
+		cache["d"] = {}
+		cache["d_ctx"] = ctx
+		cache["sun_az"] = VillageTerrain.sun_corridor_azimuths()
+	var dmap: Dictionary = cache["d"]
+	var d_ctx: Dictionary = cache["d_ctx"]
+	var sun_az: Vector2 = cache["sun_az"]
+	var u_fn := func(q: Vector2) -> float:
+		var key := Vector2i(roundi(q.x * 2.0), roundi(q.y * 2.0))
+		var dv: Variant = dmap.get(key)
+		if dv == null:
+			dv = D(q, d_ctx)
+			dmap[key] = dv
+		return cap_sun(L(q, ctx) + float(dv), q, ctx, sun_az)
+	var g := VillageLayout.VILLAGE_GREEN_G
+	var rect := VillageLayout.plaza_rect_at(g, VillageLayout.PLAZA_SIDE_L)
+	var site := VillageTerrainField.plaza_site(u_fn, rect, params, params.plaza_ring_m)
+	var ring := VillageTerrainField.measure_plaza_ring(u_fn, site, params)
+	site["w"] = float(ring["w"])
+	site["bound_r"] = rect.size.length() * 0.5 + float(ring["w"])
+	return {"ring": ring, "site": site}
+
+
+static func _store_plaza_ring(m: Dictionary, pr: Dictionary) -> void:
+	m["plaza_ring_ok"] = bool(pr["ok"])
+	m["plaza_ring_w"] = float(pr["w"])
+	m["plaza_ring_peak_deg"] = float(pr["peak_deg"])
+
+
+static func _hero_ring_cached(ctx: Dictionary, params, cache: Dictionary, plaza: Dictionary = {}) -> Dictionary:
+	## cache: grid geometry, core sdf and D per node (offset independent), shared across candidates.
+	## ctx must carry the candidate's y_hero_raw (the sun cap reads it). plaza: the measured plaza
+	## site, replayed as a "before" site (baked into U; SD-19 step 2).
+	var h0 := VillageLayout.HERO_DOOR_STOOP
+	var r_c: float = params.hero_flat_r_m
+	var w_max: float = params.hero_ring_max_m
+	if cache.is_empty():
+		var hh := r_c + w_max + 2.0
+		var n := int(ceil(2.0 * hh / RING_GRID_M)) + 1
+		var origin := h0 - Vector2(hh, hh)
+		var sdf := PackedFloat32Array()
+		var dd := PackedFloat32Array()
+		sdf.resize(n * n)
+		dd.resize(n * n)
+		dd.fill(NAN)
+		for iz in range(n):
+			for ix in range(n):
+				var p := origin + Vector2(float(ix), float(iz)) * RING_GRID_M
+				sdf[iz * n + ix] = p.distance_to(h0) - r_c
+		cache["n"] = n
+		cache["origin"] = origin
+		cache["sdf"] = sdf
+		cache["d"] = dd
+		cache["d_ctx"] = ctx
+		cache["sun_az"] = VillageTerrain.sun_corridor_azimuths()
+	var n2: int = cache["n"]
+	var o: Vector2 = cache["origin"]
+	var d2: PackedFloat32Array = cache["d"]
+	var d_ctx: Dictionary = cache["d_ctx"]
+	var sun_az: Vector2 = cache["sun_az"]
+	# Lazy U (exact cap_sun(L + D), D cached per node across candidates): only the nodes the
+	# ladder reaches are sampled.
+	var has_plaza := not plaza.is_empty()
+	var u_fn := func(p2: Vector2, k: int) -> float:
+		if is_nan(d2[k]):
+			d2[k] = D(p2, d_ctx)
+		var u := cap_sun(L(p2, ctx) + d2[k], p2, ctx, sun_az)
+		if has_plaza:
+			u = VillageTerrainField.apply_site(plaza, p2, u, params)
+		return u
+	var grid := {"origin": o, "nx": n2, "nz": n2, "u_fn": u_fn}
+	return measured_ring(grid, cache["sdf"], float(ctx["y_hero_raw"]), params.hero_ring_min_m, w_max,
+		params.ring_max_slope_deg)
+
+
+static func _store_hero_ring(m: Dictionary, hr: Dictionary) -> void:
+	m["hero_ring_ok"] = bool(hr["ok"])
+	m["hero_ring_w"] = float(hr["w"])
+	m["hero_ring_peak_deg"] = float(hr["peak_deg"])
+
+
+static func _hero_ring_violation(hr: Dictionary, params) -> float:
+	## SD-18: (best ladder peak − ring_max_slope_deg) / 4.
+	return maxf(0.0, float(hr["best_peak_deg"]) - params.ring_max_slope_deg) / 4.0
 
 
 static func _range_violation(v: float, lo: float, hi: float, scale: float) -> float:
@@ -590,8 +814,242 @@ static func _plane_result(qs: PackedVector2Array, zs: PackedFloat32Array) -> Dic
 		"a": pl["a"], "b": pl["b"], "c": pl["c"]}
 
 
+static func make_ring_grid(origin: Vector2, nx: int, nz: int, u_fn: Callable,
+		sdf_fn: Callable = Callable(), sdf_max: float = INF) -> Dictionary:
+	## 1 m node grid for the measured ring (SD-19 step 1): {origin, nx, nz, u}. With sdf_fn, nodes
+	## with sdf ≥ sdf_max are never read by measured_ring and are left at 0 (saves samples).
+	var u := PackedFloat32Array()
+	u.resize(nx * nz)
+	for iz in range(nz):
+		for ix in range(nx):
+			var p := origin + Vector2(float(ix), float(iz)) * RING_GRID_M
+			if sdf_fn.is_valid() and float(sdf_fn.call(p)) >= sdf_max:
+				continue
+			u[iz * nx + ix] = float(u_fn.call(p))
+	return {"origin": origin, "nx": nx, "nz": nz, "u": u}
+
+
+static func grid_sdf(grid: Dictionary, sdf_fn: Callable) -> PackedFloat32Array:
+	var nx: int = grid["nx"]
+	var nz: int = grid["nz"]
+	var o: Vector2 = grid["origin"]
+	var out := PackedFloat32Array()
+	out.resize(nx * nz)
+	for iz in range(nz):
+		for ix in range(nx):
+			out[iz * nx + ix] = float(sdf_fn.call(o + Vector2(float(ix), float(iz)) * RING_GRID_M))
+	return out
+
+
+static func grid_sdf_rect(grid: Dictionary, rect: Rect2) -> PackedFloat32Array:
+	## grid_sdf with VillageTerrain.rect_sdf, as a typed loop (AR-LF-PERF P6b; bit-identical).
+	var nx: int = grid["nx"]
+	var nz: int = grid["nz"]
+	var o: Vector2 = grid["origin"]
+	var out := PackedFloat32Array()
+	out.resize(nx * nz)
+	var c := rect.get_center()
+	var hx := rect.size.x * 0.5
+	var hz := rect.size.y * 0.5
+	for iz in range(nz):
+		for ix in range(nx):
+			var p := o + Vector2(float(ix), float(iz)) * RING_GRID_M
+			var dx := absf(p.x - c.x) - hx
+			var dz := absf(p.y - c.y) - hz
+			if dx <= 0.0 and dz <= 0.0:
+				out[iz * nx + ix] = maxf(dx, dz)
+			else:
+				out[iz * nx + ix] = Vector2(maxf(dx, 0.0), maxf(dz, 0.0)).length()
+	return out
+
+
+static func grid_sdf_disc(grid: Dictionary, centre: Vector2, r_c: float) -> PackedFloat32Array:
+	## grid_sdf with distance − r_c, as a typed loop (AR-LF-PERF P6b; bit-identical).
+	var nx: int = grid["nx"]
+	var nz: int = grid["nz"]
+	var o: Vector2 = grid["origin"]
+	var out := PackedFloat32Array()
+	out.resize(nx * nz)
+	for iz in range(nz):
+		for ix in range(nx):
+			out[iz * nx + ix] = (o + Vector2(float(ix), float(iz)) * RING_GRID_M).distance_to(centre) - r_c
+	return out
+
+
+static func measured_ring(grid: Dictionary, sdf: PackedFloat32Array, target: Variant, w_min: float,
+		w_max: float, ring_max_deg: float, before: Array = [], after: Array = []) -> Dictionary:
+	## SD-VILLAGE-TERRAIN-19 measured ring width (ivy-82zn.14.22, steps 2–4 restated ivy-82zn.14.23),
+	## the one helper shared by the offset search (hero, plaza), the plot sampler (pads) and the field
+	## (recompute when no stored width). grid: make_ring_grid (1 m); sdf: the candidate core's signed
+	## distance per node; target: a float, or a PackedFloat32Array per node (the plaza plane); before /
+	## after: sites the field applies before / after this one ([{sdf, target, w}] with scalar targets,
+	## field priority order: already-selected pads, then the candidate, then the hero; per-node sites
+	## such as the plaza and the pond are baked into the grid's U by the caller). For each w on the
+	## 0.5 m ladder [w_min, w_max], searched upward (peak(w) is not monotone, so no bisection):
+	## y_w = after(lerp(before(U), T, fer(sdf, 0, w))); slope by ONE-SIDED 1 m differences
+	## (gx = max(|y[i+1] − y[i]|, |y[i] − y[i−1]|), gz likewise) at nodes with −1 < sdf < w + 1; pass if
+	## every node ≤ ring_max_deg, overlap nodes included (no allowance: RING_OVERLAP_TOL_DEG is only the
+	## AC-LT-RING field-test margin). First passing w wins; none ⇒ ok false.
+	## Returns {ok, w, peak_deg, best_w, best_peak_deg}; on failure w = best_w (lowest peak).
+	## A grid may carry "u_fn" (Callable(p: Vector2, k: int) -> float) instead of a filled "u": U is
+	## then sampled lazily, bucket by bucket, only as far as the ladder reaches (AC-LT-PERF).
+	var nx: int = grid["nx"]
+	var nz: int = grid["nz"]
+	var n := nx * nz
+	var origin: Vector2 = grid["origin"]
+	var u_fn: Callable = grid.get("u_fn", Callable())
+	var lazy := u_fn.is_valid()
+	var base: PackedFloat32Array
+	if lazy:
+		base = PackedFloat32Array()
+		base.resize(n)
+	else:
+		base = (grid["u"] as PackedFloat32Array).duplicate()
+	var per_node := target is PackedFloat32Array
+	var t_arr: PackedFloat32Array = target if per_node else PackedFloat32Array()
+	var t_const: float = 0.0 if per_node else float(target)
+	# Bucket the nodes the ladder can touch (sdf < w_max + 2: band nodes plus their FD neighbours)
+	# by ladder step, so step i only visits sdf < w_i (blend) and −1 < sdf < w_i + 1 (slope).
+	var step := RING_LADDER_STEP_M
+	var steps := maxi(0, int(round((w_max - w_min) / step)))
+	var nb := steps + 5
+	var buckets: Array[PackedInt32Array] = []
+	buckets.resize(nb)
+	for b in range(nb):
+		buckets[b] = PackedInt32Array()
+	var deep := PackedInt32Array()  # sdf ≤ −1: blended, never slope-checked
+	for k in range(n):
+		var d := sdf[k]
+		if d >= w_max + 2.0:
+			continue
+		var ix := k % nx
+		var iz := k / nx
+		var edge := ix == 0 or iz == 0 or ix == nx - 1 or iz == nz - 1
+		if d <= -1.0:
+			deep.append(k)
+			continue
+		var bi := 0 if d < w_min else mini(nb - 1, 1 + int(floor((d - w_min) / step)))
+		# Edge nodes are blended but not slope-checked: tag with the sign bit.
+		buckets[bi].append(-k - 1 if edge else k)
+	# base = before(U), ba = after(base) (the surface where the candidate does not reach), y = the
+	# candidate surface; filled per bucket on demand.
+	var ba := PackedFloat32Array()
+	ba.resize(n)
+	var y := PackedFloat32Array()
+	y.resize(n)
+	var ctx_fill := {"base": base, "ba": ba, "y": y, "lazy": lazy, "u_fn": u_fn, "origin": origin,
+		"nx": nx, "before": before, "after": after}
+	_fill_nodes(ctx_fill, deep)
+	var filled := -1
+	var lim2 := pow(tan(deg_to_rad(ring_max_deg)), 2.0)
+	var best_w := w_min
+	var best_pk2 := INF
+	for i in range(steps + 1):
+		var w := w_min + step * float(i)
+		# Nodes read at this step: sdf < w + 2 = buckets 0..i+4.
+		while filled < mini(i + 4, nb - 1):
+			filled += 1
+			_fill_nodes(ctx_fill, buckets[filled])
+		# Blend: sdf < w is buckets 0..i (plus the deep core).
+		_blend_ring(y, base, sdf, deep, per_node, t_arr, t_const, w, after)
+		for b in range(i + 1):
+			_blend_ring(y, base, sdf, buckets[b], per_node, t_arr, t_const, w, after)
+		# Slope: −1 < sdf < w + 1 is buckets 0..i+2 (1 m = 2 ladder steps), filtered exactly.
+		var peak2 := 0.0
+		var ok := true
+		var hopeless := false
+		for b in range(mini(i + 3, nb)):
+			for kt: int in buckets[b]:
+				if kt < 0:
+					continue
+				if sdf[kt] >= w + 1.0:
+					continue
+				var yk := y[kt]
+				var gx := maxf(absf(y[kt + 1] - yk), absf(yk - y[kt - 1]))
+				var gz := maxf(absf(y[kt + nx] - yk), absf(yk - y[kt - nx]))
+				var g2 := gx * gx + gz * gz
+				if g2 > peak2:
+					peak2 = g2
+				if g2 > lim2:
+					ok = false
+				# A failing step whose partial peak already exceeds the best peak cannot change the
+				# result (best = lowest peak over the ladder): stop scanning it.
+				if not ok and peak2 >= best_pk2:
+					hopeless = true
+					break
+			if hopeless:
+				break
+		if hopeless:
+			continue
+		if peak2 < best_pk2:
+			best_pk2 = peak2
+			best_w = w
+		if ok:
+			var pk := rad_to_deg(atan(sqrt(peak2)))
+			return {"ok": true, "w": w, "peak_deg": pk, "best_w": w, "best_peak_deg": pk}
+	var best := rad_to_deg(atan(sqrt(best_pk2)))
+	return {"ok": false, "w": best_w, "peak_deg": best, "best_w": best_w, "best_peak_deg": best}
+
+
+static func _blend_ring(y: PackedFloat32Array, base: PackedFloat32Array, sdf: PackedFloat32Array,
+		idx: PackedInt32Array, per_node: bool, t_arr: PackedFloat32Array, t_const: float, w: float,
+		after: Array) -> void:
+	## y[k] = after(lerp(base, T, fer(sdf, 0, w))) for the (sign-tagged) nodes in idx with sdf < w.
+	var inv := 1.0 / maxf(w, 1e-6)
+	for kt: int in idx:
+		var k := kt if kt >= 0 else -kt - 1
+		var d := sdf[k]
+		if d >= w:
+			continue
+		var f := 1.0
+		if d > 0.0:
+			var t := d * inv
+			f = 1.0 - t * t * (3.0 - 2.0 * t)
+		var tk: float = t_arr[k] if per_node else t_const
+		var v := base[k] + (tk - base[k]) * f
+		for a: Dictionary in after:
+			var as2: PackedFloat32Array = a["sdf"]
+			var aw: float = a["w"]
+			if as2[k] < aw:
+				v = lerpf(v, float(a["target"]), fer(as2[k], 0.0, aw))
+		y[k] = v
+
+
+static func _fill_nodes(c: Dictionary, idx: PackedInt32Array) -> void:
+	## U (lazy grids), base = before(U), ba = after(base), y = ba for the (sign-tagged) nodes.
+	var base: PackedFloat32Array = c["base"]
+	var ba: PackedFloat32Array = c["ba"]
+	var y: PackedFloat32Array = c["y"]
+	var lazy: bool = c["lazy"]
+	var u_fn: Callable = c["u_fn"]
+	var o: Vector2 = c["origin"]
+	var nx: int = c["nx"]
+	var before: Array = c["before"]
+	var after: Array = c["after"]
+	for kt: int in idx:
+		var k := kt if kt >= 0 else -kt - 1
+		var v: float
+		if lazy:
+			v = float(u_fn.call(o + Vector2(float(k % nx), float(k / nx)) * RING_GRID_M, k))
+		else:
+			v = base[k]
+		for b: Dictionary in before:
+			var bs: PackedFloat32Array = b["sdf"]
+			if bs[k] < float(b["w"]):
+				v = lerpf(v, float(b["target"]), fer(bs[k], 0.0, float(b["w"])))
+		base[k] = v
+		for a: Dictionary in after:
+			var as2: PackedFloat32Array = a["sdf"]
+			if as2[k] < float(a["w"]):
+				v = lerpf(v, float(a["target"]), fer(as2[k], 0.0, float(a["w"])))
+		ba[k] = v
+		y[k] = v
+
+
 static func ring_width(r_c: float, s_deg: float, ring_max_deg: float, w_min: float, w_max: float) -> Dictionary:
-	## SD-19: w = 1.5·tan(s)·r_c / (tan(ring_max) − 1.25·tan(s)), clamped to [w_min, w_max].
+	## SD-19 plane-slope formula — SUPERSEDED 2026-11-17 (ivy-82zn.14.22): no longer decides any
+	## ring (measured_ring does); kept only as a readout estimate.
+	## w = 1.5·tan(s)·r_c / (tan(ring_max) − 1.25·tan(s)), clamped to [w_min, w_max].
 	## ok = false when the denominator is ≤ 0 or the unclamped w exceeds w_max.
 	var ts := tan(deg_to_rad(maxf(s_deg, 0.0)))
 	var den := tan(deg_to_rad(ring_max_deg)) - 1.25 * ts

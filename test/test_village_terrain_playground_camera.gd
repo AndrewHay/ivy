@@ -138,9 +138,11 @@ func test_presets_set_the_orbit_state_without_a_jump() -> void:
 
 func test_pick_hits_the_terrain_surface_not_the_datum_plane() -> void:
 	var pg: Node = _make_pg()
-	pg._params.base_amplitude_m = 4.0
+	# 0.8 = the knob maximum. 4.0 (out of range) now makes the WP2 site rejection (ivy-82zn.14.16)
+	# starve plot selection, so the layout falls back to the flat authored village.
+	pg._params.base_amplitude_m = 0.8
 	await get_tree().process_frame
-	pg._on_knob_changed("base_amplitude_m", 4.0)
+	pg._on_knob_changed("base_amplitude_m", 0.8)
 	assert_true(await _await_idle(pg), "rebuild finishes")
 	pg._allow_input = true
 	# Highest LUT node: look straight down on it from 25 m above.

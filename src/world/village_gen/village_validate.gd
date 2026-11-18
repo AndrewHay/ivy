@@ -613,6 +613,19 @@ static func v6_doors_face_paths(cottages: Array, door_connections: Array) -> Arr
 	return viol
 
 
+## Terrain path cap (ivy-82zn.14.16, SD-VILLAGE-TERRAIN-20 restated ivy-82zn.14.23 / AC-LT-PATH):
+## only the open-land max is checked (fit zones and door approaches follow the ring rule).
+static func v_terrain_path(open_deg: float, max_deg: float) -> Array:
+	if open_deg > max_deg:
+		return ["path_cap %.2f° > %.1f° (open land)" % [open_deg, max_deg]]
+	return []
+
+
+static func path_cap_violation(open_deg: float, max_deg: float) -> float:
+	## Open-land excess over the cap (least-violating layout for terrain_diag.path_cap_fallback).
+	return maxf(0.0, open_deg - max_deg)
+
+
 static func all(layout_like: Dictionary) -> Dictionary:
 	var out: Dictionary = {}
 	var cottages: Array = layout_like.get("cottages", []) as Array

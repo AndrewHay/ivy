@@ -98,11 +98,18 @@ const NON_FIELD_KEYS := [
 ## Kept from v1 (SD-22 "as today"); the water level now comes from pond_freeboard_m.
 @export var pond_water_inset_m: float = 0.10
 @export var plaza_max_tilt_deg: float = 6.0
+## Plaza ring ladder [plaza_ring_m, plaza_ring_max_m] (SD-18 plaza_ring_ok, ivy-82zn.14.23).
 @export var plaza_ring_m: float = 5.0
+@export var plaza_ring_max_m: float = 10.0
 
 # ── Paths (SD-VILLAGE-TERRAIN-20) ─────────────────────────────────────────────
+## Open-land cap (fit zones follow the ring rule; SD-20 restated ivy-82zn.14.23).
 @export var max_path_slope_deg: float = 14.0
 @export var door_approach_m: float = 3.0
+## A rank's best path-only layout at or under this open-land max is kept with path_cap_fallback.
+@export var path_steep_accept_deg: float = 18.0
+## Open-land max ≤ cap + this is accepted at once with path_cap_fallback (AR-LF-PERF P4; 0 = SD-20).
+@export var path_near_miss_deg: float = 1.0
 
 # ── Village (SD-VILLAGE-TERRAIN-21; consumed by the generator from WP3) ───────
 @export var cottage_min_sep_m: float = 22.0
