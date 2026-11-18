@@ -179,10 +179,27 @@ python3 tools/build_growth_surface.py <hero.glb> <scaffold_sim.glb> <out_sim.glb
   wall-end lip at each surface_wall corner (8 cuts) and cuts nothing on the cottage (its gables
   overshoot outside the wall sheets), tower, square or relief article. The report lists each cut under
   `corner_cuts` (sheet, other sheet, overshoot) and counts them in `rules.2a_corner_cut`.
+- Stub keep (`ivy-b1e.40`, SD-MESH-19.4.3 item C): when a rule-2a cut's overshoot is closed at its end
+  by a closed hero solid spanning the sheet and its interior partner sheet (the surface_wall
+  `WallEndCap_*` plates, `ivy-b1e.39`), the capped stub is kept as one box between the two sheets,
+  from 1 mm inside the neighbouring wall's slab out to the cap; the 0.45 m slab end is still cut.
+  Counted in `rules.12_stub_kept`, listed under `stubs_kept` (sheet, cutting sheet, cap, box). An
+  uncapped overshoot keeps nothing.
 - Rule 10 column exception (`ivy-b1e.35`): a scaffold `CornerColumn_` whose bounds overlap a rule-6
-  envelope solid's bounds by at least 1 mm on every axis is not copied: the enveloped hero corner trim
-  (`envelope: ["Corner"]` on surface_wall) replaces it. Counted in `rules.10_column_replaced`, listed
-  under `columns_replaced`. Columns with no envelope over them are copied as before.
+  envelope solid's bounds, or a rule-12 stone's fitted box (`ivy-b1e.40`), by at least 1 mm on every
+  axis is not copied: the hero corner trim replaces it. Counted in `rules.10_column_replaced`, listed
+  under `columns_replaced`. Columns with nothing over them are copied as before.
+- Rule 12, quoin stones (`stones`, `ivy-b1e.40`, AR-MESH-20.3): every island of a listed node must be
+  closed and is one stone, turned into the axis-aligned box whose sides sit at the area-weighted mean
+  of each side's own faces (normals within about 37°), not at the extreme vertex. A stone whose
+  least-area plan rectangle is more than 1° off the axes fails the build (the kit stones read at most
+  0.91°). Stones less than 0.20 m apart share a corner zone (their bounds grown 0.10 m); in each zone
+  every empty run under 0.10 m along x, y or z between filled cells (stones and the bounds of every
+  other solid) is filled until nothing changes, and stones plus fills are merged into boxes named
+  `{id}_sim_CornerStones_c<k>_iNN`. Counters `rules.12_stones`, `rules.12_closed_cells`,
+  `rules.12_boxes`; per-stone yaw and box under `stones`, per-zone grid and counts under
+  `stone_zones`. surface_wall (scratch `{"stones": ["Corner"]}`, `ivy-b1e.40`): 208 stones in 4 zones,
+  962 boxes, 8 stubs kept, 4 columns replaced, 1,044 nodes, 14,924 triangles, 0 slots.
 - Rule 11, tiled roofs (`tile_field`, `ivy-b1e.7`): the islands of a listed node that rule 4 cannot
   close (the tile surface) are split at the ridge; each slope becomes one solid whose top is the tile
   surface itself (troughs included) and whose bottom reaches down along the slope normal to the
@@ -195,8 +212,8 @@ python3 tools/build_growth_surface.py <hero.glb> <scaffold_sim.glb> <out_sim.glb
   support down into the tiles across the middle 60 % of the cap's width (the pockets under the rims
   stay open); both stop 0.10 m short of a cap end no other cap overlaps, so its hollow stays.
 - Settings: optional `growth_surface` block of the structure in `tools/structure_configs.json`,
-  validated by `validate_config`: `wall_t` (≥ 0.24, default 0.45), `envelope` (shutters; the hero
-  corner trims, `"Corner"`, are planned for surface_wall at its install), `exempt` and
+  validated by `validate_config`: `wall_t` (≥ 0.24, default 0.45), `envelope` (shutters), `stones`
+  (rule 12; `["Corner"]` is planned for surface_wall at its install, `ivy-b1e.8`), `exempt` and
   `tile_field` (substrings of the hero node name after `{id}_hero_`), `seals` (`hero` / `scaffold`,
   default `scaffold`), `fill` (`[{"name", "min", "max"}]` boxes in glTF world coordinates, or
   `{"name", "points"}`: the convex hull of at least 4 points, for a fill that hugs a rotated piece).
@@ -212,7 +229,8 @@ python3 tools/build_growth_surface.py <hero.glb> <scaffold_sim.glb> <out_sim.glb
   result that is not closed (a scaffold copy included, tested once welded, `ivy-b1e.27`), a boundary
   loop more than 5 mm out of plane with no backing sheet, a hero
   node that is not exempt and produced no solid, an envelope with no wall behind it, a config entry
-  that matches no node, or an ivy-reachable slot narrower than 0.10 m between parallel proxy faces
+  that matches no node, a stone island that is not closed or is more than 1° off the axes, a node
+  matching both `stones` and `envelope`, or an ivy-reachable slot narrower than 0.10 m between parallel proxy faces
   (`--report` lists each slot's position, width, extent and the two nodes; close it with a `fill` box
   or an `envelope`). Exit 2: usage or input error.
 - Output: one node per solid, named `{id}_sim_{hero tail}_iNN` (scaffold copies keep their name plus

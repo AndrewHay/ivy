@@ -40,6 +40,22 @@ Every hero node is turned into closed solids in world space by the rules of AR-M
                                              below, TILE_EDGE_DEPTH under the lowest tile point within
                                              FOLD_REACH (never through a fold); ridge caps are kept
                                              (rule 1) with a convex filling and a support
+  12  node listed under `stones`             each closed island is one stone (ivy-b1e.40): an
+                                             axis-aligned box whose sides sit at the area-weighted
+                                             mean of that side's faces (normals within ~37 degrees);
+                                             a stone whose least-area footprint is more than 1 degree
+                                             off the axes fails. Stones within 2 SLOT_MIN of each other
+                                             form a corner zone (their box grown SLOT_MIN); on the grid
+                                             of every box boundary there (stones and every solid's
+                                             bounds), empty runs under SLOT_MIN between filled cells
+                                             along x, y or z are filled to a fixed point; stones and
+                                             fills are merged greedily into {id}_sim_CornerStones_c<k>_iNN
+                                             boxes. A scaffold CornerColumn_ a stone overlaps is not
+                                             copied (as for rule 6 envelopes).
+  2a  stub keep                              a rule-2a cut whose overshoot ends at a closed hero solid
+                                             (a rule-1 cap) spanning the sheet and its interior partner
+                                             sheet keeps the capped stub as a box between the two sheets,
+                                             from 1 mm inside the cutting sheet's slab to the stub end
 
 Scaffold nodes (FloorSlab, MidFloorSlab, RoofCap, RoofCone, CornerColumn_, Interior_, and Panel_
 unless seals is hero) are copied from the scaffold GLB; every other scaffold node is discarded.
@@ -50,12 +66,13 @@ scaffold) gives a byte-identical file.
 The build FAILS (exit 1, nothing written) instead of substituting a box when: an island fits no
 rule; a capped or extruded result, or a scaffold copy once welded, is not closed; a boundary loop more than 5 mm out of plane has
 no backing sheet; a hero node that is not exempt produced no solid; an envelope has no wall
-behind it; a config entry matches no hero node; or the proxy has an ivy-reachable slot narrower
+behind it; a config entry matches no hero node; a stone island is not closed or is more than 1
+degree off the axes; a node matches both stones and envelope; or the proxy has an ivy-reachable slot narrower
 than 0.10 m (the report lists position and width). Exit 2 is a usage or input error.
 
 Settings come from the optional `growth_surface` block of the structure in
 tools/structure_configs.json (validated by validate_growth_surface): wall_t (>= 0.24, default
-0.45), envelope, exempt and tile_field (lists of substrings of the hero node tail), seals ("hero"
+0.45), envelope, exempt, tile_field and stones (lists of substrings of the hero node tail), seals ("hero"
 or "scaffold", default "scaffold"), fill (list of {"name", "min", "max"} glTF world boxes, or
 {"name", "points"}: the convex hull of >= 4 points). The interior is the structure's footprint
 centre, from its scene_offset.
@@ -98,8 +115,13 @@ CORNER_PROJ_TOL = 2e-3  # rule 2a (iii): overshooting vertices project inside T 
 COLUMN_OVERLAP_MIN = 1e-3  # rule 10: a CornerColumn_ overlapping an envelope this much on every axis
 SCAFFOLD_TOKENS = ("FloorSlab", "MidFloorSlab", "RoofCap", "RoofCone", "CornerColumn_", "Interior_", "Panel_")
 SEAL_TOKEN = "_Seal_"
-GROWTH_SURFACE_KEYS = ("wall_t", "envelope", "exempt", "seals", "fill", "tile_field")
-NAME_LIST_KEYS = ("envelope", "exempt", "tile_field")
+GROWTH_SURFACE_KEYS = ("wall_t", "envelope", "exempt", "seals", "fill", "tile_field", "stones")
+NAME_LIST_KEYS = ("envelope", "exempt", "tile_field", "stones")
+STONE_SIDE_COS = 0.8  # rule 12: a face counts toward a box side when its normal is within ~37 degrees
+STONE_YAW_MAX = 1.0  # rule 12: degrees a stone's least-area footprint may turn off the axes
+# (the rough surface_wall kit stones, placed at yaw 0/90/180/270, read at most 0.91; ivy-b1e.40)
+STONE_GRID_DIGITS = 4  # rule 12: closing-grid coordinates rounded to 0.1 mm
+STUB_CAP_TOL = 2e-3  # stub keep: a cap reaches the stub end, both sheets and its height within 2 mm
 HULL_EPS = 1e-7  # rule 11: a point within 0.1 um of a hull face is on it
 TILE_EDGE_DEPTH = 0.05  # rule 11: thickness of a tile field where no hero underside lies below it.
 # Thinner than SG-9 (c)'s 0.10 m inside probe; on the cottage 0.15 and 0.25 both leave slots under
@@ -1097,6 +1119,7 @@ def growth_settings(block):
         "seals": block.get("seals", "scaffold"),
         "fill": [dict(f) for f in block.get("fill", [])],
         "tile_field": list(block.get("tile_field", [])),
+        "stones": list(block.get("stones", [])),
     }
 
 
@@ -1162,43 +1185,53 @@ def build(hero, scaffold, structure, centre_xz, settings, fail_on_slots=True):
     failures = []
     rules = {k: 0 for k in ("1_closed", "2_extruded", "2a_corner_cut", "3_dropped", "4a_capped_loops",
                             "4b_skirted_loops", "5_dropped", "6_envelope", "7_seal", "8_pushed_caps",
-                            "9_pulled_vertices", "10_exempt", "10_column_replaced", "11_tile_field", "fill",
+                            "9_pulled_vertices", "10_exempt", "10_column_replaced", "11_tile_field",
+                            "12_stones", "12_closed_cells", "12_boxes", "12_stub_kept", "fill",
                             "scaffold_copied", "flipped_to_outward")}
     report = {"tool": GENERATOR, "structure": structure, "centre_xz": [cx, cz], "settings": st,
               "rules": rules, "nodes": [], "slots": [], "enclosed_gap_samples": 0, "contacts": [],
-              "corner_cuts": [], "columns_replaced": [], "warnings": [], "failures": failures}
+              "corner_cuts": [], "columns_replaced": [], "stones": [], "stone_zones": [],
+              "stubs_kept": [], "warnings": [], "failures": failures}
+    stone_entries = st.get("stones", [])
 
     def fail(msg):
         failures.append(msg)
 
     # -- classify hero nodes ------------------------------------------------------------------
     used_entries = set()
-    regular, envelopes, seals = [], [], []
+    regular, envelopes, seals, stone_nodes = [], [], [], []
     for name, verts, tris in hero:
         tail = _tail(name, structure, "hero")
         ex = _matches(tail, st["exempt"])
         en = _matches(tail, st["envelope"])
         tf = _matches(tail, st["tile_field"])
+        sn = _matches(tail, stone_entries)
         used_entries.update(("exempt", e) for e in ex)
         used_entries.update(("envelope", e) for e in en)
         used_entries.update(("tile_field", e) for e in tf)
+        used_entries.update(("stones", e) for e in sn)
         if ex:
             rules["10_exempt"] += 1
             report["nodes"].append({"hero": name, "rule": "10_exempt", "solids": []})
         elif SEAL_TOKEN in name or tail.startswith(SEAL_TOKEN.strip("_") + "_"):
             seals.append((name, tail, verts, tris))
+        elif sn and en:
+            fail(f"{name}: matches both stones and envelope entries")
+        elif sn:
+            stone_nodes.append((name, tail, verts, tris))
         elif en:
             envelopes.append((name, tail, verts, tris))
         else:
             regular.append((name, tail, verts, tris))
-    for key in ("exempt", "envelope", "tile_field"):
-        for e in st[key]:
+    for key in ("exempt", "envelope", "tile_field", "stones"):
+        for e in (stone_entries if key == "stones" else st[key]):
             if (key, e) not in used_entries:
                 fail(f"growth_surface {key} entry '{e}' matches no hero node")
 
     # -- pass 1: islands; rule 2 slabs from every node ----------------------------------------
     per_node = []
     slabs = []
+    partners = {}  # node -> its rule-3 (interior-facing) sheets, for the stub keep
     for name, tail, verts, tris in regular:
         v, t = weld(verts, tris)
         entries = []
@@ -1240,6 +1273,8 @@ def build(hero, scaffold, structure, centre_xz, settings, fail_on_slots=True):
                 sheet = e["sheet"]
                 sheet.depth = wall_t
                 slabs.append(sheet)
+            elif e["kind"] == "sheet_in":
+                partners.setdefault(name, []).append(e["sheet"])
         per_node.append((name, tail, entries, node_sheets))
 
     def inside_some_slab(points):
@@ -1251,6 +1286,7 @@ def build(hero, scaffold, structure, centre_xz, settings, fail_on_slots=True):
     # -- pass 2: solids per node ----------------------------------------------------------------
     solids = []
     node_reports = {}
+    pending_stubs = []  # stub keep: (node, island, sheet S, cutting sheet T, overshoot)
     tile_pools = {}  # rule 11: node -> [(verts, tris)] of the islands rule 4 cannot close
     ridge_candidates = {}  # rule 11: node -> closed islands, decided once the ridge is known
     undersides = {}  # rule 11: node -> its down-facing open islands (the bottom of the roof)
@@ -1282,6 +1318,7 @@ def build(hero, scaffold, structure, centre_xz, settings, fail_on_slots=True):
                     rules["2a_corner_cut"] += 1
                     report["corner_cuts"].append({"sheet": name, "island": k, "by": other.node,
                                                   "overshoot": overshoot})
+                    pending_stubs.append((name, k, sheet, other, overshoot))
                 sv, stris = extrude_sheet(gv, gt, sheet.n, wall_t)
                 stris, flipped = _orient_outward(sv, stris)
                 if not is_closed(stris):
@@ -1359,6 +1396,22 @@ def build(hero, scaffold, structure, centre_xz, settings, fail_on_slots=True):
             fail(f"{name}: hero node produced no solid")
         info["count"] = made
 
+    # -- stub keep (ivy-b1e.40): a capped rule-2a overshoot stays solid between its sheets --------
+    caps = [s for s in solids if s.rule == "1"]
+    for name, k, sheet, other, overshoot in pending_stubs:
+        kept = _stub_keep(sheet, other, overshoot, partners.get(name, []), caps, wall_t)
+        if kept is None:
+            continue
+        frame, cap = kept
+        bv, bt = oriented_box_mesh(frame)
+        bt, _flipped = _orient_outward(bv, bt)
+        rules["12_stub_kept"] += 1
+        solids.append(_Solid(name, "2a_stub", bv, bt))
+        node_reports[name]["count"] = node_reports[name].get("count", 0) + 1
+        report["stubs_kept"].append({"sheet": name, "island": k, "by": other.node, "cap": cap.node,
+                                     "lo": [round(x, 4) for x in frame["lo"]],
+                                     "hi": [round(x, 4) for x in frame["hi"]]})
+
     # -- rule 11: tile fields ---------------------------------------------------------------------
     for name in sorted(set(tile_pools) | set(ridge_candidates) | set(undersides)):
         field = None
@@ -1414,6 +1467,32 @@ def build(hero, scaffold, structure, centre_xz, settings, fail_on_slots=True):
         rules["6_envelope"] += 1
         solids.append(_Solid(name, "6", bv, bt))
 
+    # -- rule 12: stones (each closed island one fitted box; closed and merged further down) -----
+    stone_boxes = []
+    for name, tail, verts, tris in stone_nodes:
+        v, t = weld(verts, tris)
+        count = 0
+        for k, isl in enumerate(islands(len(v), t)):
+            iv, it = compact(v, isl)
+            if not is_closed(it):
+                fail(f"{name}: stone island {k} is not closed")
+                continue
+            yaw = stone_yaw(iv)
+            if abs(yaw) > STONE_YAW_MAX:
+                fail(f"{name}: stone island {k} is {abs(yaw):.2f} degrees off-axis "
+                     f"(more than {STONE_YAW_MAX:g}; rule 12 needs axis-aligned stones)")
+                continue
+            lo, hi = fit_stone_box(iv, it)
+            if any(hi[a] - lo[a] <= 1e-6 for a in range(3)):
+                fail(f"{name}: stone island {k} fitted box has no volume")
+                continue
+            stone_boxes.append((lo, hi))
+            count += 1
+            rules["12_stones"] += 1
+            report["stones"].append({"hero": name, "island": k, "yaw": round(yaw, 3),
+                                     "box": [[round(x, 4) for x in lo], [round(x, 4) for x in hi]]})
+        report["nodes"].append({"hero": name, "rule": "12_stones", "stones": count, "solids": []})
+
     # -- scaffold ---------------------------------------------------------------------------------
     hero_bases = {f"{structure}_sim_{_tail(n, structure, 'hero')}" for n, _v, _t in hero}
     scaffold_panels = {}
@@ -1456,13 +1535,15 @@ def build(hero, scaffold, structure, centre_xz, settings, fail_on_slots=True):
     # -- rule 9 and scaffold copies ---------------------------------------------------------------
     walls = [s for s in slabs if abs(s.n[1]) < 0.3]
     envelope_bounds = [_aabb(s.verts) for s in solids if s.rule == "6"]
+    envelope_bounds += [(list(lo), list(hi)) for lo, hi in stone_boxes]  # rule 12 extends the exception
     for base, verts, tris, aid in copies:
         if aid is not None and aid in seal_aids:
             continue  # rule 7: the hero seal replaces this aperture's scaffold panel
         tail = _tail(base, structure, "sim")
         if "CornerColumn_" in tail:
             # Rule 10 exception (ivy-b1e.35, AR-MESH-20.13): the enveloped hero corner trim is the
-            # column's hero counterpart, so the scaffold column is not copied.
+            # column's hero counterpart, so the scaffold column is not copied. Rule 12 stones count
+            # the same way (ivy-b1e.40).
             col = _aabb(verts)
             if any(_aabb_overlap(col, e) >= COLUMN_OVERLAP_MIN for e in envelope_bounds):
                 rules["10_column_replaced"] += 1
@@ -1501,6 +1582,21 @@ def build(hero, scaffold, structure, centre_xz, settings, fail_on_slots=True):
             fv, ft = box_mesh(tuple(f["min"]), tuple(f["max"]))
         rules["fill"] += 1
         solids.append(_Solid("fill", "fill", fv, ft, name=f"{structure}_sim_Fill_{f['name']}_i00"))
+
+    # -- rule 12: corner zones closed under SLOT_MIN, merged into boxes -----------------------------
+    if stone_boxes:
+        bases = [_aabb(s.verts) for s in solids]
+        for ci, (zone_lo, zone_hi, members) in enumerate(stone_zones(stone_boxes)):
+            boxes, stats = close_zone([stone_boxes[i] for i in members], bases, zone_lo, zone_hi)
+            rules["12_closed_cells"] += stats["closed_cells"]
+            rules["12_boxes"] += len(boxes)
+            report["stone_zones"].append(dict(stats, zone=ci, stones=len(members),
+                                              lo=[round(x, 4) for x in zone_lo], hi=[round(x, 4) for x in zone_hi],
+                                              boxes=len(boxes)))
+            for bi, (lo, hi) in enumerate(boxes):
+                bv, bt = box_mesh(tuple(lo), tuple(hi))
+                solids.append(_Solid("CornerStones", "12", bv, bt,
+                                     name=f"{structure}_sim_CornerStones_c{ci}_i{bi:02d}"))
 
     # -- rule 8: caps that land on another solid are pushed 2 mm in ---------------------------------
     _push_caps(solids, rules, failures)
@@ -1569,6 +1665,251 @@ def _corner_cut(sheet, verts, tris, slabs, wall_t):
         v, t = compact(cv, keep)
         cuts.append((other, hmax))
     return v, t, cuts
+
+
+def _stub_keep(sheet, other, overshoot, partners, caps, wall_t):
+    """Stub keep (SD-MESH-19.4.3 item C, ivy-b1e.40): rule 2a cut `sheet` S at the outer plane of
+    `other` T, dropping the part that overshoots it by `overshoot`. When S's node has an interior
+    partner sheet P (antiparallel, behind S by at most wall_t, also running past T's plane) and a
+    closed hero solid (a rule-1 cap in `caps`) closes the stub's end, spanning P to S and the
+    stub's height (each within STUB_CAP_TOL), the stub between P and S is kept as a box: from 1 mm
+    inside T's slab out to the stub end, between the two sheet planes (or the cap's edges where
+    they stand past them), over S's overshooting height plus the rule 8 1 mm grow.
+    Returns ({"axes", "lo", "hi"}, cap solid) or None."""
+    beyond = [p for p in sheet.verts if other.height(p) > CORNER_CUT_MIN]
+    if not beyond:
+        return None
+    d_t = dot(other.n, other.p0)
+    d_s = dot(sheet.n, sheet.p0)
+    best = None
+    for part in partners:
+        if dot(part.n, sheet.n) > -SHEET_ALIGN_MIN:
+            continue
+        depth = -sheet.height(part.p0)
+        if not (CORNER_CUT_MIN < depth <= wall_t + 1e-6):
+            continue
+        if max(other.height(p) for p in part.verts) <= CORNER_CUT_MIN:
+            continue
+        if best is None or depth < best:
+            best = depth
+    if best is None:
+        return None
+    w = norm(cross(other.n, sheet.n))
+    run = (d_t, d_t + overshoot)
+    across = (d_s - best, d_s)
+    height = (min(dot(w, p) for p in beyond), max(dot(w, p) for p in beyond))
+    for cap in caps:
+        pr = [(dot(other.n, p), dot(sheet.n, p), dot(w, p)) for p in cap.verts]
+        lo = [min(q[a] for q in pr) for a in range(3)]
+        hi = [max(q[a] for q in pr) for a in range(3)]
+        if not (lo[0] > run[0] + CORNER_CUT_MIN and abs(hi[0] - run[1]) <= STUB_CAP_TOL):
+            continue
+        if not (lo[1] <= across[0] + STUB_CAP_TOL and hi[1] >= across[1] - STUB_CAP_TOL):
+            continue
+        if not (lo[2] <= height[0] + STUB_CAP_TOL and hi[2] >= height[1] - STUB_CAP_TOL):
+            continue
+        # Across, the stub spans the cap too where the cap's edges stand past the sheets (the hero
+        # caps overlap each sheet by 1.5 mm): a stub narrower than its cap leaves a sliver slot
+        # between the cap's lip and the cutting sheet's slab.
+        frame = {"axes": (other.n, sheet.n, w),
+                 "lo": [run[0] - SLAB_GROW, min(across[0], lo[1]), height[0] - SLAB_GROW],
+                 "hi": [run[1], max(across[1], hi[1]), height[1] + SLAB_GROW]}
+        return frame, cap
+    return None
+
+
+def stone_yaw(verts):
+    """Rule 12: the turn, in degrees within [-45, 45), of a stone's least-area plan rectangle
+    (rotating calipers on its plan hull). Robust to a rough stone's facets, unlike its face normals."""
+    hull = _hull_2d([(p[0], p[2]) for p in verts])
+    best = None
+    for k in range(len(hull)):
+        dx = hull[(k + 1) % len(hull)][0] - hull[k][0]
+        dz = hull[(k + 1) % len(hull)][1] - hull[k][1]
+        if dx * dx + dz * dz < 1e-16:
+            continue
+        th = math.atan2(dz, dx)
+        c, s = math.cos(th), math.sin(th)
+        ea = [p[0] * c + p[1] * s for p in hull]
+        eb = [-p[0] * s + p[1] * c for p in hull]
+        area = (max(ea) - min(ea)) * (max(eb) - min(eb))
+        if best is None or area < best[0] - 1e-12:
+            best = (area, th)
+    if best is None:
+        return 0.0
+    d = math.degrees(best[1]) % 90.0
+    return d - 90.0 if d >= 45.0 else d
+
+
+def fit_stone_box(verts, tris):
+    """Rule 12: the stone's axis-aligned box with each side at the area-weighted mean coordinate of
+    that side's faces (normal within ~37 degrees of the side's axis), not at the extreme vertex. A
+    side with no such face stays at the extreme vertex."""
+    lo, hi = _aabb(verts)
+    acc = {}
+    for a, b, c in tris:
+        pa, pb, pc = verts[a], verts[b], verts[c]
+        cr = cross(sub(pb, pa), sub(pc, pa))
+        ar = 0.5 * length(cr)
+        if ar < 1e-14:
+            continue
+        n = mul(cr, 0.5 / ar)
+        for k in range(3):
+            for sgn in (-1, 1):
+                if n[k] * sgn > STONE_SIDE_COS:
+                    e = acc.setdefault((k, sgn), [0.0, 0.0])
+                    e[0] += ar * (pa[k] + pb[k] + pc[k]) / 3.0
+                    e[1] += ar
+    for k in range(3):
+        if (k, -1) in acc and acc[(k, -1)][1] > 0.0:
+            lo[k] = acc[(k, -1)][0] / acc[(k, -1)][1]
+        if (k, 1) in acc and acc[(k, 1)][1] > 0.0:
+            hi[k] = acc[(k, 1)][0] / acc[(k, 1)][1]
+    return lo, hi
+
+
+def _box_gap(a, b):
+    return max(max(a[0][k] - b[1][k], b[0][k] - a[1][k]) for k in range(3))
+
+
+def stone_zones(boxes):
+    """Rule 12: a corner zone is the stones' bounding box grown SLOT_MIN on every side. Stones
+    whose grown boxes overlap (closer than 2 SLOT_MIN, chained) share one zone, so one pillar is one
+    zone and zones do not overlap along a pillar. Returns [(lo, hi, member indices)] sorted by the
+    zone's low corner."""
+    parent = list(range(len(boxes)))
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for i in range(len(boxes)):
+        for j in range(i + 1, len(boxes)):
+            if _box_gap(boxes[i], boxes[j]) < 2.0 * SLOT_MIN:
+                parent[find(j)] = find(i)
+    groups = {}
+    for i in range(len(boxes)):
+        groups.setdefault(find(i), []).append(i)
+    zones = []
+    for members in groups.values():
+        lo = [min(boxes[i][0][k] for i in members) - SLOT_MIN for k in range(3)]
+        hi = [max(boxes[i][1][k] for i in members) + SLOT_MIN for k in range(3)]
+        zones.append((lo, hi, sorted(members)))
+    zones.sort(key=lambda z: (tuple(round(x, 6) for x in z[0]), z[2][0]))
+    return zones
+
+
+def close_zone(stones, bases, zone_lo, zone_hi):
+    """Rule 12 closing in one corner zone (SD-MESH-19.3 closing, AR-MESH-20.3). The grid is every
+    stone and base box boundary inside the zone (rounded to 0.1 mm) plus the zone's own bounds.
+    Stone cells and base cells (the bounds of every other solid) are filled; along x, then y, then
+    z, an empty run shorter than SLOT_MIN between two filled cells of one grid line is filled,
+    repeated until a whole round fills nothing. Stone and filled cells (never base-only cells) are
+    merged greedily into boxes. Returns ([(lo, hi)], stats)."""
+    dg = STONE_GRID_DIGITS
+
+    def clip(lo, hi):
+        clo = [max(lo[k], zone_lo[k]) for k in range(3)]
+        chi = [min(hi[k], zone_hi[k]) for k in range(3)]
+        if any(chi[k] - clo[k] <= 1e-6 for k in range(3)):
+            return None
+        return clo, chi
+
+    sb = [c for c in (clip(lo, hi) for lo, hi in stones) if c]
+    bb = [c for c in (clip(lo, hi) for lo, hi in bases) if c]
+    coords = []
+    for k in range(3):
+        vals = {round(zone_lo[k], dg), round(zone_hi[k], dg)}
+        for lo, hi in sb + bb:
+            vals.add(round(lo[k], dg))
+            vals.add(round(hi[k], dg))
+        coords.append(sorted(vals))
+    dims = [len(c) - 1 for c in coords]
+    nx, ny, nz = dims
+    strides = [ny * nz, nz, 1]
+    cell = bytearray(nx * ny * nz)
+    index = [{x: q for q, x in enumerate(c)} for c in coords]
+    BASE, STONE, CLOSED = 1, 2, 3
+
+    def mark(boxes, val):
+        for lo, hi in boxes:
+            r = [(index[k][round(lo[k], dg)], index[k][round(hi[k], dg)]) for k in range(3)]
+            if any(a >= b for a, b in r):
+                continue
+            for i in range(*r[0]):
+                for j in range(*r[1]):
+                    off = i * strides[0] + j * strides[1]
+                    cell[off + r[2][0]:off + r[2][1]] = bytes([val]) * (r[2][1] - r[2][0])
+
+    mark(bb, BASE)
+    mark(sb, STONE)  # a stone is output whole, even where a base box covers it
+    widths = [[coords[a][q + 1] - coords[a][q] for q in range(dims[a])] for a in range(3)]
+    prefix = []
+    for a in range(3):
+        acc = [0.0]
+        for wd in widths[a]:
+            acc.append(acc[-1] + wd)
+        prefix.append(acc)
+    closed = 0
+    rounds = 0
+    while True:
+        rounds += 1
+        changed = 0
+        for axis in range(3):
+            b_ax, c_ax = [a for a in range(3) if a != axis]
+            n, st_a = dims[axis], strides[axis]
+            pre = prefix[axis]
+            for u in range(dims[b_ax]):
+                for w in range(dims[c_ax]):
+                    off = u * strides[b_ax] + w * strides[c_ax]
+                    line = cell[off:off + (n - 1) * st_a + 1:st_a]
+                    filled = [q for q, v in enumerate(line) if v]
+                    hit = False
+                    for f0, f1 in zip(filled, filled[1:]):
+                        if f1 - f0 > 1 and pre[f1] - pre[f0 + 1] < SLOT_MIN - 1e-9:
+                            line[f0 + 1:f1] = bytes([CLOSED]) * (f1 - f0 - 1)
+                            changed += f1 - f0 - 1
+                            hit = True
+                    if hit:
+                        cell[off:off + (n - 1) * st_a + 1:st_a] = line
+        closed += changed
+        if not changed:
+            break
+    out = bytearray(1 if v in (STONE, CLOSED) else 0 for v in cell)
+    boxes = []
+    for i in range(nx):
+        for j in range(ny):
+            row = i * strides[0] + j * strides[1]
+            k = 0
+            while k < nz:
+                if not out[row + k]:
+                    k += 1
+                    continue
+                k1 = k
+                while k1 + 1 < nz and out[row + k1 + 1]:
+                    k1 += 1
+                i1 = i
+                while i1 + 1 < nx:
+                    o = (i1 + 1) * strides[0] + j * strides[1]
+                    if 0 in out[o + k:o + k1 + 1]:
+                        break
+                    i1 += 1
+                j1 = j
+                while j1 + 1 < ny:
+                    if any(0 in out[ii * strides[0] + (j1 + 1) * strides[1] + k:
+                                    ii * strides[0] + (j1 + 1) * strides[1] + k1 + 1] for ii in range(i, i1 + 1)):
+                        break
+                    j1 += 1
+                for ii in range(i, i1 + 1):
+                    for jj in range(j, j1 + 1):
+                        o = ii * strides[0] + jj * strides[1]
+                        out[o + k:o + k1 + 1] = bytes(k1 - k + 1)
+                boxes.append(([coords[0][i], coords[1][j], coords[2][k]],
+                              [coords[0][i1 + 1], coords[1][j1 + 1], coords[2][k1 + 1]]))
+                k = k1 + 1
+    return boxes, {"grid": dims, "closed_cells": closed, "rounds": rounds}
 
 
 def _aabb(verts):

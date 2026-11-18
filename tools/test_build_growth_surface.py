@@ -702,6 +702,181 @@ class TestRule10ColumnReplacedByEnvelope(unittest.TestCase):
         self.assertEqual(report["rules"]["10_column_replaced"], 0)
 
 
+# Rule 12 and the stub keep (ivy-b1e.40, SD-MESH-19.4.3 items B and C, AR-MESH-20.3). Stones lie
+# on the wall x = -2 (outer face), their backs 1 cm inside its slab, like the kit quoins.
+
+
+def yaw_box(centre, size, deg):
+    """Closed outward box of `size` about `centre`, turned `deg` degrees about y."""
+    v, t = box(tuple(-0.5 * s for s in size), tuple(0.5 * s for s in size))
+    c, s = math.cos(math.radians(deg)), math.sin(math.radians(deg))
+    return [(centre[0] + p[0] * c - p[2] * s, centre[1] + p[1], centre[2] + p[0] * s + p[2] * c) for p in v], t
+
+
+def sawtooth_stone(x_back=-1.99, x_valley=-2.21, x_peak=-2.25, y1=0.4, teeth=2, z0=-0.2, z1=0.2):
+    """A stone whose outer (-x) face is a triangle wave along y between x_valley and x_peak (facets
+    about 22 degrees off -x, so every facet counts toward that side), flat elsewhere. Its -x
+    facets each span x_valley ... x_peak linearly with equal areas, so their area-weighted mean
+    x is exactly the midpoint 0.5 (x_valley + x_peak)."""
+    prof = [(x_back, 0.0), (x_back, y1)]
+    n = 2 * teeth
+    for k in range(n, -1, -1):  # down the rough face from the top
+        prof.append((x_valley if k % 2 == 0 else x_peak, y1 * k / n))
+    # prof runs (back,0) -> (back,y1) -> rough face top -> ... -> rough face bottom (valley, 0).
+    m = len(prof)
+    area2 = sum(prof[k][0] * prof[(k + 1) % m][1] - prof[(k + 1) % m][0] * prof[k][1] for k in range(m))
+    if area2 < 0:
+        prof.reverse()
+    v = [(x, y, z0) for x, y in prof] + [(x, y, z1) for x, y in prof]
+    t = []
+    for k in range(m):
+        a, b = k, (k + 1) % m
+        t += [(a, b, b + m), (a, b + m, a + m)]
+    top = bgs.triangulate_loop([v[m + k] for k in range(m)], (0.0, 0.0, 1.0))
+    t += [(m + a, m + b, m + c) for a, b, c in top]
+    t += [(a, c, b) for a, b, c in top]
+    mesh = (v, t)
+    return flipped(mesh) if volume(mesh) < 0 else mesh
+
+
+def stone_pair(gap, z_half=0.3):
+    """Two 0.21 x 0.3 m quoins on the wall, `gap` apart along z about z = 0."""
+    a = box((-2.2, 0.0, -z_half), (-1.99, 0.3, -0.5 * gap))
+    b = box((-2.2, 0.0, 0.5 * gap), (-1.99, 0.3, z_half))
+    return hero(("Wall", wall_sheet()), ("Quoin_A", a), ("Quoin_B", b))
+
+
+def inside_any(meshes, p):
+    return any(inside((v, t), p) for _n, v, t in meshes)
+
+
+def first_hit(meshes, origin, direction, reach=2.0):
+    tris = []
+    for _n, v, t in meshes:
+        tris += [(v[i], v[j], v[k], 0) for i, j, k in t]
+    hit = bgs.TriGrid(tris).ray(origin, direction, reach)
+    return None if hit is None else hit[0]
+
+
+def stone_names(meshes):
+    return [n for n, _v, _t in meshes if n.startswith("t_sim_CornerStones_")]
+
+
+class TestRule12Stones(unittest.TestCase):
+    def test_two_stones_5mm_apart_are_bridged_with_0_slots(self):
+        with self.assertRaises(bgs.BuildError) as ctx:
+            run(stone_pair(0.005))  # as plain rule-1 solids the 5 mm joint is a slot
+        self.assertIn("slot", str(ctx.exception))
+        out, report = run(stone_pair(0.005), stones=["Quoin"])
+        self.assertEqual(report["slots"], [])
+        self.assertEqual(report["rules"]["12_stones"], 2)
+        self.assertTrue(inside_any(out, (-2.1, 0.15, 0.0)), "the joint is filled")
+        names = by_name(out)
+        self.assertNotIn("t_sim_Quoin_A_i00", names)
+        self.assertTrue(stone_names(out))
+        for n in stone_names(out):
+            self.assertTrue(n.startswith("t_sim_CornerStones_c0_i"), n)
+            self.assertTrue(bgs.is_closed(names[n][1]))
+            self.assertGreater(volume(names[n]), 0.0)
+
+    def test_two_stones_12cm_apart_are_not_bridged_and_the_wall_between_stays_reachable(self):
+        out, report = run(stone_pair(0.12), stones=["Quoin"])
+        self.assertEqual(report["slots"], [])
+        self.assertFalse(inside_any(out, (-2.1, 0.15, 0.0)), "a 0.12 m recess is not closed")
+        t = first_hit(out, (-2.5, 0.15, 0.0), (1.0, 0.0, 0.0))
+        self.assertIsNotNone(t)
+        self.assertAlmostEqual(-2.5 + t, -2.0, delta=0.001, msg="the ray meets the wall face between the stones")
+        self.assertEqual(len({n.split("_i")[0] for n in stone_names(out)}), 1, "one corner zone")
+
+    def test_a_stone_2_degrees_off_axis_is_a_build_failure(self):
+        h = hero(("Wall", wall_sheet()), ("Quoin_A", yaw_box((-2.09, 0.15, 0.0), (0.2, 0.3, 0.4), 2.0)))
+        with self.assertRaises(bgs.BuildError) as ctx:
+            run(h, stones=["Quoin"])
+        self.assertIn("off-axis", str(ctx.exception))
+        self.assertIn("Quoin_A", str(ctx.exception))
+        # Half a degree is within the 1 degree the rough kit stones need (they read up to 0.91).
+        h = hero(("Wall", wall_sheet()), ("Quoin_A", yaw_box((-2.09, 0.15, 0.0), (0.2, 0.3, 0.4), 0.5)))
+        out, report = run(h, stones=["Quoin"])
+        self.assertEqual(report["rules"]["12_stones"], 1)
+
+    def test_a_fitted_side_lies_at_the_area_weighted_mean_of_a_rough_face(self):
+        stone = sawtooth_stone()
+        self.assertTrue(bgs.is_closed(stone[1]))
+        self.assertGreater(volume(stone), 0.0)
+        out, report = run(hero(("Wall", wall_sheet()), ("Quoin_R", stone)), stones=["Quoin"])
+        lo = min(bounds(by_name(out)[n])[0][0] for n in stone_names(out))
+        analytic = 0.5 * (-2.21 + -2.25)
+        self.assertAlmostEqual(lo, analytic, delta=0.001, msg="the -x side sits at the mean, not the peaks")
+        hi_y = max(bounds(by_name(out)[n])[1][1] for n in stone_names(out))
+        self.assertAlmostEqual(hi_y, 0.4, delta=0.001, msg="a flat side stays on its face")
+        self.assertEqual(report["stones"][0]["box"][0][0], round(analytic, 4))
+
+    def test_stone_and_envelope_on_one_node_fails(self):
+        h = hero(("Wall", wall_sheet()), ("Quoin_A", box((-2.2, 0.0, -0.3), (-1.99, 0.3, 0.3))))
+        with self.assertRaises(bgs.BuildError) as ctx:
+            run(h, stones=["Quoin"], envelope=["Quoin"])
+        self.assertIn("both", str(ctx.exception))
+
+    def test_open_stone_island_fails(self):
+        h = hero(("Wall", wall_sheet()), ("Quoin_A", drop_faces(box((-2.2, 0.0, -0.3), (-1.99, 0.3, 0.3)), 0, -2.2)))
+        with self.assertRaises(bgs.BuildError) as ctx:
+            run(h, stones=["Quoin"])
+        self.assertIn("not closed", str(ctx.exception))
+
+    def test_stones_entry_matching_no_node_fails(self):
+        with self.assertRaises(bgs.BuildError) as ctx:
+            run(hero(("Wall", wall_sheet())), stones=["Quoin"])
+        self.assertIn("stones entry 'Quoin'", str(ctx.exception))
+
+    def test_column_overlapped_by_a_stone_is_not_copied(self):
+        h = stone_pair(0.005)
+        sc = scaffold(("CornerColumn_0", box((-2.3, 0.0, -0.2), (-1.9, 3.0, 0.2))),
+                      ("CornerColumn_1", box((-2.3, 0.0, 0.8), (-1.9, 3.0, 0.95))))
+        out, report = run(h, sc, stones=["Quoin"])
+        self.assertNotIn("t_sim_CornerColumn_0_i00", by_name(out))
+        self.assertIn("t_sim_CornerColumn_1_i00", by_name(out))
+        self.assertEqual(report["rules"]["10_column_replaced"], 1)
+
+    def test_idempotent_on_its_own_output(self):
+        h = stone_pair(0.005)
+        out1, _r = run(h, stones=["Quoin"])
+        out2, _r = run(h, [(n, v, t) for n, v, t in out1], stones=["Quoin"])
+        self.assertEqual(bgs.glb_bytes(out1, "Sim_t"), bgs.glb_bytes(out2, "Sim_t"))
+
+
+def capped_corner_kit():
+    """corner_kit with each 0.09 m stub closed by a 1 cm end cap spanning both sheets (1.5 mm
+    past each), like the surface_wall WallEndCap plates (ivy-b1e.39)."""
+    lo_s, hi_s = FACE - INNER - 0.0015, FACE + 0.0015
+    caps = hero(("WallEndCap_A", box((1.99, 0.0, lo_s), (2.0, 3.0, hi_s))),
+                ("WallEndCap_B", box((lo_s, 0.0, 1.99), (hi_s, 3.0, 2.0))))
+    return corner_kit() + caps
+
+
+class TestStubKeep(unittest.TestCase):
+    def test_capped_overshoot_stub_is_kept_and_the_slab_end_still_cut(self):
+        out, report = run(capped_corner_kit())
+        names = by_name(out)
+        self.assertEqual(report["slots"], [])
+        self.assertEqual(report["rules"]["2a_corner_cut"], 2)
+        self.assertEqual(report["rules"]["12_stub_kept"], 2)
+        a = names["t_sim_Straight_A_i00"]
+        self.assertLessEqual(bounds(a)[1][0], FACE + 0.0011, "the 0.45 m slab end is still cut")
+        self.assertTrue(inside_any(out, (1.95, 1.5, FACE - 0.1)), "stub of A kept between its sheets")
+        self.assertTrue(inside_any(out, (FACE - 0.1, 1.5, 1.95)), "stub of B kept between its sheets")
+        self.assertFalse(inside_any(out, (1.95, 1.5, FACE - INNER - 0.01)), "not proud of the inner sheet")
+        self.assertFalse(inside_any(out, (1.95, 1.5, FACE + 0.01)), "not proud of the outer sheet")
+        self.assertFalse(inside_any(out, (1.95, 1.5, 1.4)), "the slab end stays cut")
+        kept = report["stubs_kept"]
+        self.assertEqual(sorted(k["sheet"] for k in kept), ["t_hero_Straight_A", "t_hero_Straight_B"])
+        self.assertEqual(sorted(k["cap"] for k in kept), ["t_hero_WallEndCap_A", "t_hero_WallEndCap_B"])
+
+    def test_uncapped_stub_is_not_kept(self):
+        out, report = run(corner_kit())
+        self.assertEqual(report["rules"]["12_stub_kept"], 0)
+        self.assertFalse(inside_any(out, (1.95, 1.5, FACE - 0.1)))
+
+
 def gable_tile_field(amp=0.05, wavelength=0.25, nx=16, nz=8, ridge_y=3.0, half=1.0):
     """Gabled round-tile field as ONE open island over both slopes (the cottage roof's shape).
 
@@ -1226,6 +1401,7 @@ class TestGrowthSurfaceConfig(unittest.TestCase):
                  "fill": [{"name": "S1", "min": [0, 0, 0], "max": [1, 1, 1]}]})
         self.ok({"wall_t": 1})
         self.ok({"tile_field": ["Roof_RoundTiles"]})
+        self.ok({"stones": ["Corner"]})
         self.ok({"fill": [{"name": "P", "points": [[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]]}]})
 
     def test_defaults(self):
@@ -1236,8 +1412,11 @@ class TestGrowthSurfaceConfig(unittest.TestCase):
         self.assertEqual(st["seals"], "scaffold")
         self.assertEqual(st["fill"], [])
         self.assertEqual(st["tile_field"], [])
+        self.assertEqual(st["stones"], [])
 
     def test_rejects_bad_blocks(self):
+        self.bad({"stones": "Corner"}, "stones")
+        self.bad({"stones": [""]}, "stones")
         self.bad([], "object")
         self.bad({"wal_t": 0.45}, "wal_t")
         self.bad({"wall_t": 0.2}, "wall_t")
