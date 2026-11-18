@@ -752,7 +752,9 @@ def place_corner_trim(yaw_deg, collection, d, prefix, z_base=0.0, world_offset=V
     return obj
 
 
-def hero_corner_block(name, xy, collection, d, z_base=0.0, world_offset=Vector((0, 0, 0))):
+def hero_corner_block(name, xy, yaw_deg, collection, d, z_base=0.0, world_offset=Vector((0, 0, 0))):
+    """Kit corner block at corner_centers[i], turned with its corner (yaw 90*i, the same turn
+    place_corner_trim gives the trim at corner_locs[90*i]) so every corner matches corner 0."""
     cx, cy = xy
     sx = d["corner_size"] / 0.55
     zmin, zmax = piece_zextent("Corner_Exterior_Brick")
@@ -760,6 +762,7 @@ def hero_corner_block(name, xy, collection, d, z_base=0.0, world_offset=Vector((
     sz = WALL_H / piece_h
     obj = bpy.data.objects.new(name, hero_data("Corner_Exterior_Brick").copy())
     collection.objects.link(obj)
+    obj.rotation_euler = (0.0, 0.0, math.radians(yaw_deg))
     # Shift so the piece's native bottom sits exactly at z_base.
     obj.location = Vector((cx, cy, z_base - zmin * sz)) + world_offset
     obj.scale = (sx, sx, sz)
@@ -1795,7 +1798,7 @@ def assemble_hero(cfg, hero_col, hero_roof_mat, glass_mat, world_offset):
             for yaw in (0.0, 90.0, 180.0, 270.0):
                 parts.append(place_corner_trim(yaw, hero_col, d, prefix, z_base, world_offset))
             for i, xy in enumerate(d["corner_centers"]):
-                parts.append(hero_corner_block(f"{prefix}CornerBlock_{si}_{i}", xy, hero_col, d, z_base, world_offset))
+                parts.append(hero_corner_block(f"{prefix}CornerBlock_{si}_{i}", xy, 90.0 * i, hero_col, d, z_base, world_offset))
     total_h = d["total_h"]
     add_roof_cap(parts, prefix, cfg, d, hero_col, hero_roof_mat, world_offset)
     if cfg["name"] == "tower":
