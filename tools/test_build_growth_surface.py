@@ -584,6 +584,124 @@ class TestRule10ExemptAndFill(unittest.TestCase):
         self.assertEqual(report["rules"]["fill"], 1)
 
 
+# Rule 2a and the rule 10 column exception (ivy-b1e.35, AR-MESH-20.3 / AR-MESH-20.13). The corner
+# fixture is surface_wall's +x +z corner shrunk: outer faces at FACE = 1.91, kit sheets running to
+# +-2.00 (0.090 m past the perpendicular face), each with an interior-facing partner 0.20 m behind.
+FACE = 1.91
+INNER = 0.20
+
+
+def sheet_z(z, x0, x1, y0=0.0, y1=3.0, facing=1.0):
+    """Planar quad in the plane z = const, normal (0, 0, facing)."""
+    v = [(x0, y0, z), (x1, y0, z), (x1, y1, z), (x0, y1, z)]
+    t = [(0, 1, 2), (0, 2, 3)]
+    if facing < 0:
+        t = [(a, c, b) for a, b, c in t]
+    return v, t
+
+
+def corner_kit(end=2.0, face=FACE, b_y1=3.0):
+    """Wall runs A (outer sheet z = face, +z) and B (outer sheet x = face, +x), each spanning
+    -2 ... `end` along its run, with the interior partner sheet INNER behind it in the same node
+    (Quaternius kit walls are two disconnected sheets). B is `b_y1` tall."""
+    a = merge(sheet_z(face, -2.0, end), sheet_z(face - INNER, -2.0, end, facing=-1.0))
+    b = merge(wall_sheet(x=face, z0=-2.0, z1=end, y1=b_y1, facing=1.0),
+              wall_sheet(x=face - INNER, z0=-2.0, z1=end, y1=b_y1, facing=-1.0))
+    return hero(("Straight_A", a), ("Straight_B", b))
+
+
+def corner_report_cuts(report):
+    return sorted((c["sheet"], c["by"], round(c["overshoot"], 4)) for c in report["corner_cuts"])
+
+
+# sha256 of glb_bytes(build(corner_kit(end=FACE))) from the builder before rule 2a (ivy-b1e.35).
+FLUSH_CORNER_SHA256 = "855de5c0c7fdfb683927f1cf35f0aa9e5c26ce7ded710d671fcb66d21cc912fa"
+
+
+class TestRule2aCornerCut(unittest.TestCase):
+    def test_overshooting_corner_sheets_are_cut_at_each_others_plane(self):
+        out, report = run(corner_kit())
+        names = by_name(out)
+        a, b = names["t_sim_Straight_A_i00"], names["t_sim_Straight_B_i00"]
+        self.assertLessEqual(bounds(a)[1][0], FACE + 0.0011, "slab A stops at B's outer plane")
+        self.assertLessEqual(bounds(b)[1][2], FACE + 0.0011, "slab B stops at A's outer plane")
+        self.assertGreaterEqual(bounds(a)[1][0], FACE + 0.0009, "the cut edge still grows 1 mm (rule 8)")
+        for m in (a, b):
+            self.assertTrue(bgs.is_closed(m[1]))
+            self.assertGreater(volume(m), 0.0)
+        self.assertEqual(report["slots"], [])
+        self.assertEqual(report["rules"]["2a_corner_cut"], 2)
+        self.assertEqual(corner_report_cuts(report),
+                         [("t_hero_Straight_A", "t_hero_Straight_B", 0.09),
+                          ("t_hero_Straight_B", "t_hero_Straight_A", 0.09)])
+        self.assertEqual(report["rules"]["3_dropped"], 2, "the inner partners keep rule 3")
+        # The corner itself stays solid: the outer corner edge is inside both slabs' union.
+        self.assertTrue(inside(a, (FACE - 0.01, 1.5, FACE - 0.01)) or inside(b, (FACE - 0.01, 1.5, FACE - 0.01)))
+
+    def test_ray_along_the_wall_meets_the_cut_face_not_the_lip(self):
+        out, _r = run(corner_kit())
+        tris = []
+        for _n, v, t in out:
+            tris += [(v[i], v[j], v[k], 0) for i, j, k in t]
+        hit = bgs.TriGrid(tris).ray((FACE - 0.31, 1.0, FACE + 0.39), (0.0, 0.0, -1.0), 2.0)
+        self.assertIsNotNone(hit)
+        self.assertLessEqual(FACE + 0.39 - hit[0], FACE + 0.0011)
+
+    def test_flush_corner_is_byte_identical_to_the_builder_before_rule_2a(self):
+        out, report = run(corner_kit(end=FACE))
+        self.assertEqual(report["rules"]["2a_corner_cut"], 0)
+        self.assertEqual(report["corner_cuts"], [])
+        import hashlib
+        self.assertEqual(hashlib.sha256(bgs.glb_bytes(out, "Sim_t")).hexdigest(), FLUSH_CORNER_SHA256)
+
+    def test_t_junction_overshooting_more_than_wall_t_is_not_cut(self):
+        out, report = run(corner_kit(end=FACE + 0.60))
+        names = by_name(out)
+        self.assertAlmostEqual(bounds(names["t_sim_Straight_A_i00"])[1][0], FACE + 0.60 + 0.001, places=6)
+        self.assertEqual(report["rules"]["2a_corner_cut"], 0)
+        self.assertEqual(report["corner_cuts"], [])
+
+    def test_overshoot_projecting_outside_the_other_sheet_is_not_cut(self):
+        # The cottage gable case: A crosses B's plane by 0.12 m (inside wall_t), but B is only
+        # 1.5 m tall, so A's overshoot above y 1.5 projects outside B's sheet.
+        out, report = run(corner_kit(end=FACE + 0.12, b_y1=1.5))
+        names = by_name(out)
+        self.assertAlmostEqual(bounds(names["t_sim_Straight_A_i00"])[1][0], FACE + 0.12 + 0.001, places=6)
+        self.assertEqual(report["rules"]["2a_corner_cut"], 1, "B (0.12 m past A, under A everywhere) is cut")
+        self.assertEqual(corner_report_cuts(report), [("t_hero_Straight_B", "t_hero_Straight_A", 0.12)])
+
+    def test_parallel_sheets_are_never_cut(self):
+        # Two outward sheets facing the same way that overlap end to end: (i) fails, nothing cut.
+        out, report = run(hero(("WallA", wall_sheet(z0=-1.0, z1=0.05)), ("WallB", wall_sheet(z0=0.0, z1=1.0))))
+        self.assertEqual(report["rules"]["2a_corner_cut"], 0)
+
+
+def column_fixture(column_z0, column_z1):
+    """Wall x = -2, shutter envelope at z -0.5 ... 0.36, and one scaffold CornerColumn_ box."""
+    h = hero(("Wall", wall_sheet()), ("Shutter_L", shutter_boards()))
+    sc = scaffold(("CornerColumn_0", box((-2.2, 0.0, column_z0), (-1.9, 3.0, column_z1))))
+    return run(h, sc, envelope=["Shutter"])
+
+
+class TestRule10ColumnReplacedByEnvelope(unittest.TestCase):
+    def test_column_overlapped_by_an_envelope_is_not_copied(self):
+        out, report = column_fixture(-0.6, 0.0)
+        self.assertNotIn("t_sim_CornerColumn_0_i00", by_name(out))
+        self.assertEqual(report["rules"]["10_column_replaced"], 1)
+        self.assertEqual(report["rules"]["scaffold_copied"], 0)
+
+    def test_column_half_a_metre_from_any_envelope_is_copied_unchanged(self):
+        out, report = column_fixture(0.86, 1.2)
+        col = by_name(out)["t_sim_CornerColumn_0_i00"]
+        self.assertEqual(col, tuple(box((-2.2, 0.0, 0.86), (-1.9, 3.0, 1.2))))
+        self.assertEqual(report["rules"]["10_column_replaced"], 0)
+
+    def test_column_overlapping_an_envelope_by_less_than_1mm_is_copied(self):
+        out, report = column_fixture(0.3595, 1.2)
+        self.assertIn("t_sim_CornerColumn_0_i00", by_name(out))
+        self.assertEqual(report["rules"]["10_column_replaced"], 0)
+
+
 def gable_tile_field(amp=0.05, wavelength=0.25, nx=16, nz=8, ridge_y=3.0, half=1.0):
     """Gabled round-tile field as ONE open island over both slopes (the cottage roof's shape).
 

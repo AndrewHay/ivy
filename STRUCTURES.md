@@ -151,7 +151,7 @@ surface needs no `growth_surface` block (defaults fit), so the gates tool still 
 
 Turns every node of the hero GLB into closed solids in world space and writes the sim GLB that the
 SDF baker and `StructureBody` read (IMPLEMENTATION.md AR-MESH-20.3, `ivy-b1e.14`). Pure Python,
-standard library only; self-test `python3 tools/test_build_growth_surface.py`.
+standard library only; self-test `python3 tools/test_build_growth_surface.py` (86 tests).
 
 ```bash
 python3 tools/build_growth_surface.py <hero.glb> <scaffold_sim.glb> <out_sim.glb> \
@@ -170,6 +170,17 @@ python3 tools/build_growth_surface.py <hero.glb> <scaffold_sim.glb> <out_sim.glb
   nodes become the aperture panel when `seals` is `hero`. Solids that meet overlap by at least 1 mm.
   The scaffold `FloorSlab` is pulled 0.10 m inside the wall faces and its top lowered to y = 0 (it
   stood 0.05 m above the ground and buried the hero's wall bases; `ivy-b1e.7`).
+- Rule 2a, corner lip (`ivy-b1e.35`, AR-MESH-20.3 / 20.13): before extrusion, an outward sheet that
+  runs past a perpendicular outward sheet's plane is cut there (the cut edge 1 mm past the plane, the
+  usual rule 8 grow) when the overshoot is over 1 mm and at most `wall_t` **and** every overshooting
+  vertex projects inside the other sheet. Geometry-derived, no config. It removes the 9 cm kit
+  wall-end lip at each surface_wall corner (8 cuts) and cuts nothing on the cottage (its gables
+  overshoot outside the wall sheets), tower, square or relief article. The report lists each cut under
+  `corner_cuts` (sheet, other sheet, overshoot) and counts them in `rules.2a_corner_cut`.
+- Rule 10 column exception (`ivy-b1e.35`): a scaffold `CornerColumn_` whose bounds overlap a rule-6
+  envelope solid's bounds by at least 1 mm on every axis is not copied: the enveloped hero corner trim
+  (`envelope: ["Corner"]` on surface_wall) replaces it. Counted in `rules.10_column_replaced`, listed
+  under `columns_replaced`. Columns with no envelope over them are copied as before.
 - Rule 11, tiled roofs (`tile_field`, `ivy-b1e.7`): the islands of a listed node that rule 4 cannot
   close (the tile surface) are split at the ridge; each slope becomes one solid whose top is the tile
   surface itself (troughs included) and whose bottom reaches down along the slope normal to the
@@ -182,7 +193,8 @@ python3 tools/build_growth_surface.py <hero.glb> <scaffold_sim.glb> <out_sim.glb
   support down into the tiles across the middle 60 % of the cap's width (the pockets under the rims
   stay open); both stop 0.10 m short of a cap end no other cap overlaps, so its hollow stays.
 - Settings: optional `growth_surface` block of the structure in `tools/structure_configs.json`,
-  validated by `validate_config`: `wall_t` (≥ 0.24, default 0.45), `envelope`, `exempt` and
+  validated by `validate_config`: `wall_t` (≥ 0.24, default 0.45), `envelope` (shutters; the hero
+  corner trims, `"Corner"`, are planned for surface_wall at its install), `exempt` and
   `tile_field` (substrings of the hero node name after `{id}_hero_`), `seals` (`hero` / `scaffold`,
   default `scaffold`), `fill` (`[{"name", "min", "max"}]` boxes in glTF world coordinates, or
   `{"name", "points"}`: the convex hull of at least 4 points, for a fill that hugs a rotated piece).

@@ -16,6 +16,10 @@ Every hero node is turned into closed solids in world space by the rules of AR-M
 
   1   closed island                          kept (wound outward)
   2   planar sheet facing away from interior extruded wall_t toward the interior (holes -> reveals)
+  2a  rule-2 sheet running past a            cut at that sheet's plane (+ the rule 8 1 mm grow) before
+      perpendicular rule-2 sheet's plane     extrusion, when the overshoot is > 1 mm and <= wall_t and
+                                             every overshooting vertex projects inside that sheet
+                                             (the 9 cm kit wall-end lip at a corner, ivy-b1e.35)
   3   planar sheet facing the interior       dropped
   4a  open island, boundary loop planar      loop capped (ear clipping, never a centroid fan)
   4b  open island, boundary loop not planar  skirt to the backing sheet's plane, 2 mm inside the slab,
@@ -26,7 +30,9 @@ Every hero node is turned into closed solids in world space by the rules of AR-M
   8   solids that meet                       overlap >= 1 mm: rule-2 sheets grow 1 mm at their outer
                                              edge; a 4a cap lying on another solid is pushed 2 mm in
   9   scaffold FloorSlab / RoofCap           vertices pulled 0.10 m inside the hero wall faces
-  10  node listed under `exempt`             skipped
+  10  node listed under `exempt`             skipped; a scaffold CornerColumn_ whose bounds overlap a
+                                             rule-6 envelope's by >= 1 mm on every axis is not copied
+                                             (the enveloped hero corner trim replaces it, ivy-b1e.35)
   11  node listed under `tile_field`         a tiled roof (ivy-b1e.7): the islands rule 4 cannot close
                                              are split at the ridge; each slope is extruded along its
                                              inward normal, exact on the tiles, down to the node's own
@@ -86,6 +92,10 @@ BACKING_MARGIN = 0.10  # in-plane slack round a backing sheet's extent
 BACKING_ALIGN_MIN = 0.5
 ENVELOPE_REACH = 1.0  # an envelope extends at most this far to meet a wall
 FACING_MIN = 0.2  # a sheet needs this much horizontal normal for the outward test
+CORNER_PERP_TOL = 0.05  # rule 2a (i): |n_S . n_T| at most this for perpendicular sheets
+CORNER_CUT_MIN = 1e-3  # rule 2a (ii): an overshoot must exceed 1 mm (and be at most wall_t)
+CORNER_PROJ_TOL = 2e-3  # rule 2a (iii): overshooting vertices project inside T within 2 mm
+COLUMN_OVERLAP_MIN = 1e-3  # rule 10: a CornerColumn_ overlapping an envelope this much on every axis
 SCAFFOLD_TOKENS = ("FloorSlab", "MidFloorSlab", "RoofCap", "RoofCone", "CornerColumn_", "Interior_", "Panel_")
 SEAL_TOKEN = "_Seal_"
 GROWTH_SURFACE_KEYS = ("wall_t", "envelope", "exempt", "seals", "fill", "tile_field")
@@ -1150,12 +1160,13 @@ def build(hero, scaffold, structure, centre_xz, settings, fail_on_slots=True):
     wall_t = st["wall_t"]
     cx, cz = centre_xz
     failures = []
-    rules = {k: 0 for k in ("1_closed", "2_extruded", "3_dropped", "4a_capped_loops", "4b_skirted_loops",
-                            "5_dropped", "6_envelope", "7_seal", "8_pushed_caps", "9_pulled_vertices",
-                            "10_exempt", "11_tile_field", "fill", "scaffold_copied", "flipped_to_outward")}
+    rules = {k: 0 for k in ("1_closed", "2_extruded", "2a_corner_cut", "3_dropped", "4a_capped_loops",
+                            "4b_skirted_loops", "5_dropped", "6_envelope", "7_seal", "8_pushed_caps",
+                            "9_pulled_vertices", "10_exempt", "10_column_replaced", "11_tile_field", "fill",
+                            "scaffold_copied", "flipped_to_outward")}
     report = {"tool": GENERATOR, "structure": structure, "centre_xz": [cx, cz], "settings": st,
               "rules": rules, "nodes": [], "slots": [], "enclosed_gap_samples": 0, "contacts": [],
-              "warnings": [], "failures": failures}
+              "corner_cuts": [], "columns_replaced": [], "warnings": [], "failures": failures}
 
     def fail(msg):
         failures.append(msg)
@@ -1266,7 +1277,12 @@ def build(hero, scaffold, structure, centre_xz, settings, fail_on_slots=True):
             if kind == "sheet_out":
                 sheet = e["sheet"]
                 gv = grow_outer_loop(iv, it, sheet.n, SLAB_GROW)
-                sv, stris = extrude_sheet(gv, it, sheet.n, wall_t)
+                gv, gt, cuts = _corner_cut(sheet, gv, it, slabs, wall_t)
+                for other, overshoot in cuts:
+                    rules["2a_corner_cut"] += 1
+                    report["corner_cuts"].append({"sheet": name, "island": k, "by": other.node,
+                                                  "overshoot": overshoot})
+                sv, stris = extrude_sheet(gv, gt, sheet.n, wall_t)
                 stris, flipped = _orient_outward(sv, stris)
                 if not is_closed(stris):
                     fail(f"{name}: island {k} extruded slab is not closed")
@@ -1439,10 +1455,19 @@ def build(hero, scaffold, structure, centre_xz, settings, fail_on_slots=True):
 
     # -- rule 9 and scaffold copies ---------------------------------------------------------------
     walls = [s for s in slabs if abs(s.n[1]) < 0.3]
+    envelope_bounds = [_aabb(s.verts) for s in solids if s.rule == "6"]
     for base, verts, tris, aid in copies:
         if aid is not None and aid in seal_aids:
             continue  # rule 7: the hero seal replaces this aperture's scaffold panel
         tail = _tail(base, structure, "sim")
+        if "CornerColumn_" in tail:
+            # Rule 10 exception (ivy-b1e.35, AR-MESH-20.13): the enveloped hero corner trim is the
+            # column's hero counterpart, so the scaffold column is not copied.
+            col = _aabb(verts)
+            if any(_aabb_overlap(col, e) >= COLUMN_OVERLAP_MIN for e in envelope_bounds):
+                rules["10_column_replaced"] += 1
+                report["columns_replaced"].append(base)
+                continue
         if ("FloorSlab" in tail and "MidFloorSlab" not in tail) or "RoofCap" in tail:
             verts, moved = _pull_inside_walls(verts, walls)
             rules["9_pulled_vertices"] += moved
@@ -1508,6 +1533,51 @@ def build(hero, scaffold, structure, centre_xz, settings, fail_on_slots=True):
     if failures:
         raise BuildError(failures, report)
     return [(s.name, s.verts, s.tris) for s in solids], report
+
+
+def _corner_cut(sheet, verts, tris, slabs, wall_t):
+    """Rule 2a (AR-MESH-20.3, ivy-b1e.35): cut the (already grown) sheet `verts`/`tris` at the
+    outer plane of every perpendicular rule-2 sheet T it runs past, keeping the interior side.
+
+    The three conditions are tested on the hero sheet (`sheet.verts`, before the 1 mm grow):
+    (i) |n_S . n_T| <= CORNER_PERP_TOL; (ii) S has vertices more than 1 mm on both sides of T's
+    plane and its largest height above it is at most wall_t; (iii) every vertex of S more than
+    1 mm above T's plane projects inside T's sheet polygon (CORNER_PROJ_TOL). The cut lies 1 mm
+    beyond T's plane, so the cut edge carries the same rule 8 grow as the rest of the outer
+    boundary. Returns (verts, tris, [(T, overshoot)]); with no cut the inputs come back unchanged."""
+    cuts = []
+    v, t = verts, tris
+    for other in slabs:
+        if other is sheet or abs(dot(sheet.n, other.n)) > CORNER_PERP_TOL:
+            continue
+        hs = [other.height(p) for p in sheet.verts]
+        hmax, hmin = max(hs), min(hs)
+        if not (hmax > CORNER_CUT_MIN and hmin < -CORNER_CUT_MIN and hmax <= wall_t + 1e-6):
+            continue
+        beyond = [p for p, h in zip(sheet.verts, hs) if h > CORNER_CUT_MIN]
+        if not all(other.contains2d(other.to2d(p), CORNER_PROJ_TOL) for p in beyond):
+            continue
+        d = dot(other.n, other.p0) + SLAB_GROW
+        cv, ct = cut_by_plane(v, t, other.n, d)
+        keep = []
+        for tri in ct:
+            c = mul(add(add(cv[tri[0]], cv[tri[1]]), cv[tri[2]]), 1.0 / 3.0)
+            if dot(other.n, c) - d <= 1e-9:
+                keep.append(tri)
+        if not keep:
+            continue
+        v, t = compact(cv, keep)
+        cuts.append((other, hmax))
+    return v, t, cuts
+
+
+def _aabb(verts):
+    return ([min(p[k] for p in verts) for k in range(3)], [max(p[k] for p in verts) for k in range(3)])
+
+
+def _aabb_overlap(a, b):
+    """The smallest per-axis overlap of two axis-aligned boxes (negative when they are apart)."""
+    return min(min(a[1][k], b[1][k]) - max(a[0][k], b[0][k]) for k in range(3))
 
 
 def cut_by_plane(verts, tris, m, d, tol=1e-9):
