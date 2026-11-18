@@ -1407,6 +1407,7 @@ Per hero node: weld vertices at 0.1 mm, split into connected islands, then:
 |---|---|---|
 | 1 | Closed | Kept as a solid, unchanged. |
 | 2 | Planar sheet (all vertices within 1 mm of one plane) whose normal points away from the structure's interior | Extruded `wall_t` (0.45 m, keeps the SD-MESH-17 0.24 m floor) toward the interior. Holes in the sheet extrude with it, which gives door and window reveals. |
+| 2a | Rule-2 sheet `S` that runs past the outer plane of a perpendicular rule-2 sheet `T` (added `ivy-b1e.34`, AR-MESH-20.13) | Before extrusion, `S` is cut at `T`'s plane and the part on `T`'s outer side is dropped, when all three hold: (i) `|n_S·n_T| ≤ 0.05`; (ii) `S` has vertices on both sides of `T`'s plane and its largest height above it is `> 1 mm` and `≤ wall_t`; (iii) every vertex of `S` more than 1 mm above `T`'s plane projects onto `T`'s plane inside `T`'s sheet polygon (2 mm tolerance). One sheet may be cut by several `T`. Only the sheet is cut; the node's other islands keep their rules. The cut edge grows 1 mm with the rest of the outer boundary (rule 8). |
 | 3 | Planar sheet facing the interior | Dropped. Its outward partner makes the wall. |
 | 4a | Open and not planar (timber tubes, chimney, tile field), boundary loop planar within 5 mm | The loop is capped. |
 | 4b | Same, boundary loop not planar (braces and arched trim lying on a wall: open at the back and at both ends) | A skirt is dropped from the loop to its projection on the backing sheet's plane, 2 mm inside the slab, and the projected loop is capped there. With no backing sheet behind it, the build fails naming the node. |
@@ -1415,7 +1416,7 @@ Per hero node: weld vertices at 0.1 mm, split into connected islands, then:
 | 7 | Hero seal node (`_Seal_`: door leaf, glass), when `seals` is `hero` | Its box, `wall_t` deep toward the interior, named `…_sim_Panel_<aperture id>` so `StructureBody` material lookup and the aperture gates keep working. The scaffold panel for that aperture is dropped. |
 | 8 | Any two solids that meet | Must overlap by at least 1 mm, not share a face. The baker clips faces buried inside another convex shell but keeps coincident ones (`_CLIP_EPS`), and a kept buried face sits in the distance field as a false surface. Caps that land on a slab face are pushed 2 mm into the slab. |
 | 9 | Scaffold slabs (`FloorSlab`, `RoofCap`) | Pulled 0.10 m inside the wall face. A scaffold solid must never be the outermost surface where a hero-derived one exists. |
-| 10 | Nodes listed under `exempt` (hero-only corner trim, door frames: SD-MESH-19.2) | Skipped. Corner columns stay as scaffold (SD-OPEN-27's faceted corner proxy stands). |
+| 10 | Nodes listed under `exempt` (hero-only corner trim, door frames: SD-MESH-19.2) | Skipped. Corner columns stay as scaffold (SD-OPEN-27's faceted corner proxy stands), **except** (`ivy-b1e.34`, AR-MESH-20.13): a scaffold `CornerColumn_` solid whose axis-aligned bounds overlap a rule-6 envelope solid's bounds by at least 1 mm on all three axes is not copied, because the enveloped hero corner trim is its hero counterpart (AR-MESH-20.2). |
 | 11 | Node listed under `tile_field` (added in `ivy-b1e.7`: the cottage roof's tile field is one open island over both slopes, so 4b has no backing plane) | The islands 4b cannot close are split at the ridge; each slope is extruded along its inward normal, its top the tiles themselves (the cottage's troughs are 0.40 m wide and 0.12 m deep, gate (b) recesses, so a crest envelope fails), down to the node's own underside (its down-facing islands) or, where none lies below (overhangs), 0.05 m under the lowest tile point within 0.05 m across the slope (a plain offset folded through tile ends and lips: SD-MESH-19.4.1); the tiles are cut along the underside's edges so that step is 2 mm wide. Ridge caps (closed, straddling the ridge, above the tiles) are kept, plus a convex filling and a support across the middle 60 % of their width, both 0.10 m short of a cap end no other cap overlaps. |
 
 "Interior" is the structure's footprint centre from `structure_configs.json` (`scene_offset`), so
@@ -1703,6 +1704,131 @@ Non-goals: hero collision for ivy; render-time stem shrink-wrap; any change to `
 closing; fixing the Blender cottage layout (that is `ivy-b1e.15`); production code in this stage.
 
 Handoff: Gameplay Programmer, `ivy-b1e.14`, then `ivy-b1e.6`.
+
+#### AR-MESH-20.13 — surface_wall corners: corner-lip rule, corner solids, corner blocks (`ivy-b1e.34`, 2026-11-18)
+
+**Why.** surface_wall is the last structure of `ivy-b1e.8` without a growth surface. Its candidate
+fails SG-9 (a)W on p99 0.091 and max 0.174 for two corner causes; this section rules on both.
+Every number below was measured on today's committed hero and scaffold (`ivy-b1e.19` scaffolds
+merged), audit seed 1, 2,000 class W samples, each candidate with its own bake unless marked;
+scratch tools and outputs are under `.tmp/b1e34/`.
+
+**The corner, as built today** (glTF `x`/`z`, corner +x +z; the other three are this turned about
+`y`). Outer wall faces are at ±2.910. Every wall run is five 2 m kit pieces on a 1 m pitch
+(`module_offsets` −2 … 2), so each run spans ±3.000 and its end piece runs 0.090 m past the
+perpendicular wall's outer face: the outer sheet, the inner sheet 0.20 m behind it, and the top
+beam all stick out as 9 cm stubs. The hero corner is one `Corner_ExteriorWide_Brick` trim (placed
+with the corner's yaw) plus one `Corner_Exterior_Brick` block (`CornerBlock_0_i`, scaled 1.636 and
+placed at the scaffold column centre with **no yaw at any corner**). The scaffold adds a
+0.90 × 0.90 m `CornerColumn_` box. Both premises of the bead hold:
+
+| Cause | Measured |
+|---|---|
+| 1. Rule 2 extrudes the 9 cm stub of the outer sheet 0.45 m deep | A 0.45 m wide, 3 m tall slab end stands 0.091 m proud of the perpendicular face; all 0.0910 samples of the baseline, on 8 wall-end nodes |
+| 2a. CornerBlock has the same offset at every corner | Relative to its column, every block spans x −0.128 … +0.159, z +0.124 … −0.166 (`.tmp/b1e8/corner_compare.py`); the trims turn with the corner and the blocks do not, so trim and block meet differently at each corner: at corners 2 and 3 they stand apart with a dark slot between them (capture `c3_nxpz_diag.png` below) |
+| 2b. The column fits neither trim | Column proud of the wide trim by up to 0.363 m; wall faces it covers read +0.07 … +0.17, roof-cap underside over it +0.10 … +0.19 |
+
+**Candidates measured** (rule 2a prototyped in `.tmp/b1e34/proto_clip.py`; the yaw-fixed and
+flush-ended heroes emulated by moving or cutting geometry in `.tmp/b1e34/variants.py`,
+`variants2.py`; materials are not carried, geometry only):
+
+| | Hero | Corner solid | Rule 2a | (a)W p95 / p99 / max | (b) | (c) |
+|---|---|---|---|---|---|---|
+| P0 (today's builder, `exempt: Corner`) | as built | scaffold column | no | 0.0000 / 0.0910 / 0.1737 * | PASS 4/0 | PASS * |
+| P1 | as built | scaffold column | yes | 0.0000 / 0.0378 / 0.1737 * | PASS | PASS * |
+| P3b | as built | envelope (rule 6) of both trims, no column | yes | 0.0000 / 0.0347 / 0.1462 | PASS 4/0 | PASS, face max 0.0136, 0 not negative, closure 0 |
+| **P3** | **CornerBlock turned with its corner** | **envelope of both trims, no column** | **yes** | **0.0000 / 0.0220 / 0.0975** | **PASS 4/0** | **PASS, face p95 0.0000 max 0.0149, 0 not negative, closure 0** |
+| P4 | P3 + four config fills over the stub zones | | yes | 0.0000 / 0.0415 / 0.0975 | PASS | PASS |
+| P5 | P3 hero with wall runs ending at the outer faces (no stubs) | envelope | not needed (0 cuts) | 0.0000 / 0.0266 / 0.1077 | PASS | PASS |
+
+\* audited against the installed SDF (gate (a) itself reads the collision mesh; only the
+in-band normal comes from the SDF), so P0 and P1 are indicative. P2 (no corner solid at all) fails
+the build: a 0.089 m slot between the clipped slab and the top-beam stub.
+
+**Decisions.**
+
+1. **Rule 2a (AR-MESH-20.3) removes the lip.** It is derived from geometry (perpendicular
+   outward sheets, overshoot at most `wall_t`, overshoot projecting onto the other sheet), needs no
+   config, and changes no other structure: on today's committed `ivy`, `tower`, `square` and
+   `relief_article` inputs it cuts nothing and the outputs are byte-identical to the committed sim
+   GLBs (prototype, `cmp`). Its guard (iii) is load-bearing: the cottage's gable fronts cross the
+   front and back wall planes by 0.111–0.155 m (inside `wall_t`), and every one of those overshoot
+   vertices projects outside the wall sheet, so nothing is cut; on surface_wall each end sheet
+   crosses the planes of all five pieces of the perpendicular run and only the corner piece
+   qualifies. Cutting the hero wall runs short in Blender instead (P5) also removes the lip but
+   measures no better and changes the hero, so it is **not** recommended.
+2. **The growth surface at a surface_wall corner is the envelope of the hero corner trims**:
+   `growth_surface.envelope: ["Corner"]` in `structure_configs.json` (rule 6, one oriented box per
+   trim node, two per corner), and the scaffold `CornerColumn_` is not copied (rule 10 exception:
+   it overlaps an envelope solid by ≥ 1 mm on every axis; on surface_wall all four columns qualify
+   with ≥ 0.55 m overlap; the tower, square and cottage have no `CornerColumn_` nodes in their
+   scaffolds, so nothing else changes). This is the "envelope of a quoin column or corner pier"
+   SD-MESH-19.2 lists as counting; the trims stay out of gate (a) as hero-only trim. surface_wall
+   does **not** follow the tower's SD-OPEN-27 column: the tower has no hero corner pieces, so its
+   scaffold column is the only corner solid it can have; surface_wall has a hero corner pillar, and
+   the column fits it worse than the envelope (P1 against P3). Sharp inside corners, no fillets.
+3. **The CornerBlock placement is a bug** in `tools/build_structures.py`: `hero_corner_block` sets
+   no rotation while `place_corner_trim`, called for the same corners, turns each trim by its
+   corner's yaw. Fix: give `CornerBlock_<storey>_<i>` the yaw `90·i`, the yaw of the trim at that
+   corner (`corner_centers[i]` is the corner of `corner_locs[90·i]`). Every corner then looks like
+   corner +x +z does today. It is worth doing for the growth surface as well as for the look: with
+   the fix the envelope candidate improves from p99 0.0347 / max 0.1462 (P3b) to 0.0220 / 0.0975
+   (P3). It changes how the surface wall looks, so it needs the owner's approval on BEFORE and
+   AFTER captures, and a Blender run (owner-run).
+4. **Wide-window glass does not block SG-9 on surface_wall.** The wide window
+   (`Window_Wide_Round_0_1`, x −2 … 0) is entirely covered on both sheets by the overlapping
+   `Straight_0_0` and `Straight_0_2` pieces (plan sections at y 1.4 and 2.0), so neither its hole nor
+   its glass is visible from outside; wall_window_bay reads max |g| 0.0000 in every candidate. The
+   glass/hole mismatch stays a separate hero bead for the tower and square. That the surface wall's
+   window is hidden at all is a hero layout observation for the owner, not part of this work.
+
+**What remains after P3, and why this needs a ruling.** P3 fails (a)W on its max only:
+20 judged samples over 0.03 m (1.0 %), all within 0.10 m of a corner pillar:
+
+- 16 are **wall faces between quoin stones** inside the envelope's footprint, +0.031 … +0.0975.
+  The pillar's outline steps by up to 0.19 m from course to course (wide trim's side edge
+  x 2.51 … 2.70 at corner +x +z), so the wall face where a course is short is covered by the
+  envelope of the long courses above and below it. Representing it means per-stone quoin moulding,
+  a non-goal; the flush hero (P5) and a fill (P4) do not help.
+- 4 are the **inner sheet of a wall-end stub** (the 9 cm kit overshoot, open hollow wall) that
+  stands just outside the pillar, −0.031 … −0.0704. Filling the stub zone buries the 0.20 m recess
+  between the stubs instead (P4, p99 0.0415).
+
+The builder cannot clear these without per-stone moulding or a hero rebuild of the corner, and the
+audit and thresholds are not this stage's to change. Escalated (`ivy-b1e.34` notes): the
+Systems Designer rules whether wall faces inside the footprint of a corner-trim envelope, and the
+open wall-end stubs within 0.10 m of it, are judged by gate (a) (SD-MESH-19.2 already exempts
+hero-only corner trim and per-stone quoin moulding), or the owner accepts a surface_wall max up to
+0.10 m in that zone. An inner envelope (the region every course covers) would clear (a) but let
+ivy pass through stones standing up to 0.19 m proud; it was not measured and is not recommended.
+
+**Done when (rule 2a and the rule 10 exception, builder bead):**
+
+- `python3 tools/test_build_growth_surface.py` passes with new fixtures: (1) two perpendicular
+  outward sheets, each with a 0.20 m inner partner, each running 0.090 m past the other's outer
+  plane: every output vertex of each slab lies within 0.0011 m of the other's outer plane or
+  inside it, outputs closed, no slot; (2) the same two sheets ending flush: output byte-identical to
+  the current builder's; (3) a sheet running 0.60 m past a perpendicular plane (more than
+  `wall_t`, a T-junction): not cut; (4) a sheet crossing a perpendicular plane by 0.12 m whose
+  overshoot projects outside the other sheet (the cottage gable case): not cut; (5) a scaffold
+  `CornerColumn_` box overlapped by an envelope box is not copied, and one 0.5 m away from any
+  envelope is copied unchanged.
+- The report counts the new cases (`2a_corner_cut`, `10_column_replaced`).
+- `ivy_sim.glb`, `tower_sim.glb`, `square_sim.glb` and `relief_article_sim.glb` rebuilt from their
+  committed inputs and committed config are byte-identical (`cmp`) to the committed files; no
+  committed asset changes in this bead.
+- surface_wall built into `.tmp/` from the committed hero and scaffold with
+  `envelope: ["Corner"]`: exactly 8 rule-2a cuts, each overshoot 0.090 m; 4 columns not copied;
+  0 slots; a ray from (−2.6, 1.0, 3.3) along −z first meets the proxy at z ≤ 2.911 (today 3.001).
+
+**Must stay byte-identical across all of this work:** `assets/structures/ivy_sim.glb`,
+`tower_sim.glb`, `square_sim.glb`, `relief_article_sim.glb` and their `.sdf` files, and every hero
+GLB except `surface_wall_hero.glb`. Only `surface_wall_hero.glb` (CornerBlock nodes only),
+`surface_wall_sim.glb`/`.sdf` and the surface_wall entry of `structure_configs.json` may change.
+
+**Non-goals:** per-stone quoin moulding; modelled fillets; changing the audit or any SG-9
+threshold here; trimming the hero wall runs; re-centring or rescaling the CornerBlock (only its yaw
+is fixed); the hidden wide window; growth parameters; the cottage, tower and square assets.
 
 ### SD-MESH — example scenarios
 
