@@ -103,6 +103,9 @@ const PROXY_EXIT_TRIES := 4
 ## When that nearest way out is refused, the viewpoint may instead leave the solid straight along
 ## its line of sight, within this distance (ivy-b1e.27).
 const SIGHT_EXIT_REACH := 1.0
+## Least step of that march, so a sight line that hangs just under PROXY_EXIT_MARGIN reaches
+## SIGHT_EXIT_REACH in a bounded number of steps (ivy-b1e.38).
+const SIGHT_EXIT_MIN_STEP := 0.001
 ## Hero node category that is class R (tiled roof field); everything else reachable is class W.
 const ROOF_CATEGORY := "roof"
 
@@ -462,13 +465,16 @@ func _clear_of_proxy(eye: Vector3, _dir: Vector3) -> Array:
 ## sight, away from the hero face), marching the SDF out to at most SIGHT_EXIT_REACH. Used only
 ## when the nearest way out is refused: the rib sides under a bounding-box proxy need the nearest
 ## way (their line of sight runs into the next rib), a wall swallowed by a proxy over the relief
-## beside it needs this one (ivy-b1e.27).
+## beside it needs this one (ivy-b1e.27). Like the gradient exit, the march ends PROXY_EXIT_MARGIN
+## clear of the proxy, not on its face: a sight line that only grazes a face (along a floor slab's
+## top at the ground line) never gets clear and is refused, rather than probing the sky from a point
+## on a one-sided face that downward rays pass through (SD-MESH-19.4.3 item A, ivy-b1e.38).
 func _sight_exit(eye: Vector3, dir: Vector3) -> Array:
 	var phi: float = _sdf.signed_distance(eye)
 	var q := eye
 	var t := 0.0
-	while phi < 0.0:
-		t += PROXY_EXIT_MARGIN - phi
+	while phi < PROXY_EXIT_MARGIN:
+		t += PROXY_EXIT_MARGIN - phi + SIGHT_EXIT_MIN_STEP
 		if t > SIGHT_EXIT_REACH:
 			return [Vector3.INF, REJECT_EXIT_NONE, {}]
 		q = eye + dir * t

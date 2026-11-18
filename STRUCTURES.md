@@ -324,7 +324,10 @@ from the nearest point just outside that solid, or, when that way out is below t
 skin, through a narrow opening or not open to the sky, from the point where its line of sight leaves the
 solid (within 1 m), and not at all only when both ways out fail (`ivy-8mqi`, `ivy-b1e.27`: a proxy over
 the relief beside a recessed wall swallows the viewpoint, and its nearest way out runs through that
-relief). Every other draw (a) does not judge is counted by reason in the report, and those turned down for
+relief). Either way out ends 0.02 m (`PROXY_EXIT_MARGIN`) clear of the proxy, not on its face: a line of
+sight that only grazes a face, as one along a floor slab's top at the ground line does, never gets clear
+and is refused (`no_exit_found`), rather than probing the sky from a one-sided face that downward rays
+pass through (`ivy-b1e.38`, SD-MESH-19.4.3 item A). Every other draw (a) does not judge is counted by reason in the report, and those turned down for
 want of a way out of a proxy solid are listed with position, would-be `g` and how many of 17 level or
 rising rays from the viewpoint leave the hero (0: sealed inside it); and an inside probe for (c) only counts when no other proxy face lies
 within 0.05 m of it (a hit beside an edge is not 0.10 m deep). The "0.20 m of solid behind the face"

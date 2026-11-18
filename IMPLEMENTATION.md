@@ -1162,7 +1162,9 @@ separately if wanted.
 > changes.** Decisions: B and C ratified (per-stone quoins no longer a non-goal for surface_wall
 > corners); stone faces option **2(b)**: reported per seed but outside gate (a) until a finer stone
 > fit exists, so item D is not implemented now; A ratified. Logged in DESIGN.md (ratification log,
-> 2026-11-18).
+> 2026-11-18). **Item A implemented 2026-11-18 (`ivy-b1e.38`)**:
+> `test/test_growth_surface_audit_ground_line.gd`; tower, square and cottage seed-1 (a) p95, p99 and
+> max unchanged; c4 seed 2 max 0.2021 to 0.1787 as measured below.
 
 **Owner direction this proposal follows (2026-11-17, on the c4 shots).** The flat corner envelope
 is rejected: the boxes are nowhere near as close to the wall as they can be; the ivy surface should
