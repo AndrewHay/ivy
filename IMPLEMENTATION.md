@@ -7197,10 +7197,10 @@ step 4 applies 22° everywhere), so the sampler re-places it. ~~Where an overlap
 `ring_max_slope_deg + 3°` … step 4 applies 25°~~ (2026-11-17). The AR pair rule (`|T_i − T_j| ≤ tan(25°) · gap / 1.5`, AR-LF-LAYOUT) may stay
 as a cheap pre-screen, but the measured ring is the binding test. With WP3 spacing (22 m centres,
 half-diagonals 4.6 m, so ≥ 12.8 m between cores, against a ring p90 of 5–5.5 m each), overlapping pad
-rings become rare. *2026-11-18 (ivy-82zn.14.27):* at the restated 12 m the cores can be as close as about
-2.8 m, so pad rings still overlap often, about as often as at the WP2 spacing. The measured-ring
-rejection stays the binding test. It was active in every SD-21 spacing probe, so the 12 m numbers
-already include it.
+rings become rare. *2026-11-18 (ivy-82zn.14.27, 16 m rule):* at 16 m (14 m on a relaxed seed) the cores can be as close as
+about 6.8 m (4.8 m relaxed), so neighbouring pad rings (p90 5–5.5 m each) still overlap sometimes. The
+measured-ring rejection stays the binding test. It was active in every SD-21 spacing probe, so the
+16 m numbers already include it. ~~at the restated 12 m … about 2.8 m~~ *(12 m replaced 2026-11-18)*
 
 **Expected site rejection rate** (`.tmp/sd_14_22/pad_reject_probe.txt`: 1140 random 5.4 × 7.4 m cores
 on the chosen landform of seeds 1–20, outside the plaza / hero / pond keep-outs, isolated):
@@ -7309,10 +7309,16 @@ counts these).~~ *(superseded 2026-11-17, ivy-82zn.14.23)*
 > 30–40 m. The free-RSA capacity table below assumed sites anywhere, so it does not apply to this
 > sampler. Old rule kept, struck, at the end of this section.
 >
-> **New rule: `cottage_min_sep_m` = 12 m. The sep-ladder floor is also 12 m, so at the default the
-> ladder does nothing.** The reach cap (46 m), corner cap (54 m) and all WP3 dressing radii stay as
-> written below. This is a parameter change in the existing sampler and generator. It is not a
-> structural change.
+> **Human decision 2026-11-18 ("16 m, longer paths"): `cottage_min_sep_m` = 16 m on a grown path
+> network. The sep ladder runs in every attempt, with its floor at 14 m. Generation timing limits are
+> raised to mean 3500 / worst 12000 ms.** The reach cap (46 m), corner cap (54 m) and all WP3 dressing
+> radii stay as written below. This is a parameter change in the existing generator: path-length
+> constants, the capacity anchor, one early-return condition and the ladder trigger. It is not a
+> structural change. See "Rule (16 m)" below.
+>
+> ~~**New rule: `cottage_min_sep_m` = 12 m. The sep-ladder floor is also 12 m, so at the default the
+> ladder does nothing.**~~ *(replaced 2026-11-18 by the human's choice of 16 m with longer paths; the
+> 12 m analysis below is kept for the record)*
 
 **Spacing options probed (2026-11-18, ivy-82zn.14.27).** Seeds 1–20, production landscape variant,
 WP3 sampler and validator (uncommitted tree at 9a24332), reach 46 m. Probes:
@@ -7323,7 +7329,7 @@ distance from G. Times are wall time per `generate()` on the dev Mac.
 | Option | Gen 8 / 20 | Authored fallback | Relaxed | Min NN per seed (min / med / max) | NN all pairs (p10 / med / p90) | r (med / p90 / max) | Mean / worst ms |
 |---|---|---|---|---|---|---|---|
 | Today (no centre floor; wall gap 4 m only) | 20 | 0 | – | 8.7 / 9.7 / 12.2 | 9.5 / 11.4 / 15.7 | 23.6 / 34.0 / 45.5 | 972 / 4816 |
-| **12 m, fixed (chosen)** | **20** | **0** | **0** | **12.0 / 12.4 / 13.6** | **12.2 / 13.0 / 18.2** | **24.9 / 35.7 / 42.8** | **1381 / 5513** |
+| 12 m, fixed (SD pick, replaced 2026-11-18) | 20 | 0 | 0 | 12.0 / 12.4 / 13.6 | 12.2 / 13.0 / 18.2 | 24.9 / 35.7 / 42.8 | 1381 / 5513 |
 | 13 m, ladder in every attempt to 12 | 20 | 0 | 1 | 12.3 / 13.2 / 14.4 | 13.2 / 14.4 / 19.3 | 25.6 / 38.0 / 44.7 | 1685 / 8687 |
 | 14 m, fixed | 19 | 1 (s15) | – | 14.0 / 14.4 / 16.2 | 14.1 / 16.0 / 20.9 | 26.1 / 37.7 / 44.7 | 2600 / 8727 |
 | 14 m, ladder in every attempt to 12 | 19 | 1 (s15) | 9 | 12.1 / 14.0 / 16.2 | 13.7 / 16.1 / 21.2 | 26.3 / 38.1 / 45.8 | 1799 / 9026 |
@@ -7332,7 +7338,7 @@ distance from G. Times are wall time per `generate()` on the dev Mac.
 | 16 m, outer-sites-first selection order (score + 3·r/46), today's network | 16 | 4 | – | 16.1 / 16.2 / 18.0 | 16.2 / 17.7 / 21.7 | 26.4 / 39.7 / 45.2 | 4647 / 9716 |
 | 15 m, grown network¹ | 19 | 1 (s3) | – | 15.0 / 15.3 / 17.3 | 15.2 / 17.3 / 21.8 | 30.0 / 43.3 / 45.9 | 2580 / 8213 |
 | 16 m, grown network¹ | 20 | 0 | – | 16.0 / 16.6 / 17.7 | 16.4 / 17.9 / 21.6 | 30.4 / 42.1 / 45.8 | 3706 / 11550 |
-| 16 m, ladder in every attempt to 14, grown network¹ | 20 | 0 | 2 | 15.2 / 16.5 / 17.3 | 16.2 / 17.7 / 22.3 | 30.8 / 43.2 / 45.8 | 3031 / 9338 |
+| **16 m, ladder in every attempt to 14, grown network¹ (production, 2026-11-18)** | **20** | **0** | **2 (s13, s15 → 15 m)** | **15.2 / 16.5 / 17.3** | **16.2 / 17.7 / 22.3** | **30.8 / 43.2 / 45.8** | **3031 / 9338** |
 | 18 m, grown network² (seeds 1–10) | 8 / 10 | 2 | – | 18.2 / 18.8 / 22.5 | 18.6 / 20.7 / 25.1 | 30.5 / 43.9 / 46.0 | 5941 / 17387 |
 | 22 m (WP3 as specified) | 0 | 20 | – | – | – | – | 5977 / 7646 |
 
@@ -7355,6 +7361,8 @@ capacity branches ×1.3, capacity growth even when ≤ 2 sites are picked, quadr
   sites first, then route the paths and door spurs to them. That is a structural generator change.
   Even 18 m on a network grown ×1.4–1.5 fails 2 / 10 seeds and is 3× over the time limit.
 
+*Replaced 2026-11-18 (human chose 16 m with longer paths). The 12 m rationale is kept for the record.*
+
 **Why 12 m keeps the human's intent ("a little more distance between the cottages", 2026-11-16).**
 What looked crowded was the closest pairs. Today the closest pairs sit 8.7–10.2 m apart (centre to
 centre), which leaves about 3–4 m of grass between walls (the 4 m wall-gap floor). At 12 m every pair
@@ -7368,27 +7376,72 @@ It does **not** reach the GD's 22–25 m, and it does not push cottages much fur
 
 Plan views (top-down, 1 px = 0.25 m, 120 × 120 m around G; red ring r = 46 m, grey rings 10 / 20 /
 30 m; blue = hero, brown = paths): `.tmp/sd_14_27/plan_before_wp2_seed{1,7,12}.png` (today's
-spacing), `.tmp/sd_14_27/plan_sep12_seed{1,7,12}.png` (12 m, chosen),
-`.tmp/sd_14_27/plan_sep16_grown_seed{1,7,12}.png` (16 m, grown network, the alternative).
+spacing), `.tmp/sd_14_27/plan_sep12_seed{1,7,12}.png` (12 m, replaced),
+`.tmp/sd_14_27/plan_sep16_grown_seed{1,7,12}.png` (16 m, grown network, ladder to 14: **the
+production rule since 2026-11-18**).
 
-**Human check (for the orchestrator).** If 12 m does not relieve the look enough, there are two paths.
+**Human check (for the orchestrator)** *(answered 2026-11-18: option B, 16 m on a grown network)*. If 12 m does not relieve the look enough, there are two paths.
 Neither is in WP3. (B) **16 m on a grown network**: a parameter change in the existing generator
 (about 6 constants plus one early-return condition, small), but it needs the timing limits relaxed to
 about mean 3.5 / worst 12 s, or a later optimisation pass. (C) **18–25 m with site-first placement**:
 a structural rework of stages 2–5. The architect must re-plan it (estimated as large as WP2). The free-RSA
 table below is the capacity reference for it.
 
-**Rule (2026-11-18).** Every cottage pair must have centre distance ≥ `cottage_min_sep_m` = **12 m**
-(knob 8–30). This is enforced in `PlotSampler.select` / `append_to_selection` next to the wall-gap test,
-and checked again in `village_validate` v1, as WP3 built it. `min_gap_wall_m` 4 m stays as a second
-floor. The hero is not in the pair set. **Count stays 8.** Centre reach `village_centre_r_max_m` = 46 m
-(cap; at 12 m it is never binding, observed max 42.8 m). The extent and dressing changes below
-(R1 table, grass fade) are unchanged.
+**Human decision (2026-11-18).** The human chose (B), "16 m, longer paths", and accepts generation
+timing of about mean 3.5 s / worst 12 s.
 
-**Fallback ladder (2026-11-18).** `SEP_LADDER_FLOOR_M` = **12 m** (was 18). At the default spacing the
-ladder steps are empty, so `sep_relaxed_to` is never set. When the playground raises
-`cottage_min_sep_m` above 12, the WP3 ladder (last attempt of each rank, 1 m steps) relaxes toward 12 m.
-The count is never reduced.
+**Rule (16 m, 2026-11-18).** Every cottage pair must have centre distance ≥ `cottage_min_sep_m` =
+**16 m** (knob 8–22). This is enforced in `PlotSampler.select` / `append_to_selection` next to the
+wall-gap test, and checked again in `village_validate` v1 against the floor actually used, as WP3 built
+it. `min_gap_wall_m` 4 m stays as a second floor. The hero is not in the pair set. **Count stays 8.**
+Centre reach `village_centre_r_max_m` = 46 m (observed max 45.8 m). The extent and dressing changes
+below (R1 table, grass fade) are unchanged.
+
+**Path growth (16 m, 2026-11-18).** All changes are in `src/world/village_gen/village_generator.gd`. Each
+becomes a named constant with a `## SD-VILLAGE-TERRAIN-21` comment. Values are today's literals ×
+the stated factor. These are the exact values the probe ran. Write them as the products, so a float
+difference cannot change the seed results.
+
+| Constant (new name) | Where | Today | New |
+|---|---|---|---|
+| `PRIMARY_LEN_MIN_M` / `PRIMARY_LEN_MAX_M` | `_stage2_primaries_hero`, `targ_len := lerpf(24.0, 36.0, …)` | 24 / 36 | **30 / 45** (×1.25) |
+| `BRANCH_LEN_MIN_M` / `BRANCH_LEN_MAX_M` | `_stage3_secondaries`, `blen := lerpf(8.0, 19.0, …)` | 8 / 19 | **10.4 / 24.7** (×1.3) |
+| `CAP_BRANCH_LEN_MIN_M` / `CAP_BRANCH_LEN_MAX_M` | `_grow_one_capacity_branch`, `blen := lerpf(8.0, 20.0, …)` | 8 / 20 | **10.4 / 26** (×1.3) |
+| `CAP_BRANCH_EMPTY_Q_LEN_MIN_M` / `_MAX_M` | same function, `min_q <= 0` branch `lerpf(14.0, 26.0, …)` | 14 / 26 | **18.2 / 33.8** (×1.3) |
+| `CAP_ENDPOINT_LEN_MIN_M` / `_MAX_M` | `_grow_capacity_from_endpoint`, `blen := lerpf(12.0, 24.0, …)` | 12 / 24 | **15.6 / 31.2** (×1.3) |
+| `CAP_ANCHOR_OFFSET_M` | `_quadrant_anchor`, the ±24 offsets | 24 | **30** (anchor at G ± (30, 30)) |
+| (condition) | `_stage5_select_with_capacity`: the `if picked.size() <= 2: return` early exit | present | **removed**: capacity growth runs whenever fewer than 8 are picked. The `picked.is_empty()` return stays. |
+
+Unchanged: the primary-fallback lengths `lerpf(22.0, 32.0, …)` (the `n_prim_added < 2` branch), the number
+of stage-3 branches (4–5), the capacity loop's 4 branches × 10 sub-tries, the grow params, and every path
+check. "Extra branches always grown" means the early-exit removal above. It does not mean extra stage-3
+branches.
+
+**Fallback ladder (16 m, 2026-11-18).** `SEP_LADDER_FLOOR_M` = **14 m** (was 18). The ladder runs in
+**every** attempt (`rules["sep_ladder"] = true` for all attempts; WP3 ran it only in attempt 3 of each
+rank, AR-LF-GAP-6). If fewer than 8 are picked at 16 m after the capacity growth, the attempt tops up
+from the same candidate pool at 15 m, then 14 m, and records `sep_relaxed_to`. It grows no extra
+network, so its cost is one extra `append_to_selection` per step. `sep_ladder_steps(16)` = [15, 14].
+The count is never reduced. *Why every attempt:* with the ladder only in the last attempt, the probe
+(16 m, grown, no ladder) ran mean 3706 / worst 11550 ms, which is over the 3500 mean. With the ladder
+in every attempt it ran 3031 / 9338 ms, and only 2 / 20 seeds relaxed, to 15 m.
+
+**Timing (16 m, 2026-11-18).** `test_village_gen_v3` sweep limits are **mean ≤ 3500 ms, worst ≤ 12000
+ms** per `generate()` over seeds 1–20 (were 2000 / 6000). The probe ran 3031 / 9338 ms on the dev Mac,
+which is 15% headroom on the mean and 28% on the worst. That is enough for the dev Mac; no more is
+requested. If the GUT runner or a slower machine puts the mean over 3500, send it back to the SD. Do not
+widen the limits silently. The optimisation pass the human allowed is the place to win time back:
+`PlotSampler.candidates` is 180–280 ms of each 0.7–1.0 s attempt.
+
+**Playground knobs (G7).** `cottage_min_sep_m` (16, range 8–22) as before. Add **`sep_ladder_floor_m`**
+(14, range 8–22, clamped to ≤ `cottage_min_sep_m`) and **`path_len_scale`** (1.0 = the new table
+above, range 0.8–1.5; it multiplies the primary, branch and capacity lengths together). Defaults equal
+production. The anchor and the early exit stay as code constants.
+
+~~**Rule (2026-11-18).** Every cottage pair must have centre distance ≥ `cottage_min_sep_m` = **12 m**
+(knob 8–30) … Centre reach 46 m (cap; at 12 m it is never binding, observed max 42.8 m).~~
+~~**Fallback ladder (2026-11-18).** `SEP_LADDER_FLOOR_M` = **12 m** (was 18); ladder steps empty at the
+default.~~ *(replaced 2026-11-18 by the 16 m rule above)*
 
 ---
 
@@ -7496,7 +7549,9 @@ Noise type is a separate selector inside variant 0 (`landform_noise`).
 | Paths | `max_path_slope_deg` | **14** | 8–20 | *2026-11-17:* open-land cap only (-20); fit zones follow `ring_max_slope_deg` |
 | Paths | `door_approach_m` | **3** | 1–5 | counts as fit zone (-20) |
 | Paths | `path_steep_accept_deg` | **18** | 14–24 | *added 2026-11-17 (ivy-82zn.14.23)*: a rank's best path-only layout at or under this open-land max is kept with `path_cap_fallback` instead of moving rank (-20) |
-| Village | `cottage_min_sep_m` | **12** | 8–30 | layout knob; regenerates layout. *2026-11-18 (ivy-82zn.14.27):* was 22 / 15–30; above about 13 m the path-first generator runs past the timing limits or falls back (SD-21 table) |
+| Village | `cottage_min_sep_m` | **16** | 8–22 | layout knob; regenerates layout. *2026-11-18 (ivy-82zn.14.27, human chose 16 m with longer paths):* was 22 / 15–30, then briefly 12 / 8–30 (replaced the same day). Above about 17 m even the grown network falls back on some seeds (SD-21 table) |
+| Village | `sep_ladder_floor_m` | **14** | 8–22 | *added 2026-11-18:* `SEP_LADDER_FLOOR_M`; clamped to ≤ `cottage_min_sep_m`; the ladder runs in every attempt (SD-21) |
+| Village | `path_len_scale` | **1.0** | 0.8–1.5 | *added 2026-11-18:* multiplies the SD-21 primary, branch and capacity-branch lengths (1.0 = the 16 m production table) |
 | Village | `village_centre_r_max_m` | **46** | 37–50 | layout knob |
 | Mesh / consumer / material | `terrain_mesh_step_m`, `normal_eps_m`, `wanderer_follow_terrain`, `camera_ground_clearance_m`, `ground_slope_dark`, `ground_slope_full_deg` (30), `ground_height_tint`, `ground_height_range_m` | as today | as today | `ground_height_range_m` default → **8** (village span) |
 
@@ -7510,8 +7565,9 @@ them for v1 JSON): Village hill group (8 fields), knoll group (9), swell group (
 **Presets:** `Production` · `Flat (A/B)` (variant 1) · `Village on a hill (old)` (variant 2, only if kept) ·
 `Gentle` (height 10, wavelength 300) · `Bold` (height 22, wavelength 220) · `Billow` (noise 1) ·
 `Derivative-damped` (noise 2) · `Ridged (comparison)` (noise 3) · `Tight village (old spacing)`
-(`cottage_min_sep_m` 8, `village_centre_r_max_m` 37; *2026-11-18:* 8 m leaves only the 4 m wall gap
-binding, as before WP3). Edits that match no preset fall to `Custom`.
+(`cottage_min_sep_m` 8, `sep_ladder_floor_m` 8, `path_len_scale` 0.8, `village_centre_r_max_m` 37;
+*2026-11-18:* 8 m leaves only the 4 m wall gap binding, and 0.8 × the new lengths is close to the
+pre-WP3 network, as before WP3). Edits that match no preset fall to `Custom`.
 
 **Readout (HUD, read-only):** chosen offset and candidate index, `s_hero`, `up/down_hero`, `span_v`,
 `p95_v`, hero ring w* and its peak (`hero_ring_w`, `hero_ring_peak_deg`; 2026-11-17), plaza ring w* and
@@ -7541,7 +7597,7 @@ so. Every probe reads `VillageTerrain.sample_y` with `VillageTerrainParams.produ
 | **AC-LT-PAD** (restates AC-VT5) | Every pad core `|y − T_i| ≤ 0.02 m`; every cottage site plane slope ≤ `max_site_slope_deg` (10°); no rejected site used. | `test_village_terrain_pads.gd` |
 | **AC-LT-RING** *(restated again 2026-11-17, ivy-82zn.14.23; supersedes the row below)* | Metric: `field.sample_slope_deg` (eps 0.4 m) on the generated field with every site applied, on a ≤ 0.5 m grid (or ≥ 96 azimuths × ≥ 16 radii) over each ring `0 < sdf < w`, **overlap nodes included**. **Hero:** max ≤ **25°**; `w_hero` ∈ [4, 10] and equals `layout.landform["hero_ring_w"]`. **Pads:** max ≤ **25°**; `w_i` ∈ [3, 9] and equals the spec's `ring_w`. **Plaza (new):** max ≤ **25°**; `w_plaza` ∈ [5, 10] and equals `layout.landform["plaza_ring_w"]`. The selection holds every node to 22° (-19 step 4, one-sided 1 m metric, plaza + pond replayed), so the 3° is only the fidelity margin. Seeds 1/7/12: **0** exceptions; 20-seed sweep: **0** exceptions. If a seed exceeds 25°, fix the selection fidelity (step 2 replay, step 3 metric). Do **not** raise the tolerance. SD probe with the restated selection: pad worst **23.9°** on 20 / 20 seeds (`.tmp/sd_14_23/ring_fidelity_probe2.txt`); hero ≤ 24.1° today; plaza 19 / 20 isolated pass, seed 16 moves offset (-18 `plaza_ring_ok`). WP2 finding 3 (seed 12 pads 26.8 / 27.1° at the plaza corner): 23.9° with the plaza replayed. | same file (`test_ac_lt_ring_report` asserting); plaza ring added |
 | ~~**AC-LT-RING** *(restated 2026-11-17, ivy-82zn.14.22)*~~ *(superseded by the row above: it left the plaza ring out and relied on the selection's 25° overlap allowance, which the field exceeded on 13 / 20 seeds)* | Metric: `field.sample_slope_deg` (eps 0.4 m) on the generated field with every site applied, at ≥ 96 azimuths × ≥ 16 radii (or a ≤ 0.5 m grid) over the ring `0 < sdf < w`. **Hero:** max ≤ **25°** (`ring_max_slope_deg` 22 + 3); `w_hero` ∈ [4, 10] and equals `layout.landform["hero_ring_w"]`. **Pads:** max ≤ **25°**, overlap nodes included (no extra allowance); `w_i` ∈ [3, 9] and equals the spec's `ring_w`. Seeds 1/7/12 must pass with **0** exceptions; the 20-seed sweep (generated seeds) ≤ 0 exceptions too, because the rule is measured. If a seed exceeds 25° anyway, fix the selection fidelity (LUT vs exact, grid). Do **not** raise the tolerance. SD probe: hero worst 23.0°, pad worst 24.5° (`.tmp/sd_14_22/measured_ring_probe.txt`). The 3° covers selection-vs-field differences (raw LUT vs exact, 1 m FD vs eps 0.4, plaza/pond rings not replayed). ~~Max slope inside every hero/pad ring ≤ 25°; ring widths within their [min, max].~~ | same file (`test_ac_lt_ring_report` becomes an asserting test) |
-| **AC-LT-SEP** | *Restated 2026-11-18 (ivy-82zn.14.27).* Every cottage pair centre distance ≥ `cottage_min_sep_m` − 0.01 (**12 m**); count = 8; all centres r ≤ 46 m; corners ≤ 54 m. Seeds 1/7/12: generated (not authored fallback), `sep_relaxed_to` unset. Sweep seeds 1–20: **20 / 20 generated, 0 relaxed**, min NN per seed ≥ 12.0 m. Timing on the same sweep: mean ≤ 2000 / worst ≤ 6000 ms (probe: 1381 / 5513; seed 15 is the worst case). ~~22 m; ≤ 1 relaxed seed, never below 18 m.~~ | extend `test_village_generator*.gd` |
+| **AC-LT-SEP** | *Restated 2026-11-18 (ivy-82zn.14.27, 16 m with longer paths).* Every cottage pair centre distance ≥ the floor used − 0.01: 16 m, or `sep_relaxed_to` on a relaxed seed, never below **14 m**. Count = 8; all centres r ≤ 46 m; corners ≤ 54 m. Seeds 1/7/12: generated (not authored fallback), `sep_relaxed_to` unset, so min pair ≥ 16 m. Sweep seeds 1–20: **20 / 20 generated** (no authored fallback); **≤ 3 seeds relaxed** (probe: 2, seeds 13 and 15, to 15 m); every seed's closest pair ≥ **14.0 m** (probe min 15.2); unrelaxed seeds ≥ 16.0 m. Timing on the same sweep (`test_village_gen_v3`): **mean ≤ 3500 / worst ≤ 12000 ms** (probe: 3031 / 9338). More than 3 relaxed, any fallback, or a timing miss sends it back to the SD. ~~12 m; 20 / 20, 0 relaxed, ≥ 12.0 m; 2000 / 6000 ms~~ *(replaced 2026-11-18)* ~~22 m; ≤ 1 relaxed seed, never below 18 m.~~ | extend `test_village_generator*.gd` |
 | **AC-LT-DRESS** | Every pine at r ≥ 56 m from G and ≥ 2 m from every cottage rect; grass density 0 at r ≥ 64 m and monotone non-increasing over r 56–64 m. | extend backdrop tests |
 | **AC-LT-PATH** (restates AC-VT7; *restated 2026-11-17, ivy-82zn.14.23*) | Along every polyline (door connectors included) at ≤ 1 m steps, `field.sample_slope_deg` (eps 0.4): **open land** (every fit site j has `sdf_j ≥ w_j + 0.4 m` and the sample is > `door_approach_m` from every stoop) ≤ **14°**; **fit zone** (any other sample: hero / pad / plaza / pond core or ring + 0.4 m band, or the door approach) ≤ **25°**. The generator's open-land value (`terrain_diag["max_path_slope_open_deg"]`, from `U`) equals the field value within 0.01°. Seeds 1/7/12: `path_cap_fallback` unset. 20-seed sweep: ≤ **2** seeds flagged, every flagged seed's open-land max ≤ `path_steep_accept_deg` (**18°**), fit-zone max ≤ 25° on every seed, no seed uses all 12 attempts, and mean `attempts_used` ≤ 3. SD probe (today's selection, emulated): 18 / 20 pass, 2 flagged (seeds 3, 20), attempts mean 2.25, max 5. ~~Along every polyline at ≤ 1 m steps, `sample_slope_deg ≤ 14°`, except within 3 m of a door stoop where ≤ 25°.~~ | `test_village_terrain_stones.gd`; attempts in `test_village_gen_v3.gd` |
 | **AC-LT-POND** (adds to AC-VT3) | Pond site slope ≤ 6°; `water_y ≤` min bank-outline `mesh_surface_y` − 0.02; 0 grass in water. | extend `test_no_grass_inside_pond_water.gd` |
@@ -7569,7 +7625,8 @@ the old rim. AC-VTF1 ("gentle, not ski slopes") is replaced by AC-LTF1/2; AC-VTF
 | No offset passes the -18 rules | Least-violation candidate; `offset_fallback`; build continues; AC-LT-SITE counts it. |
 | Cottage site too steep / measured ring fails (overlaps included) | Plot sampler skips the site and takes the next one; never bulldoze. Expected rate is about 7.5% (r ≤ 37 m) to 12% (37–46 m) of candidates. |
 | Hero ring cannot meet 22° within `hero_ring_max_m` | The offset fails `hero_ring_ok` in -18 and the next candidate is used. If no candidate passes: least violation, `offset_fallback`, hero ring at the ladder's best w (AC-LT-SITE counts it). |
-| Fewer than 8 cottages at the min sep | *2026-11-18:* at the 12 m default this is a normal attempt failure (next attempt / rank). Above 12 m (playground), relax by 1 m down to 12 m (`sep_relaxed_to`); the count never drops. ~~down to 18 m~~ |
+| Fewer than 8 cottages at the min sep | *2026-11-18 (16 m rule):* first the capacity branches grow (no early exit at ≤ 2 picks). Then, in every attempt, top up at 15 m, then 14 m, from the same candidates (`sep_relaxed_to`). If still short, the attempt fails and the next attempt / rank runs. The count never drops. ~~12 m default, ladder to 12~~ ~~down to 18 m~~ |
+| Grown paths fail other checks more often *(2026-11-18)* | Longer paths cross more open land and fail `terrain:path_cap`, `stage7_v3_no_bundle`, v4 or v5 more often. These are normal attempt failures; the timing limits (3500 / 12000 ms) absorb them. Do not shorten paths to save time without an SD restatement. |
 | Path over the 14° cap on open land *(restated 2026-11-17, ivy-82zn.14.23)* | Retry within the same rank. At rank end, keep the best path-only layout if its open max ≤ 18° (`path_cap_fallback`), else next rank. ~~Attempt retry → next offset → `path_cap_fallback`, least violation kept.~~ |
 | Path over 25° inside a fit zone | Not a generator state. It means the ring selection is not exact (AC-LT-RING fails too). Fix -19 steps 2–3; do not add a path check. |
 | Plaza ring cannot meet 22° within 10 m | Offset fails `plaza_ring_ok` (-18), next candidate. |
@@ -7590,8 +7647,9 @@ the old rim. AC-VTF1 ("gentle, not ski slopes") is replaced by AC-LTF1/2; AC-VTF
    stand 9 m above the eye. Inside the 75° ± 25° corridor the soft cap lowers them to a rounded shoulder
    under the 1.5° line. North of the corridor the full ridge backdrop stays; the sun rises over a low
    soft horizon.
-3. *Playground.* The human raises `cottage_min_sep_m` 12 → 14 on seed 12 (*2026-11-18:* was 22 → 25),
-   watches the closest pairs open up (generation slows; above about 14 m some seeds fall back), then switches `landform_offset_mode` to manual and slides the
+3. *Playground.* The human raises `cottage_min_sep_m` 16 → 18 and `path_len_scale` 1.0 → 1.2 on seed 12
+   (*2026-11-18:* was 12 → 14, before that 22 → 25), watches the paths reach further and the houses
+   spread toward r 46 m (generation slows; at 18 m some seeds fall back), then switches `landform_offset_mode` to manual and slides the
    village onto a saddle. The readout shows `span_v` 7.1 m and max path slope 12.4°. They copy out the
    JSON for sign-off.
 4. *(2026-11-17, ivy-82zn.14.23) Seed 12, path past a house by the plaza.* The primary path leaves the
@@ -8063,7 +8121,7 @@ the village disc (sites tested only when `xz` is inside their `bound_r`).
 | `village_generator.gd` `_reserve_stage1` | Pond loop: keep the 48-try fan; collect valid candidates whose raw-LUT plane slope over r ≤ `BANK_OUTER_M` ≤ `pond_max_site_slope_deg`; stop at 6; take the lowest raw mean (ties → lower try index). None → flattest valid + `pond_steep`. | 2 |
 | `village_generator.gd` samp/sel params | `terrain_site_fn: Callable(rect) -> {ok, s_deg, w, target, reason}` (null when flat), `min_centre_sep_m`, `centre_r_max_m`. | 2 (site fn), 3 (sep, reach) |
 | `plot_sampler.gd` `select` / `append_to_selection` | After the existing per-pair wall-gap/door checks: centre distance ≥ `min_centre_sep_m` (WP3); centre r ≤ `centre_r_max_m` (WP3); then `terrain_site_fn` (memoised in the candidate dict under `"_site"`), then pad-ring overlap with each picked pad: if `gap = exterior_separation_m(core_i, core_j) < w_i + w_j` require `|T_i − T_j| ≤ tan(ring_max_slope_deg + 3°) · gap / 1.5`. | 2, 3 |
-| `village_generator.gd` `_stage5_select_with_capacity` | On `sep_ladder`: try `min_centre_sep_m`, −1 m … down to `SEP_LADDER_FLOOR_M` (*2026-11-18, SD-21 restated:* **12 m**, was 18; no steps at the 12 m default); record `sep_relaxed_to`. | 3 |
+| `village_generator.gd` `_stage5_select_with_capacity` | On `sep_ladder`: try `min_centre_sep_m`, −1 m … down to `SEP_LADDER_FLOOR_M`; record `sep_relaxed_to`. *2026-11-18 (SD-21, 16 m rule):* floor **14 m** (was 18; briefly 12); the ladder runs in **every** attempt; the `picked.size() <= 2` early exit is removed; the path-length and anchor constants follow the SD-21 path-growth table. | 3 |
 | `village_validate.gd` | `v1_cottages(…, min_centre_sep_m := 0.0)`; `all()` reads `min_centre_sep_m`; new `v_terrain(layout, field)` (path cap with door exemption, rejected-site re-check) called from `_validate_full` with reason `terrain:path_cap` / `terrain:site`. | 2, 3 |
 | `village_layout.gd` constants | `GENERATED_LAWN_RADIUS` 56→64; `GENERATED_PINE_INNER/OUTER` 41.8/61.6→56/76; `GENERATED_BUSH_FILLER_OUTER` 32.3→44; `GENERATED_HILL_INNER` deleted (`layout.hill_inner` keeps its classic default; generated readers switch to `lawn_radius`); `HAMLET_MAX_CORNER_FROM_G` 54 unchanged; the occupancy circle `GENERATED_LAWN_RADIUS − 8` becomes 56 automatically. `_MIN_CENTRE_SEP_M` stays legacy-only (comment it). | 3 |
 | `village_scatter_positions.gd` | `GRASS_RADIAL_EDGE_GENERATED_M` = 64 with new `GRASS_FULL_EDGE_GENERATED_M := 56.0`; smoothstep density fade 56→64; `GRASS_MAX_INSTANCES_GENERATED` from the faded area integral, assert ≤ 56k. | 3 |
@@ -8124,7 +8182,7 @@ Same scene (`scenes/playground/village_terrain_playground.tscn`), `SCHEMA := "vi
 | `test_no_grass_inside_pond_water.gd` | extend | 1, 2 | AC-LT-POND; bank drape [0, 0.05] m on the rendered lawn (from `_hill.gd`). |
 | `test_village_terrain_plaza.gd` | **new** | 2 | AC-LT-PLAZA; ivy-35zj AC under the new plaza fields. |
 | `test_village_gen_plots.gd`, `test_village_gen_validate.gd`, `test_village_pond_placement.gd` | extend | 2, 3 | site rejection, overlap rule, pond slope / low preference; centre sep + reach; v1 min centre sep. |
-| `test_village_gen_v3.gd` | extend | 3 | AC-LT-SEP (seeds 1/7/12 unrelaxed; 1–20 ≤ 1 relaxed, ≥ 18 m); timing limits unchanged. |
+| `test_village_gen_v3.gd` | extend | 3 | AC-LT-SEP (*2026-11-18:* seeds 1/7/12 unrelaxed at 16 m; 1–20: 20 / 20 generated, ≤ 3 relaxed, every closest pair ≥ 14 m); timing limits **raised to mean 3500 / worst 12000 ms** (SD-21). ~~≤ 1 relaxed, ≥ 18 m; timing limits unchanged~~ |
 | `test_generated_village_backdrop.gd`, `test_village_terrain_grass.gd`, `test_village_terrain_backdrop_wire.gd` | extend | 3 | AC-LT-DRESS (pines r ≥ 56, ≥ 2 m from rects, on terrain; grass 0 at r ≥ 64, monotone 56–64, ≤ 56k). |
 | `test_village_terrain_wanderer.gd`, `test_village_terrain_camera.gd`, `test_village_terrain_grass.gd` | keep | — | AC-VT10, AC-VT11 against the new field. |
 | `tools/village_terrain_budget_probe.gd` | update | 3 | AC-LT-PERF; `test_triangle_budget_under_120k` still passes. |
@@ -8140,7 +8198,7 @@ Same scene (`scenes/playground/village_terrain_playground.tscn`), `SCHEMA := "vi
 | D1 | orchestrator (no stage) | baseline commit of the .14.x tree + camera test frame fix | — |
 | **WP1** | **ivy-82zn.14.14** implement → **ivy-82zn.14.15** review | D3–D11, AR-LF-API, AR-LF-KEEP, all fit targets (no rejection), stitch, shaders, playground v2, WP1 test rows, early PNGs for a human look | ivy-82zn.14.13 |
 | **WP2** | **ivy-82zn.14.16** implement → **ivy-82zn.14.17** review | site / overlap rejection, pond site rule, plaza tilt in search, path cap + rank retry + fallback, WP2 test rows, ivy-35zj | review 1 |
-| **WP3** | **ivy-82zn.14.18** implement → **ivy-82zn.14.19** review | ~~22 m~~ **12 m** (SD-21 restated 2026-11-18, ivy-82zn.14.27) / 46 m, ladder (floor 12), radii, grass fade, pine y, WP3 test rows, budget probe, BEFORE/AFTER PNGs | review 2, ivy-82zn.14.27 |
+| **WP3** | **ivy-82zn.14.18** implement → **ivy-82zn.14.19** review | ~~22 m~~ ~~12 m~~ **16 m + grown paths** (SD-21 restated 2026-11-18, ivy-82zn.14.27, human choice) / 46 m, ladder every attempt (floor 14), timing 3500 / 12000 ms, radii, grass fade, pine y, WP3 test rows, budget probe, BEFORE/AFTER PNGs | review 2, ivy-82zn.14.27 |
 | Accept | **ivy-82zn.14.20** (QA, fuzzy) | AC-LT-* re-run, scenario script, stills, human AC-LTF1–6; verifies ivy-35zj and ivy-82zn.15 | review 3 |
 
 A fix bead (stage:gameplay-fixer) is filed only by a failing review, and the next bead in the chain then
