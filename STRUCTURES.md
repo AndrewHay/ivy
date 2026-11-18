@@ -88,6 +88,7 @@ Created in Blender by `tools/build_structures.py` (names appear in `*_hero.glb` 
 | `{name}_sim_CornerColumn_*` | **0.45 m** corner posts, full height | — | ✓ ring layouts |
 | `{name}_hero_Corner_*` | `Corner_ExteriorWide_Brick`, `Corner_Exterior_Brick` trim | ✓ ring | — |
 | `{name}_hero_CornerBlock_<storey>_<i>` | Kit `Corner_Exterior_Brick` block at `corner_centers[i]`, turned 90·i about the vertical with its corner's wide trim, so every corner matches corner 0 (`ivy-b1e.36`, AR-MESH-20.13) | ✓ **`surface_wall`** | — |
+| `{name}_hero_WallEndCap_<yaw>_<p\|n>` | Closed **0.01 m** plate in the end plane of each wall run's open 0.09 m kit overshoot (stub), measured from the run: end plane to 0.01 m inward, **1.5 mm** past each sheet face, from the ground to the top of the open sheet end (3.0 m, under the neighbour's cornice band); kit `MI_UnevenBrick` with the outer sheet's UV density (`ivy-b1e.39`, SD-MESH-19.4.3 item C) | ✓ **`surface_wall`** | — |
 | `{name}_hero_Seal_*_glass` | **0.02 m** glass pane (`ivy`: dark opaque `HeroGlassCottage`, sized to the kit hole + 2 cm) | ✓ | — |
 | `{name}_hero_Seal_*_door` | `Door_2_Round` or `Door_1_Flat` leaf (`ivy`: kit-textured, centred in its opening) | ✓ | — |
 | `{name}_sim_Panel_*` | Aperture seal (**0.45 m** clay): the kit piece's **real hole + 3 cm** tuck (`tools/kit_openings.py`), not the hero size | — | ✓ |
@@ -102,7 +103,7 @@ Created in Blender by `tools/build_structures.py` (names appear in `*_hero.glb` 
 | **`ivy`** | Tier A plaster + optional brick; `Corner_Exterior_Wood` posts; sim = `tools/build_growth_surface.py` output (walls with their bands and reveals, shutters as envelopes, hero seals as panels, the tile field exact on the tiles) | `Door_1_Flat` in `DoorFrame_Flat_WoodDark`, `Window_Wide_Flat1` frames with closed shutters, hero seals | `Roof_RoundTiles_4x6`, `Roof_Front_Brick4` ×2 | `Prop_Chimney2` |
 | **`square`** | `Wall_UnevenBrick_*` ring (3 bays/side); sim = `tools/build_growth_surface.py` output with defaults, no `growth_surface` block (walls extruded from the hero, scaffold `FloorSlab`, `RoofCap` and the four aperture `Panel_`s copied; 42 nodes, 2252 triangles; `ivy-b1e.8`) | `Door_2_Round`, round windows, glass + panels | Flat **`RoofCap`** | Corner trim blocks |
 | **`tower`** | `Wall_UnevenBrick_*` (2 bays/side × 2 storeys); sim = `tools/build_growth_surface.py` output on the Blender scaffold with a `growth_surface` block of 8 `fill` boxes (storey-seam and roof-seat rings over the wall thickness, closing the 1–3 mm cracks behind the cornices; 64 nodes, 3022 triangles; `ivy-b1e.8`) | Mixed round door/windows | **`RoofCone`** + hero `WallTopCap` (`ivy-b1e.33`) | Corner trim; **`MidFloorSlab`** |
-| **`surface_wall`** | Long uneven-brick run + door | Same seal policy as ring | **`RoofCap`** | Corner trim + `CornerBlock_` per corner, each turned with its corner (`ivy-b1e.36`) |
+| **`surface_wall`** | Long uneven-brick run + door | Same seal policy as ring | **`RoofCap`** | Corner trim + `CornerBlock_` per corner, each turned with its corner (`ivy-b1e.36`); `WallEndCap_` on each of the 8 wall-end stubs (`ivy-b1e.39`) |
 
 ---
 

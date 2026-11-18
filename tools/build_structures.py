@@ -162,6 +162,11 @@ TOWER_CONE_HEIGHT = 1.20
 # each wall and at the corners. Its top is the wall top (the cone's base).
 TOWER_WALL_CAP_T = 0.04  # thickness (spec: at least 0.02 m)
 TOWER_WALL_CAP_INSET = 0.01  # inner edge this far inside the measured inner-skin face (spec: >= 1 mm)
+# surface_wall wall-end stub caps (SD-MESH-19.4.3 item C, ivy-b1e.39): each hero wall run overshoots
+# the perpendicular wall by the kit's 0.09 m, leaving its two sheets open at the end. A plate in the
+# stub's end plane closes the pocket, overlapping each measured sheet face.
+STUB_CAP_T = 0.01  # thickness, inward from the measured end plane (spec: |run| 2.99 to 3.00)
+STUB_CAP_OVERLAP = 0.0015  # past each measured sheet face (spec: >= 1 mm)
 END_OVERLAP = TARGET_T
 HERO_CORNER_PIECES = ("Corner_ExteriorWide_Brick", "Corner_Exterior_Brick")
 HERO_SEAL_PIECES = ("Door_2_Round", "DoorFrame_Round_Brick")
@@ -1050,6 +1055,122 @@ def place_wall_top_cap(name, parts, d, collection, world_offset):
     return obj
 
 
+def _fit_uv(samples):
+    """Least-squares affine (a, z) -> (u, v) from [(a, z, u, v), ...] (at least 3, not collinear)."""
+    s = [[0.0] * 3 for _ in range(3)]
+    ru, rv = [0.0] * 3, [0.0] * 3
+    for a, z, u, v in samples:
+        row = (a, z, 1.0)
+        for i in range(3):
+            for j in range(3):
+                s[i][j] += row[i] * row[j]
+            ru[i] += row[i] * u
+            rv[i] += row[i] * v
+    inv = Matrix(s).inverted()
+    cu, cv = inv @ Vector(ru), inv @ Vector(rv)
+    return lambda a, z: (cu[0] * a + cu[1] * z + cu[2], cv[0] * a + cv[1] * z + cv[2])
+
+
+def place_wall_end_caps(prefix, runs, collection, world_offset):
+    """One closed plate on each open end of each hero wall run (SD-MESH-19.4.3 item C).
+
+    Measured, not assumed, per end: the end plane is the run's farthest reach along its wall; the
+    two sheet faces are the radial positions of the run's end vertices at its lowest height (the
+    bottom edge of the open end); the cap's top is the highest end vertex on either sheet face
+    (under the perpendicular wall's cornice band). The plate runs STUB_CAP_T inward from the end
+    plane and STUB_CAP_OVERLAP past each sheet face. Material and UV density come from the outer
+    sheet's face at that end, so the bricks continue round the end."""
+    bpy.context.view_layer.update()
+    caps = []
+    for yaw, placed in runs:
+        n, tang = side_vectors(yaw)
+        pts = []  # (along, radial, z, obj, vertex index)
+        for obj in placed:
+            mw = obj.matrix_world
+            for v in obj.data.vertices:
+                p = mw @ v.co - world_offset
+                pts.append((p.dot(tang), p.dot(n), p.z))
+        for end in (1, -1):
+            reach = max(end * a for a, _r, _z in pts)
+            at_end = [(r, z) for a, r, z in pts if end * a > reach - 1e-4]
+            z0 = min(z for _r, z in at_end)
+            sheets = sorted({round(r, 5) for r, z in at_end if z < z0 + 1e-4})
+            if len(sheets) != 2 or not 0.15 < sheets[1] - sheets[0] < 0.25:
+                raise SystemExit(f"wall-end cap {int(yaw)} {end:+d}: sheet faces not found ({sheets})")
+            inner, outer = sheets
+            z1 = max(z for r, z in at_end if min(abs(r - inner), abs(r - outer)) < 1e-3)
+            material, uv_of = _outer_sheet_face(placed, n, tang, end, reach, outer, world_offset)
+            name = f"{prefix}WallEndCap_{int(yaw)}_{'p' if end > 0 else 'n'}"
+            print(f"  wall-end cap {name}: end {reach:.4f}  sheets {inner:.4f}..{outer:.4f}  "
+                  f"z {z0:.3f}..{z1:.3f}  material {material.name}", flush=True)
+            a0, a1 = end * (reach - STUB_CAP_T), end * reach
+            r0, r1 = inner - STUB_CAP_OVERLAP, outer + STUB_CAP_OVERLAP
+            bm = bmesh.new()
+            vid = {}
+            for ia, a in enumerate((a0, a1)):
+                for ir, r in enumerate((r0, r1)):
+                    for iz, z in enumerate((z0, z1)):
+                        vid[(ia, ir, iz)] = bm.verts.new(world_offset + tang * a + n * r + Vector((0, 0, z)))
+            quads = [
+                ((0, 0, 0), (0, 1, 0), (0, 1, 1), (0, 0, 1)),
+                ((1, 0, 0), (1, 0, 1), (1, 1, 1), (1, 1, 0)),
+                ((0, 0, 0), (0, 0, 1), (1, 0, 1), (1, 0, 0)),
+                ((0, 1, 0), (1, 1, 0), (1, 1, 1), (0, 1, 1)),
+                ((0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)),
+                ((0, 0, 1), (0, 1, 1), (1, 1, 1), (1, 0, 1)),
+            ]
+            faces = [bm.faces.new([vid[k] for k in q]) for q in quads]
+            bmesh.ops.recalc_face_normals(bm, faces=faces)
+            uv_layer = bm.loops.layers.uv.new("UVMap")
+            for f in faces:
+                for loop in f.loops:
+                    p = loop.vert.co - world_offset
+                    a, r = p.dot(tang), p.dot(n)
+                    # Unfold round the end: the end face continues the outer face past the corner.
+                    loop[uv_layer].uv = uv_of(a + (outer - r) * end, p.z)
+            mesh = bpy.data.meshes.new(name)
+            bm.to_mesh(mesh)
+            bm.free()
+            obj = bpy.data.objects.new(name, mesh)
+            collection.objects.link(obj)
+            obj.data.materials.append(material)
+            caps.append(obj)
+    return caps
+
+
+def _outer_sheet_face(placed, n, tang, end, reach, outer, world_offset):
+    """The kit material on the outer sheet's face at this end of the run, and its (along, z) -> uv
+    map fitted from that face's loops (the largest outward-facing polygon touching the end)."""
+    best = None
+    for obj in placed:
+        mw = obj.matrix_world
+        nmat = mw.to_3x3().inverted().transposed()
+        uv_layer = obj.data.uv_layers.active
+        mats = obj.data.materials
+        if uv_layer is None:
+            continue
+        for poly in obj.data.polygons:
+            if (nmat @ poly.normal).normalized().dot(n) < 0.99:
+                continue
+            c = mw @ poly.center - world_offset
+            if abs(c.dot(n) - outer) > 1e-3:
+                continue
+            corners = [mw @ obj.data.vertices[vi].co - world_offset for vi in poly.vertices]
+            if max(end * p.dot(tang) for p in corners) < reach - 1e-3:
+                continue
+            area = poly.area
+            if best is None or area > best[0]:
+                samples = []
+                for li in poly.loop_indices:
+                    p = mw @ obj.data.vertices[obj.data.loops[li].vertex_index].co - world_offset
+                    uv = uv_layer.data[li].uv
+                    samples.append((p.dot(tang), p.z, uv.x, uv.y))
+                best = (area, mats[poly.material_index], samples)
+    if best is None or len(best[2]) < 3:
+        raise SystemExit("wall-end cap: outer sheet face not found at the run's end")
+    return best[1], _fit_uv(best[2])
+
+
 def wall_world_matrix(yaw_deg, wall_loc, world_offset, z_base=0.0):
     yr = math.radians(yaw_deg)
     loc = wall_loc.copy()
@@ -1785,13 +1906,16 @@ def assemble_hero(cfg, hero_col, hero_roof_mat, glass_mat, world_offset):
     name = cfg["name"]
     prefix = f"{name}_hero_"
     parts = []
+    runs = []
     for si, sides in enumerate(cfg["storey_sides"]):
         z_base = si * WALL_H
         for yaw, names in sides:
-            parts += place_wall_run(
+            placed = place_wall_run(
                 names, yaw, hero_col, hero_data, prefix, cfg, d, z_base=z_base,
                 end_overlap=cfg.get("hero_end_overlap", False), world_offset=world_offset,
             )
+            parts += placed
+            runs.append((yaw, placed))
     if cfg.get("hero_corner_pieces", True):
         for si in range(cfg["storeys"]):
             z_base = si * WALL_H
@@ -1804,6 +1928,9 @@ def assemble_hero(cfg, hero_col, hero_roof_mat, glass_mat, world_offset):
     if cfg["name"] == "tower":
         # The cone covers only the disc inscribed in the walls; close the wall hollow under its rim.
         parts.append(place_wall_top_cap(f"{prefix}WallTopCap", parts, d, hero_col, world_offset))
+    if cfg["name"] == "surface_wall":
+        # Each wall run overshoots the perpendicular wall by 0.09 m with its end open; cap the 8 stubs.
+        parts += place_wall_end_caps(prefix, runs, hero_col, world_offset)
     if cfg.get("intermediate_floor"):
         parts.append(solid_box(f"{prefix}MidFloorSlab", WALL_H - 0.10, WALL_H + 0.02,
                                d["interior_half"], hero_col, hero_roof_mat, world_offset))

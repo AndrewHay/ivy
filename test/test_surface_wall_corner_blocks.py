@@ -101,7 +101,9 @@ class SurfaceWallCornerBlocksTest(unittest.TestCase):
         turned = {f"{PREFIX}{i}" for i in (1, 2, 3)}
         ref_names = set(self.reference) - turned
         got = hero_signatures(HERO)
-        got_names = set(got) - turned
+        # The wall-end stub caps were added later (ivy-b1e.39) and are pinned by
+        # test_surface_wall_stub_caps.py; they are not part of this bead's reference.
+        got_names = {n for n in set(got) - turned if "_WallEndCap_" not in n}
         self.assertEqual(sorted(got_names ^ ref_names), [], "hero node set differs from the pre-bead hero")
         moved = []
         for name in sorted(ref_names):
