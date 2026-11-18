@@ -1156,6 +1156,183 @@ justification a checked rule rather than a reviewed one? That is principled, but
 case and would change what (a) counts on the cottage and square. Owner or Director call. File it
 separately if wanted.
 
+#### SD-MESH-19.4.3 — PROPOSED, awaiting owner ratification: surface_wall corners, wall-end stubs and the ground line (`ivy-b1e.37`, 2026-11-17)
+
+> **Status: PROPOSED. Not ratified, not implemented. No threshold changes.** The owner ratifies or
+> rejects; until then SD-MESH-19.2, 19.4 and 19.4.2 stand as written and nothing below is in force.
+
+**Owner direction this proposal follows (2026-11-17, on the c4 shots).** The flat corner envelope
+is rejected: the boxes are nowhere near as close to the wall as they can be; the ivy surface should
+be practically on the wall itself; leaves that clip into the wall are a separate, later fix. So no
+class of surface_wall c4 sample below is exempted or given a looser bound to make c4 pass. The
+growth surface must instead be on the hero, and gate (a) keeps judging it at the ratified numbers.
+For surface_wall corners this **lifts the epic non-goal "per-stone quoin moulding"** (SD-MESH-19.2
+"what stays exempt", AR-MESH-20.13 non-goals): the corner growth surface follows each stone.
+
+**The three c4 sample classes (from `ivy-b1e.8`, seeds 1/2/3: (a)W p99 0.0220/0.0155/0.0325, max
+0.0975/0.2021/0.2021).**
+
+| Class | What it is | Ruling |
+|---|---|---|
+| 1. Corner pillar (quoin) zone | Wall faces between stepped quoin stones, one trim face, RoofCap underside in a notch: +0.031 … +0.1787, all inside an envelope box footprint | **Judged by gate (a), no bound, no set-aside.** Fixed by the builder: the corner surface is each stone's own fitted box, closed under 0.10 m (rule 12 below). |
+| 2. Open wall-end stub | Inner sheet of the 0.09 m kit overshoot beside each pillar, −0.031 … −0.0716 (hero proud of the proxy: rule 2a cut the stub away) | **Judged by gate (a), no bound, no set-aside.** Fixed by capping the open stub in the hero (a hero change, like `ivy-b1e.33`'s tower wall-top cap) and keeping the capped stub as a solid in the growth surface (item C below). |
+| 3. Ground-level courtyard faces | Two samples, seeds 2 and 3, +0.2021 at y 0.000 on the courtyard side of the 0.20 m hero wall | **Not hero surface ivy can reach or a player can see. An audit edge case at the ground line**, fixed in the audit (item A below). No builder or `wall_t` change. |
+
+**Class 3, measured (`.tmp/b1e37/courtyard_probe.gd`, the audit's own functions on the c4
+candidate and on the installed square).**
+
+- *The courtyard is sealed.* Both door modules of surface_wall, like its wide window
+  (AR-MESH-20.13 item 4), are covered on both sheets by overlapping straight pieces: a ray through the east door (4.5, 1.0, 0) along −x meets hero and
+  proxy wall at x 2.91; through the south door leaf (1.0, 1.0, 4.5) along −z it meets the leaf and then
+  solid wall at z 2.91 and 2.71. The proxy is closed (gate (c) closure 0) and so is the RoofCap. Ivy
+  seeded outside cannot reach it and no camera sees it. (The east door's reveal floor and backdrop are
+  hero leftovers inside the sealed box.)
+- *The offset is real and shared by the square.* Both use the default `wall_t` 0.45 m on a 0.20 m
+  two-sheet kit wall, so every courtyard face is 0.25 m inside the proxy slab on both (would-be g
+  +0.200 at mid-wall on both). `wall_t` cannot follow the hero: 0.20 m is under the SD-MESH-17
+  light-separation floor of 0.24 m (`WALL_T_MIN`), and the faces are sealed anyway.
+- *Why only ground-level samples get judged.* For a courtyard sample the viewpoint 0.25 m out lands
+  on the proxy's inner face and the nearest way out (SDF gradient) leads to a point with 0 of 17 sky
+  rays escaping: `not_open_to_sky`, correctly. Then the `ivy-b1e.27` line-of-sight exit
+  (`_sight_exit`) marches along the view direction until `phi ≥ 0`. Within 0.001 m of y = 0 that
+  march runs along the FloorSlab's top plane, stops **on** the plane (`phi` +0.0000 … +0.0002), and from
+  there the 7 downward probe rays start on a one-sided face, pass through the floor slab unseen and
+  leave under the structure: 7 ≥ 6 needed, "open to sky", judged. The same point 0.01 m higher: 0
+  rays escape. Sample heights 0.0000 and 0.0002 m are judged on every courtyard wall probed; 0.001 m
+  and above never are. The square shows exactly the same path at the same heights (its courtyard
+  faces at y ≤ 0.0002 are judged, g up to +0.1013); its seed-1 draw simply never lands one.
+
+**A. Audit change (proposed, testable).** A way out of a proxy solid must end
+`PROXY_EXIT_MARGIN` (0.02 m) clear of it, as the gradient exit already does: `_sight_exit` marches
+until `phi ≥ PROXY_EXIT_MARGIN`, not `phi ≥ 0`. A sight line that only grazes along a face never
+gets clear and is refused (`no_exit_found` within `SIGHT_EXIT_REACH`). Measured with the change
+(`.tmp/b1e37/audit_variant.gd`, seed 1 unless noted, gate (a) only):
+
+| Structure | Today | With A | Verdict |
+|---|---|---|---|
+| tower (installed) | W p95 0.0010 p99 0.0010 max 0.0100; 5 exemptions (3 over 0.03) | identical p95/p99/max, same 4644 draws; 4 exemptions (3 over 0.03); one sample moves to `exit_blocked_by_hero` | PASS → PASS |
+| square (installed) | W 0.0010 / 0.0010 / 0.0330; 28 exemptions (0 over) | identical in every count | PASS → PASS |
+| cottage (installed) | W 0.0031 / 0.0085 / 0.0280; W 35 exemptions (17 over 0.03), R 5 (3 over) | identical p95/p99/max; W 31 (15 over), R 2 (1 over): sight exits that ended on a face are refused instead of exempted | PASS → PASS |
+| surface_wall c4, seed 2 | max 0.2021 (courtyard, y 0.000) | courtyard sample rejected; max 0.1787 (class 1, RoofCap notch); p99 0.0155 → 0.0154 | still FAIL on class 1 |
+
+Done when: a GUT fixture of a closed box room on a floor slab whose courtyard face sits 0.25 m
+behind the proxy, with samples forced at y 0.0000, 0.0002 and 0.01 m, rejects all three (today the
+first two are judged at about +0.20); the existing `ivy-b1e.27` visible-wall regression and the
+SD-MESH-19.4.2 fixtures still pass unchanged; tower, square and cottage seed-1 reports keep their
+(a) p95, p99 and max exactly.
+
+**B. Builder rule 12 (proposed): each quoin stone as its own fitted box, closed under 0.10 m.**
+Replaces `envelope: ["Corner"]` on surface_wall with a new `growth_surface.stones: ["Corner"]` list.
+
+1. *Stones.* Every closed island of a listed hero node is one stone (surface_wall: 52 per corner,
+   25 or 27 per trim node, 208 in all, every one closed). Its solid is a box in the structure's
+   axes (the kit stones sit at yaw 0/90/180/270; a stone more than 1° off every axis is a build
+   failure, not a silent box) whose six sides are each at the **area-weighted mean of that side's
+   own faces** (faces whose normal is within about 37° of the side's axis), not at the stone's most
+   extreme vertex. The extreme-vertex box stands about 1 cm proud of a rough stone on the median:
+   measured on the same hero, the plain box reads stone-face median |g| 0.0107 (fails the 0.01
+   category median), the fitted box 0.0043–0.0050.
+2. *Closing.* The SD-MESH-19.3 closing applied to the corner zone: on the grid of every box boundary
+   there (stones, the wall slabs, the cornice solids, RoofCap, FloorSlab), an empty run shorter than
+   `SLOT_MIN` (0.10 m) along x, y or z between two filled cells is filled, repeated until nothing
+   changes. This bridges the 1–20 mm joints between stones that made c1 fail with 169 slots, and any
+   notch under 0.10 m; a course step or recess 0.10 m or wider stays open and the wall slab behind
+   it is what ivy meets. No tolerance is invented: the closing width is the ratified slot width.
+3. *Output.* Stone boxes and filled cells not already inside an existing solid are merged greedily
+   into closed boxes `{id}_sim_CornerStones_c<k>_iNN`. The builder's slot check runs on the whole
+   proxy as today and must find 0 slots.
+4. The scaffold `CornerColumn_` is not copied where a stones solid overlaps it (the rule 10
+   exception, extended from envelopes to stones).
+5. Tried and rejected: each stone as its exact convex hull (P2): 445 slots of 0.5–50 mm between
+   neighbouring hulls and between hulls and fills (226 hull/hull, 181 fill/hull), so it fails the
+   builder exactly as c1 did; the plain extreme-vertex box (P1): stone faces float 1 cm.
+
+**C. Wall-end stubs: cap them in the hero (proposed hero change, owner-run like `ivy-b1e.33`).** Each
+of the 8 stubs is an open pocket: the two kit sheets (0.20 m apart) run 0.09 m past the
+perpendicular wall, so the neighbouring wall's outer face is the pocket's back wall, visible through a
+0.20 m mouth wherever a stone course is short. Measured: with the stub filled in the proxy but open in
+the hero (P1), the pocket's back wall reads **+0.0900** (0.7 % of seed-1 samples over 0.03 m, wall
+max 0.0900, every other wall sample at most 0.0010); with each sheet
+kept as a 0.02 m solid and the pocket left open (P3), the 0.02 m strips of back wall under the sheet
+solids still read +0.0900 at seeds 2 and 3 (any non-zero sheet thickness buries a strip, and a sheet
+under one SDF cell cannot be resolved). A pocket 0.20 m wide and 0.09 m deep is SD-MESH-19.2 row 1
+relief that must be represented, and a zero-thickness sheet cannot be. So the hero gets an end cap
+on each stub (a plate in the stub's end plane, |x| or |z| 2.99–3.00, spanning the two sheets, y 0–3.0,
+in `tools/build_structures.py`, like the tower's `WallTopCap`), and the growth surface keeps the
+capped stub as the solid between its sheets (the rule-2a cut keeps only the 0.45 m slab end that
+stood 9 cm proud of the neighbour wall; the 0.09 × 0.20 m stub and the cornice bands' 0.09 m
+overshoot stay). Trimming the kit runs flush instead is the alternative AR-MESH-20.13 measured and
+did not recommend; with a stone surface it would also do.
+
+**D. Gate (a) judges the stone faces (proposed audit change).** `corner_trim_wide`,
+`corner_trim_block` and `corner_sim_column` leave `UNREACHABLE_CATEGORIES`: corner trim was
+hero-only because nothing followed it; once the surface sits on the stones, ivy on a stone is judged
+like ivy on a wall. Only surface_wall has such nodes (the tower and square hero have none; the
+cottage's `CornerPost_*` are already category `other` and judged), so no other report changes.
+
+**Prototype P4 (`.tmp/b1e37/proto_stones.py --fit`, built from the c4 candidate, not the builder;
+geometry-only capped hero `.tmp/b1e37/hero_capped.glb`; audit with A and D,
+`.tmp/b1e37/audit_variant.gd`).** 1030 nodes, 14,756 tris (c4: 74 / 3,284), 0 slots;
+SDF 171 × 97 × 171, 11.6 MB; bake about 10 min on a loaded machine.
+
+| Seed | (a)W p95 | p99 | max | Stone faces (n, median \|g\|, p95, max) | Every other category max | (b), (c) | Verdict |
+|---|---|---|---|---|---|---|---|
+| 1 | 0.0066 | 0.0162 | **0.0567** | 274, 0.0050 / 0.0025, 0.0173, 0.0567 | 0.0010 | (b) PASS 4/0, (c) PASS | FAIL on max (one stone facet) |
+| 2 | 0.0055 | 0.0130 | 0.0362 | 267, 0.0043 / 0.0038, 0.0149, 0.0362 | 0.0024 | (c) PASS | PASS |
+| 3 | 0.0062 | 0.0157 | **0.0618** | 274, 0.0044 / 0.0032, 0.0224, 0.0618 | 0.0010 | (c) PASS | FAIL on max (one stone facet) |
+
+(Stone faces split `corner_sim_column` / `corner_trim_wide` medians.) Every wall, cap, roof-cap and
+bay sample is at most 0.0024 m off at all three seeds, so **with D left out, all three seeds pass
+(a)** (no corner exemption, no set-aside). With D in, seeds 1 and 3 fail on one stone facet each:
+a box cannot follow a slanted or chipped facet, and the worst facets float 0.057–0.062 m. Against c4
+(p99 0.0220/0.0155/0.0325, max 0.0975/0.2021/0.2021) the corner residual is gone. Narrow-opening
+exemptions are 46/58/52 (c4: 29/43/40), the extra ones between stones, each listed by the audit with
+its would-be gap as SD-MESH-19.4.2 requires. Shots, same cameras as the c4 set: BEFORE
+`.tmp/b1e8/surface_wall/c4/shots/`, AFTER `.tmp/b1e37/p4/shots/` (plain and `_surface` twins; the
+AFTER shots show the committed hero, without caps). One unmeasured cost: the windowed capture's ivy
+bootstrap took 86.8 s with P4 loaded; growth-step and env.tick ms must be profiled at install.
+
+**What the owner is asked** (one decision each):
+
+1. Ratify the stone-following corner surface (B) and the hero end caps (C), with per-stone quoins no
+   longer a non-goal for surface_wall corners? Yes / no.
+2. Stone faces (D): **(a)** judge them now at the ratified numbers, which holds the install until a
+   finer stone fit passes max ≤ 0.05 m too; or **(b)** install with B and C, stone faces reported
+   (median, p95, max per seed) but still outside gate (a), and judge them once a finer fit exists.
+   Recommended: (b), because the fit is already a few millimetres on the median and the failures are
+   single facets the owner may judge by eye in the shots.
+3. Ratify audit change A (ground line)? Yes / no.
+
+**Follow-up beads this implies** (filed only after ratification):
+
+- *Audit: sight exit must clear the proxy by `PROXY_EXIT_MARGIN`* (Gameplay Programmer, mechanical).
+  Acceptance: item A's fixture red first, then green; `test/test_growth_surface_audit.gd` and the
+  SD-MESH-19.4.2 fixtures pass; tower, square and cottage seed-1 (a) p95/p99/max unchanged; the
+  report lists each structure's exemption count old and new.
+- *Hero: cap the 8 surface_wall wall-end stubs* (Gameplay Programmer; Blender run owner-run).
+  Acceptance: `tools/build_structures.py` adds the caps; a ray along ∓x at (±3.05, 1.0, ±2.81) and
+  along ∓z at (±2.81, 1.0, ±3.05) meets hero at |x| or |z| 3.000 (today 2.910); no other hero node
+  moves; BEFORE/AFTER captures of a corner for the owner.
+- *Builder rule 12 (stones) and the stub keep* (Gameplay Architect for the AR-MESH-20 text, then
+  Gameplay Programmer). Acceptance: `tools/test_build_growth_surface.py` fixtures for (i) two stones
+  5 mm apart (bridged, 0 slots), (ii) two stones 0.12 m apart (not bridged, the wall between them
+  stays reachable), (iii) a stone 2° off-axis (build failure), (iv) a fitted box side at the
+  area-weighted mean of a rough face (within 1 mm of the fixture's analytic value), (v) a capped
+  overshoot stub kept as a solid and a 0.45 m slab end still cut; `ivy`, `tower`, `square`,
+  `relief_article` sims rebuilt byte-identical; surface_wall built into `.tmp/` with
+  `stones: ["Corner"]`: 0 slots, idempotent.
+- *Audit: judge corner trim (D)* only if the owner picks 2(a), or later with a finer fit.
+  Acceptance: the three categories are sampled; tower, square and cottage reports unchanged.
+- *ivy-b1e.8 surface_wall install* after the above: rebuild, bake, audit seeds 1–3 with SG-9 (a)(b)(c)
+  PASS at the ratified numbers and no corner exemption, BEFORE/AFTER captures, cost row including
+  growth-step and env.tick ms.
+
+**Non-goals.** Any threshold change; exempting or bounding corner samples; leaf clearance or leaf
+clipping (owner: a later fix); modelled fillets (sharp inside corners stand); per-brick moulding on
+the wall runs; any hero change other than the stub caps; `wall_t` on surface_wall or the square; the
+tower's scaffold corner columns (SD-OPEN-27, no hero corner pieces); the clear-escape question for
+`exit_blocked_by_hero` (still escalated above).
+
 #### SD-MESH-19.5 — Relief test article (SG-9(d))
 
 A synthetic structure built from boxes, so every distance below is checked against exact analytic
