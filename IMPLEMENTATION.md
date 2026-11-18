@@ -1156,10 +1156,13 @@ justification a checked rule rather than a reviewed one? That is principled, but
 case and would change what (a) counts on the cottage and square. Owner or Director call. File it
 separately if wanted.
 
-#### SD-MESH-19.4.3 — PROPOSED, awaiting owner ratification: surface_wall corners, wall-end stubs and the ground line (`ivy-b1e.37`, 2026-11-17)
+#### SD-MESH-19.4.3 — RATIFIED 2026-11-18: surface_wall corners, wall-end stubs and the ground line (`ivy-b1e.37`, 2026-11-17)
 
-> **Status: PROPOSED. Not ratified, not implemented. No threshold changes.** The owner ratifies or
-> rejects; until then SD-MESH-19.2, 19.4 and 19.4.2 stand as written and nothing below is in force.
+> **Status: RATIFIED BY THE OWNER 2026-11-18 ("Yes, ratify all"); not yet implemented. No threshold
+> changes.** Decisions: B and C ratified (per-stone quoins no longer a non-goal for surface_wall
+> corners); stone faces option **2(b)**: reported per seed but outside gate (a) until a finer stone
+> fit exists, so item D is not implemented now; A ratified. Logged in DESIGN.md (ratification log,
+> 2026-11-18).
 
 **Owner direction this proposal follows (2026-11-17, on the c4 shots).** The flat corner envelope
 is rejected: the boxes are nowhere near as close to the wall as they can be; the ivy surface should
