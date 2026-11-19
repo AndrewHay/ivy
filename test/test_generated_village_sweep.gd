@@ -66,10 +66,12 @@ func test_edge_seed_zero() -> void:
 
 
 func test_edge_seed_negative_one() -> void:
+	## ivy-82zn.14.35 (human 2026-11-19): normalisation parity only, fallback flag included; whether
+	## 2147483647 places without falling back is tracked in ivy-82zn.14.29.
 	var layout := VillageLayout.generate(-1)
-	assert_false(layout.fallback)
 	var norm_seed := -1 & 0x7FFFFFFF
 	var layout2 := VillageLayout.generate(norm_seed)
+	assert_eq(layout.fallback, layout2.fallback, "generate(-1) fallback flag must equal generate(norm)")
 	assert_eq(_layout_key(layout), _layout_key(layout2))
 
 

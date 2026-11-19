@@ -5,12 +5,15 @@ const ForestParams = preload("res://src/playground/forest_params.gd")
 const ForestPlacement = preload("res://src/playground/forest_placement.gd")
 
 ## Re-baselined ivy-89a6: production forest is CamSun lawn backdrop (variant 0), not +Z wedge.
+## Re-baselined ivy-82zn.14.35 (human 2026-11-19): the forest algorithm is unchanged, its generated
+## layout inputs moved - 937233b (WP2 fit-the-village: cottage/path/pond positions) and d17685e (WP3:
+## 16 m spacing, longer paths, lawn 64 m, pines 56-76 m, BACKDROP_COTTAGE_CLEAR_M 0.45 -> 2.0).
 const _PARITY_SEEDS: Array[int] = [1, 7, 12, 240424020]
 const _BASELINE_HASHES: Dictionary = {
-	1: "29|aa79ed4c03b31dfb41a23c83e420ef15875c8d7643469d5cbad45bc17507fd94",
-	7: "32|4f644a35e5dff05a58be0f2dc97857fbfd39f76dea64ec4d5633c3f98c1b3fdf",
-	12: "29|16dd706feefcb53c3545bff11d3643ef8be9e6f20cb429f6462add8d642dd783",
-	240424020: "33|edc9b7dc98208210240d019248840ba04ee1e104579f4bfcd0265fda9f291642",
+	1: "28|1f7c33f64b664ab80d5a15dd917c03b99c0d081e28314464d3bd229efe5311ca",
+	7: "33|edc9b7dc98208210240d019248840ba04ee1e104579f4bfcd0265fda9f291642",
+	12: "26|c8747449b65b8b724d5563d8e77f3d9ab346c31e165558b2f7d2245ba87b22f6",
+	240424020: "27|80cc3ca2ae2893362684975456eff41ab13c3cc7dd6579f6398b6069c2677df7",
 }
 
 
