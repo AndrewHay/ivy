@@ -1,0 +1,11 @@
+{
+  "relief_article": {
+    "name": "relief_article",
+    "scene_offset": [0.0, 0.225, 0.0],
+    "growth_surface": {
+      "fill": [
+        {"name": "S1", "min": [1.499, 1.499, -0.101], "max": [1.541, 2.501, 0.0]}
+      ]
+    }
+  }
+}

@@ -290,6 +290,9 @@ python3 tools/bake_mesh_sdf.py assets/structures/tower_sim.glb  assets/structure
 python3 tools/measure_structure_gates.py square tower
 ```
 
+The village cottage (`ivy`) is different: its shipped `ivy_sim.glb` is rebuilt from the hero by
+`tools/build_growth_surface.py` before the bake (`ivy-b1e.7`; commands in `STRUCTURES.md`).
+
 Build arguments: `<glTF dir>` (kit pieces) and `<out dir>` are positional. A
 bare float before the structure names overrides the 0.45 m sim wall target
 (`TARGET_T`). `--no-render` skips the Cycles review renders. `--omit-seal <id>`
@@ -436,6 +439,8 @@ SEPARATES. Review renders: hero `renders9/01–03`, plan (roof hidden)
 | `square_hero.glb` | Square building hero render mesh |
 | `tower_sim.glb` / `tower_sim.sdf` | Two-storey tower collision proxy and baked SDF |
 | `tower_hero.glb` | Tower hero render mesh |
+| `ivy_hero.glb` | Village cottage hero render mesh (Blender, owner-run) |
+| `ivy_sim.glb` / `ivy_sim.sdf` | Village cottage growth surface and baked SDF. The GLB is **`tools/build_growth_surface.py` output** (hero + the Blender sim as scaffold, `ivy`'s `growth_surface` block in `tools/structure_configs.json`; `ivy-b1e.7`), not the Blender export: after any hero change re-run `python3 tools/cottage_growth_fills.py --check`, the builder (in place; it is idempotent) and the bake (STRUCTURES.md "Pipeline commands") |
 | `scenarios/square.tres` | Default square scenario (seed index 0) |
 | `scenarios/square_seed1.tres` | Square scenario pinned to seed index 1 (SG-5) |
 | `scenarios/tower.tres` | Default tower scenario (seed index 0) |
