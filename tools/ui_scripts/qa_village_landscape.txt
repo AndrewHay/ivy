@@ -1,0 +1,65 @@
+# QA accept: landscape-first rolling hills (ivy-82zn.14.20, AR-LF-TESTS row run-ui-script).
+# Seeds 1 / 7 / 12, default cam + CamSun (CAMERA sun = rig index 0).
+# "Default" = the boot camera, which stays current across live VILLAGE_MODE switches, so all three
+# default shots are taken first, before any CAMERA / ORBIT step takes the view over.
+# Adversarial extras: top-down + pond per seed, a classic round trip (AC-VT1 flat) and seed 7
+# re-applied after other seeds (live regen must reproduce the first seed 7 frame).
+#
+# Run non-headless (macOS headless renders no image):
+#   /Applications/Godot.app/Contents/MacOS/Godot --path <worktree> res://tools/run_ui_script.tscn -- \
+#     --script=<worktree>/tools/ui_scripts/qa_village_landscape.txt \
+#     --scenario=res://assets/structures/scenarios/square.tres \
+#     --outdir=res://.tmp/landscape_first/qa/ui
+SPEED pause
+WAIT 2500
+
+# ── Default camera, seeds 1 / 7 / 12 ──────────────────────────────────────
+VILLAGE_MODE generated_village 1
+WAIT 3500
+SCREENSHOT s1_default.png
+VILLAGE_MODE generated_village 7
+WAIT 3500
+SCREENSHOT s7_default.png
+VILLAGE_MODE generated_village 12
+WAIT 3500
+SCREENSHOT s12_default.png
+
+# ── Seed 1 ────────────────────────────────────────────────────────────────
+VILLAGE_MODE generated_village 1
+WAIT 3500
+CAMERA sun
+SCREENSHOT s1_camsun.png
+ORBIT 0 50 42
+SCREENSHOT s1_top.png
+ORBIT 200 18 3
+SCREENSHOT s1_pond.png
+
+# ── Seed 7 ────────────────────────────────────────────────────────────────
+VILLAGE_MODE generated_village 7
+WAIT 3500
+CAMERA sun
+SCREENSHOT s7_camsun.png
+ORBIT 0 50 42
+SCREENSHOT s7_top.png
+ORBIT 200 18 3
+SCREENSHOT s7_pond.png
+
+# ── Seed 12 ───────────────────────────────────────────────────────────────
+VILLAGE_MODE generated_village 12
+WAIT 3500
+CAMERA sun
+SCREENSHOT s12_camsun.png
+ORBIT 0 50 42
+SCREENSHOT s12_top.png
+ORBIT 200 18 3
+SCREENSHOT s12_pond.png
+
+# ── Adversarial: classic round trip must be flat, then seed 7 again must match ──
+VILLAGE_MODE classic_village
+WAIT 2500
+CAMERA sun
+SCREENSHOT classic_camsun.png
+VILLAGE_MODE generated_village 7
+WAIT 3500
+CAMERA sun
+SCREENSHOT s7_again_camsun.png
