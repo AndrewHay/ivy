@@ -11,7 +11,9 @@ const SD22_DEFAULTS := {
 	"variant": 0,
 	"landform_noise": 0, "landform_wavelength_m": 260.0, "landform_height_m": 16.0,
 	"landform_octaves": 2, "landform_persistence": 0.5, "landform_warp": 0.10, "landform_ddf_k": 0.5,
-	"landform_offset_mode": 0, "landform_rot_deg": 0.0, "landform_offset_candidates": 64,
+	## SD-28 §2 (2026-11-18): K 64 -> 128; storey rule knobs.
+	"landform_offset_mode": 0, "landform_rot_deg": 0.0, "landform_offset_candidates": 128,
+	"storey_ground_m": 3.5, "storey_ground_frac_min": 0.10,
 	"hero_site_slope_min_deg": 2.0, "hero_site_slope_max_deg": 9.0,
 	"hero_not_crest_m": 1.5, "hero_not_hollow_m": 1.5,
 	"relief_span_min_m": 5.0, "relief_span_target_m": 6.5, "relief_span_max_m": 8.0,
@@ -29,7 +31,9 @@ const SD22_DEFAULTS := {
 	"plaza_max_tilt_deg": 6.0, "plaza_ring_m": 5.0, "plaza_ring_max_m": 10.0,
 	"max_path_slope_deg": 14.0, "door_approach_m": 3.0,
 	"path_steep_accept_deg": 18.0, "path_near_miss_deg": 1.0,
-	"cottage_min_sep_m": 22.0, "village_centre_r_max_m": 46.0,
+	## SD-21 restated 2026-11-18 (ivy-82zn.14.27, human option B): 16 m, ladder floor 14, path scale 1.
+	"cottage_min_sep_m": 16.0, "village_centre_r_max_m": 46.0,
+	"sep_ladder_floor_m": 14.0, "path_len_scale": 1.0,
 	"terrain_mesh_step_m": 2.0, "normal_eps_m": 0.35,
 	"wanderer_follow_terrain": true, "camera_ground_clearance_m": 0.35,
 	"ground_slope_dark": 0.35, "ground_slope_full_deg": 30.0, "ground_height_tint": 0.12,
@@ -118,6 +122,29 @@ func test_presets_without_old_hill() -> void:
 	assert_eq(VillageTerrainParams.detect_preset_name(p), "Production", "back to production")
 	p.ground_height_tint = 0.3
 	assert_eq(VillageTerrainParams.detect_preset_name(p), "Custom", "edit → Custom")
+
+
+func test_spacing_knobs_and_tight_preset_2026_11_18() -> void:
+	## SD-22 restated (ivy-82zn.14.27): ranges sep 8-22, floor 8-22, path scale 0.8-1.5; Tight preset
+	## = 8 / 8 / 0.8 / reach 37.
+	var rows := {}
+	for row: Dictionary in KnobSpec.all_knobs():
+		rows[row["name"]] = row
+	for k in [["cottage_min_sep_m", 8.0, 22.0], ["sep_ladder_floor_m", 8.0, 22.0], ["path_len_scale", 0.8, 1.5]]:
+		assert_true(rows.has(k[0]), "knob %s" % k[0])
+		if rows.has(k[0]):
+			assert_almost_eq(float(rows[k[0]]["min"]), float(k[1]), 1e-6, "%s min" % k[0])
+			assert_almost_eq(float(rows[k[0]]["max"]), float(k[2]), 1e-6, "%s max" % k[0])
+			assert_eq(String(rows[k[0]]["regen"]), "layout", "%s regenerates the layout" % k[0])
+	var p := VillageTerrainParams.production()
+	p.apply_preset("Tight village (old spacing)")
+	assert_almost_eq(p.cottage_min_sep_m, 8.0, 1e-6, "Tight sep")
+	assert_almost_eq(p.sep_ladder_floor_m, 8.0, 1e-6, "Tight floor")
+	assert_almost_eq(p.path_len_scale, 0.8, 1e-6, "Tight path scale")
+	assert_almost_eq(p.village_centre_r_max_m, 37.0, 1e-6, "Tight reach")
+	assert_almost_eq(p.effective_sep_ladder_floor_m(), 8.0, 1e-6, "floor not above sep")
+	p.sep_ladder_floor_m = 20.0
+	assert_almost_eq(p.effective_sep_ladder_floor_m(), 8.0, 1e-6, "floor clamped to <= cottage_min_sep_m")
 
 
 func test_reset_keeps_layout_seed() -> void:

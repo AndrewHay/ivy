@@ -68,14 +68,21 @@ const GRASS_GRID_STEP_GENERATED_M := GRASS_GRID_STEP_M / sqrt(GRASS_GENERATED_DE
 const GRASS_GRID_STEP_GENERATED_FILL_M := GRASS_GRID_STEP_GENERATED_M
 ## Grass disk meets the inner pine ring (VillageLayout.pine_inner classic default).
 const GRASS_RADIAL_EDGE_CLASSIC_M := 19.0
-## Generated grass fills to the lawn disc before the forest collar (56 m).
+## Generated grass fills to the lawn disc (64 m, SD-VILLAGE-TERRAIN-21 / WP3).
 const GRASS_RADIAL_EDGE_GENERATED_M := VillageLayout.GENERATED_LAWN_RADIUS
+## WP3: today's radial profile (core -> edge density) ends here; blades then fade smoothly to 0 at
+## GRASS_RADIAL_EDGE_GENERATED_M, so the lawn edge is a soft fade, not a ring.
+const GRASS_FULL_EDGE_GENERATED_M := 56.0
 ## Headroom ~15% over π·r_edge²·core (ivy-k9r0); must not truncate outer spiral.
 const GRASS_MAX_INSTANCES := int(roundi(PI * GRASS_RADIAL_EDGE_CLASSIC_M * GRASS_RADIAL_EDGE_CLASSIC_M \
 	* GRASS_DENSITY_CORE_PER_M2 * 1.15))
-const GRASS_MAX_INSTANCES_GENERATED := int(roundi(PI \
-	* GRASS_RADIAL_EDGE_GENERATED_M * GRASS_RADIAL_EDGE_GENERATED_M \
-	* GRASS_DENSITY_CORE_PER_M2 * GRASS_GENERATED_DENSITY_SCALE * 1.15))
+## Faded area integral (WP3): core density over the 56 m disc + half the edge density over the
+## 56-64 m fade ring (smoothstep mean 0.5), × the generated scale, + 15 %.
+const GRASS_MAX_INSTANCES_GENERATED := int(roundi((PI \
+	* GRASS_FULL_EDGE_GENERATED_M * GRASS_FULL_EDGE_GENERATED_M * GRASS_DENSITY_CORE_PER_M2 \
+	+ PI * (GRASS_RADIAL_EDGE_GENERATED_M * GRASS_RADIAL_EDGE_GENERATED_M \
+		- GRASS_FULL_EDGE_GENERATED_M * GRASS_FULL_EDGE_GENERATED_M) * GRASS_DENSITY_EDGE_PER_M2 * 0.5) \
+	* GRASS_GENERATED_DENSITY_SCALE * 1.15))
 const GRASS_PATCH_CELL_M := 2.5
 const GRASS_ANCHOR_HASH_CELL_M := 1.0
 const GRASS_ACCENT_COUNT := 48
@@ -169,6 +176,15 @@ static func _grass_world_u01(world_p: Vector2, channel: int) -> float:
 
 static func grass_radial_keep_p(r_g: float, r_edge: float) -> float:
 	return grass_target_density_m2(r_g, r_edge) / GRASS_DENSITY_CORE_PER_M2
+
+
+## Generated lawn keep probability (AC-LT-DRESS): today's profile on the 56 m full-density edge,
+## times a smoothstep fade to 0 between 56 m and the 64 m lawn edge (monotone non-increasing).
+static func grass_generated_keep_p(r_g: float) -> float:
+	var fade := 1.0 - smoothstep(GRASS_FULL_EDGE_GENERATED_M, GRASS_RADIAL_EDGE_GENERATED_M, r_g)
+	if fade <= 0.0:
+		return 0.0
+	return grass_radial_keep_p(r_g, GRASS_FULL_EDGE_GENERATED_M) * fade
 
 
 static func lcg_step(state: int) -> int:
@@ -514,6 +530,12 @@ static func _grass_blade_try_grid_ixiy(
 		return
 	if not ctx.generated_grass and r_h < GRASS_HERO_FRINGE_INNER_M:
 		return
+	# Radial keep first (WP3 perf): a pure per-cell hash filter like the exclusions below, so the kept
+	# set is unchanged; it rejects most of the 56-64 m fade ring before the costly exclusion checks.
+	var radial_p := grass_generated_keep_p(r_g) if ctx.generated_grass \
+		else grass_radial_keep_p(r_g, ring_outer)
+	if _grass_cell_u01(ix, iy, 3) > radial_p:
+		return
 	if r_h < GRASS_HERO_FOOTPRINT_R:
 		return
 	if trust_forbidden and _grass_coarse_forbidden(forbidden, p):
@@ -534,9 +556,6 @@ static func _grass_blade_try_grid_ixiy(
 	var hero_keep := _grass_hero_fringe_keep(r_h, p) if r_h < GRASS_RING_INNER_M \
 			else _grass_hero_density_keep(r_h, p)
 	if _grass_cell_u01(ix, iy, 2) > hero_keep:
-		return
-	var radial_p := grass_radial_keep_p(r_g, ring_outer)
-	if _grass_cell_u01(ix, iy, 3) > radial_p:
 		return
 	var rot: float = _grass_cell_u01(ix, iy, 4) * TAU
 	var s_rand: float = lerpf(0.8, 1.1, _grass_cell_u01(ix, iy, 5))

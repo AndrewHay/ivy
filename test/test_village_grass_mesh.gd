@@ -58,6 +58,12 @@ func test_grass_anchor_dissolve_constants() -> void:
 	assert_almost_eq(
 		VillageScatterPositions.GRASS_ANCHOR_DISSOLVE_END_M,
 		VillageLayout.GENERATED_LAWN_RADIUS + 2.0, 0.01)
+	## ivy-82zn.14.18 (WP3): lawn 64 m, so the anchor dissolve band is 60-66 m; it starts after the
+	## 56 m full-density edge, so the placement fade (56-64) does the visible softening.
+	assert_almost_eq(VillageScatterPositions.GRASS_ANCHOR_DISSOLVE_START_M, 60.0, 0.01, "dissolve start 60")
+	assert_almost_eq(VillageScatterPositions.GRASS_ANCHOR_DISSOLVE_END_M, 66.0, 0.01, "dissolve end 66")
+	assert_gt(VillageScatterPositions.GRASS_ANCHOR_DISSOLVE_START_M,
+		VillageScatterPositions.GRASS_FULL_EDGE_GENERATED_M, "dissolve never thins the 56 m full-density disc")
 
 
 func test_grass_blade_dissolve_keep_anchor_not_camera() -> void:

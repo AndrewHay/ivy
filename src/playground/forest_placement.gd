@@ -4,6 +4,9 @@ extends RefCounted
 const ForestParams = preload("res://src/playground/forest_params.gd")
 const ForestCamRef = preload("res://src/world/forest_cam_ref.gd")
 const _SCATTER_SCRIPT := "res://src/world/village_scatter_positions.gd"
+## AC-LT-DRESS (ivy-82zn.14.18, SD-VILLAGE-TERRAIN-23): production backdrop trunks stay >= 2 m from
+## every cottage exterior rect (was 0.45 m; with 16 m spacing cottages now reach the clump).
+const BACKDROP_COTTAGE_CLEAR_M := 2.0
 
 
 static func _scatter():
@@ -244,7 +247,7 @@ static func _try_accept_backdrop(
 
 static func _site_ok_backdrop(
 		p: Vector2, layout: VillageLayout, path_segments: Array, params: ForestParams) -> bool:
-	if VillageLayout.inside_cottages(layout.cottages, p, 0.45):
+	if VillageLayout.inside_cottages(layout.cottages, p, BACKDROP_COTTAGE_CLEAR_M):
 		return false
 	var scatter: Script = load(_SCATTER_SCRIPT)
 	if scatter.call("blocks_scatter_at", p):

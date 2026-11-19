@@ -67,6 +67,34 @@ func test_v1_flags_overlap_and_v1_passes_when_separated() -> void:
 	assert_eq(v_ok.size(), 0)
 
 
+func test_v1_flags_centre_pairs_under_min_centre_sep() -> void:
+	## SD-VILLAGE-TERRAIN-21 (ivy-82zn.14.18): v1 re-checks the 22 m centre rule; 0 = off (default).
+	var g := Vector2(0.0, -18.0)
+	var pair: Array = [
+		{"name": "a", "centre": Vector2(10.0, -20.0), "bays": 3, "yaw_deg": 0, "door": "front:1"},
+		{"name": "b", "centre": Vector2(10.0, -38.0), "bays": 3, "yaw_deg": 0, "door": "front:1"},
+	]
+	var off: Array = _Validate.v1_cottages(pair, Rect2(), Rect2(), Vector2(200.0, 200.0), 0.0, g, 54.0, 4.0)
+	assert_eq(off.size(), 0, "18 m apart, wall gap fine, no centre rule")
+	var on: Array = _Validate.v1_cottages(pair, Rect2(), Rect2(), Vector2(200.0, 200.0), 0.0, g, 54.0, 4.0, 22.0)
+	assert_eq(on.size(), 1, "18 m < 22 m flagged")
+	assert_true(str(on[0]).contains("min centre sep"), str(on))
+	var relaxed: Array = _Validate.v1_cottages(pair, Rect2(), Rect2(), Vector2(200.0, 200.0), 0.0, g, 54.0, 4.0, 18.0)
+	assert_eq(relaxed.size(), 0, "18 m at an 18 m floor passes (0.01 m tolerance)")
+
+
+func test_all_reads_min_centre_sep_m() -> void:
+	var g := Vector2(0.0, -18.0)
+	var res: Dictionary = _Validate.all({
+		"cottages": [
+			{"name": "a", "centre": Vector2(10.0, -20.0), "bays": 3, "yaw_deg": 0, "door": "front:1"},
+			{"name": "b", "centre": Vector2(10.0, -38.0), "bays": 3, "yaw_deg": 0, "door": "front:1"},
+		],
+		"pond_center": Vector2(500.0, 500.0), "g": g, "min_centre_sep_m": 22.0,
+	})
+	assert_eq((res["v1"] as Array).size(), 1, "all() passes min_centre_sep_m to v1")
+
+
 func test_v2_path_inside_cottage_except_door_tail() -> void:
 	var c := {"name": "c", "centre": Vector2(20.0, -22.0), "bays": 3, "yaw_deg": 0, "door": "front:1"}
 	var stoop := VillageBackdrop.cottage_door(c)[0] as Vector2 + (

@@ -117,8 +117,12 @@ func test_pond_recheck_without_a_move_passes_the_stored_widths() -> void:
 func test_forced_pond_move_onto_a_pad_fails_the_recheck() -> void:
 	## Review 2 F1 repro: move the pond after selection (as resolve_after_paths can) right beside a
 	## pad. The re-check must run on that pad with the FINAL pond and reject the stored ring.
+	## ivy-82zn.14.18: the WP3 layout of seed 7 moved pad 0, and a production-depth basin beside it now
+	## peaks at 21.7° (under 22), so the repro deepens the basin (as the site replay test does) to make
+	## the ring break independent of where the pads land.
 	var p := VillageTerrainParams.production()
 	var layout := VillageLayout.generate(7)
+	p.pond_depth_m = -3.0
 	var site := _site_for(layout, p)
 	var old_c := layout.pond_center
 	site.set_pond(old_c)

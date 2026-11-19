@@ -178,14 +178,13 @@ func test_generated_world_fields_seeds_1_to_5() -> void:
 		if layout.fallback:
 			pending("generate(%d) fell back to authored — skipping world-scale check" % seed)
 			continue
-		assert_almost_eq(layout.lawn_radius, VillageLayout.GENERATED_LAWN_RADIUS, 1e-6,
-			"lawn_radius generated %s" % tag)
-		assert_almost_eq(layout.hill_inner, VillageLayout.GENERATED_HILL_INNER, 1e-6,
-			"hill_inner generated %s" % tag)
-		assert_almost_eq(layout.pine_inner, VillageLayout.GENERATED_PINE_INNER, 1e-6,
-			"pine_inner generated %s" % tag)
-		assert_almost_eq(layout.pine_outer, VillageLayout.GENERATED_PINE_OUTER, 1e-6,
-			"pine_outer generated %s" % tag)
+		## ivy-82zn.14.18 (SD-VILLAGE-TERRAIN-21, WP3) contract change: lawn 56 -> 64, pines
+		## 41.8/61.6 -> 56/76, bush filler 32.3 -> 44; GENERATED_HILL_INNER retired (hill_inner keeps
+		## the classic default; generated readers use lawn_radius).
+		assert_almost_eq(layout.lawn_radius, 64.0, 1e-6, "lawn_radius generated %s" % tag)
+		assert_almost_eq(VillageLayout.GENERATED_LAWN_RADIUS, 64.0, 1e-6, "GENERATED_LAWN_RADIUS")
+		assert_almost_eq(layout.pine_inner, 56.0, 1e-6, "pine_inner generated %s" % tag)
+		assert_almost_eq(layout.pine_outer, 76.0, 1e-6, "pine_outer generated %s" % tag)
 		assert_eq(layout.pine_count, VillageLayout.GENERATED_PINE_COUNT,
 			"pine_count generated %s" % tag)
 		assert_almost_eq(layout.fog_begin, VillageLayout.GENERATED_FOG_BEGIN, 1e-6,
@@ -194,8 +193,16 @@ func test_generated_world_fields_seeds_1_to_5() -> void:
 			"fog_end generated %s" % tag)
 		assert_almost_eq(layout.bush_filler_inner, 8.0, 1e-6,
 			"bush_filler_inner generated %s" % tag)
-		assert_almost_eq(layout.bush_filler_outer, VillageLayout.GENERATED_BUSH_FILLER_OUTER, 1e-6,
+		assert_almost_eq(layout.bush_filler_outer, 44.0, 1e-6,
 			"bush_filler_outer generated %s" % tag)
+
+
+func test_generated_hill_inner_constant_retired() -> void:
+	## WP3: no separate hills inner edge for generated layouts (AR-LF-LAYOUT); no reader is left.
+	var consts: Dictionary = (load("res://src/world/village_layout.gd") as Script).get_script_constant_map()
+	assert_false(consts.has("GENERATED_HILL_INNER"), "GENERATED_HILL_INNER retired")
+	var src := FileAccess.get_file_as_string("res://src/world/village_gen/village_generator.gd")
+	assert_false(src.contains("GENERATED_HILL_INNER"), "generator no longer reads it")
 
 
 # ── (d) Generated builder outputs for seed=1 ─────────────────────────────────
@@ -327,7 +334,10 @@ func test_forest_no_trunk_within_hero_keep_clear() -> void:
 		var pines := _compute_pine_xz(layout)
 		var placed := VillageScatterPositions.forest_tree_positions(layout).size()
 		assert_eq(pines.size(), placed, "%s: expected %d forest positions" % [tag, placed])
-		assert_gte(placed, 24, "%s: backdrop tree count" % tag)
+		## Human decision 2026-11-18 (option A, stopgap; proper fix ivy-82zn.14.29): >= 22 (was 24). The SD-28
+		## storey-rule layouts plus the 2 m cottage clearance leave 22-23 trunk sites on seeds 9, 10, 12 and
+		## 240424020. No forest tuning.
+		assert_gte(placed, 22, "%s: backdrop tree count (option A 2026-11-18)" % tag)
 		for i: int in pines.size():
 			var p: Vector2 = pines[i]
 			assert_false(

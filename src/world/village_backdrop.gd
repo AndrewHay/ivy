@@ -864,7 +864,16 @@ static func inside_any_cottage(p: Vector2, margin: float) -> bool:
 ## for both modes so classic is bit-for-bit unchanged (same n, same lerpf bounds).
 ## Pine_2: 7.14 m at scale=1.0 → scale 1.0-1.5 → ~7.1-10.7 m height.
 func _pine_positions() -> Array[Transform3D]:
-	return VillageScatterPositions.forest_tree_positions(_layout)
+	## AC-LT-DRESS / AR-LF-CONSUMERS (WP3): FarTreeline trunks seated on the field (exact sample_y;
+	## the backdrop can reach outside the 1 m grass LUT). Classic / variant 1: sample_y is 0.
+	var xf := VillageScatterPositions.forest_tree_positions(_layout)
+	if _terrain_params == null or VillageTerrain.is_flat(_layout, _terrain_params):
+		return xf
+	for i in range(xf.size()):
+		var t := xf[i]
+		t.origin.y = sample_terrain_y(Vector2(t.origin.x, t.origin.z))
+		xf[i] = t
+	return xf
 
 
 # ── Village paths ─────────────────────────────────────────────────────────────

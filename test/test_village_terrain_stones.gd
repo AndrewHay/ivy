@@ -125,18 +125,22 @@ func test_path_scan_skips_fit_zones_and_door_approaches() -> void:
 
 
 func test_ac_lt_path_sweep_seeds_1_20() -> void:
-	## AC-LT-PATH sweep: ≤ 2 seeds flagged, each flagged open max ≤ path_steep_accept_deg, fit zone
-	## ≤ 25° on every seed, no seed uses 12 attempts, mean attempts_used ≤ 3.
+	## AC-LT-PATH sweep (counts restated 2026-11-18, SD-VILLAGE-TERRAIN-28 §1, ivy-82zn.14.28):
+	## open-land max ≤ path_steep_accept_deg (18°) on every seed, ≤ 8 / 20 flagged, fit zone ≤ 25° on
+	## every seed, no seed uses 12 attempts, mean attempts_used ≤ 4.0. (Was ≤ 2 flagged, mean ≤ 3.)
 	var p := VillageTerrainParams.production()
 	var flagged := PackedStringArray()
 	var attempts_sum := 0
 	var n := 0
+	var all_twelve := PackedStringArray()
 	for seed in range(1, 21):
 		var layout := VillageLayout.generate(seed)
 		var used := int(VillageGeneratorV3.last_diag.get("attempts_used", 0))
 		attempts_sum += used
 		n += 1
-		assert_lt(used, 12, "seed %d did not need all 12 attempts" % seed)
+		assert_lte(used, 12, "seed %d within the 12-attempt budget" % seed)
+		if used >= 12:
+			all_twelve.append(str(seed))
 		if layout.fallback:
 			continue
 		var m: Dictionary = VillageTerrain.field(layout, p).max_path_slope(layout)
@@ -147,21 +151,29 @@ func test_ac_lt_path_sweep_seeds_1_20() -> void:
 		else:
 			assert_lte(float(m["deg"]), p.max_path_slope_deg, "seed %d open path ≤ 14°" % seed)
 	gut.p("flagged: %s; mean attempts %.2f" % [", ".join(flagged), float(attempts_sum) / float(n)])
-	assert_lte(flagged.size(), 2, "≤ 2 flagged seeds")
-	assert_lte(float(attempts_sum) / float(n), 3.0, "mean attempts ≤ 3")
+	## Human decision 2026-11-18 (option A, stopgap; proper fix ivy-82zn.14.29): <= 9 / 20 flagged as
+	## measured with the SD-28 storey rule (was <= 8). Open-land max <= 18° on every seed unchanged.
+	assert_lte(flagged.size(), 9, "≤ 9 / 20 flagged seeds (option A 2026-11-18)")
+	assert_lte(float(attempts_sum) / float(n), 4.0, "mean attempts ≤ 4.0 (SD-28)")
+	## Human decision 2026-11-18 (option A, stopgap; proper fix ivy-82zn.14.29): at most ONE of seeds
+	## 1-20 may use all 12 attempts (measured: seed 10; was "no seed uses 12"). The 3.7 s mean timing
+	## limit was accepted knowing it comes from this seed.
+	gut.p("seeds using all 12 attempts: [%s]" % ", ".join(all_twelve))
+	assert_lte(all_twelve.size(), 1, "at most one seed uses all 12 attempts (option A 2026-11-18)")
 
 
 func test_ac_lt_path_metric() -> void:
-	## AC-LT-PATH (restated ivy-82zn.14.23): open land ≤ 14° (or the seed is flagged), fit zone
-	## ≤ 25°, the generator's open-land value equals the field's within 0.01°; seeds 1/7/12 unflagged.
+	## AC-LT-PATH (restated ivy-82zn.14.23; counts restated 2026-11-18 SD-28 §1): on the probe seeds
+	## 1/7/12 the open-land max is ≤ 18° (path_steep_accept_deg; a flag is allowed), fit zone ≤ 25°,
+	## and the generator's open-land value equals the field's within 0.01°. (Was: unflagged, ≤ 14°.)
 	var p := VillageTerrainParams.production()
 	for seed in [1, 7, 12]:
 		var layout := VillageLayout.generate(seed)
 		assert_false(layout.fallback, "seed %d generated" % seed)
-		assert_false(layout.terrain_diag.has("path_cap_fallback"), "seed %d path_cap_fallback unset" % seed)
 		var m: Dictionary = VillageTerrain.field(layout, p).max_path_slope(layout)
-		gut.p("seed %d open path %.2f° zone %.1f°" % [seed, m["deg"], m["zone_deg"]])
-		assert_lte(float(m["deg"]), p.max_path_slope_deg, "seed %d open path ≤ 14°" % seed)
+		gut.p("seed %d open path %.2f° zone %.1f° flagged %s" % [seed, m["deg"], m["zone_deg"],
+			str(layout.terrain_diag.get("path_cap_fallback", false))])
+		assert_lte(float(m["deg"]), p.path_steep_accept_deg, "seed %d open path ≤ 18°" % seed)
 		assert_lte(float(m["zone_deg"]), p.ring_max_slope_deg + 3.0, "seed %d fit zone ≤ 25°" % seed)
 		assert_almost_eq(float(layout.terrain_diag.get("max_path_slope_open_deg", -1.0)), float(m["deg"]), 0.01,
 			"seed %d generator open-land value = field" % seed)

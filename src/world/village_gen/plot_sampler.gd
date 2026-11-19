@@ -302,6 +302,9 @@ static func select(
 	var max_corner_m: float = float(params.get("max_corner_m", _Layout.HAMLET_MAX_CORNER_FROM_G))
 	## Callable(cand, picked) -> {ok, reason, s_deg, w, target, core} or null (flat: unchanged).
 	var terrain_fn: Variant = params.get("terrain_site_fn", null)
+	## SD-VILLAGE-TERRAIN-21 (WP3): pair centre distance floor and centre reach from G; 0 = off.
+	var min_centre_sep: float = float(params.get("min_centre_sep_m", 0.0))
+	var centre_r_max: float = float(params.get("centre_r_max_m", 0.0))
 	if cands.is_empty() or n <= 0:
 		return []
 
@@ -328,6 +331,8 @@ static func select(
 		var rect: Rect2 = VillageBackdrop.cottage_exterior_rect(cand["spec"] as Dictionary)
 		if max_corner_m > 0.0 and _corners_exceed_max_dist(rect, hamlet_g, max_corner_m):
 			continue
+		if _centre_beyond_reach(rect, hamlet_g, centre_r_max):
+			continue
 		var template_name: String = String(cand["template"])
 		if int(template_counts.get(template_name, 0)) >= max_same_template:
 			continue
@@ -336,6 +341,9 @@ static func select(
 			var prev: Dictionary = picked[pi] as Dictionary
 			var pr: Rect2 = VillageBackdrop.cottage_exterior_rect(prev["spec"] as Dictionary)
 			if _LayoutValidate.wall_gap_too_small(rect, pr, min_gap_wall_m):
+				ok = false
+				break
+			if _LayoutValidate.centre_sep_too_small(rect, pr, min_centre_sep):
 				ok = false
 				break
 			if _door_conn_crosses_rect(
@@ -425,6 +433,8 @@ static func append_to_selection(
 	var hamlet_g: Vector2 = params.get("hamlet_g", _Layout.VILLAGE_GREEN_G) as Vector2
 	var max_corner_m: float = float(params.get("max_corner_m", _Layout.HAMLET_MAX_CORNER_FROM_G))
 	var terrain_fn: Variant = params.get("terrain_site_fn", null)
+	var min_centre_sep: float = float(params.get("min_centre_sep_m", 0.0))
+	var centre_r_max: float = float(params.get("centre_r_max_m", 0.0))
 	var picked: Array[Dictionary] = []
 	for e: Variant in existing:
 		picked.append((e as Dictionary).duplicate(true))
@@ -460,6 +470,8 @@ static func append_to_selection(
 		var rect: Rect2 = VillageBackdrop.cottage_exterior_rect(cand["spec"] as Dictionary)
 		if max_corner_m > 0.0 and _corners_exceed_max_dist(rect, hamlet_g, max_corner_m):
 			continue
+		if _centre_beyond_reach(rect, hamlet_g, centre_r_max):
+			continue
 		var template_name: String = String(cand["template"])
 		if int(template_counts.get(template_name, 0)) >= max_same_template:
 			continue
@@ -468,6 +480,9 @@ static func append_to_selection(
 			var prev: Dictionary = picked[pi] as Dictionary
 			var pr: Rect2 = VillageBackdrop.cottage_exterior_rect(prev["spec"] as Dictionary)
 			if _LayoutValidate.wall_gap_too_small(rect, pr, min_gap_wall_m):
+				ok = false
+				break
+			if _LayoutValidate.centre_sep_too_small(rect, pr, min_centre_sep):
 				ok = false
 				break
 			if _door_conn_crosses_rect(
@@ -537,6 +552,11 @@ static func append_to_selection(
 		q_counts[qi2] += 1
 
 	return picked
+
+
+static func _centre_beyond_reach(rect: Rect2, g: Vector2, r_max: float) -> bool:
+	## SD-VILLAGE-TERRAIN-21 village reach: exterior-rect centre farther than r_max from G (0 = off).
+	return r_max > 0.0 and rect.get_center().distance_to(g) > r_max
 
 
 static func _terrain_site(terrain_fn: Variant, cand: Dictionary, picked: Array) -> Dictionary:

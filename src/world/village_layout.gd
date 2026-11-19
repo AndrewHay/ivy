@@ -42,7 +42,9 @@ const PAIR_JIGGLE_MAX_M := 4.0
 const OUTER_CORNER_MAX_M := 38.0
 ## Grown cottage corners must stay inside lawn R=44 re-centred on G (ivy-3l6 v2 / INV-36′).
 const HAMLET_MAX_CORNER_FROM_G := 54.0
-const GENERATED_LAWN_RADIUS := 56.0
+## SD-VILLAGE-TERRAIN-21 (WP3, ivy-82zn.14.18): ≥ max corner (54) + 10 m. Grass/scatter disc, camera
+## XZ clamp, near/far join ring; the generator's occupancy circle is this − 8 (56 m).
+const GENERATED_LAWN_RADIUS := 64.0
 const HOUSE_SPACING_M := 18.0
 const LATTICE_R_IN := 14.0
 const LATTICE_R_OUT := 50.0
@@ -80,7 +82,10 @@ const GENERATED_STONE_SPACING := 0.75
 ## Legacy dart path (classic tests only).
 
 # ── Placement constants (shared classic / generated) ───────────────────────────
-## Minimum centre-to-centre spacing floor (metres); pair jiggle adds up to PAIR_JIGGLE_MAX_M.
+## LEGACY ONLY (classic dart / hex-lattice placement below): centre floor (metres); pair jiggle adds up
+## to PAIR_JIGGLE_MAX_M. The production generator (VillageGeneratorV3 + PlotSampler) does NOT read it:
+## its single source of truth is VillageTerrainParams.cottage_min_sep_m (22 m, SD-VILLAGE-TERRAIN-21),
+## enforced in PlotSampler.select / append_to_selection and re-checked by VillageLayoutValidate.v1.
 const _MIN_CENTRE_SEP_M := 15.0
 ## Hero keep-out distance: nearest grown-rect face must be ≥ this from origin (INV-1).
 const _KEEP_OUT := 5.9
@@ -231,13 +236,15 @@ const _BEZIER_BEND_STEP  := 0.35
 const _BEZIER_BEND_TRIES := 8
 ## Perpendicular waypoint push for MST edge reroute (m).
 const _WAYPOINT_PUSH     := 2.2
-## Generated world-scale preset (+20% vs ivy-80z S2b; scales with ring expansion).
-const GENERATED_HILL_INNER := 56.0
-const GENERATED_PINE_INNER := 41.8
-const GENERATED_PINE_OUTER := 61.6
+## Generated world-scale preset. SD-VILLAGE-TERRAIN-21 (WP3): pines inner ≥ max corner (54) + 2 m,
+## same 20 m band; bush filler scaled with the 46 m village reach; GENERATED_HILL_INNER retired (no
+## separate hills inner edge: generated readers use lawn_radius; layout.hill_inner keeps its classic
+## default).
+const GENERATED_PINE_INNER := 56.0
+const GENERATED_PINE_OUTER := 76.0
 const GENERATED_PINE_COUNT := 40
 const GENERATED_FOG_BEGIN := 20.5
-const GENERATED_BUSH_FILLER_OUTER := 32.3
+const GENERATED_BUSH_FILLER_OUTER := 44.0
 ## Generated-only pond bank clearances (classic uses VillagePondSite defaults via layout fields).
 const GENERATED_POND_COTTAGE_CLEARANCE_M := 3.0
 const GENERATED_POND_PATH_CLEARANCE_M := 2.0
@@ -392,7 +399,6 @@ static func _generate_legacy_lattice(seed: int) -> VillageLayout:
 			layout.path_kinds = []
 			# World-scale preset (SD-VILLAGE-GEN-6 / INV-20): fixed values, not per-seed.
 			layout.lawn_radius = GENERATED_LAWN_RADIUS
-			layout.hill_inner = GENERATED_HILL_INNER
 			layout.pine_inner = GENERATED_PINE_INNER
 			layout.pine_outer = GENERATED_PINE_OUTER
 			layout.pine_count = GENERATED_PINE_COUNT

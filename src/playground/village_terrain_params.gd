@@ -47,7 +47,12 @@ const NON_FIELD_KEYS := [
 @export var landform_offset_x: float = 0.0
 @export var landform_offset_z: float = 0.0
 @export var landform_rot_deg: float = 0.0
-@export var landform_offset_candidates: int = 64
+## SD-VILLAGE-TERRAIN-28 §2 (2026-11-18): 64 -> 128 so the storey rule finds candidates.
+@export var landform_offset_candidates: int = 128
+## Storey rule (SD-28 §2): height off the hero pad that counts as storey ground (m), and the share of
+## buildable ground that must reach it for a candidate to be ordered first. 0 = rule off.
+@export var storey_ground_m: float = 3.5
+@export var storey_ground_frac_min: float = 0.10
 @export var hero_site_slope_min_deg: float = 2.0
 @export var hero_site_slope_max_deg: float = 9.0
 @export var hero_not_crest_m: float = 1.5
@@ -111,9 +116,19 @@ const NON_FIELD_KEYS := [
 ## Open-land max ≤ cap + this is accepted at once with path_cap_fallback (AR-LF-PERF P4; 0 = SD-20).
 @export var path_near_miss_deg: float = 1.0
 
-# ── Village (SD-VILLAGE-TERRAIN-21; consumed by the generator from WP3) ───────
-@export var cottage_min_sep_m: float = 22.0
+# ── Village (SD-VILLAGE-TERRAIN-21 restated 2026-11-18, human option B; generator, WP3) ───────
+## Pair centre floor (exterior-rect centres) in PlotSampler and v1.
+@export var cottage_min_sep_m: float = 16.0
 @export var village_centre_r_max_m: float = 46.0
+## Relax-ladder floor (1 m steps below cottage_min_sep_m, every attempt); clamped to ≤ the spacing.
+@export var sep_ladder_floor_m: float = 14.0
+## Multiplies the SD-21 primary / branch / capacity-branch lengths (1.0 = production table).
+@export var path_len_scale: float = 1.0
+
+
+## sep_ladder_floor_m clamped to ≤ cottage_min_sep_m (SD-22 restated 2026-11-18).
+func effective_sep_ladder_floor_m() -> float:
+	return minf(sep_ladder_floor_m, cottage_min_sep_m)
 
 # ── Mesh ──────────────────────────────────────────────────────────────────────
 @export var terrain_mesh_step_m: float = 2.0
@@ -243,7 +258,7 @@ static func preset_tips() -> Dictionary:
 		"Billow": "Billow noise: rounder lumps (soft-abs valleys).",
 		"Derivative-damped": "Derivative-damped noise: smooth hollows, rougher crests.",
 		"Ridged (comparison)": "Ridged noise — comparison only, expected to fail the slope ACs.",
-		"Tight village (old spacing)": "Cottage spacing 15 m and reach 37 m (pre-landscape spacing).",
+		"Tight village (old spacing)": "Cottage spacing 8 m (only the 4 m wall gap binds), short paths (0.8), reach 37 m — the pre-WP3 village.",
 	}
 
 
@@ -264,7 +279,8 @@ static func presets() -> Dictionary:
 		"Derivative-damped": {"variant": 0, "landform_noise": 2},
 		"Ridged (comparison)": {"variant": 0, "landform_noise": 3},
 		"Tight village (old spacing)": {
-			"variant": 0, "cottage_min_sep_m": 15.0, "village_centre_r_max_m": 37.0,
+			"variant": 0, "cottage_min_sep_m": 8.0, "sep_ladder_floor_m": 8.0, "path_len_scale": 0.8,
+			"village_centre_r_max_m": 37.0,
 		},
 	}
 

@@ -19,7 +19,11 @@ static func v1_cottages(
 		pond_clear_r: float,
 		g: Vector2,
 		max_corner_m: float,
-		min_gap_m: float) -> Array[String]:
+		min_gap_m: float,
+		min_centre_sep_m: float = 0.0) -> Array[String]:
+	## min_centre_sep_m: SD-VILLAGE-TERRAIN-21 pair centre floor (exterior-rect centres, 0.01 m
+	## tolerance; 0 = off). The generator passes the value it selected with (22 m, or the relaxed
+	## ladder value).
 	var viol: Array[String] = []
 	if cottages.is_empty():
 		return ["v1: no cottages"]
@@ -44,7 +48,18 @@ static func v1_cottages(
 		for j: int in range(i + 1, rects.size()):
 			if wall_gap_too_small(rects[i], rects[j], min_gap_m):
 				viol.append("v1: cottages %d and %d under min wall gap" % [i, j])
+			if centre_sep_too_small(rects[i], rects[j], min_centre_sep_m):
+				viol.append("v1: cottages %d and %d under min centre sep" % [i, j])
 	return viol
+
+
+## Tolerance of the centre-distance floor (AC-LT-SEP: distance ≥ cottage_min_sep_m − 0.01).
+const CENTRE_SEP_TOL_M := 0.01
+
+
+static func centre_sep_too_small(a: Rect2, b: Rect2, min_sep: float) -> bool:
+	## One rule for the sampler and v1 (SD-VILLAGE-TERRAIN-21): exterior-rect centre distance.
+	return min_sep > 0.0 and a.get_center().distance_to(b.get_center()) < min_sep - CENTRE_SEP_TOL_M
 
 
 static func v2_paths_vs_cottages(
@@ -640,6 +655,7 @@ static func all(layout_like: Dictionary) -> Dictionary:
 	var g: Vector2 = layout_like.get("g", Vector2(0.0, -18.0)) as Vector2
 	var max_corner: float = float(layout_like.get("max_corner_m", 54.0))
 	var min_gap: float = float(layout_like.get("min_gap_m", 4.0))
+	var min_centre_sep: float = float(layout_like.get("min_centre_sep_m", 0.0))
 	var junctions: Array = layout_like.get("junction_points", []) as Array
 	var junction_vec: Array[Vector2] = []
 	for j_raw: Variant in junctions:
@@ -648,7 +664,7 @@ static func all(layout_like: Dictionary) -> Dictionary:
 	var hero_stoop: Vector2 = layout_like.get("hero_stoop", Vector2.ZERO) as Vector2
 	var plaza_root: Vector2 = layout_like.get("plaza_root", Vector2.ZERO) as Vector2
 
-	out["v1"] = v1_cottages(cottages, plaza_keep, hero_rect, pond_c, pond_cr, g, max_corner, min_gap)
+	out["v1"] = v1_cottages(cottages, plaza_keep, hero_rect, pond_c, pond_cr, g, max_corner, min_gap, min_centre_sep)
 	out["v2"] = v2_paths_vs_cottages(paths, kinds, cottages, door_stoops, pond_c, pond_cr)
 	out["v3"] = v3_crossings(paths, junction_vec, tol)
 	var net_var: Variant = layout_like.get("network", layout_like.get("paths_network", null))

@@ -273,8 +273,13 @@ func test_readout_reports_the_search_measures() -> void:
 			# ivy-82zn.14.16 (SD-22 readout, restated ivy-82zn.14.23 / .14.24)
 			"hero_ring_w", "hero_ring_peak_deg", "plaza_ring_w", "plaza_ring_peak_deg",
 			"rejected_sites_slope", "rejected_sites_ring", "max_path_slope_open_deg",
-			"max_path_slope_zone_deg", "path_near_miss"]:
+			"max_path_slope_zone_deg", "path_near_miss",
+			# ivy-82zn.14.18 handoff 3 (SD-28 §2/§3 readout)
+			"storey_frac", "storey_soft", "storey_m", "pond_plaza_rejects"]:
 		assert_true(r.has(k), "readout %s" % k)
+	assert_almost_eq(float(r["storey_frac"]), float(pg._layout.landform["measures"].get("storey_frac", -1.0)), 1e-9,
+		"storey_frac = the offset's measure")
+	assert_string_contains(pg.hud_text(), "storey ground")
 	assert_eq(r["offset"], pg._layout.landform["offset"], "readout offset = chosen offset")
 	assert_eq(float(r["hero_ring_w"]), float(pg._layout.landform["hero_ring_w"]), "hero ring w = stored")
 	assert_eq(float(r["plaza_ring_w"]), float(pg._layout.landform["plaza_ring_w"]), "plaza ring w = stored")

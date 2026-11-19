@@ -117,7 +117,8 @@ static func build_flat_legacy_mesh(layout: VillageLayout, params: HillsParams) -
 
 static func _sample_y_flat_legacy(xz: Vector2, layout: VillageLayout, y_lawn: float) -> float:
 	var c := layout.hamlet_centre_xz if layout.is_generated else Vector2.ZERO
-	var inner_r := layout.hill_inner if not layout.is_generated else 58.0
+	## WP3 (GENERATED_HILL_INNER retired): generated ramps start 2 m outside the lawn (was 58 = 56 + 2).
+	var inner_r := layout.hill_inner if not layout.is_generated else layout.lawn_radius + 2.0
 	var r := xz.distance_to(c)
 	if r < inner_r:
 		return y_lawn

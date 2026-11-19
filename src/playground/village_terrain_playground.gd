@@ -1243,6 +1243,17 @@ func landform_readout() -> Dictionary:
 	out["max_path_slope_open_deg"] = float(mp["deg"])
 	out["max_path_slope_zone_deg"] = float(mp["zone_deg"])
 	out["max_path_slope_deg"] = out["max_path_slope_open_deg"]  # alias
+	# SD-VILLAGE-TERRAIN-28 §2/§3 readout: storey ground of the offset used, the soft flag, the
+	# realised storey (max |T_i - y_hero| over the pads) and the pond ring rejects.
+	out["storey_frac"] = float(m.get("storey_frac", NAN))
+	out["storey_soft"] = bool(diag.get("storey_soft", false))
+	var storey := 0.0
+	if f != null:
+		for s: Dictionary in f.sites:
+			if String(s["kind"]) == "cottage":
+				storey = maxf(storey, absf(float(s["target"]) - float(f.y_hero)))
+	out["storey_m"] = storey
+	out["pond_plaza_rejects"] = diag.get("pond_plaza_rejects", null)
 	return out
 
 
@@ -1265,6 +1276,9 @@ func landform_readout_lines() -> PackedStringArray:
 	lines.append("fallback offset %s  path %s (near miss %s)  pond-steep %s" % [
 		str(r["offset_fallback"]), dash.call(r["path_cap_fallback"]), dash.call(r["path_near_miss"]),
 		dash.call(r["pond_steep"])])
+	lines.append("storey ground %.0f%%%s  |  storey %.2f m off the hero pad  |  pond ring rejects %s" % [
+		float(r["storey_frac"]) * 100.0 if is_finite(float(r["storey_frac"])) else -1.0,
+		" (soft)" if bool(r["storey_soft"]) else "", r["storey_m"], dash.call(r["pond_plaza_rejects"])])
 	lines.append("generate %.0f ms (search %.0f ms)" % [r["generate_ms"], r["search_ms"]])
 	return lines
 

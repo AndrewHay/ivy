@@ -270,6 +270,105 @@ func open_path_slope(layout: VillageLayout) -> Dictionary:
 	return VillageTerrainField.path_scan(layout, params, zone_sites(layout), fn)
 
 
+func pond_plaza_ring_ok(centre: Vector2) -> Dictionary:
+	## SD-VILLAGE-TERRAIN-28 §3: a pond at `centre` must not steepen the plaza ring past
+	## ring_max_slope_deg (22°). 1 m lattice nodes over the intersection of the pond bound box and the
+	## plaza ring box (grown 1 m for the FD neighbours); U with the plaza then the pond applied by the
+	## field's helpers (field order); one-sided 1 m differences (as measured_ring) at interior nodes with
+	## 0 < sdf_plaza < w_plaza + 1 and sdf_pond < w_pond + 1. {ok, peak_deg, nodes}; no plaza or no
+	## overlap = pass with nodes 0.
+	if plaza.is_empty():
+		return {"ok": true, "peak_deg": 0.0, "nodes": 0}
+	return _pond_ring_check(centre, plaza, [plaza], [])
+
+
+func pond_hero_ring_ok(centre: Vector2) -> Dictionary:
+	## Extension of SD-28 §3 to the hero ring (ivy-82zn.14.18 handoff 3, seed 7: a pond moved by
+	## resolve_after_paths into the hero ring read 27.5° in the field). Same metric and limit; field
+	## order plaza < pond < hero, so the hero is applied after the pond.
+	if hero.is_empty():
+		return {"ok": true, "peak_deg": 0.0, "nodes": 0}
+	var h := _hero_site()
+	var before: Array = [] if plaza.is_empty() else [plaza]
+	return _pond_ring_check(centre, h, before, [h])
+
+
+func pond_rings_ok(centre: Vector2) -> Dictionary:
+	## Both checks: {ok, ring ("" / "plaza_ring" / "hero_ring"), plaza, hero}.
+	var pz := pond_plaza_ring_ok(centre)
+	if not bool(pz["ok"]):
+		return {"ok": false, "ring": "plaza_ring", "plaza": pz, "hero": {}}
+	var hr := pond_hero_ring_ok(centre)
+	return {"ok": bool(hr["ok"]), "ring": "" if bool(hr["ok"]) else "hero_ring", "plaza": pz, "hero": hr}
+
+
+func _hero_site() -> Dictionary:
+	var r_out := float(hero["r_c"]) + float(hero["w"])
+	return {"kind": "hero", "centre": hero["centre"], "r_c": float(hero["r_c"]), "w": float(hero["w"]),
+		"target": float(hero["target"]), "bound_c": hero["centre"], "bound_r": r_out}
+
+
+func _ring_box_of(s: Dictionary) -> Rect2:
+	var w := float(s["w"])
+	if s.has("rect"):
+		return (s["rect"] as Rect2).grow(w + 1.0)
+	var r := float(s["r_c"]) + w + 1.0
+	var c: Vector2 = s["centre"]
+	return Rect2(c - Vector2(r, r), Vector2(2.0 * r, 2.0 * r))
+
+
+func _pond_ring_check(centre: Vector2, ring: Dictionary, before: Array, after: Array) -> Dictionary:
+	## The measured pond-vs-ring check (SD-28 §3 steps 1-4) for `ring` (plaza or hero site): U with
+	## `before` sites, the pond, then `after` sites applied (field order), one-sided 1 m slope at
+	## interior nodes with 0 < sdf_ring < w_ring + 1 and sdf_pond < w_pond + 1; pass iff <= 22°.
+	var out := {"ok": true, "peak_deg": 0.0, "nodes": 0}
+	var ps := VillageTerrainField.pond_site(_u_fn, centre, params)
+	var r_out := float(ps["r_c"]) + float(ps["w"]) + 1.0
+	var pond_box := Rect2(centre - Vector2(r_out, r_out), Vector2(2.0 * r_out, 2.0 * r_out))
+	var wp := float(ring["w"])
+	var ring_box := _ring_box_of(ring)
+	if not pond_box.intersects(ring_box):
+		return out
+	var box := pond_box.intersection(ring_box).grow(1.0)
+	var x0 := int(floor(box.position.x))
+	var z0 := int(floor(box.position.y))
+	var nx := int(ceil(box.end.x)) - x0 + 1
+	var nz := int(ceil(box.end.y)) - z0 + 1
+	var y := PackedFloat32Array()
+	y.resize(nx * nz)
+	for j in range(nz):
+		for i in range(nx):
+			var p := Vector2(float(x0 + i), float(z0 + j))
+			var u := u_node(x0 + i, z0 + j)
+			for s: Dictionary in before:
+				u = VillageTerrainField.apply_site(s, p, u, params)
+			u = VillageTerrainField.apply_site(ps, p, u, params)
+			for s2: Dictionary in after:
+				u = VillageTerrainField.apply_site(s2, p, u, params)
+			y[j * nx + i] = u
+	var wpond := float(ps["w"])
+	var pk2 := 0.0
+	var n := 0
+	for j in range(1, nz - 1):
+		for i in range(1, nx - 1):
+			var p := Vector2(float(x0 + i), float(z0 + j))
+			var sp := VillageTerrainField.sdf_of(ring, p)
+			if sp <= 0.0 or sp >= wp + 1.0:
+				continue
+			if VillageTerrainField.sdf_of(ps, p) >= wpond + 1.0:
+				continue
+			var k := j * nx + i
+			var yk := y[k]
+			var gx := maxf(absf(y[k + 1] - yk), absf(yk - y[k - 1]))
+			var gz := maxf(absf(y[k + nx] - yk), absf(yk - y[k - nx]))
+			pk2 = maxf(pk2, gx * gx + gz * gz)
+			n += 1
+	out["nodes"] = n
+	out["peak_deg"] = rad_to_deg(atan(sqrt(pk2)))
+	out["ok"] = float(out["peak_deg"]) <= float(params.ring_max_slope_deg)
+	return out
+
+
 func pond_site(centre: Vector2) -> Dictionary:
 	## Pond centre site (SD-19 pond row): plane fit of U over r ≤ BANK_OUTER_M on a 1 m grid.
 	## {slope_deg, mean}.

@@ -36,6 +36,8 @@ func test_all_camera_rig_presets_inside_lawn_after_presentation() -> void:
 	var centre: Vector2 = bounds["centre_xz"]
 	var radius: float = bounds["radius"]
 	var margin: float = bounds["margin"]
+	## ivy-82zn.14.18 (WP3): the XZ clamp follows layout.lawn_radius (64).
+	assert_almost_eq(radius, 64.0, 1e-6, "camera XZ clamp radius follows the 64 m lawn")
 	var allowed := maxf(radius - margin, 0.0) + 0.05
 	var rig: CameraRig = world.get_node("CameraRig") as CameraRig
 	var names := ["CamSun", "CamShade", "CamTop", "CamSilhouette"]

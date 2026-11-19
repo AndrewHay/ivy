@@ -68,6 +68,10 @@ static func all_knobs() -> Array[Dictionary]:
 	_add_float(rows, "landform_offset_z", "Offset z (m)", "Placement", -2000.0, 2000.0, 1.0, LANDSCAPE, L)
 	_add_float(rows, "landform_rot_deg", "Rotation (°)", "Placement", 0.0, 360.0, 1.0, LANDSCAPE, L)
 	_add_int(rows, "landform_offset_candidates", "Candidates", "Placement", 16, 256, 1, LANDSCAPE, L)
+	_add_float(rows, "storey_ground_m", "Storey ground (m)", "Placement", 2.0, 6.0, 0.25, LANDSCAPE, L,
+		"Height off the hero pad that counts as 'a storey up or down' (SD-28 storey rule).")
+	_add_float(rows, "storey_ground_frac_min", "Storey ground min share", "Placement", 0.0, 0.4, 0.01, LANDSCAPE, L,
+		"Offsets with at least this share of buildable ground a storey off the hero are tried first. 0 = off.")
 	_add_float(rows, "hero_site_slope_min_deg", "Hero slope min (°)", "Placement", 0.0, 6.0, 0.25, LANDSCAPE, L)
 	_add_float(rows, "hero_site_slope_max_deg", "Hero slope max (°)", "Placement", 4.0, 14.0, 0.25, LANDSCAPE, L)
 	_add_float(rows, "hero_not_crest_m", "Not a crest (m)", "Placement", 0.0, 5.0, 0.1, LANDSCAPE, L,
@@ -139,10 +143,14 @@ static func all_knobs() -> Array[Dictionary]:
 		"Accept at once (flagged) within this of the cap. 0 = no near-miss accept.")
 
 	# Village (SD-21; consumed by the generator from WP3)
-	_add_float(rows, "cottage_min_sep_m", "Cottage min spacing (m)", "Village", 15.0, 30.0, 0.5, LANDSCAPE, L,
-		"Cottage centre spacing (WP3).")
+	_add_float(rows, "cottage_min_sep_m", "Cottage min spacing (m)", "Village", 8.0, 22.0, 0.5, LANDSCAPE, L,
+		"Cottage centre spacing (SD-21, 16 m). Above ~18 m the path network runs out of sites.")
 	_add_float(rows, "village_centre_r_max_m", "Village reach (m)", "Village", 37.0, 50.0, 0.5, LANDSCAPE, L,
 		"Max cottage centre distance from G (WP3).")
+	_add_float(rows, "sep_ladder_floor_m", "Spacing relax floor (m)", "Village", 8.0, 22.0, 0.5, LANDSCAPE, L,
+		"If 8 do not fit, relax spacing 1 m at a time down to this (every attempt; clamped to the spacing).")
+	_add_float(rows, "path_len_scale", "Path length scale", "Village", 0.8, 1.5, 0.05, LANDSCAPE, L,
+		"Multiplies primary, branch and capacity path lengths (1.0 = production; longer = more sites, slower).")
 
 	# Mesh
 	_add_float(rows, "terrain_mesh_step_m", "Mesh cell (m)", "Mesh", 1.0, 3.5, 0.25, LANDSCAPE, T,

@@ -344,15 +344,36 @@ static func rank_offsets(norm_seed: int, params) -> Array[Dictionary]:
 	var offsets := candidate_offsets(norm_seed, maxi(int(params.landform_offset_candidates), 1))
 	var passing: Array[Dictionary] = []
 	var failing: Array[Dictionary] = []
+	# SD-VILLAGE-TERRAIN-28 §2 storey rule (off when storey_ground_frac_min <= 0: pure score order).
+	var frac_min := float(params.storey_ground_frac_min)
+	var storey_on := frac_min > 0.0
+	var d_fd := {}
+	var storey_mask := _storey_mask(nodes, g, h0) if storey_on else PackedByteArray()
 	for i in range(offsets.size()):
 		var ctx := base_ctx.duplicate()
 		ctx["offset"] = offsets[i]
 		var c := _evaluate_coarse(ctx, params, i, hero_q, d_hero, d_h0, nodes, d_grid)
 		if bool(c["pass"]):
+			if storey_on:
+				_ensure_d_fd(base_ctx, nodes, d_fd)
+				_storey_measures(ctx, params, nodes, d_grid, d_fd, storey_mask, c["measures"])
 			passing.append(c)
 		else:
 			failing.append(c)
-	passing.sort_custom(_by_score)
+	if storey_on:
+		var first: Array[Dictionary] = []
+		var rest: Array[Dictionary] = []
+		for c: Dictionary in passing:
+			if float(c["measures"]["storey_frac"]) >= frac_min:
+				first.append(c)
+			else:
+				rest.append(c)
+		first.sort_custom(_by_score)
+		rest.sort_custom(_by_storey_frac)
+		passing = first
+		passing.append_array(rest)
+	else:
+		passing.sort_custom(_by_score)
 	# Verify the best passing candidates in rank order — exact p95, then the measured hero ring
 	# (hard rule hero_ring_ok, SD-18 2026-11-17) — until rank 0 passes both. A failure moves the
 	# candidate to the failing list. The later passing candidates stay "pass" with verified =
@@ -360,7 +381,7 @@ static func rank_offsets(norm_seed: int, params) -> Array[Dictionary]:
 	# (SD-18 "Cost": lazy checks keep AC-LT-PERF ≤ 150 ms; extended here to the p95 check).
 	var verified: Array[Dictionary] = []
 	var unverified: Array[Dictionary] = []
-	var vc := {"nodes": nodes, "d_grid": d_grid, "d_fd": {}, "ring": {}, "plaza": {}, "base_ctx": base_ctx}
+	var vc := {"nodes": nodes, "d_grid": d_grid, "d_fd": d_fd, "ring": {}, "plaza": {}, "base_ctx": base_ctx}
 	for c: Dictionary in passing:
 		if not verified.is_empty():
 			c["verified"] = false
@@ -430,6 +451,86 @@ static func _by_score(a: Dictionary, b: Dictionary) -> bool:
 	if float(a["score"]) != float(b["score"]):
 		return float(a["score"]) < float(b["score"])
 	return int(a["index"]) < int(b["index"])
+
+
+static func _by_storey_frac(a: Dictionary, b: Dictionary) -> bool:
+	## SD-28 §2: the candidates below the storey minimum, most storey ground first (ties: index).
+	var fa := float(a["measures"]["storey_frac"])
+	var fb := float(b["measures"]["storey_frac"])
+	if fa != fb:
+		return fa > fb
+	return int(a["index"]) < int(b["index"])
+
+
+## SD-28 §2 storey nodes (offset independent part): search 4 m village nodes with |p − G| ≤ 42 m,
+## |p − H0| ≥ 14 m, outside the plaza cottage keep-clear rect. The slope part is per candidate.
+const STOREY_R_MAX_M := 42.0
+const STOREY_HERO_CLEAR_M := 14.0
+
+
+static func _storey_mask(nodes: Dictionary, g: Vector2, h0: Vector2) -> PackedByteArray:
+	var pts: PackedVector2Array = nodes["pts"]
+	var in_v: PackedByteArray = nodes["in_v"]
+	var keep := VillageLayout.plaza_cottage_keep_clear_rect(g, VillageLayout.PLAZA_SIDE_L)
+	var out := PackedByteArray()
+	out.resize(pts.size())
+	for k in range(pts.size()):
+		var p := pts[k]
+		var ok := in_v[k] == 1 and p.distance_to(g) <= STOREY_R_MAX_M and p.distance_to(h0) >= STOREY_HERO_CLEAR_M \
+			and not keep.has_point(p)
+		out[k] = 1 if ok else 0
+	return out
+
+
+static func _storey_measures(ctx: Dictionary, params, nodes: Dictionary, d_grid: PackedFloat32Array,
+		d_fd: Dictionary, mask: PackedByteArray, m: Dictionary) -> void:
+	## storey_frac = share of buildable storey nodes (1 m FD slope of L + D ≤ max_site_slope_deg) with
+	## |L + D − y_hero_raw| ≥ storey_ground_m; storey_max = the max |L + D − y_hero_raw| over them.
+	var pts: PackedVector2Array = nodes["pts"]
+	var fdx: PackedFloat32Array = d_fd["x"]
+	var fdz: PackedFloat32Array = d_fd["z"]
+	var lim := tan(deg_to_rad(params.max_site_slope_deg))
+	var lim2 := lim * lim
+	var yh := float(m["y_hero_raw"])
+	var h := float(params.storey_ground_m)
+	var n := 0
+	var hit := 0
+	var mx := 0.0
+	for k in range(pts.size()):
+		if mask[k] != 1:
+			continue
+		var p := pts[k]
+		var y := L(p, ctx) + d_grid[k]
+		var gx := L(p + Vector2(1.0, 0.0), ctx) + fdx[k] - y
+		var gz := L(p + Vector2(0.0, 1.0), ctx) + fdz[k] - y
+		if gx * gx + gz * gz > lim2:
+			continue
+		n += 1
+		var dh := absf(y - yh)
+		mx = maxf(mx, dh)
+		if dh >= h:
+			hit += 1
+	m["storey_frac"] = float(hit) / float(n) if n > 0 else 0.0
+	m["storey_max"] = mx
+
+
+static func _ensure_d_fd(ctx: Dictionary, nodes: Dictionary, d_fd: Dictionary) -> void:
+	## D at the +x / +z neighbours of the village nodes (offset independent), shared by the storey
+	## measure and the exact p95.
+	if not d_fd.is_empty():
+		return
+	var pts: PackedVector2Array = nodes["pts"]
+	var in_v: PackedByteArray = nodes["in_v"]
+	var dx := PackedFloat32Array()
+	var dz := PackedFloat32Array()
+	dx.resize(pts.size())
+	dz.resize(pts.size())
+	for k in range(pts.size()):
+		if in_v[k] == 1:
+			dx[k] = D(pts[k] + Vector2(1.0, 0.0), ctx)
+			dz[k] = D(pts[k] + Vector2(0.0, 1.0), ctx)
+	d_fd["x"] = dx
+	d_fd["z"] = dz
 
 
 static func _by_violation(a: Dictionary, b: Dictionary) -> bool:
@@ -570,17 +671,7 @@ static func _exact_p95(ctx: Dictionary, nodes: Dictionary, d_grid: PackedFloat32
 	## d_fd caches D at the +x / +z neighbours (offset independent) across candidates.
 	var pts: PackedVector2Array = nodes["pts"]
 	var in_v: PackedByteArray = nodes["in_v"]
-	if d_fd.is_empty():
-		var dx := PackedFloat32Array()
-		var dz := PackedFloat32Array()
-		dx.resize(pts.size())
-		dz.resize(pts.size())
-		for k in range(pts.size()):
-			if in_v[k] == 1:
-				dx[k] = D(pts[k] + Vector2(1.0, 0.0), ctx)
-				dz[k] = D(pts[k] + Vector2(0.0, 1.0), ctx)
-		d_fd["x"] = dx
-		d_fd["z"] = dz
+	_ensure_d_fd(ctx, nodes, d_fd)
 	var fdx: PackedFloat32Array = d_fd["x"]
 	var fdz: PackedFloat32Array = d_fd["z"]
 	var sl: Array[float] = []
@@ -613,7 +704,12 @@ static func _evaluate_full(norm_seed: int, params, index: int, offset: Vector2, 
 	for p: Vector2 in pts:
 		d_grid.append(D(p, ctx))
 	_grid_measures(ctx, params, nodes, d_grid, raw_y(h0, ctx), m)
-	m["p95_v"] = _exact_p95(ctx, nodes, d_grid, {})
+	var d_fd := {}
+	m["p95_v"] = _exact_p95(ctx, nodes, d_grid, d_fd)
+	if float(params.storey_ground_frac_min) > 0.0:
+		# SD-28 §2 readout (manual mode has one candidate: no ordering).
+		_storey_measures(ctx, params, nodes, d_grid, d_fd,
+			_storey_mask(nodes, VillageLayout.VILLAGE_GREEN_G, h0), m)
 	var viol := _range_violation(float(m["s_hero"]), params.hero_site_slope_min_deg,
 		params.hero_site_slope_max_deg, maxf(params.hero_site_slope_max_deg, 1.0))
 	viol += _grid_violation(m, params)

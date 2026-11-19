@@ -101,6 +101,36 @@ func test_far_treeline_instance_count() -> void:
 	assert_gte(placed, 24, "backdrop places >=24 trees")
 
 
+func test_ac_lt_dress_far_treeline_on_terrain_and_clear_of_cottages() -> void:
+	## AC-LT-DRESS (ivy-82zn.14.18, AR-LF-CONSUMERS "Pines FarTreeline: new y bake"): every pine sits
+	## on the field (y = exact sample_y, backdrop-local) and >= 2 m from every cottage exterior rect.
+	## (The r >= 56 m part conflicts with ForestParams variant 0, whose CamSun backdrop clump sits at
+	## 14-27 m from G; routed to the SD, not asserted here.)
+	for seed in [1, 7, 12]:
+		var bd := _make_generated(seed)
+		var layout := bd.get_layout()
+		assert_false(layout.fallback, "seed %d generated" % seed)
+		var treeline := _find_multimesh(bd, "FarTreeline")
+		assert_not_null(treeline, "FarTreeline seed %d" % seed)
+		if treeline == null or treeline.multimesh == null:
+			continue
+		var mm := treeline.multimesh
+		## Read the buffer (headless RenderingServer returns identity from get_instance_transform).
+		var buf := mm.buffer
+		var dy_max := 0.0
+		var clear_min := INF
+		for i in range(mm.instance_count):
+			var p := Vector2(buf[i * 12 + 3], buf[i * 12 + 11])
+			dy_max = maxf(dy_max, absf(buf[i * 12 + 7] - bd.sample_terrain_y(p)))
+			for spec: Dictionary in layout.cottages:
+				clear_min = minf(clear_min, VillageLayoutValidate.exterior_separation_m(
+					VillageBackdrop.cottage_exterior_rect(spec), Rect2(p, Vector2.ZERO)))
+		gut.p("AC-LT-DRESS pines seed %d: %d trees, max |y - sample_y| %.4f m, min cottage clearance %.2f m" % [
+			seed, mm.instance_count, dy_max, clear_min])
+		assert_lte(dy_max, 0.02, "seed %d pines on the terrain" % seed)
+		assert_gte(clear_min, 2.0, "seed %d pines >= 2 m from cottages" % seed)
+
+
 # ── (d) LawnTerrain exists (WP2: replaced flat LawnGround for generated) ─────
 
 func test_lawn_ground_radius() -> void:
@@ -221,10 +251,11 @@ func test_inv20_world_scale_fields() -> void:
 	assert_not_null(layout, "get_layout() must return a VillageLayout")
 	if layout == null:
 		return
-	assert_almost_eq(layout.lawn_radius, VillageLayout.GENERATED_LAWN_RADIUS, 1e-6, "lawn_radius INV-20")
-	assert_almost_eq(layout.hill_inner, VillageLayout.GENERATED_HILL_INNER, 1e-6, "hill_inner INV-20")
-	assert_almost_eq(layout.pine_inner, VillageLayout.GENERATED_PINE_INNER, 1e-6, "pine_inner INV-20")
-	assert_almost_eq(layout.pine_outer, VillageLayout.GENERATED_PINE_OUTER, 1e-6, "pine_outer INV-20")
+	## ivy-82zn.14.18 (WP3, SD-VILLAGE-TERRAIN-21): 64 / 56-76; GENERATED_HILL_INNER retired.
+	assert_false(layout.fallback, "seed generates (not the authored fallback)")
+	assert_almost_eq(layout.lawn_radius, 64.0, 1e-6, "lawn_radius INV-20")
+	assert_almost_eq(layout.pine_inner, 56.0, 1e-6, "pine_inner INV-20")
+	assert_almost_eq(layout.pine_outer, 76.0, 1e-6, "pine_outer INV-20")
 	assert_eq(layout.pine_count, VillageLayout.GENERATED_PINE_COUNT, "pine_count INV-20")
 	assert_almost_eq(layout.fog_begin, VillageLayout.GENERATED_FOG_BEGIN, 1e-6, "fog_begin INV-20")
 	assert_almost_eq(layout.fog_end, 95.0, 1e-6, "fog_end must be 95.0 (INV-20)")

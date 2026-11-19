@@ -101,18 +101,75 @@ func test_rank_offsets_is_deterministic_and_ordered() -> void:
 	for i in range(a.size()):
 		assert_eq(a[i]["index"], b[i]["index"], "same order at %d" % i)
 		assert_eq(a[i]["offset"], b[i]["offset"], "same offset at %d" % i)
+	## SD-28 §2 (2026-11-18): passing = storey group (storey_frac >= storey_ground_frac_min) by score,
+	## then the rest by storey_frac descending; failing by violation.
 	var seen_fail := false
+	var seen_rest := false
 	var last_score := -INF
+	var last_frac := INF
 	var last_viol := -INF
 	for c: Dictionary in a:
 		if bool(c["pass"]):
 			assert_false(seen_fail, "passing candidates come before failing ones")
-			assert_true(float(c["score"]) >= last_score, "passing sorted by score")
-			last_score = float(c["score"])
+			var frac := float((c["measures"] as Dictionary).get("storey_frac", -1.0))
+			if frac >= p.storey_ground_frac_min:
+				assert_false(seen_rest, "storey group comes first")
+				assert_true(float(c["score"]) >= last_score, "storey group sorted by score")
+				last_score = float(c["score"])
+			else:
+				seen_rest = true
+				assert_true(frac <= last_frac, "rest sorted by storey_frac descending")
+				last_frac = frac
 		else:
 			seen_fail = true
 			assert_true(float(c["violation"]) >= last_viol, "failing sorted by violation")
 			last_viol = float(c["violation"])
+
+
+func test_storey_rule_off_reproduces_the_score_ranking() -> void:
+	## SD-28 §2 parity: storey_ground_frac_min = 0 turns the rule off: passing purely by score (ties on
+	## index), exactly the pre-SD-28 order, and no storey measure is computed.
+	var p := VillageTerrainParams.production()
+	p.storey_ground_frac_min = 0.0
+	var ranked := VillageLandform.rank_offsets(7, p)
+	var last_score := -INF
+	var last_index := -1
+	for c: Dictionary in ranked:
+		if not bool(c["pass"]):
+			break
+		var s := float(c["score"])
+		assert_true(s > last_score or (s == last_score and int(c["index"]) > last_index), "pure score order")
+		assert_false((c["measures"] as Dictionary).has("storey_frac"), "no storey measure when off")
+		last_score = s
+		last_index = int(c["index"])
+
+
+func test_storey_rule_puts_storey_ground_first() -> void:
+	## SD-28 §2: storey nodes (|p-G| <= 42, |p-H0| >= 14, outside the plaza keep, 1 m FD slope of
+	## L+D <= max_site_slope_deg); storey_frac = share >= storey_ground_m off y_hero_raw. Rank 0 of
+	## the probe seeds meets the 10 % minimum.
+	var p := VillageTerrainParams.production()
+	for seed in _SEEDS:
+		var ranked := VillageLandform.rank_offsets(seed, p)
+		var m: Dictionary = ranked[0]["measures"]
+		assert_true(m.has("storey_frac") and m.has("storey_max"), "seed %d storey measures" % seed)
+		gut.p("seed %d rank 0 storey_frac %.3f storey_max %.2f m" % [seed, m.get("storey_frac", -1.0),
+			m.get("storey_max", -1.0)])
+		assert_between(float(m["storey_frac"]), 0.0, 1.0, "fraction in [0, 1]")
+		assert_gte(float(m["storey_frac"]), p.storey_ground_frac_min, "seed %d rank 0 meets the minimum" % seed)
+
+
+func test_storey_soft_flag_when_no_candidate_meets_the_minimum() -> void:
+	## SD-28 §2: if the rank used is below the minimum, terrain_diag.storey_soft (not offset_fallback).
+	var p := VillageTerrainParams.production()
+	p.storey_ground_frac_min = 1.0
+	var layout := VillageLayout.generate(7, p)
+	assert_false(layout.fallback, "generated")
+	assert_true(bool(layout.terrain_diag.get("storey_soft", false)), "storey_soft set")
+	assert_false(bool(layout.terrain_diag.get("offset_fallback", true)), "not an offset fallback")
+	var q := VillageTerrainParams.production()
+	var l2 := VillageLayout.generate(7, q)
+	assert_false(bool(l2.terrain_diag.get("storey_soft", false)), "production seed 7 meets the minimum")
 
 
 func test_rank_offsets_measures_follow_the_hard_rules() -> void:
@@ -164,15 +221,16 @@ func test_ac_lt_site_sweep_at_most_two_fallbacks() -> void:
 	assert_lte(fallbacks, 2, "AC-LT-SITE sweep: %d / 20 seeds fall back" % fallbacks)
 
 
-func test_search_budget_150_ms() -> void:
-	## AC-LT-PERF (search part): <= 150 ms per generate (GA probe: 76-88 ms).
+func test_search_budget_300_ms() -> void:
+	## AC-LT-PERF (search part), restated 2026-11-18 (SD-28 §2, K 128 + storey measure): <= 300 ms.
 	var p := VillageTerrainParams.production()
 	VillageLandform.rank_offsets(3, p)  # warm the FastNoiseLite cache
 	for seed in _SEEDS:
 		var t0 := Time.get_ticks_usec()
 		VillageLandform.rank_offsets(seed, p)
 		var ms := float(Time.get_ticks_usec() - t0) / 1000.0
-		assert_lte(ms, 150.0, "seed %d offset search %.1f ms" % [seed, ms])
+		gut.p("seed %d offset search %.1f ms" % [seed, ms])
+		assert_lte(ms, 300.0, "seed %d offset search %.1f ms" % [seed, ms])
 
 
 func test_layout_stores_terrain_params_and_search_runs_once() -> void:
@@ -365,8 +423,11 @@ func test_lazy_verification_for_later_ranks() -> void:
 
 func test_rank_offsets_hero_ring_failure_moves_the_offset() -> void:
 	## SD-18 / SD-19 worked numbers: seed 7's old rank 0 (idx 20) has no hero ring ≤ 10 m; the new
-	## rank 0 is idx 36.
+	## rank 0 is idx 36. Pinned to the pre-SD-28 search (K 64, storey rule off, the parity setting)
+	## because it characterises the hero-ring hard rule on a known candidate, not the ordering.
 	var p := VillageTerrainParams.production()
+	p.landform_offset_candidates = 64
+	p.storey_ground_frac_min = 0.0
 	var ranked := VillageLandform.rank_offsets(7, p)
 	assert_eq(int(ranked[0]["index"]), 36, "seed 7 rank 0 moves to idx 36")
 	var old: Dictionary = {}
@@ -393,7 +454,10 @@ func test_rank_zero_passes_plaza_ring_ok() -> void:
 
 func test_seed_16_moves_off_a_failing_plaza_ring() -> void:
 	## SD-18: seed 16's old rank 0 has no plaza ring ≤ 10 m, so the search moves to its next candidate.
+	## Pinned to the pre-SD-28 search (K 64, storey rule off) for the same reason as the seed-7 test.
 	var p := VillageTerrainParams.production()
+	p.landform_offset_candidates = 64
+	p.storey_ground_frac_min = 0.0
 	var ranked := VillageLandform.rank_offsets(16, p)
 	var failed := false
 	for c: Dictionary in ranked:
