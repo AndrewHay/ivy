@@ -1420,7 +1420,7 @@ the stems are attached **to the floor** (95 % within the attachment distance; a 
 plane across the opening puts them 0.10–0.30 m off) and they lie **on** it rather than at the edge
 of the band (median ≤ 0.02 m; a proxy floor too shallow by gate (b)'s 0.03 m allowance moves the
 median past 0.03 m and fails). Whether a 2–4.5 cm resting gap on about 15 % of attached stem looks
-right is a separate, owner question (SD-MESH-19.8).
+right is a separate, owner question (SD-MESH-19.8; the owner passed it on 2026-11-19).
 
 *What the 340 far nodes were.* All 340 lie in the six panel footprints (panel_1_high 103,
 panel_2_high 74, panel_3_high 132, panel_1_low 15, panel_3_low 16; none in N1 or M1). None is within
@@ -1494,7 +1494,9 @@ be a far node. Floating far nodes are reported so a change in free-shoot behavio
   control sit median 0.55 cm but p95 3.4 cm, 16.6 % beyond 2 cm, and recess floors the same. That is
   the 0.045 m mesh attachment band (AR-MESH-20.5). D1 no longer fails on it. Whether the gap reads
   as floating ivy is a look question; if it does, tightening the band is a growth-step bead with a
-  playground variant (G7), not a probe change.
+  playground variant (G7), not a probe change. **Decided 2026-11-19 (owner): passes.** Judged on
+  grazing close-ups of a 30-day relief-article grow after the `ivy-b1e` merge (`4e56ae9`); the
+  0.045 m band stays, no growth-step bead.
 - **Owner — feelers hanging off convex edges (`ivy-b1e.21`).** About 65 dead shoots, each about
   `max_float` (0.40 m) long, fall off the article's top edge and off the rail H1 and hang up to
   0.29 m in front of the panels. On the cottage the same will happen at beams, sills and wall tops.
