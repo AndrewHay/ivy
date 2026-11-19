@@ -20,7 +20,7 @@ const HillsParams = preload("res://src/playground/hills_params.gd")
 const HillsHeightfield = preload("res://src/playground/hills_heightfield.gd")
 const HillsPineMesh = preload("res://src/playground/hills_pine_mesh.gd")
 const HillsForestPlacement = preload("res://src/playground/hills_forest_placement.gd")
-const HillsFogTint = preload("res://src/playground/hills_fog_tint.gd")
+const HillsTint = preload("res://src/playground/hills_tint.gd")
 const VillageTerrainParams = preload("res://src/playground/village_terrain_params.gd")
 const VillageTerrain = preload("res://src/playground/village_terrain.gd")
 
@@ -104,7 +104,7 @@ var _cottage_origins: Array = []
 var _sample_lut: Dictionary = {}
 
 
-## Returns the resolved layout after _ready(). World reads fog_begin/fog_end after build (AR-VG-OWN).
+## Returns the resolved layout after _ready() (AR-VG-OWN).
 func get_layout() -> VillageLayout:
 	return _layout
 
@@ -629,7 +629,7 @@ func _create_scatter(
 	_add_multimesh(mesh, node_name, transforms, shadow, material_override)
 
 
-## Opaque warm plaster read for cottage walls in fog/shade (ivy-1ui).
+## Opaque warm plaster read for cottage walls in shade (ivy-1ui).
 func _warm_plaster_material(mesh: Mesh) -> StandardMaterial3D:
 	if mesh.get_surface_count() == 0:
 		return null
@@ -1184,7 +1184,7 @@ static func make_hill_material(layout: VillageLayout, params: HillsParams,
 		terrain_params: VillageTerrainParams) -> ShaderMaterial:
 	var mat := ShaderMaterial.new()
 	mat.shader = load("res://src/render/shaders/village_ground_hills.gdshader") as Shader
-	HillsFogTint.apply_terrain_shader(mat, layout, params)
+	HillsTint.apply_terrain_shader(mat, layout, params)
 	if terrain_params != null and HillsHeightfield.delegates_to_village_terrain(layout, params) \
 			and not VillageTerrain.is_flat(layout, terrain_params):
 		# The field of the HillsParams this material is for: the same instance as the far mesh
@@ -1225,11 +1225,8 @@ func _add_hill_forest(params: HillsParams) -> void:
 		return
 	var pine_mesh := HillsPineMesh.prepare(_extract_first_mesh("res://assets/backdrop/pieces/Pine_2.gltf"))
 	var colors := PackedColorArray()
-	var fog_b := p.effective_fog_begin(_layout)
-	var fog_e := p.effective_fog_end(_layout)
-	var cam := HillsFogTint.reference_camera_pos()
 	for t: Transform3D in xforms:
-		colors.append(HillsFogTint.tree_instance_color(t.origin, p, _layout, fog_b, fog_e, cam))
+		colors.append(HillsTint.tree_instance_color(t.origin, p, _layout))
 	_add_multimesh(
 		pine_mesh, "HillForest", xforms,
 		GeometryInstance3D.SHADOW_CASTING_SETTING_OFF, null, AABB(), colors)

@@ -2773,6 +2773,9 @@ Each is individually testable; unless noted, "cottage rect" = `cottage_exterior_
 | INV-19 | House-to-house edges | `≥ 6` edges not incident to node `7` | count edges with both endpoints `< 7` |
 | INV-20 | World-scale params (generated) | layout carries `lawn 30`, `hill_inner 30`, `pine_inner 28.5`, `pine_outer 42`, `pine_count 33`, `fog 14.0/95`, `bush_filler 8/22`; `pine_inner (28.5) ≥ max outer grown corner` | field asserts + corner scan |
 
+> **Superseded in part by AR-NOFOG (ivy-82zn.14.32):** the fog half of INV-20 is gone — `VillageLayout`
+> has no `fog_begin` / `fog_end` and `GENERATED_FOG_BEGIN` is deleted. The rest of INV-20 stands.
+
 The sweep test loops seeds `1..200`, instantiating the layout (not the full scene) per seed and asserting
 INV-1..INV-10, INV-13, INV-14, INV-16..INV-20; INV-11/INV-12 are whole-sweep assertions; INV-15 is
 seed-independent. `layout.fallback` must be `false` for all 200 seeds (acceptance "no placement failure").
@@ -2815,7 +2818,7 @@ seed-independent. `layout.fallback` must be `false` for all 200 seeds (acceptanc
   | flower/petal/plant layers | keep | keep | petals already ride generated path stones; flowers/plants are hero-garden dressing |
   | fauna garden ring `5.5–12` (`FaunaConstants`) | keep | keep | hero band; out of scope for the bigger world |
   | World/`Ground` plane `512×512` (`main.tscn`) | keep | keep | already huge |
-  | fog `fog_depth_begin / end` (`main.tscn` WorldEnvironment) | `9.5 / 95.0` | **`14.0 / 95.0`** | **scale begin** (runtime override, below); keep `end` (`95 > 42` pine outer) |
+  | fog `fog_depth_begin / end` (`main.tscn` WorldEnvironment) | `9.5 / 95.0` | **`14.0 / 95.0`** | **scale begin** (runtime override, below); keep `end` (`95 > 42` pine outer). *Superseded by AR-NOFOG (ivy-82zn.14.32): no fog in either mode; World/Ground is now 6000 × 6000 m.* |
 
 - **Fog is a runtime override, not a `main.tscn` edit.** The WorldEnvironment is a shared global; editing
   its `.tscn` value would break classic byte-for-byte and the `fog_depth_begin ≥ 9.5` test. Instead carry
@@ -5878,6 +5881,7 @@ func get_layout() -> VillageLayout                # ivy-80z.7: World reads fog_b
 #   _setup_multimesh_scatter: bush_common_positions(_layout.cottages, _layout.bush_filler_inner, _layout.bush_filler_outer)
 
 # src/world/sky_sun.gd  (addition — ivy-80z.7 fog-override seam)
+# SUPERSEDED by AR-NOFOG (ivy-82zn.14.32): set_fog_depth and every other SkySun fog call are deleted.
 func set_fog_depth(begin: float, end: float) -> void   # if _env/_env.environment: set fog_depth_begin/end
 
 # src/world/village_scatter_positions.gd  (signature extensions — default args preserve classic bytes)
@@ -6753,7 +6757,7 @@ per-frame.
 | **Wanderer** (`wanderer_controller` figure root, path graph) | **A1:** path-polyline vertices `y = sample_y`; figure root interpolates `sample_y` along the segment it walks | **AC-VT10:** along any path, figure `y ≥ sample_y − 0.05 m` (no sinking) when `wanderer_follow_terrain`. Off-path stays datum. Interpolate Y linearly between polyline vertices to avoid foot-slide. |
 | **Camera** (`CameraBounds`) | free/orbit eye `y` floored at `sample_y(eye.xz) + camera_ground_clearance_m` | **AC-VT11:** `test_camera_rig_lawn_bounds` still passes; no eye below terrain. XZ clamp unchanged. |
 | **CamSun / sun horizons** | sun east/west azimuths from `SkySun` (GA wires exact constants) | **AC-VT12 (+ fuzzy):** `test_production_backdrop_visible_in_camsun` unchanged; no terrain silhouette within `knoll_sun_corridor_half_deg` of either sun-horizon azimuth rises enough to cross the sun sightline near the horizon. Knoll placement + `max_rise_m` enforce this. |
-| **HeroFog anchor** | unchanged (hero-centred) | Terrain does not move the fog anchor. |
+| **HeroFog anchor** | unchanged (hero-centred) | Terrain does not move the fog anchor. *(Superseded by AR-NOFOG, ivy-82zn.14.32: HeroFog is deleted; there is no fog anchor.)* |
 
 ### SD-VILLAGE-TERRAIN-8 — Mesh resolution, shader-vs-mesh truth, perf budget
 
@@ -8772,4 +8776,43 @@ for the baseline. Then test-first: write `test/test_no_fog.gd` (fails), delete f
 SkySun / World / main → HeroFog, WorldFog* files → layout fields → hills shader + `HillsTint` rename →
 playgrounds → tools — then the skirt, the plane, the sky colour, the playground camera far. Cite `AR-NOFOG-*`
 in comments and close notes. Review is ivy-82zn.14.33, accept ivy-82zn.14.34 (also verifies ivy-1vlg).
+
+### AR-NOFOG-IMPL — As built (ivy-82zn.14.32)
+
+Followed the plan; where it differs:
+
+- **Sky below the horizon follows the sun.** Instead of one measured constant in `main.tscn`, `SkySun.update()`
+  sets `ground_horizon_color` every frame to `HillsTint.far_meadow_colour(sun_dir, twilight)` — the hills
+  shader's plain-meadow output on flat ground (eff_layer_t 0, mean patch noise, same warm/cool sun lighting
+  and twilight dim). `ground_energy` is 1.0. The playgrounds (which never run `SkySun.update`) set it once from
+  `HillsTint.DEFAULT_SUN_DIR`, the far mesh's own `u_sun_dir` there. Reason: the game captures run at dawn and
+  noon, and a single noon constant would mismatch at the other. `atmospheric_sky.gdshader` keeps the pale
+  `sky_horizon` value only inside `ground_seam_band` = sin 0.5° below y = 0 (ivy-cwk seam).
+- **Skirt colour = plain meadow.** Past `r_outer` the shader (`u_r_outer`, `u_skirt_ease`) and
+  `HillsTint.layer_t_for_radius` read the ridge-layer weights at `r_outer` (the normalised Gaussians
+  would otherwise underflow near 430 m into a hard colour ring) and fade them to 0 over the 600 m ease
+  band, so the skirt is `u_meadow_near` everywhere, as the plan intended. A first build without the fade
+  showed the north-wedge `u_meadow_mid` (teal) carried as a wedge to 3 km. Nothing inside `r_outer` changes.
+- **World/Ground past 3 km** shows as a darker band from very high cameras (the 300 m-up `far_overview`
+  capture only; game cameras are clamped to the lawn): the plane is engine-lit `world_ground` while the
+  skirt is unshaded meadow. Left as is (discard radius = `R_SKIRT_M` per AC); flagged for review.
+- **Skirt rings:** `VillageTerrain.skirt_ring_radii` — 6 rings evenly through the 600 m ease band, then 4
+  geometric to `R_SKIRT_M` (10 in all). Rim vertices are the existing r_outer ring (no new vertices there,
+  rim normals unchanged); skirt normals by central differences, `UP` past the ease band.
+- **Hills playground** camera far also raised 500 → 4000 m: it builds the same far mesh (with skirt).
+- **Seam probe** (`tools/hills_seam_probe.gd`) gained `--view=camsun` and a join-loop metric (`SEAM_JOIN`:
+  5×5-pixel mean at r_join ∓ 4 m projected per azimuth) plus per-side means. Seed 7, default sun (dawn):
+  join L1 fogged baseline 0.1595 (seam view) / 0.1056 (CamSun); no fog with the old constant 0.2400 /
+  0.1839; after recalibrating `_LAWN_COLOUR` / `u_lawn_colour` (0.270, 0.350, 0.210) → (0.204, 0.261, 0.127)
+  from the per-side linear ratio, 0.1918 / 0.1363. Still above the fogged baseline: the fog pulled both
+  sides toward one colour, and only ~30% of the far-side pixel follows the constant (the rest is the
+  lit/unlit lawn vs far-mesh difference, plus occluders). Closing that gap is the lit-far-mesh question
+  (non-goal here); flagged for the human / a follow-up.
+- **Tests whose contract changed:** `test_village_world_scale` (far mesh reaches `R_SKIRT_M`; FOV count
+  without the haze gate), `test_village_landscape_world` (discard radius `R_SKIRT_M`),
+  `test_hills_legibility` (the mid-vs-far and far-vs-horizon orderings went with the far cap; the
+  eight-bearing near-vs-far ordering test was dropped for the same reason), `test_world_backdrop_swap`,
+  `test_village_backdrop`, `test_forest_camsun_geometry`, `test_generated_village_backdrop`,
+  `test_hills_params`, `test_hills_pine_mesh`, `test_sky_sun` (fog colour tests removed),
+  `test_hills_fog_tint` → `test_hills_tint`.
 

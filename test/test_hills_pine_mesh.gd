@@ -4,7 +4,7 @@ const HillsPineMesh = preload("res://src/playground/hills_pine_mesh.gd")
 const HillsParams = preload("res://src/playground/hills_params.gd")
 const HillsForestPlacement = preload("res://src/playground/hills_forest_placement.gd")
 const HillsHeightfield = preload("res://src/playground/hills_heightfield.gd")
-const HillsFogTint = preload("res://src/playground/hills_fog_tint.gd")
+const HillsTint = preload("res://src/playground/hills_tint.gd")
 const VillageScatterPositions = preload("res://src/world/village_scatter_positions.gd")
 const VillageBackdrop = preload("res://src/world/village_backdrop.gd")
 
@@ -23,14 +23,14 @@ static func _raw_pine_mesh() -> Mesh:
 	return mesh
 
 
-func test_prepare_pine_has_two_surfaces_fog_off_leaves() -> void:
+func test_prepare_pine_has_two_surfaces_and_leaf_scissor() -> void:
+	## AR-NOFOG contract change: no fog opt-out to check any more (there is no fog).
 	var raw := _raw_pine_mesh()
 	assert_not_null(raw)
 	var prep := HillsPineMesh.prepare(raw)
 	assert_gte(prep.get_surface_count(), 2)
 	var leaf := prep.surface_get_material(1) as StandardMaterial3D
 	assert_not_null(leaf)
-	assert_true(leaf.disable_fog)
 	assert_lte(leaf.alpha_scissor_threshold, 0.11)
 	assert_gt(HillsPineMesh.leaf_material_luminance(prep), 0.12)
 
@@ -50,8 +50,7 @@ func test_hill_forest_scale_and_tint_floor() -> void:
 		var s := t.basis.get_scale().x
 		min_scale = minf(min_scale, s)
 		max_scale = maxf(max_scale, s)
-		var lum := HillsFogTint.luminance(
-			HillsFogTint.tree_instance_color(t.origin, params, layout, 0.0, 95.0, Vector3.ZERO))
+		var lum := HillsTint.luminance(HillsTint.tree_instance_color(t.origin, params, layout))
 		min_lum = minf(min_lum, lum)
 	assert_gte(min_scale, params.scale_min - 0.01)
 	assert_lte(max_scale, params.scale_max + 0.01)

@@ -1,7 +1,7 @@
 class_name HillsPineMesh
 extends RefCounted
 
-## Pine_2 MultiMesh prep: fog off + instance-color tint, leaf alpha scissor (FarTreeline parity).
+## Pine_2 MultiMesh prep: instance-color tint, leaf alpha scissor (FarTreeline parity).
 
 
 static func prepare(mesh: Mesh) -> Mesh:
@@ -14,7 +14,6 @@ static func prepare(mesh: Mesh) -> Mesh:
 		var src := dup.surface_get_material(si)
 		if src is StandardMaterial3D:
 			var mat := (src as StandardMaterial3D).duplicate() as StandardMaterial3D
-			mat.disable_fog = true
 			mat.vertex_color_use_as_albedo = false
 			if si == 1:
 				mat.alpha_scissor_threshold = minf(mat.alpha_scissor_threshold, 0.1)

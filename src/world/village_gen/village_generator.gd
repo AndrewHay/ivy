@@ -2046,8 +2046,6 @@ static func _build_layout(
 	layout.pine_inner = _Layout.GENERATED_PINE_INNER
 	layout.pine_outer = _Layout.GENERATED_PINE_OUTER
 	layout.pine_count = _Layout.GENERATED_PINE_COUNT
-	layout.fog_begin = _Layout.GENERATED_FOG_BEGIN
-	layout.fog_end = 95.0
 	layout.bush_filler_inner = 8.0
 	layout.bush_filler_outer = _Layout.GENERATED_BUSH_FILLER_OUTER
 	layout.stone_seed = _Layout._derive(norm, _Layout.STONES_SALT)

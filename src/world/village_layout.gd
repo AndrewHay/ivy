@@ -243,7 +243,6 @@ const _WAYPOINT_PUSH     := 2.2
 const GENERATED_PINE_INNER := 56.0
 const GENERATED_PINE_OUTER := 76.0
 const GENERATED_PINE_COUNT := 40
-const GENERATED_FOG_BEGIN := 20.5
 const GENERATED_BUSH_FILLER_OUTER := 44.0
 ## Generated-only pond bank clearances (classic uses VillagePondSite defaults via layout fields).
 const GENERATED_POND_COTTAGE_CLEARANCE_M := 3.0
@@ -301,8 +300,6 @@ var hill_inner: float = 20.0
 var pine_inner: float = 19.0
 var pine_outer: float = 28.0
 var pine_count: int = 22
-var fog_begin: float = 9.5
-var fog_end: float = 95.0
 var bush_filler_inner: float = 8.0
 var bush_filler_outer: float = 15.0
 ## Resolved pond centre (XZ). Set during layout build before paths are routed.
@@ -402,8 +399,6 @@ static func _generate_legacy_lattice(seed: int) -> VillageLayout:
 			layout.pine_inner = GENERATED_PINE_INNER
 			layout.pine_outer = GENERATED_PINE_OUTER
 			layout.pine_count = GENERATED_PINE_COUNT
-			layout.fog_begin = GENERATED_FOG_BEGIN
-			layout.fog_end = 95.0
 			layout.bush_filler_inner = 8.0
 			layout.bush_filler_outer = GENERATED_BUSH_FILLER_OUTER
 			layout.stone_seed = _derive(norm, STONES_SALT)

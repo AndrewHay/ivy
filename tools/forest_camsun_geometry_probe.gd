@@ -122,5 +122,4 @@ func _emit_report(
 	print("  angle_fwd_to_wedge=%.1f deg (0=ahead, 180=behind camera)" % ang)
 	print("  trees=%d in_horiz_FOV=%d nearest=%.1f farthest=%.1f" % [
 		trees_world.size(), in_fov, nearest, farthest])
-	print("  production_wedge_band=%d ahead_of_cam=%d fog %.0f..%.0f" % [
-		in_band, band_ahead, layout.fog_begin, layout.fog_end])
+	print("  production_wedge_band=%d ahead_of_cam=%d" % [in_band, band_ahead])

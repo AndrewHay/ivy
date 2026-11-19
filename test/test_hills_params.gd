@@ -12,7 +12,9 @@ func test_production_defaults_schema() -> void:
 	assert_almost_eq(p.base_feature_m, 200.0, 1e-5)
 	assert_almost_eq(p.height_scale_m, 42.0, 1e-5)  # rework5: rolling hills (was 80)
 	assert_almost_eq(p.scale_min, 1.6, 1e-5)
-	assert_true(p.ridge_fog_tint_on)
+	# AR-NOFOG: the fog-tint switch and fog preview knobs are gone.
+	for gone in ["ridge_fog_tint_on", "fog_begin_m", "fog_end_m"]:
+		assert_false(gone in p.to_dict(), "%s removed" % gone)
 
 
 func test_dict_round_trip() -> void:

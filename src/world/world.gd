@@ -13,7 +13,6 @@ const StructureBodyScript = preload("res://src/world/structure_body.gd")
 const StructureScenarioScript = preload("res://src/world/structure_scenario.gd")
 const SeedAnchorsScript = preload("res://src/world/seed_anchors.gd")
 const BuildingCatalog = preload("res://src/world/building_catalog.gd")
-const HeroFog = preload("res://src/world/hero_fog.gd")
 const CameraBounds = preload("res://src/world/camera_bounds.gd")
 const WandererIntegration = preload("res://src/presentation/wanderer/wanderer_integration.gd")
 const WandererController = preload("res://src/presentation/wanderer/wanderer_controller.gd")
@@ -52,7 +51,6 @@ var _wanderer_controller: Node3D = null
 
 ## CamSun local origin y when the rig sits at the tower — horizontal cameras aim here.
 const _CANONICAL_CAM_AIM_Y := 2.0
-const HillsParams = preload("res://src/playground/hills_params.gd")
 ## World/Ground plane sits this far below the lowest generated terrain vertex (AR-LF-D7).
 const GROUND_BELOW_TERRAIN_M := 0.5
 
@@ -242,8 +240,7 @@ func get_village_seed() -> int:
 
 ## Free the current VillageBackdrop, instance the mode's scene, name it "VillageBackdrop",
 ## set village_seed before add_child (so _ready→_make_layout sees it), re-position to the
-## current pivot, show it, re-bind fauna, and apply the fog override via SkySun (AR-VG-DECIDE §2).
-## Classic rebuilds re-apply fog_begin=9.5/fog_end=95 because authored() carries those defaults.
+## current pivot, show it and re-bind fauna. No fog in any mode (AR-NOFOG, ivy-82zn.14.32).
 func rebuild_backdrop() -> void:
 	# Remove and free the current backdrop node (original @onready or a prior rebuild).
 	# remove_child() before queue_free() so the name "VillageBackdrop" is vacated immediately —
@@ -292,15 +289,6 @@ func rebuild_backdrop() -> void:
 			_fauna_controller.clear_environment("gut_non_fauna_test")
 	elif _fauna_controller != null:
 		push_warning("[fauna] rebuilt VillageBackdrop is not a VillageBackdrop — fauna not bound")
-
-	# Apply fog override from the layout (AR-VG-DECIDE §2).
-	# _ready() has already run inside add_child, so get_layout() returns the resolved layout.
-	if _village_backdrop is VillageBackdrop and sky_sun != null:
-		var layout: VillageLayout = (_village_backdrop as VillageBackdrop).get_layout()
-		if layout != null:
-			sky_sun.set_fog_depth(layout.fog_begin, layout.fog_end)
-			sky_sun.set_fog_model(HeroFog.DEFAULT_MODEL)
-			sky_sun.set_fog_anchor(_hero_fog_anchor_world())
 
 	_apply_village_camera_lawn_bounds()
 	_apply_village_ground_disc()
@@ -392,13 +380,14 @@ func _apply_village_ground_disc() -> void:
 	var terrain_params = backdrop.get("_terrain_params")
 	if terrain_params != null and terrain_params.get("variant") == 1:
 		return
-	# AR-LF-D7: the landscape covers r ≤ HillsParams.r_outer_m about G with the lawn + far meshes,
-	# and valleys sit below the hero datum, so the plane is discarded out to r_outer and lowered
-	# below the lowest terrain vertex (GroundCollision stays at world y 0).
+	# AR-LF-D7 / AR-NOFOG-EDGE: the lawn + far meshes (hills to r_outer, then the horizon skirt)
+	# cover r ≤ VillageTerrain.R_SKIRT_M about G, and valleys sit below the hero datum, so the plane
+	# is discarded out to R_SKIRT_M and lowered below the lowest terrain vertex (GroundCollision stays
+	# at world y 0).
 	var world_centre := Vector2(backdrop.global_position.x, backdrop.global_position.z) \
 		+ layout.hamlet_centre_xz
 	mat.set_shader_parameter("village_disc_center_xz", world_centre)
-	mat.set_shader_parameter("village_disc_radius", HillsParams.production().r_outer_m)
+	mat.set_shader_parameter("village_disc_radius", VillageTerrain.R_SKIRT_M)
 	ground_mesh.position.y = backdrop_y() + backdrop.terrain_mesh_min_y() - GROUND_BELOW_TERRAIN_M
 
 
@@ -474,13 +463,6 @@ func get_seed_index() -> int:
 
 func get_seed_anchors():
 	return _seed_anchors
-
-
-## World position for hero-centred fog (hero door stoop, layout space).
-func _hero_fog_anchor_world() -> Vector3:
-	var pivot := get_orbit_pivot()
-	var h := VillageLayout.HERO_DOOR_STOOP
-	return Vector3(pivot.x + h.x, pivot.y + 1.0, pivot.z + h.y)
 
 
 func get_orbit_pivot() -> Vector3:

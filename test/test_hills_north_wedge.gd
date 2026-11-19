@@ -6,7 +6,7 @@ extends GutTest
 const HillsParams = preload("res://src/playground/hills_params.gd")
 const HillsHeightfield = preload("res://src/playground/hills_heightfield.gd")
 const HillsForestPlacement = preload("res://src/playground/hills_forest_placement.gd")
-const HillsFogTint = preload("res://src/playground/hills_fog_tint.gd")
+const HillsTint = preload("res://src/playground/hills_tint.gd")
 const VillageBackdrop = preload("res://src/world/village_backdrop.gd")
 const ForestParams = preload("res://src/playground/forest_params.gd")
 const VillageScatterPositions = preload("res://src/world/village_scatter_positions.gd")
@@ -83,8 +83,9 @@ func test_colour_seam_matches_lawn_at_toe() -> void:
 	## At the seam (r = lawn_radius + 2 m, just outside the grass disc) the
 	## CPU terrain_albedo must blend almost entirely to _LAWN_COLOUR via the
 	## meadow_ring calibration added in rework6.
-	## This tests the HillsFogTint GDScript path, not the shader directly.
-	var lawn_base := Color(0.270, 0.350, 0.210)  # _LAWN_COLOUR rework6 calibration
+	## This tests the HillsTint GDScript path, not the shader directly.
+	# ivy-82zn.14.32: read the constant (recalibrated without fog, AR-NOFOG-EDGE) instead of a literal.
+	var lawn_base: Color = HillsTint._LAWN_COLOUR
 	var layout := VillageLayout.generate(7)
 	VillagePondShape.set_active(VillagePondShape.at(layout.pond_center))
 	var params := HillsParams.production()
@@ -93,7 +94,7 @@ func test_colour_seam_matches_lawn_at_toe() -> void:
 	var seam_r := layout.lawn_radius + 2.0
 	var p := g + NORTH_DIR * seam_r
 	var p3 := Vector3(p.x, VillageBackdrop.LAWN_GROUND_Y_OFFSET, p.y)
-	var c := HillsFogTint.terrain_albedo(p3, layout, params, 0.65, seam_r, 0.0, 0.0)
+	var c := HillsTint.terrain_albedo(p3, layout, params, 0.65, seam_r, 0.0, 0.0)
 	## L1 colour difference: abs(r-r0) + abs(g-g0) + abs(b-b0)
 	var diff := absf(c.r - lawn_base.r) + absf(c.g - lawn_base.g) + absf(c.b - lawn_base.b)
 	assert_lt(diff, COLOUR_SEAM_TOL,

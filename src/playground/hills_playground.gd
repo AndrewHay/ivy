@@ -4,7 +4,7 @@ const HillsParams = preload("res://src/playground/hills_params.gd")
 const HillsKnobSpec = preload("res://src/playground/hills_knob_spec.gd")
 const HillsHeightfield = preload("res://src/playground/hills_heightfield.gd")
 const HillsForestPlacement = preload("res://src/playground/hills_forest_placement.gd")
-const HillsFogTint = preload("res://src/playground/hills_fog_tint.gd")
+const HillsTint = preload("res://src/playground/hills_tint.gd")
 const HillsPineMesh = preload("res://src/playground/hills_pine_mesh.gd")
 const ForestParams = preload("res://src/playground/forest_params.gd")
 const ForestPlacement = preload("res://src/playground/forest_placement.gd")
@@ -12,9 +12,6 @@ const KnobPanel = preload("res://src/playground/knob_panel.gd")
 const PlaygroundKnobHost = preload("res://src/playground/playground_knob_host.gd")
 const ForestPlaygroundCamera = preload("res://src/playground/forest_playground_camera.gd")
 const DebugCamera = preload("res://src/world/debug_camera.gd")
-const HeroFog = preload("res://src/world/hero_fog.gd")
-const WorldFogParams = preload("res://src/world/world_fog_params.gd")
-const WorldFogVolume = preload("res://src/world/world_fog_volume.gd")
 const SkySun = preload("res://src/world/sky_sun.gd")
 const IvyParams = preload("res://src/params/ivy_params.gd")
 const Solar = preload("res://src/env/solar.gd")
@@ -31,8 +28,6 @@ var _params := HillsParams.production()
 var _layout: VillageLayout
 var _knob_panel: KnobPanel
 var _rebuild_pending := false
-var _world_fog_volume: FogVolume
-var _world_fog_params: WorldFogParams = WorldFogParams.production()
 var _show_ui := true
 var _allow_input := true
 var _free_orbit := false
@@ -90,7 +85,6 @@ func _process(_delta: float) -> void:
 		_rebuild_hills()
 	if _free_orbit and (_show_ui or _allow_input):
 		_apply_orbit_camera()
-		_apply_playground_fog()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -148,7 +142,6 @@ func _install_production_sky_sun() -> void:
 	_world_env.environment = env
 	var solar := Solar.new(IvyParams.new())
 	sky.setup(solar)
-	sky.set_fog_model(HeroFog.FogModel.WORLD_AROUND_HERO)
 
 
 func _main_like_environment() -> Environment:
@@ -158,7 +151,10 @@ func _main_like_environment() -> Environment:
 	sky_mat.set_shader_parameter("sky_top_color", Color(0.361, 0.561, 0.722))
 	sky_mat.set_shader_parameter("sky_horizon_color", Color(0.784, 0.851, 0.91))
 	sky_mat.set_shader_parameter("sky_energy", 1.4)
-	sky_mat.set_shader_parameter("ground_horizon_color", Color(0.784, 0.851, 0.91))
+	# AR-NOFOG-EDGE: below the horizon the sky is the far meadow (same as the village terrain playground).
+	sky_mat.set_shader_parameter("ground_horizon_color",
+		HillsTint.far_meadow_colour(HillsTint.DEFAULT_SUN_DIR, 0.0))
+	sky_mat.set_shader_parameter("ground_energy", 1.0)
 	var sky := Sky.new()
 	sky.sky_material = sky_mat
 	var env := Environment.new()
@@ -187,7 +183,6 @@ func _rebuild_layout_and_stage() -> void:
 	_clear_stage()
 	_build_ground_ref()
 	_rebuild_hills()
-	_apply_playground_fog()
 
 
 func _clear_stage() -> void:
@@ -222,9 +217,7 @@ func _rebuild_hills() -> void:
 	var mesh := HillsHeightfield.build_mesh(_layout, _params)
 	var mat := ShaderMaterial.new()
 	mat.shader = load("res://src/render/shaders/village_ground_hills.gdshader") as Shader
-	HillsFogTint.apply_terrain_shader(mat, _layout, _params)
-	if not _params.ridge_fog_tint_on:
-		mat.shader = load("res://src/render/shaders/village_ground.gdshader") as Shader
+	HillsTint.apply_terrain_shader(mat, _layout, _params)
 	mesh.surface_set_material(0, mat)
 	var mi := MeshInstance3D.new()
 	mi.name = "HillTerrain"
@@ -244,13 +237,9 @@ func _rebuild_hills() -> void:
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.use_colors = true
 	mm.instance_count = xforms.size()
-	var fog_b := _params.effective_fog_begin(_layout)
-	var fog_e := _params.effective_fog_end(_layout)
-	var cam := _camera.global_position if _camera else HillsFogTint.reference_camera_pos()
 	for i in range(xforms.size()):
 		mm.set_instance_transform(i, xforms[i])
-		mm.set_instance_color(i, HillsFogTint.tree_instance_color(
-			xforms[i].origin, _params, _layout, fog_b, fog_e, cam))
+		mm.set_instance_color(i, HillsTint.tree_instance_color(xforms[i].origin, _params, _layout))
 	var mmi := MultiMeshInstance3D.new()
 	mmi.name = "HillForest"
 	mmi.multimesh = mm
@@ -350,31 +339,6 @@ func _on_reset_production() -> void:
 
 func _on_copy_settings() -> void:
 	DisplayServer.clipboard_set(_params.to_json_block())
-
-
-func _apply_playground_fog() -> void:
-	if _layout == null:
-		return
-	if _sky_sun != null:
-		_sky_sun.set_fog_depth(_layout.fog_begin, _layout.fog_end)
-		_sky_sun.set_fog_anchor(ForestPlaygroundCamera.hero_fog_anchor_world())
-		return
-	if _world_env == null or _world_env.environment == null:
-		return
-	var env := _world_env.environment
-	env.fog_enabled = false
-	env.volumetric_fog_enabled = true
-	env.volumetric_fog_density = 0.0
-	env.volumetric_fog_length = 192.0
-	env.volumetric_fog_sky_affect = _world_fog_params.sky_affect_cap
-	env.volumetric_fog_albedo = env.fog_light_color
-	var anchor := ForestPlaygroundCamera.hero_fog_anchor_world()
-	var pale := SkySun.pale_horizon_haze_color(0.32, 1.0)
-	if _world_fog_volume == null:
-		_world_fog_volume = WorldFogVolume.create_volume(anchor, _world_fog_params, pale)
-		add_child(_world_fog_volume)
-	else:
-		WorldFogVolume.apply_params(_world_fog_volume, anchor, _world_fog_params, pale)
 
 
 func _apply_camera_preset(name: String) -> void:

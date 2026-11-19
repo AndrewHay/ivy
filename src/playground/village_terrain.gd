@@ -28,6 +28,13 @@ const _JOIN_EPS := 1e-6
 const NEAR_TRI_HARD_CAP := 16000
 ## Normal step shared by the near and far mesh join-loop vertices (bit-identical normals).
 const JOIN_NORMAL_EPS := 0.35
+## Horizon skirt (AR-NOFOG-EDGE, ivy-82zn.14.32): with no fog to hide the far-mesh edge, the far mesh
+## continues past HillsParams.r_outer_m as SKIRT_RINGS coarse rings out to R_SKIRT_M (below the 4000 m
+## camera far). Skirt height eases from the rim height at r_outer to y_skirt = min(rim y) by
+## r_outer + SKIRT_EASE_M, then stays flat. The hills inside r_outer do not change.
+const R_SKIRT_M := 3000.0
+const SKIRT_EASE_M := 600.0
+const SKIRT_RINGS := 10
 
 static var _sample_lut_cache: Dictionary = {}
 static var _displaced_mesh_cache: Dictionary = {}
@@ -661,6 +668,7 @@ static func build_far_mesh(layout: VillageLayout, params: VillageTerrainParams,
 			var i1 := (i + 1) % m
 			_tri(idx, verts, b0 + i, b0 + i1, b1 + i1)
 			_tri(idx, verts, b0 + i, b1 + i1, b1 + i)
+	_append_skirt(verts, norms, cols, idx, g, ys, k_rings, n_loop + (k_rings - 1) * m, hp.r_outer_m)
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = verts
@@ -671,6 +679,71 @@ static func build_far_mesh(layout: VillageLayout, params: VillageTerrainParams,
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	f.note_mesh_min(lo, VillageTerrainField.MESH_FAR)
 	return mesh
+
+
+static func skirt_ring_radii(r_outer: float) -> Array[float]:
+	## SKIRT_RINGS radii past r_outer (AR-NOFOG-EDGE): 6 evenly through the ease band, so the descent
+	## to y_skirt is sampled finely, then geometric out to R_SKIRT_M.
+	var radii: Array[float] = []
+	var n_ease := 6
+	for k in range(1, n_ease + 1):
+		radii.append(r_outer + SKIRT_EASE_M * float(k) / float(n_ease))
+	var r0 := r_outer + SKIRT_EASE_M
+	var n_far := SKIRT_RINGS - n_ease
+	for k in range(1, n_far + 1):
+		radii.append(r0 * pow(R_SKIRT_M / r0, float(k) / float(n_far)))
+	radii[radii.size() - 1] = R_SKIRT_M
+	return radii
+
+
+static func skirt_y(rim_y: float, y_skirt: float, r: float, r_outer: float) -> float:
+	## Skirt height at radius r on an azimuth whose rim (r_outer) height is rim_y.
+	return lerpf(rim_y, y_skirt, smoothstep(r_outer, r_outer + SKIRT_EASE_M, r))
+
+
+static func _append_skirt(verts: PackedVector3Array, norms: PackedVector3Array, cols: PackedColorArray,
+		idx: PackedInt32Array, g: Vector2, ys: PackedFloat32Array, k_rim: int, rim_base: int,
+		r_outer: float) -> void:
+	## Horizon skirt (AR-NOFOG-EDGE): rings from the existing r_outer rim (same vertices, no crack) out to
+	## R_SKIRT_M. Normals by central differences on the coarse polar grid; straight up past the ease band.
+	var m := FAR_AZ_SEGS
+	var rim_y := PackedFloat32Array()
+	rim_y.resize(m)
+	var y_lo := INF
+	for i in range(m):
+		rim_y[i] = ys[k_rim * m + i]
+		y_lo = minf(y_lo, rim_y[i])
+	var skirt_r := skirt_ring_radii(r_outer)
+	var rr: Array[float] = [r_outer]
+	rr.append_array(skirt_r)
+	var y_at := func(k: int, i: int) -> float:
+		var kk := clampi(k, 0, rr.size() - 1)
+		return skirt_y(rim_y[(i + m) % m], y_lo, rr[kk], r_outer)
+	var pos_at := func(k: int, i: int) -> Vector3:
+		var kk := clampi(k, 0, rr.size() - 1)
+		var d := far_ring_dir((i + m) % m)
+		return Vector3(g.x + d.x * rr[kk], float(y_at.call(kk, i)), g.y + d.y * rr[kk])
+	var base0 := verts.size()
+	for k in range(1, rr.size()):
+		for i in range(m):
+			var p: Vector3 = pos_at.call(k, i)
+			verts.append(p)
+			if rr[k] >= r_outer + SKIRT_EASE_M - 1e-3:
+				norms.append(Vector3.UP)
+			else:
+				var nrm: Vector3 = (pos_at.call(k, i + 1) - pos_at.call(k, i - 1)).cross(
+					pos_at.call(k + 1, i) - pos_at.call(k - 1, i))
+				if nrm.y < 0.0:
+					nrm = -nrm
+				norms.append(nrm.normalized() if nrm.length_squared() > 1e-12 else Vector3.UP)
+			cols.append(Color(1, 1, 1, 1))
+	for k in range(rr.size() - 1):
+		var b0 := rim_base if k == 0 else base0 + (k - 1) * m
+		var b1 := base0 + k * m
+		for i in range(m):
+			var i1 := (i + 1) % m
+			_tri(idx, verts, b0 + i, b0 + i1, b1 + i1)
+			_tri(idx, verts, b0 + i, b1 + i1, b1 + i)
 
 
 static func _tri(idx: PackedInt32Array, verts: PackedVector3Array, a: int, b: int, c: int) -> void:

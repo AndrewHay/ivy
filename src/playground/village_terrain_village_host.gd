@@ -2,7 +2,7 @@
 ## A VillageBackdrop whose _ready builds nothing: the playground hands it the layout, the
 ## playground terrain params / seed and the 1 m terrain LUT, then runs the production build steps
 ## of VillageBackdrop._ready one per frame (cottages, path stones, pond water + bank, bushes,
-## flowers / plants / clover). Outer hills, pine forest and fog are left out. No village logic
+## flowers / plants / clover). Outer hills and pine forest are left out. No village logic
 ## lives here, so the playground cannot drift from the game.
 extends "res://src/world/village_backdrop.gd"
 

@@ -98,10 +98,7 @@ func test_authored_world_fields_are_classic_literals() -> void:
 		"pine_outer must be classic literal 28.0")
 	assert_eq(layout.pine_count, 22,
 		"pine_count must be classic literal 22")
-	assert_almost_eq(layout.fog_begin, 9.5, 1e-6,
-		"fog_begin must be classic literal 9.5")
-	assert_almost_eq(layout.fog_end, 95.0, 1e-6,
-		"fog_end must be classic literal 95.0")
+	# AR-NOFOG (ivy-82zn.14.32): fog_begin / fog_end removed from the layout.
 	assert_almost_eq(layout.bush_filler_inner, 8.0, 1e-6,
 		"bush_filler_inner must be classic literal 8.0")
 	assert_almost_eq(layout.bush_filler_outer, 15.0, 1e-6,
@@ -187,10 +184,6 @@ func test_generated_world_fields_seeds_1_to_5() -> void:
 		assert_almost_eq(layout.pine_outer, 76.0, 1e-6, "pine_outer generated %s" % tag)
 		assert_eq(layout.pine_count, VillageLayout.GENERATED_PINE_COUNT,
 			"pine_count generated %s" % tag)
-		assert_almost_eq(layout.fog_begin, VillageLayout.GENERATED_FOG_BEGIN, 1e-6,
-			"fog_begin generated %s" % tag)
-		assert_almost_eq(layout.fog_end, 95.0, 1e-6,
-			"fog_end generated %s" % tag)
 		assert_almost_eq(layout.bush_filler_inner, 8.0, 1e-6,
 			"bush_filler_inner generated %s" % tag)
 		assert_almost_eq(layout.bush_filler_outer, 44.0, 1e-6,
@@ -239,8 +232,9 @@ func test_generated_hill_inner_in_mesh() -> void:
 	var g := VillageLayout.VILLAGE_GREEN_G
 	var layout := bd.get_layout()
 	## ivy-82zn.14.14 contract change (AR-LF-D6): no skirt under the lawn any more. The far mesh's
-	## inner boundary IS the join loop on r_j = lawn_radius (shared vertices with LawnTerrain),
-	## and it reaches HillsParams.r_outer_m.
+	## inner boundary IS the join loop on r_j = lawn_radius (shared vertices with LawnTerrain).
+	## ivy-82zn.14.32 contract change (AR-NOFOG-EDGE): past HillsParams.r_outer_m the horizon skirt
+	## carries it on to VillageTerrain.R_SKIRT_M.
 	var inner_r := INF
 	var outer_r := 0.0
 	for v: Vector3 in verts:
@@ -249,7 +243,7 @@ func test_generated_hill_inner_in_mesh() -> void:
 		outer_r = maxf(outer_r, r)
 	assert_almost_eq(inner_r, layout.lawn_radius, 1e-3,
 		"HillTerrain inner boundary on the join circle (%.3f)" % inner_r)
-	assert_almost_eq(outer_r, HillsParams.production().r_outer_m, 1e-3, "HillTerrain reaches r_outer_m")
+	assert_almost_eq(outer_r, VillageTerrain.R_SKIRT_M, 1e-2, "HillTerrain reaches R_SKIRT_M (skirt)")
 
 
 func test_generated_pine_count_and_radii() -> void:
@@ -273,11 +267,10 @@ func test_generated_pine_count_and_radii() -> void:
 		"Generated FarTreeline instance_count must match placement output")
 	assert_gte(placed, 24, "CamSun backdrop must place >=24 trees")
 	var ForestPlaygroundCamera = preload("res://src/playground/forest_playground_camera.gd")
-	var HeroFog = preload("res://src/world/hero_fog.gd")
+	# AR-NOFOG contract change: no haze gate; same threshold on the FOV count.
 	var stats := ForestPlaygroundCamera.count_trees_visible_in_camsun(
-		VillageScatterPositions.forest_tree_xz(layout),
-		layout.fog_begin, layout.fog_end, HeroFog.FogModel.WORLD_AROUND_HERO, 0.5)
-	assert_gte(stats["visible"], 12, "backdrop: >=12 CamSun trees at <=50%% hero haze")
+		VillageScatterPositions.forest_tree_xz(layout))
+	assert_gte(stats["in_fov"], 12, "backdrop: >=12 CamSun trees in view")
 	var buf := treeline.multimesh.buffer
 	for i in range(treeline.multimesh.instance_count):
 		var ox: float = buf[i * 12 + 3]
@@ -347,17 +340,16 @@ func test_forest_no_trunk_within_hero_keep_clear() -> void:
 
 func test_forest_backdrop_in_camsun_band() -> void:
 	const ForestPlaygroundCamera = preload("res://src/playground/forest_playground_camera.gd")
-	const HeroFog = preload("res://src/world/hero_fog.gd")
 	for seed_val in range(1, 11):
 		var layout := VillageLayout.generate(seed_val)
 		if layout.fallback:
 			continue
 		var tag := "seed=%d" % seed_val
 		var pines := _compute_pine_xz(layout)
-		var stats := ForestPlaygroundCamera.count_trees_visible_in_camsun(
-			pines, layout.fog_begin, layout.fog_end, HeroFog.FogModel.WORLD_AROUND_HERO, 0.5)
-		assert_gte(stats["visible"], 10,
-			"%s: need >=10 visible backdrop trees (got %d)" % [tag, stats["visible"]])
+		# AR-NOFOG contract change: no haze gate; same threshold on the FOV count.
+		var stats := ForestPlaygroundCamera.count_trees_visible_in_camsun(pines)
+		assert_gte(stats["in_fov"], 10,
+			"%s: need >=10 backdrop trees in view (got %d)" % [tag, stats["in_fov"]])
 
 
 static func _pine_in_hero_wedge(p: Vector2, g: Vector2, r_lawn: float) -> bool:

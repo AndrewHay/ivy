@@ -3,7 +3,7 @@
 ## Structure mirrors hills_playground.gd: knob-host wiring, camera presets,
 ## variants, presets, Reset, Copy settings, and the _capture_done_fn quit-hook seam.
 ## WP8b additions: debug relief shader, VE, disc clip, HUD, markers at sample_y,
-## pond water, fog-off for top view, raking oblique camera.
+## pond water, raking oblique camera. No fog in any view (AR-NOFOG, ivy-82zn.14.32).
 extends Node3D
 
 const VillageTerrainParams = preload("res://src/playground/village_terrain_params.gd")
@@ -15,15 +15,13 @@ const KnobPanel = preload("res://src/playground/knob_panel.gd")
 const PlaygroundKnobHost = preload("res://src/playground/playground_knob_host.gd")
 const ForestPlaygroundCamera = preload("res://src/playground/forest_playground_camera.gd")
 const DebugCamera = preload("res://src/world/debug_camera.gd")
-const HeroFog = preload("res://src/world/hero_fog.gd")
-const WorldFogParams = preload("res://src/world/world_fog_params.gd")
-const WorldFogVolume = preload("res://src/world/world_fog_volume.gd")
 const SkySun = preload("res://src/world/sky_sun.gd")
 const IvyParams = preload("res://src/params/ivy_params.gd")
 const Solar = preload("res://src/env/solar.gd")
 const VillageTerrainGrassHost = preload("res://src/playground/village_terrain_grass_host.gd")
 const VillageTerrainVillageHost = preload("res://src/playground/village_terrain_village_host.gd")
 const HillsParams = preload("res://src/playground/hills_params.gd")
+const HillsTint = preload("res://src/playground/hills_tint.gd")
 const HillsHeightfield = preload("res://src/playground/hills_heightfield.gd")
 
 ## Camera presets reachable from the panel and --camera= (AR-LF-PLAYGROUND; ivy-82zn.15).
@@ -65,7 +63,6 @@ const _PRODUCTION_SHADER_PATH := "res://src/render/shaders/village_ground.gdshad
 var _params := VillageTerrainParams.production()
 var _layout: VillageLayout
 var _knob_panel: KnobPanel
-var _world_fog_params: WorldFogParams = WorldFogParams.production()
 var _show_ui := true
 var _allow_input := true
 var _last_preset := "camsun"
@@ -84,7 +81,6 @@ var _glide_seconds := 0.0
 var _home_orbit: Dictionary = {}
 ## UI panels that shield the camera: clicks and scrolls over them never move it.
 var _ui_shields: Array[Control] = []
-var _world_fog_volume: FogVolume
 
 # ── Debug-only playground vars (NOT in VillageTerrainParams; never production) ──
 ## Debug relief shader on (height bands + contours + slope); off = production shader.
@@ -482,7 +478,6 @@ func _install_production_sky_sun() -> void:
 	_world_env.environment = env
 	var solar := Solar.new(IvyParams.new())
 	sky.setup(solar)
-	sky.set_fog_model(HeroFog.FogModel.WORLD_AROUND_HERO)
 
 
 func _main_like_environment() -> Environment:
@@ -492,7 +487,11 @@ func _main_like_environment() -> Environment:
 	sky_mat.set_shader_parameter("sky_top_color", Color(0.361, 0.561, 0.722))
 	sky_mat.set_shader_parameter("sky_horizon_color", Color(0.784, 0.851, 0.91))
 	sky_mat.set_shader_parameter("sky_energy", 1.4)
-	sky_mat.set_shader_parameter("ground_horizon_color", Color(0.784, 0.851, 0.91))
+	# AR-NOFOG-EDGE: below the horizon the sky is the far meadow under the far mesh's sun (the
+	# playground never runs SkySun.update, so the far mesh keeps HillsTint.DEFAULT_SUN_DIR).
+	sky_mat.set_shader_parameter("ground_horizon_color",
+		HillsTint.far_meadow_colour(HillsTint.DEFAULT_SUN_DIR, 0.0))
+	sky_mat.set_shader_parameter("ground_energy", 1.0)
 	var sky := Sky.new()
 	sky.sky_material = sky_mat
 	var env := Environment.new()
@@ -574,7 +573,6 @@ func _rebuild_layout_and_stage(sync_preview: bool = false) -> void:
 		while _phase != Phase.IDLE and _phase <= Phase.COARSE:
 			_step_rebuild(-1)
 	_build_markers(_params)
-	_apply_playground_fog()
 
 
 func _write_back_auto_offset() -> void:
@@ -1687,47 +1685,6 @@ func _on_copy_settings() -> void:
 	DisplayServer.clipboard_set(_params.to_json_block())
 
 
-# ── Fog ───────────────────────────────────────────────────────────────────────
-
-func _apply_playground_fog() -> void:
-	if _layout == null:
-		return
-	if _sky_sun != null:
-		_sky_sun.set_fog_model(HeroFog.FogModel.WORLD_AROUND_HERO)
-		_sky_sun.set_fog_depth(_layout.fog_begin, _layout.fog_end)
-		_sky_sun.set_fog_anchor(ForestPlaygroundCamera.hero_fog_anchor_world())
-		return
-	if _world_env == null or _world_env.environment == null:
-		return
-	var env := _world_env.environment
-	env.fog_enabled = false
-	env.volumetric_fog_enabled = true
-	env.volumetric_fog_density = 0.0
-	env.volumetric_fog_length = 192.0
-	env.volumetric_fog_sky_affect = _world_fog_params.sky_affect_cap
-	env.volumetric_fog_albedo = env.fog_light_color
-	var anchor := ForestPlaygroundCamera.hero_fog_anchor_world()
-	var pale := SkySun.pale_horizon_haze_color(0.32, 1.0)
-	if _world_fog_volume == null:
-		_world_fog_volume = WorldFogVolume.create_volume(anchor, _world_fog_params, pale)
-		add_child(_world_fog_volume)
-	else:
-		WorldFogVolume.apply_params(_world_fog_volume, anchor, _world_fog_params, pale)
-
-
-func _disable_fog_for_top_view() -> void:
-	## CamTop / Wide overview should not be fogged. The production WORLD_AROUND_HERO fog ignores
-	## set_fog_depth (from 100+ m up everything is in it), so these playground-only views switch to
-	## camera-depth fog pushed past the far mesh; _apply_playground_fog restores the game model.
-	if _sky_sun != null:
-		_sky_sun.set_fog_model(HeroFog.FogModel.CAMERA_DEPTH)
-		_sky_sun.set_fog_depth(500.0, 1000.0)
-		return
-	if _world_env != null and _world_env.environment != null:
-		_world_env.environment.fog_enabled = false
-		_world_env.environment.volumetric_fog_enabled = false
-
-
 # ── Cameras ───────────────────────────────────────────────────────────────────
 
 func _apply_camera_preset(name: String) -> void:
@@ -1743,13 +1700,6 @@ func _apply_camera_preset(name: String) -> void:
 func _set_camera_preset_view(name: String) -> void:
 	_last_preset = name
 	var aim := ForestPlaygroundCamera.aim_point()
-
-	# Restore normal fog for most presets; disable for the top and wide overview views (the
-	# hero-centred fog ends at 95 m, well inside both frames).
-	if name != "top" and name != "camtop" and name != "wide_overview":
-		_apply_playground_fog()
-	else:
-		_disable_fog_for_top_view()
 
 	if name == "orbit":
 		_orbit_yaw = 0.0

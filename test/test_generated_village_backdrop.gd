@@ -257,8 +257,7 @@ func test_inv20_world_scale_fields() -> void:
 	assert_almost_eq(layout.pine_inner, 56.0, 1e-6, "pine_inner INV-20")
 	assert_almost_eq(layout.pine_outer, 76.0, 1e-6, "pine_outer INV-20")
 	assert_eq(layout.pine_count, VillageLayout.GENERATED_PINE_COUNT, "pine_count INV-20")
-	assert_almost_eq(layout.fog_begin, VillageLayout.GENERATED_FOG_BEGIN, 1e-6, "fog_begin INV-20")
-	assert_almost_eq(layout.fog_end, 95.0, 1e-6, "fog_end must be 95.0 (INV-20)")
+	## AR-NOFOG: the layout carries no fog fields any more (the fog half of INV-20 is superseded).
 
 
 # ── (n) INV-7: no stone inside any cottage rect ───────────────────────────────

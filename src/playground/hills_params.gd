@@ -73,7 +73,6 @@ const CUSTOM_PRESET := "Custom"
 @export var forest_green_darken: float = 0.30
 
 @export_group("Tint")
-@export var ridge_fog_tint_on: bool = true
 @export var ridge_near_albedo_mul: float = 1.02
 @export var ridge_far_albedo_mul: float = 0.80
 @export var ridge_near_green_bias: float = 0.18
@@ -87,12 +86,6 @@ const CUSTOM_PRESET := "Custom"
 @export var azimuth_half_width_deg: float = 55.0
 ## Angular width of the smooth falloff taper at each wedge edge.
 @export var azimuth_fade_width_deg: float = 20.0
-
-@export_group("Fog preview")
-## Production: override the layout fog_begin for hill rendering (start haze at 80 m).
-@export var fog_begin_m: float = 80.0
-## Production: override the layout fog_end for hill rendering (full haze at 280 m).
-@export var fog_end_m: float = 280.0
 
 
 static func _fresh() -> HillsParams:
@@ -162,18 +155,6 @@ func reset_to_production() -> void:
 		set(prop.name, fresh.get(prop.name))
 	variant = 0
 	layout_seed = keep_seed
-
-
-func effective_fog_begin(layout: VillageLayout) -> float:
-	if fog_begin_m > 0.0:
-		return fog_begin_m
-	return layout.fog_begin
-
-
-func effective_fog_end(layout: VillageLayout) -> float:
-	if fog_end_m > 0.0:
-		return fog_end_m
-	return layout.fog_end
 
 
 func to_dict() -> Dictionary:

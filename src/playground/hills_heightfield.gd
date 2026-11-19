@@ -2,7 +2,6 @@ class_name HillsHeightfield
 extends RefCounted
 
 const HillsParams = preload("res://src/playground/hills_params.gd")
-const HillsFogTint = preload("res://src/playground/hills_fog_tint.gd")
 const HillsNoise = preload("res://src/playground/hills_noise.gd")
 const VillageBackdrop = preload("res://src/world/village_backdrop.gd")
 

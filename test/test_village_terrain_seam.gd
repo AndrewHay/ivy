@@ -175,8 +175,13 @@ func test_far_mesh_has_no_base_lift() -> void:
 	var far := HillsHeightfield.build_mesh(_layout, _hp)
 	var verts: PackedVector3Array = far.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
 	var worst := 0.0
+	# ivy-82zn.14.32 contract change (AR-NOFOG-EDGE): past r_outer the far mesh carries the horizon
+	# skirt, which eases off the field on purpose (test_no_fog pins it); the field check covers the hills.
+	var g := _layout.hamlet_centre_xz
 	for i in range(0, verts.size(), 97):
 		var v := verts[i]
+		if Vector2(v.x, v.z).distance_to(g) > _hp.r_outer_m + 1e-3:
+			continue
 		worst = maxf(worst, absf(v.y - VillageTerrain.sample_y(Vector2(v.x, v.z), _layout, _params, 0)))
 	# Float32 vertex storage: ~1e-5 m; the removed lift was 0.05 m.
 	assert_lte(worst, 1e-3, "far mesh y = field sample_y (no TERRAIN_BASE_LIFT), worst %.6f" % worst)

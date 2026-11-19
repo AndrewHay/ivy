@@ -1,7 +1,8 @@
 ## ivy-82zn.14.14 (WP1) — the landscape-first field in the game World (replaces
 ## test_village_terrain_hill_world.gd). Datum option A: hero pad at world y 0; camera floor in world
 ## space via sample_terrain_world_y; Garden_* seated; fauna hover above the anchor ground;
-## World/Ground discard = HillsParams.r_outer_m and the plane below the terrain minimum (AR-LF-D7);
+## World/Ground discard = VillageTerrain.R_SKIRT_M (AR-NOFOG-EDGE; was r_outer_m) and the plane below
+## the terrain minimum (AR-LF-D7);
 ## classic keeps every offset at 0 (AC-VT1 / INV-15).
 extends GutTest
 
@@ -46,8 +47,10 @@ func test_hero_pad_is_world_zero_and_ground_plane_below_the_terrain() -> void:
 	assert_lt(ground_mesh.global_position.y, bd.global_position.y + min_y,
 		"World/Ground plane below the lowest terrain vertex (AR-LF-D7)")
 	var mat := ground_mesh.get_surface_override_material(0) as ShaderMaterial
-	assert_almost_eq(float(mat.get_shader_parameter("village_disc_radius")), HillsParams.production().r_outer_m,
-		1e-4, "discard radius = r_outer_m")
+	# ivy-82zn.14.32 contract change (AR-NOFOG-EDGE): the far mesh's horizon skirt reaches R_SKIRT_M,
+	# so the plane is discarded out to there (was r_outer_m).
+	assert_almost_eq(float(mat.get_shader_parameter("village_disc_radius")), VillageTerrain.R_SKIRT_M,
+		1e-4, "discard radius = R_SKIRT_M")
 	var collision := world.get_node("Ground/GroundCollision") as Node3D
 	assert_almost_eq(collision.global_position.y, 0.0, 1e-4, "ground collision stays at the hero ground")
 

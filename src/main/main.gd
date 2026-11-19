@@ -736,8 +736,6 @@ func _process(delta: float) -> void:
 		return
 	var clock: SimClock = _sim.get_clock()
 	if clock == null:
-		if _world != null and _world.get_sky_sun() != null:
-			_world.get_sky_sun().sync_depth_fog_from_active_camera()
 		return
 	_world.get_sky_sun().update(clock.display_game_day(), clock.seconds_per_game_day())
 	var wind: AmbientWind = _world.get_ambient_wind()

@@ -9,6 +9,9 @@ uniform vec4 ground_bottom_color : source_color = vec4(0.08, 0.09, 0.06, 1.0);
 uniform vec4 ground_horizon_color : source_color = vec4(0.35, 0.38, 0.32, 1.0);
 uniform float ground_curve : hint_range(0.0, 1.0) = 0.04;
 uniform float ground_energy : hint_range(0.0, 4.0) = 1.0;
+// Width (as -eyedir.y) of the blend from the sky horizon to the ground colour below y = 0:
+// sin(0.5 deg) (AR-NOFOG-EDGE).
+uniform float ground_seam_band : hint_range(0.0, 0.1) = 0.0087;
 uniform float sun_angle_max = 0.35;
 uniform float sun_curve : hint_range(0.0, 1.0) = 0.12;
 
@@ -73,13 +76,15 @@ vec3 sky_gradient(vec3 eyedir) {
 		clamp(1.0 - pow(1.0 - c, 1.0 / sky_curve), 0.0, 1.0));
 	sky *= sky_energy;
 
-	// Below the horizon (sky pixels only): blend horizon → nadir like ProceduralSky so
-	// y≈0⁻ matches sky_horizon and we avoid a dark/grey seam in high orbit (ivy-cwk).
+	// Below the horizon (sky pixels only): ground_horizon → nadir like ProceduralSky. SkySun sets
+	// ground_horizon_color to the far meadow (AR-NOFOG-EDGE), so the land meets the sky in land colour
+	// under the skirt edge. The pale sky_horizon value at y = 0⁻ is kept only inside a band of
+	// ground_seam_band (sin of 0.5 degrees), so there is still no hard seam in high orbit (ivy-cwk).
 	if (eyedir.y < 0.0) {
 		float c = clamp(1.0 + eyedir.y, 0.0, 1.0);
 		c = 1.0 - pow(1.0 - c, 1.0 / max(ground_curve, 0.001));
-		vec3 ground = mix(ground_bottom_color.rgb, ground_horizon_color.rgb, c);
-		sky = ground * ground_energy;
+		vec3 ground = mix(ground_bottom_color.rgb, ground_horizon_color.rgb, c) * ground_energy;
+		sky = mix(sky, ground, smoothstep(0.0, max(ground_seam_band, 1e-5), -eyedir.y));
 	}
 	return sky;
 }
