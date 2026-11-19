@@ -1,0 +1,50 @@
+# QA ivy-82zn.14.34 (AR-NOFOG accept): adversarial horizon sweep with no fog.
+# Eye-level orbit ring (8 bearings) and a high ring at local noon, then the same eye ring near
+# sunset (18:30, sun low in the west, twilight dim) to look for sky-coloured gaps under the far
+# hills, pale/pink bands, a hard 310 m rim, ground-plane edges and dark wedges.
+# Run once per seed (non-headless):
+#   /Applications/Godot.app/Contents/MacOS/Godot res://tools/run_ui_script.tscn -- \
+#     --script=res://tools/ui_scripts/wi-82zn-14-34-no-fog-accept.txt \
+#     --scenario=res://assets/structures/scenarios/square.tres \
+#     --village-mode=generated_village --village-seed=7 \
+#     --outdir=res://.tmp/no_fog/qa34_ui/seed7
+
+WAIT 500
+SPEED pause
+ADVANCE_DAYS 0.25
+
+CAMERA sun
+SCREENSHOT noon_camsun.png
+ORBIT 0 30 2
+SCREENSHOT noon_eye_000.png
+ORBIT 45 30 2
+SCREENSHOT noon_eye_045.png
+ORBIT 90 30 2
+SCREENSHOT noon_eye_090.png
+ORBIT 135 30 2
+SCREENSHOT noon_eye_135.png
+ORBIT 180 30 2
+SCREENSHOT noon_eye_180.png
+ORBIT 225 30 2
+SCREENSHOT noon_eye_225.png
+ORBIT 270 30 2
+SCREENSHOT noon_eye_270.png
+ORBIT 315 30 2
+SCREENSHOT noon_eye_315.png
+ORBIT 0 60 60
+SCREENSHOT noon_high_000.png
+ORBIT 180 60 60
+SCREENSHOT noon_high_180.png
+
+# Late day: 12:00 -> 18:30.
+ADVANCE_DAYS 0.2708
+CAMERA sun
+SCREENSHOT dusk_camsun.png
+ORBIT 0 30 2
+SCREENSHOT dusk_eye_000.png
+ORBIT 90 30 2
+SCREENSHOT dusk_eye_090.png
+ORBIT 180 30 2
+SCREENSHOT dusk_eye_180.png
+ORBIT 270 30 2
+SCREENSHOT dusk_eye_270.png
