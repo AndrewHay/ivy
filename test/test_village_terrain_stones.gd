@@ -126,8 +126,9 @@ func test_path_scan_skips_fit_zones_and_door_approaches() -> void:
 
 func test_ac_lt_path_sweep_seeds_1_20() -> void:
 	## AC-LT-PATH sweep (counts restated 2026-11-18, SD-VILLAGE-TERRAIN-28 §1, ivy-82zn.14.28):
-	## open-land max ≤ path_steep_accept_deg (18°) on every seed, ≤ 8 / 20 flagged, fit zone ≤ 25° on
-	## every seed, no seed uses 12 attempts, mean attempts_used ≤ 4.0. (Was ≤ 2 flagged, mean ≤ 3.)
+	## open-land max ≤ path_steep_accept_deg (18°) on every seed, ≤ 9 / 20 flagged and at most one seed
+	## uses all 12 attempts (option A, 2026-11-18), fit zone ≤ 25° on every seed, mean attempts_used
+	## ≤ 4.0. (Was ≤ 2 flagged, mean ≤ 3; then ≤ 8 flagged, no seed at 12.)
 	var p := VillageTerrainParams.production()
 	var flagged := PackedStringArray()
 	var attempts_sum := 0

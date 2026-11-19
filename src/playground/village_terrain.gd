@@ -555,6 +555,31 @@ static func _edge_crossings(a: Vector2, b: Vector2, g: Vector2, r: float) -> Arr
 
 # ── Far mesh (AR-LF-D6; called by HillsHeightfield.build_mesh) ────────────────
 
+static func far_ring_growth() -> float:
+	## Ratio between consecutive far-mesh ring radii.
+	return 1.0 + TAU / float(FAR_AZ_SEGS)
+
+
+static func far_ring_radii(rj: float, r_outer: float) -> Array[float]:
+	## The far mesh's vertex rings outside the join loop: rj * growth^k (k >= 1) below r_outer, then
+	## r_outer. Shared by build_far_mesh and VillageTerrainField.terrain_min_y (ivy-82zn.14.30 F1)
+	## so the early ground estimate samples exactly the far vertices.
+	var growth := far_ring_growth()
+	var radii: Array[float] = []
+	var rr := rj * growth
+	while rr < r_outer:
+		radii.append(rr)
+		rr *= growth
+	radii.append(r_outer)
+	return radii
+
+
+static func far_ring_dir(i: int) -> Vector2:
+	## Unit direction of far-mesh azimuth i (0 .. FAR_AZ_SEGS - 1).
+	var a := TAU * float(i) / float(FAR_AZ_SEGS)
+	return Vector2(cos(a), sin(a))
+
+
 static func build_far_mesh(layout: VillageLayout, params: VillageTerrainParams,
 		hills_params: HillsParams = null) -> ArrayMesh:
 	## Indexed polar mesh from the join loop out to HillsParams.r_outer_m. Its inner boundary is
@@ -568,13 +593,8 @@ static func build_far_mesh(layout: VillageLayout, params: VillageTerrainParams,
 	var loop := join_loop(layout, params)
 	var n_loop := loop.size()
 	var m := FAR_AZ_SEGS
-	var growth := 1.0 + TAU / float(m)
-	var radii: Array[float] = []
-	var rr := rj * growth
-	while rr < hp.r_outer_m:
-		radii.append(rr)
-		rr *= growth
-	radii.append(hp.r_outer_m)
+	var growth := far_ring_growth()
+	var radii := far_ring_radii(rj, hp.r_outer_m)
 	var k_rings := radii.size()
 	# y grid with a virtual ring inside (r_j) and outside, for central-difference normals.
 	var ring_r: Array[float] = [rj]
@@ -584,8 +604,7 @@ static func build_far_mesh(layout: VillageLayout, params: VillageTerrainParams,
 	ys.resize(ring_r.size() * m)
 	for k in range(ring_r.size()):
 		for i in range(m):
-			var a := TAU * float(i) / float(m)
-			ys[k * m + i] = f.sample_y(g + Vector2(cos(a), sin(a)) * ring_r[k])
+			ys[k * m + i] = f.sample_y(g + far_ring_dir(i) * ring_r[k])
 	var verts := PackedVector3Array()
 	var norms := PackedVector3Array()
 	var cols := PackedColorArray()

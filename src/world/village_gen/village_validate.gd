@@ -22,7 +22,7 @@ static func v1_cottages(
 		min_gap_m: float,
 		min_centre_sep_m: float = 0.0) -> Array[String]:
 	## min_centre_sep_m: SD-VILLAGE-TERRAIN-21 pair centre floor (exterior-rect centres, 0.01 m
-	## tolerance; 0 = off). The generator passes the value it selected with (22 m, or the relaxed
+	## tolerance; 0 = off). The generator passes the value it selected with (16 m, or the relaxed
 	## ladder value).
 	var viol: Array[String] = []
 	if cottages.is_empty():

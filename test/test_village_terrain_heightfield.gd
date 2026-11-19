@@ -271,10 +271,14 @@ func test_ground_plane_sits_below_the_far_mesh_when_read_early() -> void:
 		var layout := _layout(seed)
 		var near := VillageTerrain.build_mesh(layout, p)
 		var f = VillageTerrain.field(layout, p)
-		var ground_early: float = float(f.terrain_min_y()) - World.GROUND_BELOW_TERRAIN_M
+		var t0 := Time.get_ticks_usec()
+		var early_min: float = float(f.terrain_min_y())
+		var early_ms := float(Time.get_ticks_usec() - t0) / 1000.0
+		var ground_early: float = early_min - World.GROUND_BELOW_TERRAIN_M
 		var far := VillageTerrain.build_far_mesh(layout, p)
 		var far_min := _mesh_min_y(far)
-		gut.p("seed %d: early ground %.3f, far min %.3f" % [seed, ground_early, far_min])
+		gut.p("seed %d: early min %.3f (%.1f ms), early ground %.3f, far min %.3f" % [
+			seed, early_min, early_ms, ground_early, far_min])
 		assert_lt(ground_early, far_min,
 			"seed %d: ground read before the far mesh (%.2f) below far min (%.2f)" % [seed, ground_early, far_min])
 		var both := minf(_mesh_min_y(near), far_min)

@@ -84,7 +84,7 @@ const GENERATED_STONE_SPACING := 0.75
 # ── Placement constants (shared classic / generated) ───────────────────────────
 ## LEGACY ONLY (classic dart / hex-lattice placement below): centre floor (metres); pair jiggle adds up
 ## to PAIR_JIGGLE_MAX_M. The production generator (VillageGeneratorV3 + PlotSampler) does NOT read it:
-## its single source of truth is VillageTerrainParams.cottage_min_sep_m (22 m, SD-VILLAGE-TERRAIN-21),
+## its single source of truth is VillageTerrainParams.cottage_min_sep_m (16 m, SD-VILLAGE-TERRAIN-21/-27),
 ## enforced in PlotSampler.select / append_to_selection and re-checked by VillageLayoutValidate.v1.
 const _MIN_CENTRE_SEP_M := 15.0
 ## Hero keep-out distance: nearest grown-rect face must be ≥ this from origin (INV-1).

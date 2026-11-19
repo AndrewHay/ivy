@@ -363,7 +363,7 @@ func test_path_len_scale_lengthens_the_network() -> void:
 ## Human decision 2026-11-18 (option A, "Accept, optimize later"; proper fix ivy-82zn.14.29): with the
 ## SD-28 storey rule seed 7 relaxes to 14 m. Pinned as measured: seeds 1 and 12 stay unrelaxed at
 ## >= 16 m; seed 7 may relax but never below 14 m.
-func test_ac_lt_sep_probe_seeds_1_7_12_unrelaxed() -> void:
+func test_ac_lt_sep_probe_seeds_1_12_unrelaxed_seed_7_floor() -> void:
 	var p := VillageTerrainParams.production()
 	var s7 := VillageLayout.generate(7)
 	var m7 := _sep_measures(s7)

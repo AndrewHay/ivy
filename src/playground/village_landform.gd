@@ -378,7 +378,7 @@ static func rank_offsets(norm_seed: int, params) -> Array[Dictionary]:
 	# (hard rule hero_ring_ok, SD-18 2026-11-17) — until rank 0 passes both. A failure moves the
 	# candidate to the failing list. The later passing candidates stay "pass" with verified =
 	# false: the generator verifies them (verify_candidate) only when its rank retry reaches them
-	# (SD-18 "Cost": lazy checks keep AC-LT-PERF ≤ 150 ms; extended here to the p95 check).
+	# (SD-18 "Cost": lazy checks keep AC-LT-PERF ≤ 300 ms, restated 2026-11-18 SD-28; extended here to the p95 check).
 	var verified: Array[Dictionary] = []
 	var unverified: Array[Dictionary] = []
 	var vc := {"nodes": nodes, "d_grid": d_grid, "d_fd": d_fd, "ring": {}, "plaza": {}, "base_ctx": base_ctx}

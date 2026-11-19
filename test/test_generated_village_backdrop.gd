@@ -127,7 +127,7 @@ func test_ac_lt_dress_far_treeline_on_terrain_and_clear_of_cottages() -> void:
 					VillageBackdrop.cottage_exterior_rect(spec), Rect2(p, Vector2.ZERO)))
 		gut.p("AC-LT-DRESS pines seed %d: %d trees, max |y - sample_y| %.4f m, min cottage clearance %.2f m" % [
 			seed, mm.instance_count, dy_max, clear_min])
-		assert_lte(dy_max, 0.02, "seed %d pines on the terrain" % seed)
+		assert_lte(dy_max, 0.01, "seed %d pines on the terrain (SD-23: +-0.01 m)" % seed)
 		assert_gte(clear_min, 2.0, "seed %d pines >= 2 m from cottages" % seed)
 
 

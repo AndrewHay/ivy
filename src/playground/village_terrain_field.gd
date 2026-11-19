@@ -49,6 +49,8 @@ var _rg_on := false
 var _rg_start := 70.0
 var _rg_full := 100.0
 var _outline_min := NAN
+## terrain_min_y's early estimate over the mesh vertex lattices (ivy-82zn.14.30 F1).
+var _lattice_min := NAN
 
 
 static func build(p_layout: VillageLayout, p_params: VillageTerrainParams, p_hills: HillsParams) -> VillageTerrainField:
@@ -444,18 +446,38 @@ func note_mesh_min(y: float, which: String) -> void:
 
 
 func terrain_min_y() -> float:
-	## Lowest vertex of the lawn + far meshes once both are built; until then the coarse polar scan
-	## (min'd with any mesh already built), so World/Ground never sits above an unbuilt far valley
-	## (ivy-82zn.14.21 F6).
+	## Lowest vertex of the lawn + far meshes once both are built; until then the min over the
+	## meshes' own vertex lattices (join loop, lawn grid nodes, far rings x FAR_AZ_SEGS from
+	## VillageTerrain.far_ring_radii), min'd with any mesh already built, so World/Ground never sits
+	## above an unbuilt far valley (ivy-82zn.14.21 F6, ivy-82zn.14.30 F1). Cached per field.
 	if flat:
 		return 0.0
 	if not is_nan(lawn_min_y) and not is_nan(far_min_y):
 		return minf(lawn_min_y, far_min_y)
-	var lo := mesh_min_y if not is_nan(mesh_min_y) else INF
-	var r_out := hills_params.r_outer_m
-	for k in range(41):
-		var r := r_out * float(k) / 40.0
-		for i in range(96):
-			var a := TAU * float(i) / 96.0
-			lo = minf(lo, sample_y(_g + Vector2(cos(a), sin(a)) * r))
+	if is_nan(_lattice_min):
+		_lattice_min = _mesh_lattice_min()
+	var lo := _lattice_min
+	if not is_nan(mesh_min_y):
+		lo = minf(lo, mesh_min_y)
+	return lo
+
+
+func _mesh_lattice_min() -> float:
+	var lo := INF
+	for p: Vector2 in VillageTerrain.join_loop(layout, params):
+		lo = minf(lo, sample_y(p))
+	var rj := layout.lawn_radius
+	var step := VillageTerrain.mesh_step(layout, params.terrain_mesh_step_m)
+	var cols := int(ceil(2.0 * rj / step))
+	var x0 := _g.x - rj
+	var z0 := _g.y - rj
+	for iz in range(cols + 1):
+		for ix in range(cols + 1):
+			var q := Vector2(x0 + float(ix) * step, z0 + float(iz) * step)
+			if q.distance_to(_g) < rj:
+				lo = minf(lo, sample_y(q))
+	var radii := VillageTerrain.far_ring_radii(rj, hills_params.r_outer_m)
+	for r: float in radii:
+		for i in range(VillageTerrain.FAR_AZ_SEGS):
+			lo = minf(lo, sample_y(_g + VillageTerrain.far_ring_dir(i) * r))
 	return lo

@@ -580,6 +580,7 @@ static func _reserve_stage1(
 	var pond_center: Vector2 = pc["centre"]
 	if site != null:
 		(diag["terrain_diag"] as Dictionary)["pond_plaza_rejects"] = int(pc.get("plaza_rejects", 0))
+		(diag["terrain_diag"] as Dictionary)["pond_hero_rejects"] = int(pc.get("hero_rejects", 0))
 	if site != null and pond_ok:
 		var td: Dictionary = diag["terrain_diag"]
 		td["pond_site_slope_deg"] = float(pc["slope_deg"])
@@ -587,8 +588,8 @@ static func _reserve_stage1(
 			td["pond_steep"] = true
 	if not pond_ok:
 		diag["abort"] = true
-		# SD-28 §3: every slope-valid candidate failed the plaza ring check.
-		diag["fail_reason"] = "terrain:pond_plaza" if int(pc.get("plaza_rejects", 0)) > 0 else "pond_unresolved"
+		# SD-28 §3: every slope-valid candidate failed the plaza or hero ring check.
+		diag["fail_reason"] = _pond_fail_reason(pc)
 		diag["stage_reached"] = "reserve"
 		return st
 
@@ -630,6 +631,16 @@ static func _reserve_base_grid(g: Vector2, cottage_keep: Rect2) -> VillageOccupa
 	return grid
 
 
+static func _pond_fail_reason(pc: Dictionary) -> String:
+	## Stage-1 pond failure reason (ivy-82zn.14.30 F3): any plaza ring reject → terrain:pond_plaza;
+	## hero ring rejects only → terrain:pond_hero; no ring rejects → pond_unresolved.
+	if int(pc.get("plaza_rejects", 0)) > 0:
+		return "terrain:pond_plaza"
+	if int(pc.get("hero_rejects", 0)) > 0:
+		return "terrain:pond_hero"
+	return "pond_unresolved"
+
+
 static func _choose_pond(norm: int, st: int, g: Vector2, plaza_rect: Rect2, site: VillageSiteTerrain) -> Dictionary:
 	## Stage-1 pond centre: {ok, centre, steep, slope_deg, try_st}. Flat (site null): the first valid
 	## fan try (unchanged). Landscape (SD-19 pond row, AR-LF-LAYOUT, AR-LF-PERF P3): per try the raw
@@ -648,7 +659,8 @@ static func _choose_pond(norm: int, st: int, g: Vector2, plaza_rect: Rect2, site
 	trial.cottages = []
 	var flat_list: Array = []
 	var steep_list: Array = []
-	var plaza_rejects := 0
+	## Ring rejects split by ring (ivy-82zn.14.30 F3): plaza_ring → plaza_rejects, hero_ring → hero_rejects.
+	var rejects := {"plaza_ring": 0, "hero_ring": 0}
 	var try_st := _Layout._derive(st, _POND_SALT)
 	for pi: int in range(48):
 		try_st = _Scatter.lcg_step(try_st ^ norm)
@@ -668,8 +680,9 @@ static func _choose_pond(norm: int, st: int, g: Vector2, plaza_rect: Rect2, site
 				# SD-VILLAGE-TERRAIN-28 §3 (+ the hero ring, handoff 3): after the 6° site slope, the
 				# pond must not steepen the plaza or hero ring past 22° (measured); a failure takes the
 				# next candidate.
-				if not bool(site.pond_rings_ok(c)["ok"]):
-					plaza_rejects += 1
+				var rings := site.pond_rings_ok(c)
+				if not bool(rings["ok"]):
+					rejects[String(rings["ring"])] = int(rejects.get(String(rings["ring"]), 0)) + 1
 					continue
 				flat_list.append(entry)
 				if flat_list.size() >= _PondPlace.POND_TERRAIN_CANDIDATES:
@@ -681,20 +694,21 @@ static func _choose_pond(norm: int, st: int, g: Vector2, plaza_rect: Rect2, site
 	if not flat_list.is_empty():
 		var ch := _PondPlace.choose_terrain_site(flat_list, site.params.pond_max_site_slope_deg)
 		return {"ok": true, "centre": ch["centre"], "steep": false, "slope_deg": ch["slope_deg"], "try_st": try_st,
-			"plaza_rejects": plaza_rejects}
+			"plaza_rejects": int(rejects["plaza_ring"]), "hero_rejects": int(rejects["hero_ring"])}
 	steep_list.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		if float(a["slope_deg"]) != float(b["slope_deg"]):
 			return float(a["slope_deg"]) < float(b["slope_deg"])
 		return int(a["i"]) < int(b["i"]))  # stable: earlier try wins a tie
 	for e: Dictionary in steep_list:
 		if _PondPlace.validate(e["centre"], trial, false):
-			if not bool(site.pond_rings_ok(e["centre"])["ok"]):
-				plaza_rejects += 1
+			var rings := site.pond_rings_ok(e["centre"])
+			if not bool(rings["ok"]):
+				rejects[String(rings["ring"])] = int(rejects.get(String(rings["ring"]), 0)) + 1
 				continue
 			return {"ok": true, "centre": e["centre"], "steep": true, "slope_deg": e["slope_deg"], "try_st": try_st,
-				"plaza_rejects": plaza_rejects}
+				"plaza_rejects": int(rejects["plaza_ring"]), "hero_rejects": int(rejects["hero_ring"])}
 	return {"ok": false, "centre": Vector2.ZERO, "steep": false, "slope_deg": 0.0, "try_st": try_st,
-		"plaza_rejects": plaza_rejects}
+		"plaza_rejects": int(rejects["plaza_ring"]), "hero_rejects": int(rejects["hero_ring"])}
 
 
 ## Quadrant counts around G: [nw, ne, sw, se] matching `VillagePlotSampler.quadrant_counts_for_centres`.
@@ -1468,7 +1482,8 @@ static func _stage5_select_with_capacity(
 	var relaxed_to := -1.0
 	if picked.size() < need and bool(sel_params.get("sep_ladder", false)):
 		# SD-VILLAGE-TERRAIN-21 fallback ladder (every attempt, 2026-11-18): keep the picks made at the stricter
-		# floor and top up with the same candidate pool, 1 m lower each step, down to 18 m.
+		# floor and top up with the same candidate pool, 1 m lower each step, down to
+		# effective_sep_ladder_floor_m (sep_ladder_floor_m knob, production 14 m).
 		t0 = Time.get_ticks_usec()
 		var sel_relax := sel_params.duplicate()
 		for s: float in sep_ladder_steps(sep_used, float(sel_params.get("sep_ladder_floor_m", SEP_LADDER_FLOOR_M))):

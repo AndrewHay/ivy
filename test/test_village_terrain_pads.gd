@@ -171,6 +171,73 @@ func test_moved_pond_decision_rejects_steep_moves_unless_no_flat_site() -> void:
 	assert_eq(int(td3.get("pond_moved_rechecked", -1)), 0, "re-check ran (0 pads reached)")
 
 
+func _moved_pond_layout(c: Vector2) -> VillageLayout:
+	var layout := VillageLayout.new()
+	layout.is_generated = true
+	layout.cottages = []
+	layout.pond_placed = true
+	layout.pond_center = c
+	return layout
+
+
+func test_moved_pond_decision_rejects_a_move_into_the_plaza_or_hero_ring() -> void:
+	## ivy-82zn.14.30 F4 (review 3): the SD-28 §3 ring branch of _check_moved_pond. A moved pond that
+	## steepens the plaza ring or the hero ring past 22° fails the attempt with pond_moved_fail
+	## naming the ring (stage1_steep true so the 16° site slope alone does not decide it).
+	var p := VillageTerrainParams.production()
+	var k := tan(deg_to_rad(16.0))
+	var fn := func(xz: Vector2) -> float: return -k * xz.x
+	var r_c: float = VillagePondSite.MEAN_WATER_RADIUS_M * p.pond_floor_scale
+	# Plaza ring: the SW-corner geometry of test_pond_plaza_ring_ok_rejects_a_pond_off_the_plaza_corner.
+	var ps := VillageSiteTerrain.from_fn(fn, p, {})
+	var rect := VillageLayout.plaza_rect_at(VillageLayout.VILLAGE_GREEN_G, VillageLayout.PLAZA_SIDE_L)
+	ps.plaza = VillageTerrainField.plaza_site(fn, rect, p, p.plaza_ring_m)
+	var pc: Vector2 = Vector2(rect.position.x, rect.end.y) + Vector2(-1.0, 1.0).normalized() * (2.5 + r_c)
+	var td := {}
+	var reason := VillageGeneratorV3._check_moved_pond(ps, _moved_pond_layout(pc), Vector2(1e4, 1e4), p, true, td)
+	gut.p("moved into plaza ring: %s %s plaza %.1f°" % [reason, td.get("pond_moved_fail", ""),
+		float(td.get("pond_moved_plaza_peak_deg", -1.0))])
+	assert_eq(reason, "terrain:pond_moved", "plaza ring: attempt fails")
+	assert_eq(String(td.get("pond_moved_fail", "")), "plaza_ring", "plaza ring named")
+	assert_gt(float(td.get("pond_moved_plaza_peak_deg", 0.0)), p.ring_max_slope_deg, "plaza peak recorded")
+	assert_false(td.has("pond_moved_rechecked"), "pad re-check not reached")
+	# Hero ring: the geometry of test_pond_hero_ring_ok_rejects_a_pond_in_the_hero_ring (no plaza).
+	var h0 := VillageLayout.HERO_DOOR_STOOP
+	var hs := VillageSiteTerrain.from_fn(fn, p, {"centre": h0, "r_c": p.hero_flat_r_m, "target": 0.0, "w": 9.5})
+	var hc := h0 + Vector2(-(p.hero_flat_r_m + 2.0 + r_c), 0.0)
+	var td2 := {}
+	var reason2 := VillageGeneratorV3._check_moved_pond(hs, _moved_pond_layout(hc), Vector2(1e4, 1e4), p, true, td2)
+	gut.p("moved into hero ring: %s %s hero %.1f°" % [reason2, td2.get("pond_moved_fail", ""),
+		float(td2.get("pond_moved_hero_peak_deg", -1.0))])
+	assert_eq(reason2, "terrain:pond_moved", "hero ring: attempt fails")
+	assert_eq(String(td2.get("pond_moved_fail", "")), "hero_ring", "hero ring named")
+	assert_gt(float(td2.get("pond_moved_hero_peak_deg", 0.0)), p.ring_max_slope_deg, "hero peak recorded")
+	assert_false(td2.has("pond_moved_rechecked"), "pad re-check not reached")
+
+
+func test_choose_pond_counts_hero_ring_rejects_apart_from_plaza() -> void:
+	## ivy-82zn.14.30 F3 (review 3): a candidate rejected only by the hero ring is not a plaza reject,
+	## and a stage-1 failure caused by the hero ring alone is not reported as terrain:pond_plaza.
+	var p := VillageTerrainParams.production()
+	p.pond_depth_m = -3.0
+	var k := tan(deg_to_rad(16.0))
+	var fn := func(xz: Vector2) -> float: return -k * xz.x
+	var g := VillageLayout.VILLAGE_GREEN_G
+	# A hero ring 14-28 m around G covers the stage-1 pond fan (16-34 m); no plaza site.
+	var st := VillageSiteTerrain.from_fn(fn, p, {"centre": g, "r_c": 14.0, "target": 0.0, "w": 14.0})
+	var rect := VillageLayout.plaza_rect_at(g, VillageLayout.PLAZA_SIDE_L)
+	var pc := VillageGeneratorV3._choose_pond(1, 12345, g, rect, st)
+	gut.p("hero-only pond rejects: ok %s plaza %d hero %d" % [pc["ok"], int(pc.get("plaza_rejects", -1)),
+		int(pc.get("hero_rejects", -1))])
+	assert_eq(int(pc.get("plaza_rejects", -1)), 0, "no plaza site: no plaza rejects")
+	assert_gt(int(pc.get("hero_rejects", 0)), 0, "hero ring rejects counted on their own")
+	assert_eq(VillageGeneratorV3._pond_fail_reason({"plaza_rejects": 0, "hero_rejects": 3}), "terrain:pond_hero",
+		"hero-only failure reason")
+	assert_eq(VillageGeneratorV3._pond_fail_reason({"plaza_rejects": 2, "hero_rejects": 3}), "terrain:pond_plaza",
+		"any plaza reject keeps pond_plaza")
+	assert_eq(VillageGeneratorV3._pond_fail_reason({}), "pond_unresolved", "no ring rejects")
+
+
 func test_generated_moved_ponds_were_rechecked_seeds_1_20() -> void:
 	## Review 2 F1: every generated village that kept a moved pond passed the re-check on its final
 	## pond (terrain_diag.pond_moved_rechecked), and re-running it here agrees.
@@ -188,6 +255,11 @@ func test_generated_moved_ponds_were_rechecked_seeds_1_20() -> void:
 		kept.append("%d:%d pads" % [seed, int(td.get("pond_moved_rechecked", -1))])
 		assert_true(td.has("pond_moved_rechecked"), "seed %d moved pond was re-checked" % seed)
 		assert_true(td.has("pond_center_before_move"), "seed %d records the pre-move centre" % seed)
+		# ivy-82zn.14.30 F4: a kept moved pond passed the SD-28 §3 plaza and hero ring checks.
+		assert_lte(float(td.get("pond_moved_plaza_peak_deg", INF)), p.ring_max_slope_deg,
+			"seed %d kept moved pond: plaza ring <= 22°" % seed)
+		assert_lte(float(td.get("pond_moved_hero_peak_deg", INF)), p.ring_max_slope_deg,
+			"seed %d kept moved pond: hero ring <= 22°" % seed)
 		if not td.has("pond_center_before_move"):
 			continue
 		var site := _site_for(layout, p)
