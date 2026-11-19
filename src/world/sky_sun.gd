@@ -91,9 +91,12 @@ func update(game_day: float, seconds_per_game_day: float) -> void:
 	_sun.visible = lit > 0.0
 	_sun.light_color = light_color_for(s.y)
 	var tw := twilight_glow_for(s.y, lit)
+	# The vector the far mesh is lit with (u_sun_dir). The sky below the horizon uses the same one so the
+	# skirt and the sky under it agree at every hour (ivy-82zn.14.37). Its sign (light forward, -S) is
+	# bug ivy-82zn.14.38; do not flip it here.
+	var sun_dir := (-_sun.global_basis.z).normalized()
 	var world_root := get_parent()
 	if world_root != null:
-		var sun_dir := (-_sun.global_basis.z).normalized()
 		HillsTint.refresh_hill_lighting_on_world(world_root, s.y, lit, sun_dir)
 	if _env != null and _env.environment != null:
 		var bg := background_energy_for(lit)
@@ -108,8 +111,9 @@ func update(game_day: float, seconds_per_game_day: float) -> void:
 			_sky_shader.set_shader_parameter("sky_horizon_color", sky_horizon_color_for(s.y, lit))
 			_sky_shader.set_shader_parameter("sky_energy", bg * _SKY_ENERGY_BASE)
 			_sky_shader.set_shader_parameter("twilight_glow", tw)
-			# AR-NOFOG-EDGE: below the horizon the sky is the far meadow, lit like the far mesh.
-			_sky_shader.set_shader_parameter("ground_horizon_color", HillsTint.far_meadow_colour(s, tw))
+			# AR-NOFOG-EDGE: below the horizon the sky is the far meadow, lit like the far mesh: same
+			# u_sun_dir and u_twilight (tw == the value refresh_hill_lighting_on_world writes).
+			_sky_shader.set_shader_parameter("ground_horizon_color", HillsTint.far_meadow_colour(sun_dir, tw))
 			var cloud_tint := Color(0.88, 0.90, 0.93).lerp(Color(0.95, 0.72, 0.55), tw * 0.65)
 			_sky_shader.set_shader_parameter("cloud_tint", Vector3(cloud_tint.r, cloud_tint.g, cloud_tint.b))
 			var rim := twilight_rim_color_for(s.y, lit)

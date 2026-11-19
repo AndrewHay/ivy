@@ -296,16 +296,31 @@ func test_village_terrain_playground_camera_far() -> void:
 
 # ── 6. Sky below the horizon ──────────────────────────────────────────────────
 
+## ivy-82zn.14.37 (review ivy-82zn.14.33 F1): the sky below the horizon must be lit with the exact
+## u_sun_dir / u_twilight the HillTerrain material holds after SkySun.update (read from the material,
+## not from Solar), so the flat skirt and the sky under it agree at noon as well as at dawn.
 func test_sky_below_horizon_is_the_far_meadow_colour() -> void:
 	var main: Node = await _boot_main()
 	var world := main.get_node("World")
+	world.call("set_village_mode", GameModes.GENERATED, 7)
+	world.call("rebuild_backdrop")
+	await get_tree().process_frame
+	var hill := world.get_node_or_null("VillageBackdrop/HillTerrain") as MeshInstance3D
+	assert_not_null(hill, "generated seed 7 has a HillTerrain far mesh")
+	if hill == null:
+		return
+	var hill_mat := hill.mesh.surface_get_material(0) as ShaderMaterial
+	assert_not_null(hill_mat, "HillTerrain has a ShaderMaterial")
+	if hill_mat == null:
+		return
 	var sky := world.get_node("SkySun") as SkySun
 	var env := (sky.get_node("WorldEnvironment") as WorldEnvironment).environment
 	var mat := env.sky.sky_material as ShaderMaterial
 	for day in _noon_and_twilight_days(sky):
 		sky.update(day, _SPD)
-		var s := sky.solar.render_direction(day, _SPD)
-		var want: Color = HillsTint.far_meadow_colour(s, SkySun.twilight_glow_for(s.y, SkySun.lit_for(s.y)))
+		var sun_dir: Vector3 = hill_mat.get_shader_parameter("u_sun_dir")
+		var tw: float = float(hill_mat.get_shader_parameter("u_twilight"))
+		var want: Color = HillsTint.far_meadow_colour(sun_dir, tw)
 		var got: Color = mat.get_shader_parameter("ground_horizon_color")
 		assert_almost_eq(got.r, want.r, 1e-4, "day %.3f ground_horizon r" % day)
 		assert_almost_eq(got.g, want.g, 1e-4, "day %.3f ground_horizon g" % day)

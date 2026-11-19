@@ -61,7 +61,10 @@ static func refresh_hill_lighting_on_world(world: Node, s_y: float, lit: float, 
 ## north wedge): mirrors village_ground_hills.gdshader with eff_layer_t = 0, flat_sector = 1,
 ## meadow_ring = 0, mean patch noise, no gust, normal = up. Computed in linear space like the shader
 ## and returned as an sRGB Color, ready for a source_color uniform (SkySun sets it as the sky's
-## ground_horizon_color, AR-NOFOG-EDGE). `sun_dir` points toward the sun.
+## ground_horizon_color, AR-NOFOG-EDGE). `sun_dir` is the far mesh's u_sun_dir as the shader gets it
+## (SkySun passes the same vector it writes to the material). The twilight dim is the flat-sector
+## value (full u_twilight); inside the north wedge the shader dims by only 0.35 + flat_sector * 0.65
+## of it, so there the skirt is slightly brighter than this colour at twilight (review F5, documented).
 ## Colour spaces as the shader receives them: u_meadow_near is set by apply_terrain_shader as a
 ## Vector3, which Godot passes through unconverted (so it is already linear in the shader); patch_lo /
 ## patch_hi keep their source_color defaults, which Godot converts from sRGB.
