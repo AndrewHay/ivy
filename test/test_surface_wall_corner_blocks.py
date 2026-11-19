@@ -44,6 +44,8 @@ REFERENCE = _REPO / "test" / "fixtures" / "surface_wall_hero_pre_b1e36.json"
 PREFIX = "surface_wall_hero_CornerBlock_0_"
 TURN_TOL = 1e-3
 SAME_TOL = 1e-5
+# Hero nodes the ivy-b1e.41 wall layout moves (see test_every_other_hero_node_is_unchanged).
+LAYOUT_TOKENS = ("_Wall_UnevenBrick_", "_Seal_", "_Reveal_")
 
 
 def _turn_y(v, deg):
@@ -103,7 +105,13 @@ class SurfaceWallCornerBlocksTest(unittest.TestCase):
         got = hero_signatures(HERO)
         # The wall-end stub caps were added later (ivy-b1e.39) and are pinned by
         # test_surface_wall_stub_caps.py; they are not part of this bead's reference.
-        got_names = {n for n in set(got) - turned if "_WallEndCap_" not in n}
+        # ivy-b1e.41 re-laid the walls out as one whole kit piece per 2 m slot, which moves and
+        # renames the wall pieces and the opening nodes (seals, glass now the kit hole's size,
+        # open-door reveal); those are pinned
+        # by test_surface_wall_tiling.py. Corner trims, the other corner blocks and the roof stay.
+        ref_names = {n for n in ref_names if not any(t in n for t in LAYOUT_TOKENS)}
+        got_names = {n for n in set(got) - turned
+                     if "_WallEndCap_" not in n and not any(t in n for t in LAYOUT_TOKENS)}
         self.assertEqual(sorted(got_names ^ ref_names), [], "hero node set differs from the pre-bead hero")
         moved = []
         for name in sorted(ref_names):

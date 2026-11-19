@@ -47,6 +47,8 @@ HIT_TOL = 1e-3
 OVERLAP_MIN = 0.001
 SAME_TOL = 1e-5
 CAP_TOP = 3.0
+# Hero nodes the ivy-b1e.41 wall layout moves (see test_every_other_hero_node_is_unchanged).
+LAYOUT_TOKENS = ("_Wall_UnevenBrick_", "_Seal_", "_Reveal_")
 
 
 def _bounds(verts):
@@ -167,8 +169,12 @@ class SurfaceWallStubCapsTest(unittest.TestCase):
 
     def test_every_other_hero_node_is_unchanged(self):
         got = hero_signatures(HERO)
-        got_names = {n for n in got if CAP_TOKEN not in n}
-        ref_names = set(self.reference)
+        # ivy-b1e.41 re-laid the walls out as one whole kit piece per 2 m slot, which moves and
+        # renames the wall pieces and the opening nodes (seals, glass now the kit hole's size,
+        # open-door reveal); those are pinned
+        # by test_surface_wall_tiling.py. The caps themselves did not move (stub ends unchanged).
+        got_names = {n for n in got if CAP_TOKEN not in n and not any(t in n for t in LAYOUT_TOKENS)}
+        ref_names = {n for n in self.reference if not any(t in n for t in LAYOUT_TOKENS)}
         self.assertEqual(sorted(got_names ^ ref_names), [], "hero node set differs from the pre-bead hero")
         moved = []
         for name in sorted(ref_names):

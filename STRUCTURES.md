@@ -103,7 +103,7 @@ Created in Blender by `tools/build_structures.py` (names appear in `*_hero.glb` 
 | **`ivy`** | Tier A plaster + optional brick; `Corner_Exterior_Wood` posts; sim = `tools/build_growth_surface.py` output (walls with their bands and reveals, shutters as envelopes, hero seals as panels, the tile field exact on the tiles) | `Door_1_Flat` in `DoorFrame_Flat_WoodDark`, `Window_Wide_Flat1` frames with closed shutters, hero seals | `Roof_RoundTiles_4x6`, `Roof_Front_Brick4` ×2 | `Prop_Chimney2` |
 | **`square`** | `Wall_UnevenBrick_*` ring (3 bays/side); sim = `tools/build_growth_surface.py` output with defaults, no `growth_surface` block (walls extruded from the hero, scaffold `FloorSlab`, `RoofCap` and the four aperture `Panel_`s copied; 42 nodes, 2252 triangles; `ivy-b1e.8`) | `Door_2_Round`, round windows, glass + panels | Flat **`RoofCap`** | Corner trim blocks |
 | **`tower`** | `Wall_UnevenBrick_*` (2 bays/side × 2 storeys); sim = `tools/build_growth_surface.py` output on the Blender scaffold with a `growth_surface` block of 8 `fill` boxes (storey-seam and roof-seat rings over the wall thickness, closing the 1–3 mm cracks behind the cornices; 64 nodes, 3022 triangles; `ivy-b1e.8`) | Mixed round door/windows | **`RoofCone`** + hero `WallTopCap` (`ivy-b1e.33`) | Corner trim; **`MidFloorSlab`** |
-| **`surface_wall`** | Long uneven-brick run + door | Same seal policy as ring | **`RoofCap`** | Corner trim + `CornerBlock_` per corner, each turned with its corner (`ivy-b1e.36`); `WallEndCap_` on each of the 8 wall-end stubs (`ivy-b1e.39`) |
+| **`surface_wall`** | Uneven-brick ring tiled with whole 2 m kit pieces, three per 6 m side at `module_offsets` [-2, 0, 2] with no overlap (`ivy-b1e.41`; it was five per side at 1 m spacing, and the overlapping straights bricked over the openings): south = wide window, closed door, straight; east = straight, **open** door (`surface_wall_ground_door_E_1`, its reveal floor standing on the ground inside the room), straight; north and west = three straights. Sim = `tools/build_growth_surface.py` output on the Blender scaffold with a `growth_surface` block `{"stones": ["Corner"]}` (rule 12: the 208 corner stones as fitted boxes closed under 0.10 m; rule 2a cuts the 8 wall-end lips, the 8 capped stubs kept, the 4 scaffold `CornerColumn_`s replaced; 1,020 nodes, 13,876 triangles; `ivy-b1e.8`, `ivy-b1e.41`) | Same seal policy as ring | **`RoofCap`** | Corner trim + `CornerBlock_` per corner, each turned with its corner (`ivy-b1e.36`); `WallEndCap_` on each of the 8 wall-end stubs (`ivy-b1e.39`) |
 
 ---
 
@@ -129,8 +129,8 @@ python3 tools/rebuild_sim_from_hero.py assets/structures/ivy.blend assets/struct
 # Growth surface from the hero (AR-MESH-20; see below). The cottage's shipped ivy_sim.glb is this
 # tool's output (ivy-b1e.7); the Blender sim GLB is only its scaffold, and the tool is idempotent on
 # its own output, so it can be re-run in place. The square's and the tower's sims are also this tool's
-# output (ivy-b1e.8, built on the ivy-b1e.19 scaffolds; the tower with its 8-fill growth_surface block);
-# surface_wall still ships its Blender sim (ivy-b1e.8).
+# output (ivy-b1e.8, built on the ivy-b1e.19 scaffolds; the tower with its 8-fill growth_surface block),
+# and so is surface_wall's (ivy-b1e.8, growth_surface block stones ["Corner"], rule 12).
 python3 tools/build_growth_surface.py assets/structures/ivy_hero.glb assets/structures/ivy_sim.glb \
   assets/structures/ivy_sim.glb --structure ivy --report .tmp/gs/ivy_report.json
 python3 tools/bake_mesh_sdf.py assets/structures/ivy_sim.glb assets/structures/ivy_sim.sdf
@@ -145,7 +145,8 @@ growth surface; vertices buried in a solid (interior faces inside wall slabs, pa
 envelope) are counted and printed but not judged, because the tool has no visibility test: SG-9 (a)
 in the audit judges that side; the tower has a block (its fills) and is read this way since
 `ivy-b1e.8` installed its growth surface (gate 3 ivy-reachable max 0.0242 m, 224 buried vertices
-reported). The square keeps the two-sided read with the SD-OPEN-27(d) relief exemption: its growth
+reported), and so is surface_wall (its `stones` block; gate 3 ivy-reachable max 0.0175 m, 660 buried
+vertices reported; `ivy-b1e.8`). The square keeps the two-sided read with the SD-OPEN-27(d) relief exemption: its growth
 surface needs no `growth_surface` block (defaults fit), so the gates tool still reads it that way
 (gate 3 ivy-reachable max 0.0495 m on the growth surface, `ivy-b1e.8`).
 
@@ -198,8 +199,9 @@ python3 tools/build_growth_surface.py <hero.glb> <scaffold_sim.glb> <out_sim.glb
   other solid) is filled until nothing changes, and stones plus fills are merged into boxes named
   `{id}_sim_CornerStones_c<k>_iNN`. Counters `rules.12_stones`, `rules.12_closed_cells`,
   `rules.12_boxes`; per-stone yaw and box under `stones`, per-zone grid and counts under
-  `stone_zones`. surface_wall (scratch `{"stones": ["Corner"]}`, `ivy-b1e.40`): 208 stones in 4 zones,
-  962 boxes, 8 stubs kept, 4 columns replaced, 1,044 nodes, 14,924 triangles, 0 slots.
+  `stone_zones`. surface_wall (`{"stones": ["Corner"]}` in its config since `ivy-b1e.8`; first
+  measured in scratch by `ivy-b1e.40`): 208 stones in 4 zones, 962 boxes, 8 stubs kept, 4 columns
+  replaced, 1,044 nodes, 14,924 triangles, 0 slots.
 - Rule 11, tiled roofs (`tile_field`, `ivy-b1e.7`): the islands of a listed node that rule 4 cannot
   close (the tile surface) are split at the ridge; each slope becomes one solid whose top is the tile
   surface itself (troughs included) and whose bottom reaches down along the slope normal to the
@@ -213,7 +215,7 @@ python3 tools/build_growth_surface.py <hero.glb> <scaffold_sim.glb> <out_sim.glb
   stay open); both stop 0.10 m short of a cap end no other cap overlaps, so its hollow stays.
 - Settings: optional `growth_surface` block of the structure in `tools/structure_configs.json`,
   validated by `validate_config`: `wall_t` (≥ 0.24, default 0.45), `envelope` (shutters), `stones`
-  (rule 12; `["Corner"]` is planned for surface_wall at its install, `ivy-b1e.8`), `exempt` and
+  (rule 12; surface_wall uses `["Corner"]` since its install, `ivy-b1e.8`), `exempt` and
   `tile_field` (substrings of the hero node name after `{id}_hero_`), `seals` (`hero` / `scaffold`,
   default `scaffold`), `fill` (`[{"name", "min", "max"}]` boxes in glTF world coordinates, or
   `{"name", "points"}`: the convex hull of at least 4 points, for a fill that hugs a rotated piece).
@@ -358,7 +360,8 @@ front) or `sdf` (the field is wrong) in the report (SD-MESH-19.4.1, `ivy-b1e.23`
 audit a two-sided copy of the proxy (`make_two_sided_proxy`, `set_two_sided_proxy`); without one,
 closure reads NOT MEASURED and (c) fails. `test/slow/test_sg9_sdf_collision.gd` asserts gate (c),
 closure included, through the same code; all four structures pass it (the tower's former `open`
-probe at its cone rim went with its growth surface, `ivy-b1e.8`).
+probe at its cone rim went with its growth surface, `ivy-b1e.8`; surface_wall passes on its growth
+surface too, face p95 0.0000 max 0.0158, 3643 inside probes, worst -0.0405, `ivy-b1e.8`).
 `test/test_growth_surface_audit.gd` proves the audit is falsifiable: a bounding-box proxy over a ribbed
 hero wall fails (a) and (b), and a proxy that carries the ribs passes (a), (b) and (c).
 `test/test_growth_surface_audit_closure.gd` does the same for gate (c) (SD-MESH-19.4.1 F1–F6): an

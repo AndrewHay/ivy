@@ -171,6 +171,7 @@ END_OVERLAP = TARGET_T
 HERO_CORNER_PIECES = ("Corner_ExteriorWide_Brick", "Corner_Exterior_Brick")
 HERO_SEAL_PIECES = ("Door_2_Round", "DoorFrame_Round_Brick")
 GLASS_T = 0.02
+HERO_WALL_MID = 0.10  # middle of the hero kit wall's two sheets (0.20 m apart), in from the exterior face
 DOOR_HERO_OUTSET = 0.10  ## hero door/frame past exterior wall face (kit reads recessed)
 
 APERTURE_SPECS = {
@@ -1748,15 +1749,21 @@ def place_hero_open_reveal(ap, hero_col, prefix, world_offset, d, floor_mat, int
     depth = min(max(d["interior_half"] * 1.5, 1.5), 4.0)
     floor_h = 0.08
     inset = 0.05
+    # ivy-b1e.41: the door is really open now (no brick behind it), so ivy reaches the room and the
+    # growth surface sees this floor. It stands on the ground (the proxy FloorSlab's top is y 0)
+    # and starts inside the room, past the walls' inner faces, rather than 0.05 m up and inside
+    # the door jambs, which left 0.05-0.08 m slots under it and beside it.
+    y0 = TARGET_T
+    y1 = TARGET_T / 2.0 + depth * 0.7
     parts = []
     parts.append(place_wall_local_box(
         ap, hero_col, prefix, world_offset, "floor",
         Vector((
             (spec["x0"] + spec["x1"]) / 2.0,
-            TARGET_T / 2.0 + depth * 0.35,
-            spec["z0"] + floor_h / 2.0 + inset,
+            (y0 + y1) / 2.0,
+            spec["z0"] + floor_h / 2.0,
         )),
-        (width - inset * 2, depth * 0.7, floor_h),
+        (width - inset * 2, y1 - y0, floor_h),
         floor_mat,
     ))
     parts.append(place_wall_local_box(
@@ -1822,7 +1829,7 @@ def place_hero_seals(ap, hero_col, prefix, world_offset, glass_mat, wood_mat=Non
         height = spec["z1"] - spec["z0"]
         glass_off = Vector((
             (spec["x0"] + spec["x1"]) / 2.0,
-            TARGET_T / 2.0,
+            ap.get("glass_y", TARGET_T / 2.0),
             (spec["z0"] + spec["z1"]) / 2.0,
         ))
         root = hero_col.name.split("_")[0]
@@ -1936,6 +1943,16 @@ def assemble_hero(cfg, hero_col, hero_roof_mat, glass_mat, world_offset):
                                d["interior_half"], hero_col, hero_roof_mat, world_offset))
     open_ids = set(cfg.get("open_apertures", []))
     apertures = enumerate_apertures(cfg, d)
+    if cfg["name"] == "surface_wall":
+        # ivy-b1e.41: with each piece in its own slot the window hole is really open. The
+        # APERTURE_SPECS glass (0.90 m wide, TARGET_T / 2 = 0.225 m in, i.e. inside the room past
+        # the 0.20 m kit wall) left unglazed strips of the 1.20 m kit hole and a sliver between the
+        # glass and the inner sheet; next to the corner (slot -2) both look into the room corner.
+        # Glaze the kit hole plus its SEAL_TUCK, in the middle of the wall between the two sheets.
+        for ap in apertures:
+            if ap["kind"] != "door":
+                ap["glass_spec"] = seal_spec(ap["piece"])
+                ap["glass_y"] = HERO_WALL_MID
     for ap in apertures:
         parts += place_hero_seals(ap, hero_col, prefix, world_offset, glass_mat, _wood, open_ids, d)
     return parts, d, apertures
