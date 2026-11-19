@@ -332,6 +332,15 @@ playground (G7); agents supply captures and parity tests, not the verdict. Contr
 the Systems Designer (ivy-82zn.14.12) and will replace `IMPLEMENTATION.md` § SD-VILLAGE-TERRAIN-2
 "Village hill" and SD-VILLAGE-TERRAIN-6 (rim pinned flat).
 
+**No fog (human direction 2026-11-19, ivy-82zn.14.31):** "the FOG doesn't work now ... we should
+completely remove it". Once the hills were landscape-first, the haze tuned for the old flat ring flattened
+the far hills into pale/pink bands at eye level and washed the wide view grey-white. The village (classic
+and generated) and every playground render with **no fog of any kind**: no depth or volumetric fog and no
+distance tint toward a horizon colour on the terrain or trees. The landscape carries the depth on its own:
+the ground runs out to the horizon (a flat far skirt past the hills), and the sky's own horizon gradient
+stays. Fog is not a knob, so there is nothing to tune back on; if distance ever needs help, that is a new
+design decision. Contract: `IMPLEMENTATION.md` § AR-NOFOG.
+
 Tracking: epic **`ivy-7ka`** (phase 2 lawn); prior **`ivy-qg7`** contracts in `IMPLEMENTATION.md`
 (SD-GRASS-1 / SD-WIND-1 superseded where noted).
 

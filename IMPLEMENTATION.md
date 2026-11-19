@@ -4057,6 +4057,9 @@ backdrop_trees_xz: Array[Vector2]) -> Array[Transform3D]`
 
 ### SD-HILLS-6 — Ridge-band and fog tinting rules
 
+> **Superseded 2026-11-19 by AR-NOFOG (ivy-82zn.14.31):** the human removed all fog. No fog, no haze
+> blend toward the horizon colour; the meadow layer colours stay.
+
 **Goal (fuzzy):** nearer ridges read **darker/clearer**; farther crests **paler/bluer** through
 existing hero-centred volumetric fog — tint **supports** fog, does not replace it.
 
@@ -4234,6 +4237,9 @@ RefCounted helpers** under `src/playground/`; `VillageBackdrop` only orchestrate
 This matches GD epic scope (seeds **1 / 7 / 12**) without re-tuning classic cottage fog reads.
 
 ### AR-HILLS-3 — Decision 2: fog ridge tint = **CPU `HillsFogTint` + per-vertex COLOR + MultiMesh `use_colors`**
+
+> **Superseded 2026-11-19 by AR-NOFOG (ivy-82zn.14.31):** fog and haze tint removed; `HillsFogTint` becomes
+> `HillsTint` (meadow layers, seam colour and tree tint only).
 
 **Rejected: new globals or live volumetric in terrain shader.** `village_ground.gdshader` has no fog
 anchor; volumetric `WORLD_AROUND_HERO` cannot be replicated cheaply in GLSL without duplicating
@@ -8521,4 +8527,249 @@ ivy-82zn.14.1 → close as superseded (its slope shading survives in `terrain_ti
 ivy-82zn.14.3 (old accept) → close as superseded and remove the `ivy-82zn.14 → ivy-82zn.14.3`
 dependency (the epic now depends on ivy-82zn.14.20). ivy-35zj now depends on ivy-82zn.14.16 and
 ivy-82zn.15 on ivy-82zn.14.14; QA verifies and closes both.
+
+## AR-NOFOG — Remove all village fog *(ivy-82zn.14.31; implement ivy-82zn.14.32)*
+
+**Human decision 2026-11-19 (verbatim):** "They look good, but the FOG doesn't work now, do you agree? we
+should completely remove it". Evidence: `.tmp/landscape_first/after/seed7_east_horizon.png` (far hills
+flattened into uniform pink bands at eye level) and `.tmp/landscape_first/after/seed7_wide_overview.png`
+(grey-white wash over everything past the lawn). The haze colours were tuned for the old flat ring and do
+not match the landscape-first hills.
+
+**Supersedes:** SD-HILLS-6 (ridge-band and fog tinting), AR-HILLS-3 (fog ridge tint), the fog half of
+SD-VILLAGE-GEN-6 / INV-20 (`fog_begin/fog_end` on the layout), the HeroFog anchor row of
+SD-VILLAGE-TERRAIN-7, the ivy-jnee world-fog-around-hero model, and the ivy-80z.7 fog-override seam in
+AR-VILLAGE-GEN. Where those sections say fog, read "no fog".
+
+### AR-NOFOG-GOAL — Goal in implementation terms
+
+At runtime, in the game (classic and generated) and in every playground, the live `Environment` has
+`fog_enabled == false` and `volumetric_fog_enabled == false`, and no `FogVolume` node exists. No shader
+blends terrain or trees toward a horizon or haze colour by distance. The code that produced fog is
+**deleted**, not switched off: there is no fog toggle, model enum or knob left. The sky shader's own
+horizon gradient, twilight glow and cloud fade are not fog and stay.
+
+### AR-NOFOG-INV — Inventory of every fog source (file:line at commit 6e1b85a)
+
+**Production (game):**
+
+| # | Where | What |
+|---|---|---|
+| P1 | `src/world/sky_sun.gd:4-7` | preloads `HeroFog`, `HillsFogTint`, `WorldFogVolume`, `WorldFogParams` |
+| P1 | `sky_sun.gd:47-50` | `_FOG_DAY`, `_FOG_TWILIGHT`, `DEFAULT_HAZE_ALBEDO` |
+| P1 | `sky_sun.gd:61-69` | fog state: nominal begin/end, model, centre mode, anchor, params, volume, presentation key |
+| P1 | `sky_sun.gd:84-163` | public fog API: `set_fog_depth`, `set_fog_model`, `get_fog_model`, `get/set_world_fog_params`, `set/get_fog_centre_mode`, `get_fog_nominal_begin/end`, `set_fog_anchor`, `sync_depth_fog_from_active_camera`, `read_fog_environment_state` |
+| P1 | `sky_sun.gd:166-209` | `_fog_presentation_key_now`, `_apply_fog_presentation` (CAMERA_DEPTH and HERO_SHIFTED depth fog branches) |
+| P1 | `sky_sun.gd:212-225` | `_refresh_volumetric_tint` (also calls `HillsFogTint.refresh_horizon_on_world`) |
+| P1 | `sky_sun.gd:228-241` | `default_haze_albedo`, `pale_horizon_haze_color`, `world_fog_glow_strength` |
+| P1 | `sky_sun.gd:243-277` | `_apply_world_volumetric_fog`: **depth fog 200-520 m**, `fog_sky_affect 0.10`, **volumetric fog 768 m** + `WorldHeroFog` volume |
+| P1 | `sky_sun.gd:279-282` | `_teardown_world_fog_volume` |
+| P1 | `sky_sun.gd:310-316` | per-frame `fog_light_color`, `volumetric_fog_albedo`, presentation-key re-apply |
+| P1 | `sky_sun.gd:385-387` | `fog_color_for` |
+| P2 | `src/world/hero_fog.gd` (whole file) | `HeroFog`: `FogModel`, `DEFAULT_MODEL`, `effective_fog_model`, `fog_amount`, world density, `haze_along_view_ray`, `apply_depth_fog_to_environment:126`, `haze_at_world_point` |
+| P3 | `src/world/world_fog_params.gd` (whole file) | `WorldFogParams` (clear 20 m / thick 130 m / outer 300 m radii, density, sky cap) |
+| P4 | `src/world/world_fog_volume.gd` (whole file) + `assets/shaders/world_hero_fog.gdshader` (+ `.uid`) | `WorldFogVolume` and its fog shader |
+| P5 | `src/world/world.gd:16`, `:245-246` (doc), `:296-303`, `:479-480` | `HeroFog` preload; `rebuild_backdrop` applies `set_fog_depth(layout.fog_begin, layout.fog_end)`, `set_fog_model`, `set_fog_anchor`; `_hero_fog_anchor_world` |
+| P6 | `src/main/main.gd:739-740` | `sync_depth_fog_from_active_camera()` when there is no clock |
+| P7 | `src/main/main.tscn:56-62` | Environment `fog_*` properties (`fog_enabled = false` already; dead values 9.5 / 95 / 0.8 / 0.3) |
+| P8 | `src/world/village_layout.gd:246`, `:304-305`, `:405-406`; `src/world/village_gen/village_generator.gd:2049-2050` | `GENERATED_FOG_BEGIN`, `fog_begin`, `fog_end` (the only readers are P5, `forest_playground.gd`, `village_terrain_playground.gd`, `hills_params.gd`, tools and tests) |
+| P9 | `src/render/shaders/village_ground_hills.gdshader:4` (comment), `:30` `u_horizon_rgb`, `:127-133` **flat-sector tint** (east/west ink toward `u_horizon_rgb * 0.62..0.90`), `:135-137` **far-ridge cap** (`u_horizon_rgb * 0.86`), `:159-164` horizon luminance cap | baked haze in the far-hills shader — the pink bands at eye level |
+| P10 | `src/playground/hills_fog_tint.gd:25-27` `horizon_reference_color`, `:30-47` `refresh_horizon_on_world` (`u_horizon_rgb`), `:75-77` + `:84-87` far cap and luminance cap in the CPU mirror `terrain_albedo`, `:102-107` `haze_at`, `:110-127` fog params on `color_for_world` / `tree_instance_color` and the `ridge_fog_tint_on` early-out, `:132-135` `u_horizon_rgb` set in `apply_terrain_shader` | CPU mirror + uniform plumbing of P9 |
+| P11 | `src/world/village_backdrop.gd:23`, `:107` (doc), `:1187`, `:1228-1232` | `HillsFogTint` use; fog begin/end + camera passed to `tree_instance_color` |
+| P12 | `src/playground/hills_params.gd:76` `ridge_fog_tint_on`, `:91-95` `fog_begin_m/fog_end_m`, `:167-176` `effective_fog_begin/end`; `src/playground/hills_knob_spec.gd:66`, `:72-73` | hills fog knobs (production values too) |
+| P13 | `src/playground/hills_pine_mesh.gd:4`, `:17` `disable_fog = true`; `src/render/shaders/hill_pine.gdshader` (unreferenced: `fog_disabled`, `u_horizon_rgb`) | fog opt-outs; the shader is already dead |
+| P14 | `src/playground/hills_heightfield.gd:5` | unused `HillsFogTint` preload |
+
+Correction to AR-HILLS-3: the hill terrain no longer bakes haze into vertex `COLOR` (the far mesh writes
+white, `src/playground/village_terrain.gd:616`); the haze lives only in the P9 shader blends. The hill-forest
+instance colour (`hills_fog_tint.gd:95-99` `tree_albedo`) is a distance green boost, not haze, and stays.
+
+**Playgrounds:**
+
+| # | Where | What |
+|---|---|---|
+| V1 | `src/playground/village_terrain_playground.gd:6` (header), `:18-20` preloads, `:68`, `:87`, `:485`, `:577`, `:1690-1728` (`_apply_playground_fog`, `_disable_fog_for_top_view`), `:1747-1752` (per-preset fog switch) | village terrain playground fog (production model, plus camera-depth 500-1000 m for top/wide views) |
+| V2 | `src/playground/hills_playground.gd:7`, `:15-17`, `:34-35`, `:93`, `:151`, `:190`, `:225-226`, `:247-253`, `:355-377` | hills playground fog + ridge tint switch |
+| V3 | `src/playground/forest_playground.gd:11-13`, `:43-49`, `:97`, `:107-111` (fallback depth fog 14-95 m), `:115-172`, `:183-194` (`--fog-model/--fog-begin/--fog-end`), `:203`, `:208`, `:280-296` (fog anchor marker), `:407-488` (Fog panel) | forest playground fog variants and knobs |
+| V4 | `src/playground/forest_playground_camera.gd:4-5`, `:72-75` `hero_fog_anchor_world`, `:78-110` `count_trees_visible_in_camsun` (haze gate) | fog anchor + haze-gated tree count |
+| V5 | `src/playground/village_terrain_village_host.gd:5` | comment only |
+
+**Tools:** `tools/run_ui_script.gd:191-211` (`FOG_VOLUMETRIC` verb); `tools/hills_sector_probe.gd:77-89`;
+`tools/hills_seam_probe.gd:29`; `tools/hills_colour_strip_probe.gd:35`;
+`tools/forest_camsun_geometry_probe.gd:125-126`; `tools/camera_bounds_evidence_capture.gd`; evidence
+captures `tools/hills_{evidence,rework,rework2,rework3,rework5}_capture.gd`; fog-only tools
+`tools/fog_v2_evidence_capture.{gd,tscn}`, `tools/fog_forest_{evidence,v2,v3}_capture.{gd,tscn}`,
+`tools/fog_forest_visibility_probe.gd`; UI scripts `tools/ui_scripts/fog_seam_verify.txt`,
+`qa_vlr_accept.txt:20-26`, `qa_vlr_s4_seed7.txt`, `generated_village.txt:33` (comment).
+
+**Not fog (kept):** `src/render/sky/atmospheric_sky.gdshader:148` `far_haze` (cloud fade toward the
+horizon); SkySun sky top / horizon / twilight / rim colours and ambient; `scenes/` has no fog properties.
+
+### AR-NOFOG-KEEP — Deleted vs kept
+
+**Delete (files):** `src/world/hero_fog.gd`, `src/world/world_fog_params.gd`,
+`src/world/world_fog_volume.gd`, `assets/shaders/world_hero_fog.gdshader`, `src/render/shaders/hill_pine.gdshader`
+(each with its `.uid`); `tools/fog_v2_evidence_capture.*`, `tools/fog_forest_evidence_capture.*`,
+`tools/fog_forest_v2_capture.*`, `tools/fog_forest_v3_capture.*`, `tools/fog_forest_visibility_probe.gd`,
+`tools/ui_scripts/fog_seam_verify.txt`, `tools/ui_scripts/qa_vlr_s4_seed7.txt`; the historical evidence
+captures `tools/hills_{evidence,rework,rework2,rework3,rework5}_capture.gd` and
+`tools/camera_bounds_evidence_capture.gd` (they exist only to reproduce fogged evidence; delete rather than
+port — if the programmer finds a live caller, port the call to no-fog instead).
+
+**Delete (code):** every P1 row except the kept items below; P5 fog lines and `_hero_fog_anchor_world`; P6;
+P7 `fog_*` lines (leave `fog_enabled = false` out too — the default is false); P8 fields, constant and the
+two generator/layout assignments; P9 `u_horizon_rgb`, flat-sector tint, far cap, luminance cap; P10
+`horizon_reference_color`, `refresh_horizon_on_world`'s horizon write, the far/luminance caps in
+`terrain_albedo`, `haze_at`, the fog parameters of `color_for_world` / `tree_instance_color`, the
+`ridge_fog_tint_on` branch; P11 fog arguments; P12 all three knobs and their rows; P13 `disable_fog` line;
+P14 preload; V1-V4 fog code, the forest Fog panel, its CLI flags and anchor marker,
+`hero_fog_anchor_world`; the `FOG_VOLUMETRIC` verb.
+
+**Keep / rename:**
+- `HillsFogTint` → **`HillsTint`** (`src/playground/hills_tint.gd`, move the `.uid`). It keeps
+  `luminance`, `layer_t_for_radius`, `terrain_albedo` (CPU mirror without the caps), `tree_albedo`,
+  `color_for_world(world, params, layout, slope_deg, planar_r, ndl)`,
+  `tree_instance_color(world, params, layout)`, `apply_terrain_shader` (minus `u_horizon_rgb`), and
+  `refresh_hill_lighting_on_world(world, s_y, lit, sun_dir)` (renamed from `refresh_horizon_on_world`;
+  writes only `u_twilight` and `u_sun_dir`). One class, used by game and playground (G7).
+- SkySun keeps: sun, sky colours, twilight glow, ambient, sky shader uniforms, and the call to
+  `HillsTint.refresh_hill_lighting_on_world` inside `update()`. `SkySun.setup()` sets
+  `fog_enabled = false` and `volumetric_fog_enabled = false` once on its Environment (belt and braces for
+  the playgrounds that bring their own Environment); nothing else in the codebase writes fog properties.
+- `ForestPlaygroundCamera.count_trees_visible_in_camsun(trees_layout) -> Dictionary` keeps the FOV count
+  (`{"in_fov": n}`); the haze gate and `visible` / `mean_haze` keys go.
+- Hills shader keeps: meadow layers, azimuth wedge, patch noise, gust shimmer, manual sun lighting, the
+  twilight dim, the `u_lawn_colour` seam blend and the terrain tint include.
+- `u_meadow_mid` stays as the hills' mid-distance colour (a colour ramp, not fog); whether it still reads
+  right without fog is the human's call in the playground.
+
+**Parity (G7):** the village terrain playground already builds the far mesh with
+`VillageTerrain.build_far_mesh` and the material with `VillageBackdrop.make_hill_material` and installs the
+production `SkySun`; after this change it has no fog in any camera preset because there is no fog code left
+to call. Its "Current (production)" is therefore fog-free by construction. No playground fog knob remains.
+
+### AR-NOFOG-EDGE — What the fog was hiding, and how it is handled
+
+| Hidden thing | Cause | Handling |
+|---|---|---|
+| **Far-mesh outer edge** at `r_outer_m = 310 m` and the **sky gap** under it (**ivy-1vlg**) | Nothing is drawn past 310 m except `World/Ground` corners; rays just below eye level hit the sky shader, whose below-horizon band starts at `sky_horizon_color` (pale), so a pale band shows between the far silhouette and the ground. The 200-520 m depth fog painted the rim and the band the same pale colour. | **Horizon skirt** (recommended, Q2 option 1): `VillageTerrain.build_far_mesh` appends `SKIRT_RINGS` (about 10) coarse rings from `r_outer_m` to **`R_SKIRT_M = 3000.0`** (new const in `village_terrain.gd`, below the 4000 m camera far). Ring 0 of the skirt is the existing outer ring (same vertices, no crack). Skirt height eases from the field height at `r_outer_m` to a constant `y_skirt = min(rim ring y)` with `smoothstep(r_outer_m, r_outer_m + 600, r)`; normals from central differences on the coarse grid, up past the ease band. Same material, so beyond the layers it renders as plain meadow (`layer_t → 0`). `terrain_mesh_min_y()` is unchanged because `y_skirt` is the rim minimum. The signed-off hills inside 310 m do not change. The skirt lives in the shared mesh builder, so the playground gets it too. |
+| **`World/Ground` edge** past 310 m (dark green rectangle in the wide overview corners) | `main.tscn:65` PlaneMesh is 512 x 512 m (edges 256 m, corners 362 m); generated mode discards it inside 310 m (`world.gd:401`), leaving four corner patches. | Generated: discard radius becomes `VillageTerrain.R_SKIRT_M` (`world.gd:401`), so the plane is only drawn past 3 km. PlaneMesh size becomes **6000 x 6000 m** for classic, which otherwise ends at 256 m. `GroundCollision` is unchanged. |
+| Residual sliver below the skirt edge (eye 5-10 m above `y_skirt`: about 0.1-0.2 degrees at 3 km) and the skirt edge seen from the wide overview | Same sky-shader below-horizon band | `atmospheric_sky.gdshader` below-horizon colour: `ground_horizon_color` set to the far meadow tone (the hills shader output for `u_meadow_near` under the day sun; the programmer measures one value) in `main.tscn`'s sky material, and the pale `sky_horizon` start of the below-horizon blend (shader lines 76-82) is limited to a band of at most 0.5 degrees, so the sky meets the land in land colour. The ivy-cwk high-orbit seam fix is kept within that band. Verify in the wide overview capture. |
+| Playground camera clipping the skirt | `scenes/playground/village_terrain_playground.tscn:17` `far = 500.0` | Raise to `4000.0` (same as the game cameras' default). |
+| **Lit/unlit lawn-far seam** at the join loop | `LawnTerrain` is engine-lit; the far mesh is `unshaded` and blends to the constant `u_lawn_colour` at the join. The volumetric fog (density ramping from 20 m + 56 m pad) dimmed both sides equally, so it did not create the seam, but it lowered contrast there. | Re-run `tools/hills_seam_probe.gd` before and after (default sun and CamSun). If the delta at the join grows past the pre-change value, recalibrate the single `_LAWN_COLOUR` / `u_lawn_colour` constant (`hills_tint.gd`, applied by `apply_terrain_shader`). Making the far mesh lit is a non-goal; if the seam still shows at other sun angles, file a follow-up bug rather than redesign here. |
+
+### AR-NOFOG-Q — Open human choices (the plan proceeds with the recommendation)
+
+- **Q1 — Classic mode.** Classic uses the same SkySun fog path (`world.gd:301-303` applies it for every
+  layout). (1, recommended) Classic loses fog too: one code path, nothing kept alive for it, and the human
+  asked for "completely". Classic also gets the 6000 m ground plane, so its horizon is not cut at 256 m.
+  (2) Keep fog for classic only: keeps HeroFog / WorldFogVolume alive, contradicts "dead code should go",
+  and keeps the INV-15 "classic byte-identical" promise for fog. The implement bead follows (1); if the
+  human picks (2), the GA re-plans before review.
+- **Q2 — What replaces the edge the fog hid.** (1, recommended) The horizon skirt to 3 km + bigger
+  World/Ground + sky below-horizon colour matched to the meadow, as above; closes ivy-1vlg in the same
+  change and works in the playground. (2) Only enlarge World/Ground to 6000 m and keep the 310 m discard:
+  smallest change and closes the sky gap in the game, but leaves a colour and height step at 310 m and the
+  playground (no World/Ground) still shows sky past 310 m. (3) Remove fog only and leave the edges for
+  ivy-1vlg: the accept screenshots would show a hard rim and a pale band, so it fails ivy-82zn.14.34 AC 2-3.
+
+### AR-NOFOG-TEST — Test plan
+
+**Delete:** `test/test_hero_fog.gd` (includes the known pre-existing failures), `test/test_world_fog_render_contract.gd`,
+`test/test_fog_centre_live_environment.gd`, `test/test_hills_fog_seam.gd`.
+
+**Rewrite:**
+- `test/test_hills_fog_tint.gd` → `test/test_hills_tint.gd`: drop `test_ridge_tint_mid_band_not_fully_far_albedo`
+  and `test_ridge_tint_haze_monotone_with_hero_distance`; keep `test_shader_no_hardcoded_ridge_literals`,
+  `test_apply_terrain_shader_sets_ridge_uniforms`, `test_apply_terrain_shader_sets_wedge_uniforms` with the new API.
+- `test/test_hills_legibility.gd`: drop the far-ridge-vs-horizon luminance assertion (lines 34-39); keep the
+  near-darker-than-mid checks with the new `terrain_albedo` signature.
+- `test/test_hills_north_wedge.gd:84-96`, `test/test_hills_pine_mesh.gd:26` (rename to drop "fog_off",
+  assert the leaf alpha scissor only) and `:53-54` (new `tree_instance_color` signature).
+- `test/test_hills_params.gd:15` drop `ridge_fog_tint_on`; the knob-range test must still pass with the
+  three rows removed.
+- `test/test_world_backdrop_swap.gd:10`, `:79`, `:131`, `:151`: replace the fog-depth checks with
+  "after generated, classic, and generated → classic → generated swaps the Environment has fog and
+  volumetric fog off and no `FogVolume` exists".
+- `test/test_village_world_scale.gd:101-104`, `:190-193`, `:276-279`, `:350-358` and
+  `test/test_forest_camsun_geometry.gd:27-33`: drop `fog_begin/fog_end` asserts; call the new
+  `count_trees_visible_in_camsun(trees)` and assert on `in_fov` only (same thresholds).
+- `test/test_generated_village_backdrop.gd:260-261`: drop the INV-20 fog asserts.
+- `test/test_village_backdrop.gd:12-13`, `:564-601`: delete `test_fog_depth_begin_exceeds_max_camera_distance`
+  and `test_fog_sky_affect_in_range`; replace with one test that `main.tscn` contains no
+  `fog_enabled = true` and no `volumetric_fog_enabled = true`.
+- `test/test_sky_sun.gd:132`, `:149`: delete the two fog colour tests (no fog colour exists).
+- Any other test that fails to load once the files are gone (search for the deleted class names).
+
+**New — `test/test_no_fog.gd` (the pin):**
+1. Game, classic and generated seeds 1 / 7 / 12 (via `World.rebuild_backdrop`), after a few frames and after
+   `SkySun.update()` at noon and at twilight: `env.fog_enabled == false`, `env.volumetric_fog_enabled == false`,
+   no `FogVolume` in the tree.
+2. Village terrain playground scene, after each preset in its preset list (including `top`,
+   `wide_overview`, `camsun`, `east_horizon`, `west_horizon`, `old_rim_seam`): same three checks.
+3. Hills and forest playground scenes: same three checks.
+4. Source guard: walk `res://src`, `res://scenes`, `res://tools`, `res://assets/shaders` with `DirAccess`
+   and assert no `.gd` / `.tscn` / `.gdshader` / `.gdshaderinc` file contains `FogVolume`,
+   `fog_enabled = true`, `volumetric_fog_enabled = true`, `HeroFog`, `WorldFog`, `HillsFogTint`,
+   `u_horizon_rgb`, `fog_begin` or `fog_end`.
+
+**New — skirt / edge (in `test/test_no_fog.gd` or the existing far-mesh test file):**
+5. `build_far_mesh` max planar radius about G is `>= R_SKIRT_M - 1`; every outer-ring vertex of the old mesh
+   at `r_outer_m` is present unchanged (no crack, same y as before the skirt); skirt y is non-increasing toward
+   `y_skirt` and constant past the ease band; `terrain_mesh_min_y()` equals its pre-skirt value for seeds 1/7/12.
+6. Generated `World/Ground` discard radius `== VillageTerrain.R_SKIRT_M`; `main.tscn` PlaneMesh size is
+   6000 x 6000; village terrain playground camera `far >= 4000`.
+7. Production/playground parity: the far mesh built by the playground and by `VillageBackdrop` for the same
+   seed have the same vertex count and the same vertex hash (extend the existing parity test if there is one).
+
+**UI script:** add `tools/ui_scripts/no_fog.txt` (seed 7 generated: default, CamSun, east/west horizon, wide
+overview; then classic default) for the review and QA screenshot passes. This is the check for the visual
+result; the GUT tests above only pin the absence of fog and the geometry.
+
+### AR-NOFOG-DOCS — Doc updates
+
+- `DESIGN.md` § Village game modes: one paragraph on the no-fog decision (added with this plan).
+- `IMPLEMENTATION.md`: this section; superseded notes under SD-HILLS-6 and AR-HILLS-3 (added with this plan).
+  The programmer adds short "superseded by AR-NOFOG" notes where SD-VILLAGE-GEN-6 / INV-20,
+  SD-VILLAGE-TERRAIN-7 (HeroFog anchor row) and the AR-VILLAGE-GEN `sky_sun.gd` fog-override block describe fog.
+- `TECHNICAL_INDEX.md`: remove `hero_fog.gd`, `world_fog_params.gd`, `world_fog_volume.gd`,
+  `world_hero_fog.gdshader`, `hill_pine.gdshader`, the fog tools; rename `hills_fog_tint.gd` → `hills_tint.gd`;
+  add `test_no_fog.gd`.
+- `.claude/skills/run-ui-script` docs (and any verb list) drop `FOG_VOLUMETRIC` — the skill directory is
+  sandbox-protected, so the programmer tells the user the exact edit if it cannot be written.
+- `sync_project_memory` after the docs change.
+
+### AR-NOFOG-RISK — Risks and mitigations
+
+- **Hills read flat or too saturated without the haze.** Expected trade-off of the human's decision; judged in
+  the playground at accept. No compensating aerial-perspective tint is added (that would be fog again).
+- **Skirt visible as a lip from the wide overview.** Ease band 600 m and the matched sky ground colour; the
+  accept captures check it. If a lip shows, lengthen the ease band (constant), do not add fog.
+- **Depth precision at 3-4 km** with the existing near plane: the skirt is flat and far, z-fighting with
+  `World/Ground` is avoided because the plane is discarded inside `R_SKIRT_M` and sits below `y_skirt`.
+- **Mesh budget:** about 10 x 192 extra vertices; within the backdrop tri cap
+  (`test_triangle_budget_under_120k` must still pass).
+- **Deleting tools a human still uses.** Only fog-evidence tools are deleted; the programmer lists them in
+  the close notes so the human can object.
+
+### AR-NOFOG-COMPAT — Backward compatibility
+
+Classic loses fog (Q1 option 1) and its ground plane grows; otherwise classic geometry, scatter and camera are
+unchanged. Snapshot recipes and `VillageLayout` serialisation do not carry fog (no field to migrate). The
+`FOG_VOLUMETRIC` UI verb is removed; scripts using it must drop the line (the only users are deleted).
+
+### AR-NOFOG-NONGOAL — Non-goals
+
+No change to the hills' shape, heights, layer colours, wedge or forest placement inside 310 m; no lit far mesh;
+no new aerial-perspective or distance tint of any kind; no sky redesign beyond the below-horizon colour; no fog
+toggle, preset or playground knob; no fix for ivy-2qeq or ivy-3hl8 (unrelated); no camera retune.
+
+### AR-NOFOG-HANDOFF — Handoff to Gameplay Programmer (ivy-82zn.14.32)
+
+Capture the BEFORE set first (seeds 1/7/12: default, CamSun, east/west horizon, wide overview, old-rim seam;
+classic default + CamSun; playground seed 7) into `.tmp/no_fog/before/` and run `tools/hills_seam_probe.gd`
+for the baseline. Then test-first: write `test/test_no_fog.gd` (fails), delete fog code in this order —
+SkySun / World / main → HeroFog, WorldFog* files → layout fields → hills shader + `HillsTint` rename →
+playgrounds → tools — then the skirt, the plane, the sky colour, the playground camera far. Cite `AR-NOFOG-*`
+in comments and close notes. Review is ivy-82zn.14.33, accept ivy-82zn.14.34 (also verifies ivy-1vlg).
 
