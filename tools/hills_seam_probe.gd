@@ -10,6 +10,9 @@
 ## bottom band vs middle band), and "SEAM_JOIN n=<samples> L1=<mean>" (join-loop metric, AR-NOFOG-EDGE):
 ## for each azimuth whose join-loop points project on screen, the 5x5-pixel mean at r_join - 4 m
 ## (lawn side) vs r_join + 4 m (far-mesh side); L1 is the mean of |far - lawn| summed over RGB.
+## On textured ground that L1 is dominated by grain (ivy-82zn.17.3): judge it against SEAM_JOIN_CTRL
+## (same metric between two lawn points, no seam) and read SEAM_JOIN_BIAS / SEAM_JOIN_SIGNED for the
+## systematic step. --no_blades hides the lawn grass; --ground_set=<knob>=<value> overrides a ground knob.
 extends Node
 
 const _MAIN := "res://src/main/main.tscn"
@@ -31,6 +34,7 @@ func _ready() -> void:
 	var seam_gain := -1.0
 	var ground := ""  # "" = as built; "untextured" = VillageTerrainParams.untextured_ground_overrides()
 	var ground_set: Array[String] = []  # extra knob=value overrides, e.g. ground_saturation=0.7
+	var hide_blades := false  # --no_blades: hide the 3D lawn grass blades (bare lawn surface A/B)
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--seed="): seed_val = int(arg.get_slice("=", 1))
 		elif arg.begins_with("--out="): out_path = arg.get_slice("=", 1)
@@ -39,7 +43,8 @@ func _ready() -> void:
 		elif arg.begins_with("--seam_lit="): seam_lit = int(arg.get_slice("=", 1))
 		elif arg.begins_with("--seam_gain="): seam_gain = float(arg.get_slice("=", 1))
 		elif arg.begins_with("--ground="): ground = arg.get_slice("=", 1)
-		elif arg.begins_with("--ground_set="): ground_set.append(arg.get_slice("=", 1))
+		elif arg.begins_with("--ground_set="): ground_set.append(arg.substr("--ground_set=".length()))
+		elif arg == "--no_blades": hide_blades = true
 
 	var main := await _boot_generated(seed_val)
 	var world: Node3D = main.get_node("World")
@@ -56,6 +61,12 @@ func _ready() -> void:
 
 	if ground != "" or not ground_set.is_empty():
 		_apply_ground(world, ground, ground_set)
+	if hide_blades:
+		var hidden := 0
+		for n in world.find_children("Scatter_Grass_*", "", true, false):
+			(n as Node3D).visible = false
+			hidden += 1
+		print("[seam-probe] hid ", hidden, " grass nodes")
 
 	var bounds: Dictionary = world.get_village_lawn_camera_bounds()
 	var centre: Vector2 = bounds.get("centre_xz", Vector2.ZERO)
@@ -156,11 +167,17 @@ func _print_join_metric(img: Image, cam: Camera3D, world: Node3D, centre: Vector
 	var n := 0
 	var lawn_sum := Color(0, 0, 0, 0)
 	var far_sum := Color(0, 0, 0, 0)
+	# Control (ivy-82zn.17.3): the same metric between two lawn points (r_join - 3·pad vs r_join - pad),
+	# i.e. the L1 of a seam that is not there — the ground's own point-to-point variation (texture grain).
+	var ctrl_sum := 0.0
+	var ctrl_n := 0
+	var inner_sum := Color(0, 0, 0, 0)
+	var ctrl_lawn_sum := Color(0, 0, 0, 0)
 	for i in range(_JOIN_AZIMUTHS):
 		var a := TAU * float(i) / float(_JOIN_AZIMUTHS)
 		var dir := Vector2(sin(a), -cos(a))
 		var px: Array[Vector2] = []
-		for r in [r_join - _JOIN_PAD_M, r_join + _JOIN_PAD_M]:
+		for r in [r_join - _JOIN_PAD_M, r_join + _JOIN_PAD_M, r_join - 3.0 * _JOIN_PAD_M]:
 			var xz: Vector2 = centre + dir * float(r)
 			var y := float(bd.call("sample_terrain_world_y", xz)) if bd != null else 0.0
 			var p := Vector3(xz.x, y, xz.y)
@@ -171,10 +188,16 @@ func _print_join_metric(img: Image, cam: Camera3D, world: Node3D, centre: Vector
 			if q.x < 3 or q.y < 3 or q.x > img.get_width() - 4 or q.y > img.get_height() - 4:
 				break
 			px.append(q)
-		if px.size() != 2:
+		if px.size() < 2:
 			continue
 		var lawn := _sample_region(img, int(px[0].x) - 2, int(px[0].x) + 3, int(px[0].y) - 2, int(px[0].y) + 3)
 		var far := _sample_region(img, int(px[1].x) - 2, int(px[1].x) + 3, int(px[1].y) - 2, int(px[1].y) + 3)
+		if px.size() == 3:
+			var inner := _sample_region(img, int(px[2].x) - 2, int(px[2].x) + 3, int(px[2].y) - 2, int(px[2].y) + 3)
+			ctrl_sum += absf(inner.r - lawn.r) + absf(inner.g - lawn.g) + absf(inner.b - lawn.b)
+			ctrl_n += 1
+			inner_sum += inner
+			ctrl_lawn_sum += lawn
 		sum += absf(far.r - lawn.r) + absf(far.g - lawn.g) + absf(far.b - lawn.b)
 		lawn_sum += lawn
 		far_sum += far
@@ -184,6 +207,15 @@ func _print_join_metric(img: Image, cam: Camera3D, world: Node3D, centre: Vector
 	# Per-side means (sRGB pixels) for recalibrating u_lawn_colour (AR-NOFOG-EDGE).
 	print("SEAM_JOIN_LAWN %.4f %.4f %.4f" % [lawn_sum.r * k, lawn_sum.g * k, lawn_sum.b * k])
 	print("SEAM_JOIN_FAR %.4f %.4f %.4f" % [far_sum.r * k, far_sum.g * k, far_sum.b * k])
+	# Systematic part of the seam: |mean far − mean lawn| summed over RGB (grain averages out).
+	var bias := absf(far_sum.r - lawn_sum.r) + absf(far_sum.g - lawn_sum.g) + absf(far_sum.b - lawn_sum.b)
+	print("SEAM_JOIN_BIAS L1=%.4f" % (bias * k))
+	var kc := 1.0 / float(maxi(ctrl_n, 1))
+	var d := (ctrl_lawn_sum - inner_sum) * kc  # signed: lawn(r_join − pad) − lawn(r_join − 3·pad)
+	print("SEAM_JOIN_CTRL n=%d L1=%.4f bias=%.4f (%+.4f %+.4f %+.4f)" % [ctrl_n, ctrl_sum * kc,
+		absf(d.r) + absf(d.g) + absf(d.b), d.r, d.g, d.b])
+	var s := (far_sum - lawn_sum) * k  # signed: far − lawn across the join
+	print("SEAM_JOIN_SIGNED (%+.4f %+.4f %+.4f)" % [s.r, s.g, s.b])
 
 
 static func _sample_region(img: Image, x0: int, x1: int, y0: int, y1: int) -> Color:
