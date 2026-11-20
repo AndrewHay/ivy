@@ -89,11 +89,19 @@ func test_f1_tower_sdf_isolates_traverse_flag() -> void:
 		"F1: TowerSdf — direction must be identical with flag on vs off")
 
 
+## F1 flag-off proof on a real WallSdf (OverhangSdf) SimContext: the tip sits 0.30 m
+## under the soffit, where the early-trigger arm fires when the flag is on
+## (test_early_trigger_arms_traverse_when_soffit_overhead). With the flag off the
+## traverse gate must stay closed, so step_tip leaves traverse_ticks at 0.
 func test_f1_traverse_gate_false_when_flag_off() -> void:
-	var params := IvyParams.new()
-	params.eave_traversal_enabled = false
-	var traverse := params.eave_traversal_enabled and "WallSdf" == "WallSdf"
-	assert_false(traverse, "F1: traverse must be false when flag is off")
+	var tip_pos := Vector3(0.0, 4.7, 0.01)
+	var d := await _make_early_trigger_ctx(0.40, tip_pos, 77771, false)
+	var tip: Tip = d.tip
+	var ctx: SimContext = d.ctx
+	assert_eq(ctx.surface.backend_tag(), "WallSdf", "F1 setup: overhang must be WallSdf")
+	GrowthStep.step_tip(tip, ctx)
+	assert_eq(tip.traverse_ticks, 0,
+		"F1: traverse_ticks must stay 0 on WallSdf when eave_traversal_enabled=false")
 
 
 # ── F2 — catalog traversal_for() policy ─────────────────────────────────────────────────
@@ -410,7 +418,8 @@ func test_t5_growth_rate_bounded_by_max_growth_rate() -> void:
 ## Env is built with a separate null-physics SQ so the env bake is fast. The returned
 ## context surface uses the real physics space so ctx.surface.raycast() detects the soffit.
 ## Coroutine: awaits physics_frame after build_from_spec.
-func _make_early_trigger_ctx(approach_reach: float, tip_pos: Vector3, seed: int = 77771) -> Dictionary:
+func _make_early_trigger_ctx(approach_reach: float, tip_pos: Vector3, seed: int = 77771,
+		traversal_on: bool = true) -> Dictionary:
 	var spec := OverhangSpec.new()
 	var ow := OverhangWall.new()
 	add_child_autofree(ow)
@@ -418,7 +427,7 @@ func _make_early_trigger_ctx(approach_reach: float, tip_pos: Vector3, seed: int 
 	await get_tree().physics_frame  ## commit shape so ctx.surface.raycast() detects the soffit
 
 	var params := IvyParams.new()
-	params.eave_traversal_enabled = true
+	params.eave_traversal_enabled = traversal_on
 	params.eave_approach_reach = approach_reach
 	params.eave_traverse_window = 40
 
