@@ -91,10 +91,11 @@ func update(game_day: float, seconds_per_game_day: float) -> void:
 	_sun.visible = lit > 0.0
 	_sun.light_color = light_color_for(s.y)
 	var tw := twilight_glow_for(s.y, lit)
-	# The vector the far mesh is lit with (u_sun_dir). The sky below the horizon uses the same one so the
-	# skirt and the sky under it agree at every hour (ivy-82zn.14.37). Its sign (light forward, -S) is
-	# bug ivy-82zn.14.38; do not flip it here.
-	var sun_dir := (-_sun.global_basis.z).normalized()
+	# The vector the far mesh is lit with (u_sun_dir): +S, toward the sun, the same convention as the
+	# playgrounds' HillsTint.DEFAULT_SUN_DIR (ivy-82zn.14.38, human decision 2026-11-20). Not the light
+	# forward, which is -S. The sky below the horizon uses the same vector so the skirt and the sky under
+	# it agree at every hour (ivy-82zn.14.37).
+	var sun_dir := s.normalized()
 	var world_root := get_parent()
 	if world_root != null:
 		HillsTint.refresh_hill_lighting_on_world(world_root, s.y, lit, sun_dir)

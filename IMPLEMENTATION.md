@@ -10134,7 +10134,10 @@ Followed the plan; where it differs:
   sets `ground_horizon_color` every frame to `HillsTint.far_meadow_colour(sun_dir, twilight)` — the hills
   shader's plain-meadow output on flat ground (eff_layer_t 0, mean patch noise, same warm/cool sun lighting
   and twilight dim). `ground_energy` is 1.0. The playgrounds (which never run `SkySun.update`) set it once from
-  `HillsTint.DEFAULT_SUN_DIR`, the far mesh's own `u_sun_dir` there. Reason: the game captures run at dawn and
+  `HillsTint.DEFAULT_SUN_DIR`, the far mesh's own `u_sun_dir` there. *Sun convention (ivy-82zn.14.38, human
+  decision 2026-11-20):* `u_sun_dir` points **toward the sun (+S)** in both the game and the playgrounds;
+  `SkySun.update()` passes `Solar.render_direction`, not the light forward (−S), so sunlit far slopes get the
+  warm term by day (`test_no_fog.test_far_hills_u_sun_dir_points_toward_the_sun_by_day`). Reason: the game captures run at dawn and
   noon, and a single noon constant would mismatch at the other. `atmospheric_sky.gdshader` keeps the pale
   `sky_horizon` value only inside `ground_seam_band` = sin 0.5° below y = 0 (ivy-cwk seam).
 - **Skirt colour = plain meadow.** Past `r_outer` the shader (`u_r_outer`, `u_skirt_ease`) and

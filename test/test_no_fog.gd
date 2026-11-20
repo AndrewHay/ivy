@@ -326,3 +326,27 @@ func test_sky_below_horizon_is_the_far_meadow_colour() -> void:
 		assert_almost_eq(got.g, want.g, 1e-4, "day %.3f ground_horizon g" % day)
 		assert_almost_eq(got.b, want.b, 1e-4, "day %.3f ground_horizon b" % day)
 	assert_almost_eq(float(mat.get_shader_parameter("ground_energy")), 1.0, 1e-6, "ground energy 1")
+
+
+## ivy-82zn.14.38 (human decision 2026-11-20): the far mesh is lit toward the sun, the playgrounds'
+## convention. After SkySun.update by day, u_sun_dir points at the sun (+S), not along the light (-S).
+func test_far_hills_u_sun_dir_points_toward_the_sun_by_day() -> void:
+	var main: Node = await _boot_main()
+	var world := main.get_node("World")
+	world.call("set_village_mode", GameModes.GENERATED, 7)
+	world.call("rebuild_backdrop")
+	await get_tree().process_frame
+	var hill := world.get_node_or_null("VillageBackdrop/HillTerrain") as MeshInstance3D
+	assert_not_null(hill, "generated seed 7 has a HillTerrain far mesh")
+	if hill == null:
+		return
+	var hill_mat := hill.mesh.surface_get_material(0) as ShaderMaterial
+	var sky := world.get_node("SkySun") as SkySun
+	for day in _noon_and_twilight_days(sky):
+		sky.update(day, _SPD)
+		var s: Vector3 = sky.solar.render_direction(day, _SPD)
+		assert_gt(s.y, 0.0, "day %.3f is daytime" % day)
+		var u: Vector3 = hill_mat.get_shader_parameter("u_sun_dir")
+		assert_gt(u.normalized().dot(s), 0.99, "day %.3f u_sun_dir toward the sun" % day)
+	# Same convention as the playgrounds, which never run SkySun.update.
+	assert_gt(HillsTint.DEFAULT_SUN_DIR.y, 0.0, "playground default sun is above the horizon")

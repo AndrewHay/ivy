@@ -32,6 +32,7 @@ const _SUN_WARMTH := 0.22
 ## fade them to 0 over VillageTerrain.SKIRT_EASE_M, so the skirt renders as plain meadow. Inside
 ## r_outer nothing changes.
 ## u_sun_dir until SkySun.update() drives it (and for good in the playgrounds, which never update).
+## Convention (game and playground): u_sun_dir points TOWARD the sun (+S), ivy-82zn.14.38.
 const DEFAULT_SUN_DIR := Vector3(0.35, 0.78, 0.52)
 
 

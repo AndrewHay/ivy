@@ -26,13 +26,17 @@ func _ready() -> void:
 	var seed_val := 7
 	var out_path := "/tmp/seam_probe.png"
 	var view := "seam"
+	var day_val := -1.0
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--seed="): seed_val = int(arg.get_slice("=", 1))
 		elif arg.begins_with("--out="): out_path = arg.get_slice("=", 1)
 		elif arg.begins_with("--view="): view = arg.get_slice("=", 1)
+		elif arg.begins_with("--day="): day_val = float(arg.get_slice("=", 1))
 
 	var main := await _boot_generated(seed_val)
 	var world: Node3D = main.get_node("World")
+	if day_val >= 0.0:
+		_pin_game_day(main, day_val)
 
 	var bounds: Dictionary = world.get_village_lawn_camera_bounds()
 	var centre: Vector2 = bounds.get("centre_xz", Vector2.ZERO)
@@ -43,6 +47,15 @@ func _ready() -> void:
 		var rig := world.get_node_or_null("CameraRig")
 		rig.call("select", 0)
 		cam = get_viewport().get_camera_3d()
+	elif view == "north":
+		# High overview from G looking north over the lawn edge into the far hill wedge.
+		var eye := Vector3(centre.x, 28.0, centre.y + 30.0)
+		var tgt := Vector3(centre.x, 4.0, centre.y - 220.0)
+		cam = Camera3D.new()
+		cam.far = 2000.0
+		world.add_child(cam)
+		cam.global_transform = Transform3D(Basis.looking_at(tgt - eye, Vector3.UP), eye)
+		cam.make_current()
 	else:
 		# Seam camera: stand at village centre (G), looking north toward the seam at distance.
 		# Bottom half of the image = near ground (lawn grass), middle = lawn edge transition,
@@ -78,7 +91,21 @@ func _ready() -> void:
 		abs(hill_rgb.b - lawn_rgb.b), 0)
 	print("SEAM_DELTA %.4f %.4f %.4f  L1=%.4f" % [delta.r, delta.g, delta.b, delta.r+delta.g+delta.b])
 	_print_join_metric(img, cam, world, centre, lawn_r)
+	_print_sun_dir(world)
 	get_tree().quit(0)
+
+
+## The far mesh's u_sun_dir and its dot with the light forward (-S): > 0 means it points away from the sun.
+func _print_sun_dir(world: Node3D) -> void:
+	var hill := world.get_node_or_null("VillageBackdrop/HillTerrain") as MeshInstance3D
+	var sun := world.get_node_or_null("SkySun/Sun") as DirectionalLight3D
+	if hill == null or hill.mesh == null or sun == null:
+		print("SUN_DIR unavailable")
+		return
+	var mat := hill.mesh.surface_get_material(0) as ShaderMaterial
+	var u: Vector3 = mat.get_shader_parameter("u_sun_dir") if mat != null else Vector3.ZERO
+	var fwd := -sun.global_basis.z
+	print("SUN_DIR u_sun_dir=%s light_fwd=%s dot=%.3f" % [u, fwd, u.normalized().dot(fwd)])
 
 
 func _print_join_metric(img: Image, cam: Camera3D, world: Node3D, centre: Vector2, r_join: float) -> void:
@@ -128,6 +155,18 @@ static func _sample_region(img: Image, x0: int, x1: int, y0: int, y1: int) -> Co
 			sr += c.r; sg += c.g; sb += c.b; n += 1
 	if n == 0: return Color.BLACK
 	return Color(sr/n, sg/n, sb/n)
+
+
+## Pause the sim clock at `day` (0.25 = local noon with start_hour 6) so SkySun.update lights that hour.
+func _pin_game_day(main: Node, day: float) -> void:
+	var sim: Node = main.get("_sim") as Node
+	if sim == null or not sim.has_method("get_clock"):
+		push_warning("hills_seam_probe: no sim clock; --day ignored")
+		return
+	var clock: SimClock = sim.call("get_clock") as SimClock
+	clock.set_speed(SimClock.Speed.PAUSE)
+	clock.game_day = day
+	print("[seam-probe] pinned game_day=", day)
 
 
 func _boot_generated(seed_val: int) -> Node:
