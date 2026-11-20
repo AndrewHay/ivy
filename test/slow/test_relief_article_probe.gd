@@ -30,9 +30,11 @@ const GAME_DAYS := 30.0
 const SEED_STREAM_BASE := 12345  # SimRoot._plant_scenario_seed: 12345 + anchor index
 ## D5: the sharp variant's fingerprint from a separate-process run (2026-11-14).
 ## Re-recorded for ivy-9bt7 (mesh snap skin and extended mesh rays); before that fix it was
-## 600f8904 / a81ca9df...c4d.
-const SHARP_RUN_HASH := "52875f3f"
-const SHARP_SHA256 := "45fc70a6f2add3fe6061b275594c9f4045d0b4effb8db335ec3de4ca35fad6bb"
+## 600f8904 / a81ca9df...c4d. Re-recorded for ivy-hfik (mesh rays start a skin behind the tip, the
+## snap is ray-checked) from two separate-process runs on 2026-11-20; before it was 52875f3f /
+## 45fc70a6...6bb.
+const SHARP_RUN_HASH := "6ac26e8f"
+const SHARP_SHA256 := "3e809f2549adc8d566c9a62a1cd289cd4d5729479e5cbb1553d0a67a83d4baa1"
 
 
 ## Grows one variant and returns the probe report (plus fingerprints and query counts).

@@ -9,7 +9,8 @@ extends RefCounted
 ##
 ## Criteria (SD-MESH-19.5):
 ##   D0 evidence    >= 20 rib/rail crossings (a stem with attached nodes on both sides),
-##                  >= 5 stems with nodes in N1's floor zone, >= 1 in M1's
+##                  >= 5 stems with nodes in N1's floor zone, >= 1 with nodes on M1's floor
+##                  (anywhere in M1, within effective contact of its floor; ruling 2026-11-20)
 ##   D1 floor       of front-side floor-zone nodes, >= 95 % within effective contact (0.045 m) of
 ##                  the floor plane AND median distance to the floor <= d_contact (0.02 m)
 ##                  (ratified in ivy-b1e.21)
@@ -379,6 +380,11 @@ static func analyse(plant: PlantData, tip_ends: Array, proxy_phi: Callable = Cal
 				elif d > D2_MAX_SPAN:
 					floating_far += 1
 					floating_max = maxf(floating_max, d)
+				# D0 for M1 counts a stem on M1's floor anywhere in the niche (owner ruling 2026-11-20,
+				# ivy-2laa): M1's floor zone is only 0.01 m wide, so whether the one fixed run lands a
+				# node in it is luck, not evidence of reach.
+				if fp["id"] == "M1" and absf(p.z - float(fp["floor_z"])) <= EFFECTIVE_CONTACT:
+					m1_tips[tip_id] = true
 				if in_floor_zone(fp, p):
 					floor_nodes += 1
 					var dz := absf(p.z - float(fp["floor_z"]))
@@ -393,8 +399,6 @@ static func analyse(plant: PlantData, tip_ends: Array, proxy_phi: Callable = Cal
 						floor_band += 1
 					if fp["id"] == "N1":
 						n1_tips[tip_id] = true
-					elif fp["id"] == "M1":
-						m1_tips[tip_id] = true
 				break
 			if absf(d) > EFFECTIVE_CONTACT or p.y < WALL_Y.x or p.y > WALL_Y.y:
 				continue

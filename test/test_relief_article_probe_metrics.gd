@@ -213,6 +213,17 @@ func test_d0_needs_crossings_and_recess_evidence() -> void:
 	assert_eq(int(r["m1_stems"]), 0)
 
 
+func test_d0_counts_a_stem_anywhere_on_m1s_floor() -> void:
+	# Ruling 2026-11-20 (ivy-2laa): M1's floor zone is 0.01 m wide, so D0 counts a stem on M1's floor
+	# anywhere in the niche. This one runs 0.02 m from the left side wall, outside the floor zone.
+	var fp: Dictionary = Probe.footprint("M1")
+	var z := float(fp["floor_z"]) + 0.005
+	var p0 := Vector3(1.22, 0.65, z)
+	assert_false(Probe.in_floor_zone(fp, p0), "the line is outside M1's floor zone")
+	var r: Dictionary = Probe.analyse(_plant([_line(p0, Vector3(1.22, 0.85, z), 8)]), [])
+	assert_eq(int(r["m1_stems"]), 1)
+
+
 func test_report_is_printable() -> void:
 	var r: Dictionary = Probe.analyse(_plant([_line(Vector3(0.0, 0.1, 0.01), Vector3(0.0, 1.0, 0.01), 30)]), [])
 	r["unrefined_share"] = 0.25

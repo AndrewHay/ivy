@@ -1376,7 +1376,7 @@ wall plane is inside it.
 
 | Id | Criterion | Pass |
 |---|---|---|
-| D0 | Enough evidence | ≥ 20 crossings of a rib or the rail (a stem with attached nodes on both sides), ≥ 5 stems with nodes in N1's floor zone, ≥ 1 in M1's. Fewer is **inconclusive and counts as a fail of the probe**: fix anchors or run length, do not relax D1–D4. |
+| D0 | Enough evidence | ≥ 20 crossings of a rib or the rail (a stem with attached nodes on both sides), ≥ 5 stems with nodes in N1's floor zone, ≥ 1 with nodes on M1's floor (anywhere in M1's footprint, within effective contact 0.045 m of its floor: M1's floor zone is only 0.01 m wide, so landing in it was luck; owner ruling 2026-11-20, `ivy-2laa`). Fewer is **inconclusive and counts as a fail of the probe**: fix anchors or run length, do not relax D1–D4. |
 | D1 | Stems reach the recess floor | Of stem nodes in floor zones (front side), **≥ 95 % within the mesh attachment distance 0.045 m** (`SurfaceQuery.effective_contact`, AR-MESH-20.5) of the floor plane, **and the median distance to the floor ≤ `d_contact` = 0.02 m**. Ratified 2026-11-15 (`ivy-b1e.21`), replacing "≥ 95 % within 0.02 m"; numbers and reasons below. |
 | D2 | Stems do not span an opening | No front-side stem node in any footprint that is **attached to the growth surface** (`\|Φ_proxy\|` ≤ 0.045 m, read from the variant's own baked SDF) is farther than **0.05 m** from the nearest article surface. Far nodes off the growth surface (floating shoots) are reported, not gated. Ratified 2026-11-15 (`ivy-b1e.21`). |
 | D3 | Nothing inside solid | **Zero** tip end positions with analytic `Φ < 0`; no stem node deeper than 0.01 m inside. |
