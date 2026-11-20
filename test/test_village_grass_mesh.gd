@@ -122,14 +122,24 @@ func test_grass_blade_classic_shader_fragment_parity() -> void:
 	var frag_c := _extract_shader_function_body(classic, "fragment")
 	frag_d = frag_d.replace(
 		"\tif (dissolve_active > 0.5 && v_hash > v_keep) {\n\t\tdiscard;\n\t}\n", "")
-	assert_eq(frag_d, frag_c, "fragment() must match classic after dissolve discard removed")
+	frag_d = frag_d.replace(_GROUND_TINT_BLOCK, "")
+	assert_eq(frag_d, frag_c, "fragment() must match classic after dissolve discard + ground tint removed")
+
+
+## Generated-only ground tint (ivy-82zn.17.2): the classic village has no textured ground.
+const _GROUND_TINT_BLOCK := "\tif (u_ground_tex_on && u_blade_ground_tint > 0.0) {\n" \
+	+ "\t\tvec3 ratio = clamp(ground_tex_mean(v_root_xz) / GROUND_MEAN,\n" \
+	+ "\t\t\t\tvec3(u_blade_tint_ratio_lo), vec3(u_blade_tint_ratio_hi));\n" \
+	+ "\t\tcol = mix(col, col * ratio, u_blade_ground_tint);\n" \
+	+ "\t}\n" \
+	+ "\tcol = ground_saturate(col);\n"
 
 
 func test_grass_blade_classic_shader_vertex_parity() -> void:
 	var dissolve := _read_shader("res://src/render/shaders/grass_blade.gdshader")
 	var classic := _read_shader("res://src/render/shaders/grass_blade_classic.gdshader")
 	var vert_d := _strip_dissolve_vertex_block(
-		_extract_shader_function_body(dissolve, "vertex"))
+		_extract_shader_function_body(dissolve, "vertex")).replace("\tv_root_xz = root_world_xz;\n", "")
 	var vert_c := _extract_shader_function_body(classic, "vertex")
 	assert_eq(vert_d, vert_c, "vertex() must match classic after dissolve block removed")
 

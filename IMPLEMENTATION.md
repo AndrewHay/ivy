@@ -10181,6 +10181,13 @@ Followed the plan; where it differs:
   join L1 0.0613). Production: texture on, saturation 0.8; seed 7: dawn CamSun 0.0583, noon CamSun 0.1100,
   noon north 0.1411 (the 3D grass blades keep the procedural colour). Probe: `--ground=untextured`,
   `--ground_set=<knob>=<value>`, `--view=trees`.
+- **Blade tint from the ground (ivy-82zn.17.2, owner sign-off 2026-11-21):** `grass_blade.gdshader` (generated
+  village only; classic shader unchanged) includes `ground_look.gdshaderinc`; each blade's sage gradient is
+  multiplied by `clamp(ground_tex_mean(root_xz) / GROUND_MEAN, 0.35, 1.8)` (mip-5 blurred Grass005/Grass004
+  by the tree mask), mixed by `u_blade_ground_tint`, then `ground_saturate`. Knob `ground_blade_tint`
+  (production 1.0; 0 = old sage). `VillageBackdrop._configure_grass_blade_material` applies the params,
+  `grass_blade_materials()` puts the blades under the tree mask, and the terrain playground does the same
+  on its grass host. Noon-north join L1 is not blade-driven (tint 0 / 1: 0.1377 / 0.1383) → ivy-82zn.17.3.
 - **Tests whose contract changed:** `test_village_world_scale` (far mesh reaches `R_SKIRT_M`; FOV count
   without the haze gate), `test_village_landscape_world` (discard radius `R_SKIRT_M`),
   `test_hills_legibility` (the mid-vs-far and far-vs-horizon orderings went with the far cap; the

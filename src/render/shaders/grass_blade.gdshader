@@ -2,6 +2,14 @@ shader_type spatial;
 render_mode cull_disabled, specular_disabled;
 
 #include "res://src/render/shaders/wind_gust.gdshaderinc"
+#include "res://src/render/shaders/ground_look.gdshaderinc"
+
+// ivy-82zn.17.2: 0 = the blades' own sage gradient; 1 = the gradient re-hued by the textured ground
+// under the blade's root (ratio of the blurred ground colour to GROUND_MEAN). Off with the texture off.
+uniform float u_blade_ground_tint = 0.0;
+// Clamp on the per-channel ratio so a dark or odd texel never blacks out or neon-tints a blade.
+uniform float u_blade_tint_ratio_lo = 0.35;
+uniform float u_blade_tint_ratio_hi = 1.8;
 
 uniform float dissolve_start = 14.0;
 uniform float dissolve_end = 30.0;
@@ -13,6 +21,7 @@ varying float v_hash;
 varying float v_keep;
 varying vec3 v_world_pos;
 varying vec2 v_uv;
+varying vec2 v_root_xz;
 
 vec3 srgb_to_linear(vec3 c) {
 	return pow(max(c, vec3(0.0)), vec3(2.2));
@@ -45,6 +54,7 @@ void vertex() {
 	v_h = 1.0 - UV.y;
 	v_hash = COLOR.r;
 	vec2 root_world_xz = (MODEL_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xz;
+	v_root_xz = root_world_xz;
 	float blade_H = (v_h > 1e-3) ? (VERTEX.y / v_h) : VERTEX.y;
 	vec3 pos = ivy_wind_tip_displace_model(
 			VERTEX, v_h, blade_H, MODEL_MATRIX, root_world_xz, COLOR.r);
@@ -76,6 +86,12 @@ void fragment() {
 	col *= 1.0 + (v_hash - 0.5) * 0.07;
 	float patch_n = patch_noise_world(v_world_pos.xz);
 	col = mix(col, col * vec3(1.01, 1.02, 0.98), (patch_n - 0.5) * 0.12);
+	if (u_ground_tex_on && u_blade_ground_tint > 0.0) {
+		vec3 ratio = clamp(ground_tex_mean(v_root_xz) / GROUND_MEAN,
+				vec3(u_blade_tint_ratio_lo), vec3(u_blade_tint_ratio_hi));
+		col = mix(col, col * ratio, u_blade_ground_tint);
+	}
+	col = ground_saturate(col);
 	float ao = mix(0.62, 1.0, smoothstep(0.0, 0.5, h));
 	col *= ao;
 	float g = ivy_gust_at(v_world_pos.xz);

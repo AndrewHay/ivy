@@ -75,6 +75,43 @@ func test_preset_is_listed_and_detected() -> void:
 	assert_eq(VillageTerrainParams.detect_preset_name(p), VillageTerrainParams.PRESET_UNTEXTURED)
 
 
+const _BLADE := "res://src/render/shaders/grass_blade.gdshader"
+
+
+func test_blade_shader_takes_the_ground_look_and_defaults_to_its_own_sage() -> void:
+	## ivy-82zn.17.2: the blade shader reads the shared include; its uniform default (0) is the old blade.
+	var src := FileAccess.get_file_as_string(_BLADE)
+	assert_true(src.contains("ground_look.gdshaderinc"))
+	assert_true(src.contains("ground_tex_mean(v_root_xz)"), "tint sampled at the blade root")
+	assert_true(src.contains("ground_saturate(col)"), "blades follow the ground saturation")
+	assert_true(src.contains("uniform float u_blade_ground_tint = 0.0;"), "uniform default = untinted blade")
+
+
+func test_game_blade_material_gets_the_production_ground_look() -> void:
+	var p := VillageTerrainParams.production()
+	assert_almost_eq(p.ground_blade_tint, 1.0, 1e-9, "owner-picked: blades tinted by the ground")
+	var vb := VillageBackdrop.new()
+	vb.set("_terrain_params", p)
+	var mat := ShaderMaterial.new()
+	mat.shader = load(_BLADE) as Shader
+	vb.call("_configure_grass_blade_material", mat, Vector2.ZERO)
+	assert_almost_eq(float(mat.get_shader_parameter("u_blade_ground_tint")), 1.0, 1e-9)
+	assert_true(bool(mat.get_shader_parameter("u_ground_tex_on")))
+	assert_almost_eq(float(mat.get_shader_parameter("u_ground_saturation")), p.ground_saturation, 1e-6)
+	assert_not_null(mat.get_shader_parameter("u_grass_open_albedo"))
+	vb.free()
+
+
+func test_untextured_preset_leaves_blades_untinted() -> void:
+	var p := VillageTerrainParams.production()
+	p.apply_preset(VillageTerrainParams.PRESET_UNTEXTURED)
+	var mat := ShaderMaterial.new()
+	mat.shader = load(_BLADE) as Shader
+	GroundLook.apply(mat, p)
+	assert_false(bool(mat.get_shader_parameter("u_ground_tex_on")), "tint is gated on the texture")
+	assert_almost_eq(float(mat.get_shader_parameter("u_ground_saturation")), 1.0, 1e-9)
+
+
 func test_tree_mask_is_one_at_a_trunk_and_zero_in_the_open() -> void:
 	var rect := Rect2(Vector2(-50, -50), Vector2(100, 100))
 	var tex := GroundLook.tree_mask([Vector3(10.0, -20.0, 2.0)] as Array[Vector3], rect, 200)

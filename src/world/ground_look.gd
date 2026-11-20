@@ -31,6 +31,7 @@ static func apply(mat: ShaderMaterial, p: VillageTerrainParams) -> void:
 	mat.set_shader_parameter("u_shade_tex_strength", p.ground_shade_strength)
 	mat.set_shader_parameter("u_shade_edge_lo", p.ground_shade_edge_lo)
 	mat.set_shader_parameter("u_shade_edge_hi", p.ground_shade_edge_hi)
+	mat.set_shader_parameter("u_blade_ground_tint", p.ground_blade_tint)  # grass_blade.gdshader only
 	if p.ground_tex_on:
 		mat.set_shader_parameter("u_grass_open_albedo", load(OPEN_ALBEDO))
 		mat.set_shader_parameter("u_grass_open_normal", load(OPEN_NORMAL))

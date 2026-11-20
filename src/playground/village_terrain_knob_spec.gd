@@ -175,7 +175,7 @@ static func all_knobs() -> Array[Dictionary]:
 
 	# Ground look (ground_look.gdshaderinc, lawn + lit meadow ring; ivy-82zn.17.1)
 	_add_bool(rows, "ground_tex_on", "Grass textures", "Ground look", LANDSCAPE, REGEN_MATERIAL,
-		"Off = procedural colour only (production today). On = Grass005 lawn, Grass004 under trees.")
+		"Off = procedural colour only (pre-17.1). On (production) = Grass005 lawn, Grass004 under trees.")
 	_add_float(rows, "ground_tex_scale_m", "Texture tile (m)", "Ground look", 0.5, 12.0, 0.1, LANDSCAPE,
 		REGEN_MATERIAL, "Ground size of one texture tile.")
 	_add_float(rows, "ground_tex_strength", "Texture strength", "Ground look", 0.0, 1.0, 0.01, LANDSCAPE,
@@ -194,6 +194,8 @@ static func all_knobs() -> Array[Dictionary]:
 		LANDSCAPE, REGEN_MATERIAL, "Tree closeness (0 open, 1 trunk) where Grass004 starts.")
 	_add_float(rows, "ground_shade_edge_hi", "Under-tree edge full", "Ground look", 0.0, 1.0, 0.01,
 		LANDSCAPE, REGEN_MATERIAL, "Tree closeness where Grass004 is full.")
+	_add_float(rows, "ground_blade_tint", "Blade tint from ground", "Ground look", 0.0, 1.0, 0.01,
+		LANDSCAPE, REGEN_MATERIAL, "0 = blades keep their own sage; 1 = re-hued by the texture under them (ivy-82zn.17.2).")
 
 	_widen_experiment_ranges(rows)
 	return rows

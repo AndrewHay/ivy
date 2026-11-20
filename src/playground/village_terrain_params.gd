@@ -22,14 +22,14 @@ const NON_FIELD_KEYS := [
 	"wanderer_follow_terrain", "camera_ground_clearance_m",
 	"ground_slope_dark", "ground_slope_full_deg", "ground_height_tint", "ground_height_range_m",
 	"ground_tex_on", "ground_tex_scale_m", "ground_tex_strength", "ground_tex_brightness", "ground_macro",
-	"ground_saturation", "ground_normal_strength", "ground_shade_strength", "ground_shade_edge_lo",
+	"ground_saturation", "ground_normal_strength", "ground_shade_strength", "ground_shade_edge_lo", "ground_blade_tint",
 	"ground_shade_edge_hi",
 ]
 
 ## The ground-look knobs (material only; GroundLook.apply).
 const GROUND_LOOK_KEYS := [
 	"ground_tex_on", "ground_tex_scale_m", "ground_tex_strength", "ground_tex_brightness", "ground_macro",
-	"ground_saturation", "ground_normal_strength", "ground_shade_strength", "ground_shade_edge_lo",
+	"ground_saturation", "ground_normal_strength", "ground_shade_strength", "ground_shade_edge_lo", "ground_blade_tint",
 	"ground_shade_edge_hi",
 ]
 const PRESET_UNTEXTURED := "Untextured ground (old)"
@@ -177,6 +177,8 @@ func effective_sep_ladder_floor_m() -> float:
 ## Tree-closeness band (0 = open, 1 = trunk) over which Grass005 turns into Grass004.
 @export var ground_shade_edge_lo: float = 0.15
 @export var ground_shade_edge_hi: float = 0.55
+## Lawn grass blades re-hued by the ground texture under their roots (ivy-82zn.17.2); 0 = own sage.
+@export var ground_blade_tint: float = 1.0
 
 
 # ── Constructor helpers ────────────────────────────────────────────────────────

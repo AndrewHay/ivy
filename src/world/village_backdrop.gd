@@ -214,6 +214,21 @@ func _ground_look_materials() -> Array[ShaderMaterial]:
 			var m := mi.mesh.surface_get_material(0) as ShaderMaterial
 			if m != null:
 				out.append(m)
+	out.append_array(grass_blade_materials())
+	return out
+
+
+## Generated lawn grass blade materials (grass_blade.gdshader; ivy-82zn.17.2 tints them from the
+## ground look). Chunks share one material per build call, so the list is de-duplicated.
+func grass_blade_materials() -> Array[ShaderMaterial]:
+	var out: Array[ShaderMaterial] = []
+	for n in get_children():
+		if not String(n.name).begins_with("Scatter_Grass_Blades_"):
+			continue
+		var m := (n as GeometryInstance3D).material_override as ShaderMaterial
+		if m != null and m.shader != null and m.shader.resource_path.ends_with("grass_blade.gdshader") \
+				and not out.has(m):
+			out.append(m)
 	return out
 
 
@@ -532,6 +547,8 @@ func _configure_grass_blade_material(mat: ShaderMaterial, layout_plaza_g_xz: Vec
 		"dissolve_end", VillageScatterPositions.GRASS_ANCHOR_DISSOLVE_END_M)
 	## Placement radial density already thins at the lawn edge; keep full draw for any camera.
 	mat.set_shader_parameter("dissolve_active", 0.0)
+	if _terrain_params != null:
+		GroundLook.apply(mat, _terrain_params)  # blade tint from the ground (ivy-82zn.17.2)
 
 
 func _apply_generated_grass_chunk_visibility(mmi: MultiMeshInstance3D) -> void:

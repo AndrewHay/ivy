@@ -39,7 +39,7 @@ const _SEAM_AZIMUTH_DEG := 150.0
 const MATERIAL_ONLY_KNOBS := [
 	"ground_slope_dark", "ground_slope_full_deg", "ground_height_tint", "ground_height_range_m",
 	"ground_tex_on", "ground_tex_scale_m", "ground_tex_strength", "ground_tex_brightness", "ground_macro",
-	"ground_saturation", "ground_normal_strength", "ground_shade_strength", "ground_shade_edge_lo",
+	"ground_saturation", "ground_normal_strength", "ground_shade_strength", "ground_shade_edge_lo", "ground_blade_tint",
 	"ground_shade_edge_hi",
 ]
 ## Coarse preview LUT / mesh cell (m). ~1/4 of the full-step work; shown first after a shape edit.
@@ -1003,6 +1003,7 @@ func _step_grass_build(budget_usec: int) -> void:
 	host.visible = true
 	_grass_host = host
 	_grass_building = null
+	_apply_ground_tree_mask()
 	_perf_mark("grass_ms")
 	_finish_rebuild()
 
@@ -1138,6 +1139,11 @@ func _apply_ground_tree_mask() -> void:
 		GroundLook.apply_tree_mask(tm, _tree_mask_tex, rect, off)
 	if _far_mi != null and _far_mi.mesh != null:
 		GroundLook.apply_tree_mask(_far_mi.mesh.surface_get_material(0) as ShaderMaterial, _tree_mask_tex, rect, off)
+	# Production grass blades take their tint from the same ground look (ivy-82zn.17.2).
+	if _grass_host != null and is_instance_valid(_grass_host):
+		for bm: ShaderMaterial in _grass_host.call("grass_blade_materials"):
+			GroundLook.apply(bm, _params)
+			GroundLook.apply_tree_mask(bm, _tree_mask_tex, rect, off)
 
 
 func _set_debug_relief(on: bool) -> void:

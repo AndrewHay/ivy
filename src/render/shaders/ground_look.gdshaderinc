@@ -100,6 +100,16 @@ vec3 ground_albedo(vec2 xz, vec3 proc_col, vec3 proc_base, out vec3 n_ts) {
 	return ground_saturate(c);
 }
 
+// Blurred texture colour of the ground at xz (open → under-tree by the tree mask), for things standing
+// on the ground (grass blades, ivy-82zn.17.2). A high mip of the first tile sample: the blade takes the
+// ground's local hue, not its per-pixel grain. Brightness knob applied; saturation is the caller's.
+vec3 ground_tex_mean(vec2 xz) {
+	float shade = ground_shade_at(xz);
+	vec2 ua = xz / u_ground_tex_scale_m;
+	vec3 c = mix(textureLod(u_grass_open_albedo, ua, 5.0).rgb, textureLod(u_grass_shade_albedo, ua, 5.0).rgb, shade);
+	return c * u_ground_tex_brightness;
+}
+
 // World normal from a tangent-space ground normal: u along +X, v along +Z (uv = xz / scale).
 vec3 ground_world_normal(vec3 n_world, vec3 n_ts) {
 	vec3 N = normalize(n_world);
