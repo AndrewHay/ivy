@@ -5,6 +5,7 @@ extends GutTest
 
 const HillsParams = preload("res://src/playground/hills_params.gd")
 const HillsTint = preload("res://src/playground/hills_tint.gd")
+const HillsKnobSpec = preload("res://src/playground/hills_knob_spec.gd")
 const VillageTerrain = preload("res://src/playground/village_terrain.gd")
 
 const _SHADER_PATH := "res://src/render/shaders/village_ground_hills.gdshader"
@@ -62,6 +63,39 @@ func test_apply_terrain_shader_sets_ridge_uniforms() -> void:
 	var w2 = mat.get_shader_parameter("u_layer_weight_2")
 	if w2 != null:
 		assert_almost_eq(float(w2), 0.70, 1e-4, "u_layer_weight_2 must be 0.70 (not 0.72 drift)")
+
+
+## ivy-82zn.14.36: production lights the meadow ring like the lawn; the playground knob drives the same param.
+func test_seam_lit_is_production_and_reaches_the_material() -> void:
+	assert_true(HillsParams.production().seam_lit, "lit seam is the production look (human sign-off 2026-11-20)")
+	assert_true(bool(_material(7).get_shader_parameter("u_seam_lit")), "apply_terrain_shader must set u_seam_lit")
+	var p := HillsParams.production()
+	p.seam_lit = false
+	var mat := ShaderMaterial.new()
+	mat.shader = load(_SHADER_PATH) as Shader
+	HillsTint.apply_terrain_shader(mat, VillageLayout.generate(7), p)
+	assert_false(bool(mat.get_shader_parameter("u_seam_lit")), "seam_lit=false must turn the lit ring off")
+	var names: Array = []
+	for row in HillsKnobSpec.all_knobs():
+		names.append(row["name"])
+	assert_has(names, "seam_lit", "hills playground must expose the lit-seam knob (G7)")
+
+
+## ivy-82zn.14.36: the lit ring's lawn albedo defaults equal the lawn shader's, so the two read as one ground.
+func test_seam_lawn_albedo_matches_lawn_shader_defaults() -> void:
+	var hills := FileAccess.get_file_as_string(_SHADER_PATH)
+	var lawn := FileAccess.get_file_as_string("res://src/render/shaders/village_ground.gdshader")
+	for pair in [["u_lawn_base", "base_color", "vec3(0.30, 0.44, 0.22)"],
+			["u_lawn_patch_scale", "patch_scale", "0.22"], ["u_lawn_patch_contrast", "patch_contrast", "0.26"]]:
+		var re_h := RegEx.create_from_string("uniform\\s+\\w+\\s+%s\\b[^=]*=\\s*([^;]+);" % pair[0])
+		var re_l := RegEx.create_from_string("uniform\\s+\\w+\\s+%s\\b[^=]*=\\s*([^;]+);" % pair[1])
+		var mh := re_h.search(hills)
+		var ml := re_l.search(lawn)
+		assert_not_null(mh, "hills shader must declare %s" % pair[0])
+		assert_not_null(ml, "lawn shader must declare %s" % pair[1])
+		if mh != null and ml != null:
+			assert_eq(mh.get_string(1).strip_edges(), ml.get_string(1).strip_edges(),
+				"%s default must equal lawn %s" % [pair[0], pair[1]])
 
 
 ## MAJOR-4 regression: apply_terrain_shader must set the azimuth-wedge uniforms.

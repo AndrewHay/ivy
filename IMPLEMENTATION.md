@@ -10160,6 +10160,15 @@ Followed the plan; where it differs:
   sides toward one colour, and only ~30% of the far-side pixel follows the constant (the rest is the
   lit/unlit lawn vs far-mesh difference, plus occluders). Closing that gap is the lit-far-mesh question
   (non-goal here); flagged for the human / a follow-up.
+- **Lit seam (ivy-82zn.14.36, human sign-off 2026-11-20):** the hills shader is no longer `unshaded`. The
+  hand-lit far colour goes out as `EMISSION` over black albedo (pixel-identical to the old unshaded output),
+  and with `u_seam_lit` (= `HillsParams.seam_lit`, default true; hills playground knob "Lit lawn seam") the
+  `meadow_ring` instead takes the lawn shader's own albedo (`u_lawn_base` / patch noise / gust, defaults
+  pinned equal to `village_ground.gdshader` by `test_hills_tint`) × slope/height factors, lit by the engine
+  sun, so it receives shadows like the lawn. `u_seam_lit = false` keeps the old `u_lawn_colour` ring.
+  Seed 7 join L1, old → lit: dawn seam 0.1947 → 0.1176, dawn CamSun 0.1391 → 0.0613, noon north 0.2468 →
+  0.0995, noon CamSun 0.1181 → 0.1042 (all under the fogged baseline). Probe: `--seam_lit=0|1`,
+  `--seam_gain=<f>`, `--day=<game_day>`, `--view=north`.
 - **Tests whose contract changed:** `test_village_world_scale` (far mesh reaches `R_SKIRT_M`; FOV count
   without the haze gate), `test_village_landscape_world` (discard radius `R_SKIRT_M`),
   `test_hills_legibility` (the mid-vs-far and far-vs-horizon orderings went with the far cap; the

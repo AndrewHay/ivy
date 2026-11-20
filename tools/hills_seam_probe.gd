@@ -27,16 +27,28 @@ func _ready() -> void:
 	var out_path := "/tmp/seam_probe.png"
 	var view := "seam"
 	var day_val := -1.0
+	var seam_lit := -1  # -1 = leave the material as built; 0 / 1 = force u_seam_lit
+	var seam_gain := -1.0
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--seed="): seed_val = int(arg.get_slice("=", 1))
 		elif arg.begins_with("--out="): out_path = arg.get_slice("=", 1)
 		elif arg.begins_with("--view="): view = arg.get_slice("=", 1)
 		elif arg.begins_with("--day="): day_val = float(arg.get_slice("=", 1))
+		elif arg.begins_with("--seam_lit="): seam_lit = int(arg.get_slice("=", 1))
+		elif arg.begins_with("--seam_gain="): seam_gain = float(arg.get_slice("=", 1))
 
 	var main := await _boot_generated(seed_val)
 	var world: Node3D = main.get_node("World")
 	if day_val >= 0.0:
 		_pin_game_day(main, day_val)
+	if seam_lit >= 0:
+		var hill := world.get_node_or_null("VillageBackdrop/HillTerrain") as MeshInstance3D
+		var hm := hill.mesh.surface_get_material(0) as ShaderMaterial if hill != null else null
+		if hm != null:
+			hm.set_shader_parameter("u_seam_lit", seam_lit == 1)
+			if seam_gain > 0.0:
+				hm.set_shader_parameter("u_seam_albedo_gain", seam_gain)
+			print("[seam-probe] u_seam_lit=", seam_lit == 1, " gain=", hm.get_shader_parameter("u_seam_albedo_gain"))
 
 	var bounds: Dictionary = world.get_village_lawn_camera_bounds()
 	var centre: Vector2 = bounds.get("centre_xz", Vector2.ZERO)

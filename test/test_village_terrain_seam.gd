@@ -202,8 +202,11 @@ func test_shared_tint_include_and_cpu_mirror() -> void:
 		assert_true(src.contains("terrain_height_factor(v_local_y)"), "%s applies the height factor" % path)
 		assert_false(src.contains("uniform float terrain_slope_dark"), "%s has no private copy" % path)
 	var hills := FileAccess.get_file_as_string("res://src/render/shaders/village_ground_hills.gdshader")
-	assert_true(hills.contains("u_lawn_colour * terrain_slope_dim"),
-		"hills seam colour = u_lawn_colour × factors at r_j")
+	assert_true(hills.contains("tint_f = terrain_slope_dim(ny_t) * terrain_height_factor(v_local_y)"),
+		"hills seam tint = slope × height factors")
+	# Both seam paths (ivy-82zn.14.36): the lit ring's lawn albedo and the old fixed u_lawn_colour.
+	assert_true(hills.contains("u_seam_albedo_gain * tint_f"), "lit seam albedo × factors at r_j")
+	assert_true(hills.contains("u_lawn_colour * tint_f"), "unlit seam colour = u_lawn_colour × factors at r_j")
 	# CPU mirror: flat ground at the reference height is factor 1; slopes and rises move it.
 	var p := VillageTerrainParams.production()
 	assert_almost_eq(VillageTerrain.terrain_tint_factor(1.0, 3.0, p, 3.0), 1.0, 1e-6, "flat at ref")

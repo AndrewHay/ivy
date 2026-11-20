@@ -78,6 +78,10 @@ const CUSTOM_PRESET := "Custom"
 @export var ridge_near_green_bias: float = 0.18
 @export var ridge_far_tint_blue: float = 0.05
 @export var sun_warmth: float = 0.22
+## Lit seam (ivy-82zn.14.36, human sign-off 2026-11-20): near the lawn edge the far mesh uses the lawn's
+## albedo and is lit by the engine sun like the lawn, fading to the hand-lit far-hill look over the meadow
+## ring. false = the old unshaded fixed-colour ring (u_lawn_colour).
+@export var seam_lit: bool = true
 
 @export_group("Azimuth wedge")
 ## Compass bearing of the hill wedge centre: 0 = north (−Z), 90 = east (+X).

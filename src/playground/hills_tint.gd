@@ -166,6 +166,8 @@ static func apply_terrain_shader(mat: ShaderMaterial, layout: VillageLayout, par
 	mat.set_shader_parameter("u_meadow_near", Vector3(_L0_GREEN.r, _L0_GREEN.g, _L0_GREEN.b))
 	mat.set_shader_parameter("u_meadow_mid",  Vector3(_L1_GREEN.r, _L1_GREEN.g, _L1_GREEN.b))
 	mat.set_shader_parameter("sun_warmth", params.sun_warmth)
+	# Lit seam (ivy-82zn.14.36): the meadow ring takes the lawn's albedo and engine lighting.
+	mat.set_shader_parameter("u_seam_lit", params.seam_lit)
 	# Ridge layer geometry (MAJOR-2): pass params → shader so layer_t_for_r reads
 	# uniforms instead of hardcoded literals, keeping one source of truth.
 	# Weights match HillsTint.layer_t_for_radius: 0.0 / 0.35 / 0.70 / 1.0.

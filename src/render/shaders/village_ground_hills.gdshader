@@ -3,7 +3,9 @@ shader_type spatial;
 // The shader does its own directional lighting (warm/cool ndl) to match the scene sun.
 // AR-NOFOG (ivy-82zn.14.32): no fog, no horizon / haze blend of any kind; the far mesh renders its
 // meadow colours as they are, out to the horizon skirt (VillageTerrain.R_SKIRT_M).
-render_mode cull_back, unshaded;
+// ivy-82zn.14.36: not `unshaded` any more; the hand-lit colour goes out as EMISSION over a black albedo
+// (same pixels as unshaded) so the seam ring can be engine-lit like the lawn.
+render_mode cull_back;
 
 #include "res://src/render/shaders/wind_gust.gdshaderinc"
 // Same slope / height factors as the lawn (AR-LF-D9). Applied to the u_lawn_colour seam override
@@ -16,6 +18,13 @@ uniform bool u_terrain_tint_on = false;
 // pixel colour of the rendered lawn surface.  With unshaded mode, the meadow_ring
 // blend at r = lawn_radius outputs this value directly, closing the seam.
 uniform vec3 u_lawn_colour : source_color = vec3(0.204, 0.261, 0.127);
+// ivy-82zn.14.36 seam variant: engine-lit lawn albedo near the join (see fragment()). The lawn
+// defaults mirror village_ground.gdshader (base_color, patch_scale, patch_contrast).
+uniform bool  u_seam_lit = false;
+uniform vec3  u_lawn_base : source_color = vec3(0.30, 0.44, 0.22);
+uniform float u_lawn_patch_scale = 0.22;
+uniform float u_lawn_patch_contrast = 0.26;
+uniform float u_seam_albedo_gain : hint_range(0.3, 2.0, 0.01) = 1.0;
 // Hill base colours (rework5 pre-lighting values, kept unchanged for rework6).
 // With unshaded mode these render ~1.67× darker than the old double-lit output.
 uniform vec3 u_meadow_near : source_color = vec3(0.22, 0.38, 0.17);
@@ -70,8 +79,8 @@ float hash21(vec2 p) {
 	return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
 }
 
-float patch_noise(vec2 xz) {
-	vec2 p = xz * patch_scale;
+float patch_noise_s(vec2 xz, float scale) {
+	vec2 p = xz * scale;
 	float a = hash21(floor(p));
 	float b = hash21(floor(p) + vec2(1.0, 0.0));
 	float c = hash21(floor(p) + vec2(0.0, 1.0));
@@ -79,6 +88,10 @@ float patch_noise(vec2 xz) {
 	vec2 f = fract(p);
 	f = f * f * (3.0 - 2.0 * f);
 	return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
+float patch_noise(vec2 xz) {
+	return patch_noise_s(xz, patch_scale);
 }
 
 // layer_t_for_r: Gaussian-weighted blend of four ridge layers → scalar in [0,1].
@@ -156,14 +169,28 @@ void fragment() {
 	// Override with the measured rendered lawn colour at r = lawn_radius,
 	// smoothly releasing to the lit hill colour by r = lawn_radius + 50 m.
 	// This closes the razor-line seam visible between the grass disc and the hill terrain.
-	vec3 lawn_c = u_lawn_colour;
+	float tint_f = 1.0;
 	if (u_terrain_tint_on) {
 		float ny_t = clamp(normalize(v_world_nrm).y, 0.0, 1.0);
-		lawn_c = u_lawn_colour * terrain_slope_dim(ny_t) * terrain_height_factor(v_local_y);
+		tint_f = terrain_slope_dim(ny_t) * terrain_height_factor(v_local_y);
 	}
-	col = mix(col, lawn_c, meadow_ring);
-
-	ALBEDO    = col;
-	ROUGHNESS = 0.96;
+	if (u_seam_lit) {
+		// ivy-82zn.14.36: near the lawn the far mesh is the lawn's own ground (same albedo formula as
+		// village_ground.gdshader, times u_seam_albedo_gain) lit by the engine like the lawn, so the
+		// join follows the sun at every hour. Past the ring the hand-lit colour is emitted unchanged.
+		float nl = patch_noise_s(world_xz, u_lawn_patch_scale);
+		vec3 lawn_alb = mix(u_lawn_base, mix(patch_lo, patch_hi, nl), u_lawn_patch_contrast);
+		float lg = ivy_gust_at(world_xz);
+		lawn_alb *= 1.0 + (lg - 0.5) * 0.10 * ivy_wind_strength;
+		lawn_alb *= u_seam_albedo_gain * tint_f;
+		ALBEDO   = lawn_alb * meadow_ring;
+		EMISSION = col * (1.0 - meadow_ring);
+		SPECULAR = 0.5 * meadow_ring;
+	} else {
+		ALBEDO   = vec3(0.0);
+		EMISSION = mix(col, u_lawn_colour * tint_f, meadow_ring);
+		SPECULAR = 0.0;
+	}
+	ROUGHNESS = 1.0;
 	METALLIC  = 0.0;
 }

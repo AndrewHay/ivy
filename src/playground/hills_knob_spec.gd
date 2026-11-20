@@ -68,6 +68,8 @@ static func all_knobs() -> Array[Dictionary]:
 	_add_float(rows, "ridge_far_albedo_mul", "Far albedo mul", "Tint", 0.5, 0.9, 0.02, ROLLING)
 	_add_float(rows, "ridge_far_tint_blue", "Far blue tint", "Tint", 0.0, 0.2, 0.005, ROLLING)
 	_add_float(rows, "sun_warmth", "Sun warmth", "Tint", 0.0, 0.45, 0.01, ROLLING)
+	_add_bool(rows, "seam_lit", "Lit lawn seam", "Tint", ROLLING,
+		"On (production): the meadow ring next to the lawn is engine-lit with the lawn's albedo. Off: old fixed-colour ring.")
 	_add_float(rows, "azimuth_centre_deg", "Wedge centre (°)", "Azimuth", 0.0, 360.0, 5.0, ROLLING,
 		"0=north(−Z), 90=east(+X). Hills only appear within ±half-width of this bearing.")
 	_add_float(rows, "azimuth_half_width_deg", "Wedge half-width (°)", "Azimuth", 10.0, 180.0, 5.0, ROLLING,
