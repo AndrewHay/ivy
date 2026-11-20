@@ -1502,7 +1502,9 @@ be a far node. Floating far nodes are reported so a change in free-shoot behavio
   0.29 m in front of the panels. On the cottage the same will happen at beams, sills and wall tops.
   Natural ivy feelers or a defect is a feel judgement; D2 no longer gates it and the probe reports
   the count. If it is a defect, it is growth-step work (gravity, `max_float`, dieback), out of this
-  epic.
+  epic. **Decided 2026-11-19 (owner): natural feelers; passes.** Judged on the same grazing
+  close-ups as the resting gap; no growth-step bead, and D2 keeps reporting floating far nodes
+  without gating them.
 
 - **Owner — eave and tower rim closure (`ivy-b1e.23`).** Three open questions, listed in
   SD-MESH-19.4.1. (1) Whether closing the cottage eave course may change its top surface.
