@@ -98,10 +98,7 @@ func test_authored_world_fields_are_classic_literals() -> void:
 		"pine_outer must be classic literal 28.0")
 	assert_eq(layout.pine_count, 22,
 		"pine_count must be classic literal 22")
-	assert_almost_eq(layout.fog_begin, 9.5, 1e-6,
-		"fog_begin must be classic literal 9.5")
-	assert_almost_eq(layout.fog_end, 95.0, 1e-6,
-		"fog_end must be classic literal 95.0")
+	# AR-NOFOG (ivy-82zn.14.32): fog_begin / fog_end removed from the layout.
 	assert_almost_eq(layout.bush_filler_inner, 8.0, 1e-6,
 		"bush_filler_inner must be classic literal 8.0")
 	assert_almost_eq(layout.bush_filler_outer, 15.0, 1e-6,
@@ -178,24 +175,27 @@ func test_generated_world_fields_seeds_1_to_5() -> void:
 		if layout.fallback:
 			pending("generate(%d) fell back to authored — skipping world-scale check" % seed)
 			continue
-		assert_almost_eq(layout.lawn_radius, VillageLayout.GENERATED_LAWN_RADIUS, 1e-6,
-			"lawn_radius generated %s" % tag)
-		assert_almost_eq(layout.hill_inner, VillageLayout.GENERATED_HILL_INNER, 1e-6,
-			"hill_inner generated %s" % tag)
-		assert_almost_eq(layout.pine_inner, VillageLayout.GENERATED_PINE_INNER, 1e-6,
-			"pine_inner generated %s" % tag)
-		assert_almost_eq(layout.pine_outer, VillageLayout.GENERATED_PINE_OUTER, 1e-6,
-			"pine_outer generated %s" % tag)
+		## ivy-82zn.14.18 (SD-VILLAGE-TERRAIN-21, WP3) contract change: lawn 56 -> 64, pines
+		## 41.8/61.6 -> 56/76, bush filler 32.3 -> 44; GENERATED_HILL_INNER retired (hill_inner keeps
+		## the classic default; generated readers use lawn_radius).
+		assert_almost_eq(layout.lawn_radius, 64.0, 1e-6, "lawn_radius generated %s" % tag)
+		assert_almost_eq(VillageLayout.GENERATED_LAWN_RADIUS, 64.0, 1e-6, "GENERATED_LAWN_RADIUS")
+		assert_almost_eq(layout.pine_inner, 56.0, 1e-6, "pine_inner generated %s" % tag)
+		assert_almost_eq(layout.pine_outer, 76.0, 1e-6, "pine_outer generated %s" % tag)
 		assert_eq(layout.pine_count, VillageLayout.GENERATED_PINE_COUNT,
 			"pine_count generated %s" % tag)
-		assert_almost_eq(layout.fog_begin, VillageLayout.GENERATED_FOG_BEGIN, 1e-6,
-			"fog_begin generated %s" % tag)
-		assert_almost_eq(layout.fog_end, 95.0, 1e-6,
-			"fog_end generated %s" % tag)
 		assert_almost_eq(layout.bush_filler_inner, 8.0, 1e-6,
 			"bush_filler_inner generated %s" % tag)
-		assert_almost_eq(layout.bush_filler_outer, VillageLayout.GENERATED_BUSH_FILLER_OUTER, 1e-6,
+		assert_almost_eq(layout.bush_filler_outer, 44.0, 1e-6,
 			"bush_filler_outer generated %s" % tag)
+
+
+func test_generated_hill_inner_constant_retired() -> void:
+	## WP3: no separate hills inner edge for generated layouts (AR-LF-LAYOUT); no reader is left.
+	var consts: Dictionary = (load("res://src/world/village_layout.gd") as Script).get_script_constant_map()
+	assert_false(consts.has("GENERATED_HILL_INNER"), "GENERATED_HILL_INNER retired")
+	var src := FileAccess.get_file_as_string("res://src/world/village_gen/village_generator.gd")
+	assert_false(src.contains("GENERATED_HILL_INNER"), "generator no longer reads it")
 
 
 # ── (d) Generated builder outputs for seed=1 ─────────────────────────────────
@@ -230,19 +230,20 @@ func test_generated_hill_inner_in_mesh() -> void:
 		return
 	var verts := _mesh_verts(node.mesh)
 	var g := VillageLayout.VILLAGE_GREEN_G
-	var prod := HillsParams.production()
-	var y_lawn := VillageBackdrop.LAWN_GROUND_Y_OFFSET
-	var inner_r := _min_xz_at_y_about(g, verts, y_lawn, 0.25)
 	var layout := bd.get_layout()
-	## The mesh builder skirts ~6 m inside the lawn so the meadow shader seam is covered
-	## (inner = maxf(lawn_r - 6.0, lawn_r * 0.88) ≈ lawn_r - 6.0 = 50.0 m for lawn_r=56).
-	## rework5: step formula changed from iterative (~2.55m) to direct computation
-	## (~5.4m for outer=310m). A larger step means the innermost vertex can be up to one
-	## step inside the inner boundary. Tolerance = 8.0 covers step up to 8 m.
-	var expected_inner := layout.lawn_radius - 6.0   # mesh builder inner formula
-	assert_almost_eq(inner_r, expected_inner, 8.0,
-		"Generated HillTerrain inner skirt at %.2f; expected near lawn_r - 6.0 = %.1f (seam skirt)" \
-		% [inner_r, expected_inner])
+	## ivy-82zn.14.14 contract change (AR-LF-D6): no skirt under the lawn any more. The far mesh's
+	## inner boundary IS the join loop on r_j = lawn_radius (shared vertices with LawnTerrain).
+	## ivy-82zn.14.32 contract change (AR-NOFOG-EDGE): past HillsParams.r_outer_m the horizon skirt
+	## carries it on to VillageTerrain.R_SKIRT_M.
+	var inner_r := INF
+	var outer_r := 0.0
+	for v: Vector3 in verts:
+		var r := Vector2(v.x, v.z).distance_to(g)
+		inner_r = minf(inner_r, r)
+		outer_r = maxf(outer_r, r)
+	assert_almost_eq(inner_r, layout.lawn_radius, 1e-3,
+		"HillTerrain inner boundary on the join circle (%.3f)" % inner_r)
+	assert_almost_eq(outer_r, VillageTerrain.R_SKIRT_M, 1e-2, "HillTerrain reaches R_SKIRT_M (skirt)")
 
 
 func test_generated_pine_count_and_radii() -> void:
@@ -266,11 +267,10 @@ func test_generated_pine_count_and_radii() -> void:
 		"Generated FarTreeline instance_count must match placement output")
 	assert_gte(placed, 24, "CamSun backdrop must place >=24 trees")
 	var ForestPlaygroundCamera = preload("res://src/playground/forest_playground_camera.gd")
-	var HeroFog = preload("res://src/world/hero_fog.gd")
+	# AR-NOFOG contract change: no haze gate; same threshold on the FOV count.
 	var stats := ForestPlaygroundCamera.count_trees_visible_in_camsun(
-		VillageScatterPositions.forest_tree_xz(layout),
-		layout.fog_begin, layout.fog_end, HeroFog.FogModel.WORLD_AROUND_HERO, 0.5)
-	assert_gte(stats["visible"], 12, "backdrop: >=12 CamSun trees at <=50%% hero haze")
+		VillageScatterPositions.forest_tree_xz(layout))
+	assert_gte(stats["in_fov"], 12, "backdrop: >=12 CamSun trees in view")
 	var buf := treeline.multimesh.buffer
 	for i in range(treeline.multimesh.instance_count):
 		var ox: float = buf[i * 12 + 3]
@@ -327,7 +327,10 @@ func test_forest_no_trunk_within_hero_keep_clear() -> void:
 		var pines := _compute_pine_xz(layout)
 		var placed := VillageScatterPositions.forest_tree_positions(layout).size()
 		assert_eq(pines.size(), placed, "%s: expected %d forest positions" % [tag, placed])
-		assert_gte(placed, 24, "%s: backdrop tree count" % tag)
+		## Human decision 2026-11-18 (option A, stopgap; proper fix ivy-82zn.14.29): >= 22 (was 24). The SD-28
+		## storey-rule layouts plus the 2 m cottage clearance leave 22-23 trunk sites on seeds 9, 10, 12 and
+		## 240424020. No forest tuning.
+		assert_gte(placed, 22, "%s: backdrop tree count (option A 2026-11-18)" % tag)
 		for i: int in pines.size():
 			var p: Vector2 = pines[i]
 			assert_false(
@@ -337,17 +340,16 @@ func test_forest_no_trunk_within_hero_keep_clear() -> void:
 
 func test_forest_backdrop_in_camsun_band() -> void:
 	const ForestPlaygroundCamera = preload("res://src/playground/forest_playground_camera.gd")
-	const HeroFog = preload("res://src/world/hero_fog.gd")
 	for seed_val in range(1, 11):
 		var layout := VillageLayout.generate(seed_val)
 		if layout.fallback:
 			continue
 		var tag := "seed=%d" % seed_val
 		var pines := _compute_pine_xz(layout)
-		var stats := ForestPlaygroundCamera.count_trees_visible_in_camsun(
-			pines, layout.fog_begin, layout.fog_end, HeroFog.FogModel.WORLD_AROUND_HERO, 0.5)
-		assert_gte(stats["visible"], 10,
-			"%s: need >=10 visible backdrop trees (got %d)" % [tag, stats["visible"]])
+		# AR-NOFOG contract change: no haze gate; same threshold on the FOV count.
+		var stats := ForestPlaygroundCamera.count_trees_visible_in_camsun(pines)
+		assert_gte(stats["in_fov"], 10,
+			"%s: need >=10 backdrop trees in view (got %d)" % [tag, stats["in_fov"]])
 
 
 static func _pine_in_hero_wedge(p: Vector2, g: Vector2, r_lawn: float) -> bool:

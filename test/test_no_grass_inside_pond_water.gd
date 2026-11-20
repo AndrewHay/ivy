@@ -24,36 +24,34 @@ func _make_generated(seed: int) -> GeneratedVillageBackdrop:
 	return bd
 
 
-## Compute expected water_y using AR-VT-GAP-1 formula.
-## water_y = Y_BASE + _compose_base(pond_center) + (pond_lip_rise_m - pond_water_inset_m)
+## ivy-82zn.14.14 contract change (SD-VILLAGE-TERRAIN-19, AR-LF-GAP-7): the water level is the
+## lowest point of the capped field on the bank circle (r = BANK_OUTER_M) − pond_freeboard_m, never
+## above the lowest bank outline point − 2 cm (VillageTerrain.pond_water_y).
 static func _expected_water_y(
 		pond_center: Vector2,
 		layout: VillageLayout,
 		params: VillageTerrainParams,
 		t_seed: int) -> float:
-	var base_h := VillageTerrain._compose_base(pond_center, layout, params, t_seed)
-	return VillageTerrain.Y_BASE + base_h + (params.pond_lip_rise_m - params.pond_water_inset_m)
+	return VillageTerrain.pond_water_y(layout, params, t_seed)
 
 
-## Compute expected floor_y (basin base at d=0).
-## floor_y = Y_BASE + _compose_base(pond_center) + pond_depth_m (negative depth = basin floor)
+## Basin floor: the ground at the pond centre (anchor + pond_depth_m).
 static func _expected_floor_y(
 		pond_center: Vector2,
 		layout: VillageLayout,
 		params: VillageTerrainParams,
 		t_seed: int) -> float:
-	var base_h := VillageTerrain._compose_base(pond_center, layout, params, t_seed)
-	return VillageTerrain.Y_BASE + base_h + params.pond_depth_m  # pond_depth_m is negative
+	return VillageTerrain.sample_y(pond_center, layout, params, t_seed)
 
 
-## Lip height at rim (pond_lip_rise_m above local base field at pond centre).
+## Lip height: pond_lip_rise_m above the basin anchor (floor − pond_depth_m).
 static func _expected_lip_y(
 		pond_center: Vector2,
 		layout: VillageLayout,
 		params: VillageTerrainParams,
 		t_seed: int) -> float:
-	var base_h := VillageTerrain._compose_base(pond_center, layout, params, t_seed)
-	return VillageTerrain.Y_BASE + base_h + params.pond_lip_rise_m
+	return _expected_floor_y(pond_center, layout, params, t_seed) - params.pond_depth_m \
+		+ params.pond_lip_rise_m
 
 
 # ── AC-VT3 part 1: water_y wiring matches AR-VT-GAP-1 formula ─────────────────
@@ -121,6 +119,30 @@ func _check_water_y_formula(seed: int) -> void:
 		seed, actual_water_y, expected_water_y, floor_y, lip_y])
 
 
+func test_ac_lt_pond_water_from_the_lowest_bank_point() -> void:
+	## AC-LT-POND (WP1 part): y_w = min(capped field on r = BANK_OUTER_M) − freeboard; the water
+	## stays ≤ the lowest rendered bank-outline point − 0.02 m; the pond is ≥ 20 m inside the join
+	## circle, so the drape never meets a clipped boundary cell (AR-LF-RISK-7).
+	var params := VillageTerrainParams.production()
+	for seed: int in _TEST_SEEDS:
+		var layout := VillageLayout.generate(seed)
+		var f = VillageTerrain.field(layout, params)
+		var lo := INF
+		for i in range(360):
+			var a := TAU * float(i) / 360.0
+			lo = minf(lo, f.sample_unfit_y(layout.pond_center + Vector2(cos(a), sin(a)) * VillagePondSite.BANK_OUTER_M))
+		var water := VillageTerrain.pond_water_y(layout, params)
+		assert_lte(water, lo - params.pond_freeboard_m + 0.01,
+			"seed %d water %.3f from the lowest bank point %.3f − freeboard" % [seed, water, lo])
+		var lut := VillageTerrain.mesh_surface_lut(layout, params)
+		var bank_min := INF
+		for xz in VillagePondShape.at(layout.pond_center).bank_outer_outline_world_xz():
+			bank_min = minf(bank_min, VillageTerrain.mesh_surface_y_from_lut(xz, layout, params, lut))
+		assert_lte(water, bank_min - 0.02 + 0.005, "seed %d water ≤ bank-mesh min − 0.02" % seed)
+		var r_pond := layout.pond_center.distance_to(layout.hamlet_centre_xz) + VillagePondSite.BANK_OUTER_M
+		assert_lte(r_pond, layout.lawn_radius - 4.0, "seed %d pond well inside the join circle" % seed)
+
+
 # ── AC-VT3 part 2: bank vertices follow sample_y per-vertex ──────────────────
 
 func test_ac_vt3_bank_vertices_follow_sample_y_seed7() -> void:
@@ -128,9 +150,11 @@ func test_ac_vt3_bank_vertices_follow_sample_y_seed7() -> void:
 
 
 func _check_bank_vertices(seed: int) -> void:
-	## Each PondBank mesh vertex should be at sample_y(vertex_xz) within tolerance.
+	## Each PondBank mesh vertex follows the terrain per vertex (WP4).
 	## RED before WP4: all vertices at POND_BANK_Y_OFFSET (fixed ~0.008).
-	## GREEN after WP4: per-vertex sample_y applied.
+	## ivy-82zn.14.10 contract change: on the RENDERED lawn (VillageTerrain.mesh_surface_y, the 2 m
+	## triangle mesh) + POND_BANK_DRAPE_M, not the exact sample_y — vertices on sample_y left the
+	## bank under the coarse lawn in places and above it in others (the dark pond shards).
 	var bd := _make_generated(seed)
 	var layout := bd.get("_layout") as VillageLayout
 	if layout == null or layout.fallback or not layout.pond_placed:
@@ -155,13 +179,14 @@ func _check_bank_vertices(seed: int) -> void:
 		return
 
 	var params := VillageTerrainParams.production()
-	var t_seed := VillageTerrain.terrain_seed(layout, params)
+	var lut := VillageTerrain.mesh_surface_lut(layout, params)
 
 	var max_dev := 0.0
 	var num_checked := 0
 	for v: Vector3 in verts:
 		var xz := Vector2(v.x, v.z)
-		var expected_y := VillageTerrain.sample_y(xz, layout, params, t_seed)
+		var expected_y := VillageTerrain.mesh_surface_y_from_lut(xz, layout, params, lut) \
+			+ VillageBackdrop.POND_BANK_DRAPE_M
 		var dev := absf(v.y - expected_y)
 		if dev > max_dev:
 			max_dev = dev
@@ -208,7 +233,8 @@ func _check_no_grass_in_water_xz(seed: int) -> void:
 	var violation_count := 0
 	for xf: Transform3D in positions:
 		var p := Vector2(xf.origin.x, xf.origin.z)
-		if Geometry2D.is_point_in_polygon(p, water_outline):
+		# ivy-5anf: vertex-robust test (Geometry2D.is_point_in_polygon gave false positives far outside).
+		if VillagePondShape.point_in_outline(p, water_outline):
 			violation_count += 1
 	assert_eq(violation_count, 0,
 		"AC-VT3 seed=%d: %d grass blades inside water outline" % [seed, violation_count])

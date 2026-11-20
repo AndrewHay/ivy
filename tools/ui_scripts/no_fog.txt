@@ -1,0 +1,39 @@
+# AR-NOFOG (ivy-82zn.14.32) review / QA screenshot pass: no fog anywhere, horizon skirt past 310 m.
+# Generated seed 7 (set by the pre-bootstrap flags), then classic.
+#
+# Run (non-headless; headless gives no image on macOS):
+#   /Applications/Godot.app/Contents/MacOS/Godot res://tools/run_ui_script.tscn -- \
+#     --script=res://tools/ui_scripts/no_fog.txt \
+#     --scenario=res://assets/structures/scenarios/square.tres \
+#     --village-mode=generated_village --village-seed=7 \
+#     --outdir=res://.tmp/no_fog/ui_script
+#
+# Check in the PNGs: no grey-white wash past the lawn, no pink horizon bands on the far hills, no
+# pale sky band under the far hills, no hard rim at 310 m, the meadow meets the sky at the horizon.
+# Fixed-camera east/west horizon and old-rim seam views are in .tmp/no_fog/capture_views.gd and the
+# village terrain playground (--camera=east_horizon / west_horizon / wide_overview / old_rim_seam).
+
+WAIT 500
+SPEED pause
+ADVANCE_DAYS 0.25
+
+# Default rig camera and CamSun.
+SCREENSHOT seed7_default.png
+CAMERA sun
+SCREENSHOT seed7_camsun.png
+
+# Wide overview: high orbit over the village, the landform and the horizon.
+ORBIT 0 50 45
+SCREENSHOT seed7_wide_overview.png
+
+# Low orbit looking out across the lawn edge toward the far hills.
+ORBIT 180 30 3
+SCREENSHOT seed7_low_outward.png
+
+# Classic loses fog too (AR-NOFOG-Q1).
+VILLAGE_MODE classic_village
+WAIT 200
+CAMERA sun
+SCREENSHOT classic_camsun.png
+ORBIT 0 50 45
+SCREENSHOT classic_wide_overview.png

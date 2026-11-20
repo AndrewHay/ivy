@@ -138,18 +138,46 @@ func _build_water_surface_mesh(y: float) -> ArrayMesh:
 	return st.commit()
 
 
+static func point_in_outline(p: Vector2, poly: PackedVector2Array) -> bool:
+	## Vertex-robust point-in-polygon (ivy-5anf): bbox early-out, then the half-open crossing rule
+	## (an edge counts only when exactly one end is strictly above p.y), so a ray through a vertex
+	## is never counted twice. Geometry2D.is_point_in_polygon reported points 8–25 m outside the
+	## 720-point pond outline as inside.
+	var n := poly.size()
+	if n < 3:
+		return false
+	var lo := poly[0]
+	var hi := poly[0]
+	for q: Vector2 in poly:
+		lo = Vector2(minf(lo.x, q.x), minf(lo.y, q.y))
+		hi = Vector2(maxf(hi.x, q.x), maxf(hi.y, q.y))
+	if p.x < lo.x or p.x > hi.x or p.y < lo.y or p.y > hi.y:
+		return false
+	var inside := false
+	var j := n - 1
+	for i in range(n):
+		var a := poly[i]
+		var b := poly[j]
+		if (a.y > p.y) != (b.y > p.y):
+			var x_int := a.x + (p.y - a.y) * (b.x - a.x) / (b.y - a.y)
+			if p.x < x_int:
+				inside = not inside
+		j = i
+	return inside
+
+
 func _is_in_water(p: Vector2, margin_m: float = 0.0) -> bool:
 	var poly := _water_render_outline_local()
 	if margin_m <= 0.0:
-		return Geometry2D.is_point_in_polygon(p, poly)
+		return point_in_outline(p, poly)
 	var expanded := _offset_outline_by_normal(_untranslate(poly), margin_m)
-	return Geometry2D.is_point_in_polygon(p, _translate_outline(expanded))
+	return point_in_outline(p, _translate_outline(expanded))
 
 
 func _is_on_clover_bank(p: Vector2) -> bool:
 	if _is_in_water(p, 0.06):
 		return false
-	return Geometry2D.is_point_in_polygon(p, _bank_outer_outline_local())
+	return point_in_outline(p, _bank_outer_outline_local())
 
 
 func _downsample_closed_poly(poly: PackedVector2Array, target: int) -> PackedVector2Array:
@@ -180,19 +208,19 @@ func _ensure_grass_shoreline_rays() -> void:
 
 func _is_in_water_grass_exclusion(p: Vector2) -> bool:
 	_ensure_grass_shoreline_rays()
-	return Geometry2D.is_point_in_polygon(p, _grass_water_exclusion_fast)
+	return point_in_outline(p, _grass_water_exclusion_fast)
 
 
 func _is_on_bank_outer_grass(p: Vector2) -> bool:
 	_ensure_grass_shoreline_rays()
-	return Geometry2D.is_point_in_polygon(p, _grass_bank_outer_fast)
+	return point_in_outline(p, _grass_bank_outer_fast)
 
 
 ## Same contract as [_bank_shoreline_along] but ~64 radial samples (grass hot path).
 func _bank_shoreline_along_grass(p: Vector2) -> float:
 	if _is_in_water(p, 0.04):
 		return -1.0
-	if not Geometry2D.is_point_in_polygon(p, _bank_outer_outline_local()):
+	if not point_in_outline(p, _bank_outer_outline_local()):
 		return -1.0
 	_ensure_grass_shoreline_rays()
 	var n := mini(_grass_shoreline_inner.size(), _grass_shoreline_outer.size())
@@ -220,7 +248,7 @@ func _bank_shoreline_along_grass(p: Vector2) -> float:
 func _bank_shoreline_along(p: Vector2) -> float:
 	if _is_in_water(p, 0.04):
 		return -1.0
-	if not Geometry2D.is_point_in_polygon(p, _bank_outer_outline_local()):
+	if not point_in_outline(p, _bank_outer_outline_local()):
 		return -1.0
 	var inner := _water_render_outline_local()
 	var outer := _bank_outer_outline_local()
@@ -246,7 +274,7 @@ func _bank_shoreline_along(p: Vector2) -> float:
 
 
 func _blocks_scatter_at(p: Vector2) -> bool:
-	return Geometry2D.is_point_in_polygon(p, _scatter_exclusion_outline_local())
+	return point_in_outline(p, _scatter_exclusion_outline_local())
 
 
 func _untranslate(poly: PackedVector2Array) -> PackedVector2Array:

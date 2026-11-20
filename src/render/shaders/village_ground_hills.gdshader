@@ -1,15 +1,21 @@
 shader_type spatial;
 // unshaded: bypass Godot engine Lambert so ALBEDO is the final rendered colour.
 // The shader does its own directional lighting (warm/cool ndl) to match the scene sun.
-// Engine depth + volumetric fog provide atmosphere (matches World/Ground; ivy-ska0.2).
+// AR-NOFOG (ivy-82zn.14.32): no fog, no horizon / haze blend of any kind; the far mesh renders its
+// meadow colours as they are, out to the horizon skirt (VillageTerrain.R_SKIRT_M).
 render_mode cull_back, unshaded;
 
 #include "res://src/render/shaders/wind_gust.gdshaderinc"
+// Same slope / height factors as the lawn (AR-LF-D9). Applied to the u_lawn_colour seam override
+// (weighted by meadow_ring), so at r_j the far mesh returns u_lawn_colour × the lawn's factors.
+// u_terrain_tint_on = false (default; classic / flat legacy) keeps the old output (INV-15).
+#include "res://src/render/shaders/terrain_tint.gdshaderinc"
+uniform bool u_terrain_tint_on = false;
 
 // Calibrated rendered lawn colour — set by apply_terrain_shader to the measured
 // pixel colour of the rendered lawn surface.  With unshaded mode, the meadow_ring
 // blend at r = lawn_radius outputs this value directly, closing the seam.
-uniform vec3 u_lawn_colour : source_color = vec3(0.270, 0.350, 0.210);
+uniform vec3 u_lawn_colour : source_color = vec3(0.204, 0.261, 0.127);
 // Hill base colours (rework5 pre-lighting values, kept unchanged for rework6).
 // With unshaded mode these render ~1.67× darker than the old double-lit output.
 uniform vec3 u_meadow_near : source_color = vec3(0.22, 0.38, 0.17);
@@ -22,7 +28,6 @@ uniform float patch_contrast : hint_range(0.0,  1.0,  0.01) = 0.22;
 uniform float sun_warmth     : hint_range(0.0,  0.5,  0.01) = 0.22;
 uniform vec2  u_hamlet_xz    = vec2(0.0, 0.0);
 uniform float u_lawn_radius  = 56.0;
-uniform vec3  u_horizon_rgb  = vec3(0.78, 0.85, 0.91);
 uniform vec3  u_sun_dir      = vec3(0.35, 0.78, 0.52);
 uniform float u_twilight     : hint_range(0.0, 1.0) = 0.0;
 // Ridge layer geometry — set by apply_terrain_shader from HillsParams.
@@ -40,6 +45,10 @@ uniform float u_layer_width_3 : hint_range(1.0,  80.0)  = 40.0;
 uniform float u_layer_weight_1 : hint_range(0.0, 1.0) = 0.35;
 uniform float u_layer_weight_2 : hint_range(0.0, 1.0) = 0.70;
 uniform float u_layer_weight_3 : hint_range(0.0, 1.0) = 1.0;
+// Horizon skirt (AR-NOFOG-EDGE, HillsTint.layer_t_for_radius): past u_r_outer the layer weights are
+// read at u_r_outer (no Gaussian underflow ring) and fade to 0 over u_skirt_ease → plain meadow.
+uniform float u_r_outer       = 310.0;
+uniform float u_skirt_ease    = 600.0;
 // Azimuth wedge — set by apply_terrain_shader from HillsParams.
 // Outside the wedge, hill-layer colouring fades to plain meadow tone.
 // Convention: centre_rad 0 = north (−Z); positive = clockwise (east = +π/2).
@@ -49,8 +58,10 @@ uniform float u_azimuth_fade_width_rad: hint_range(0.0, 3.14159) = 0.349066;  //
 
 varying vec3 v_world_pos;
 varying vec3 v_world_nrm;
+varying float v_local_y;
 
 void vertex() {
+	v_local_y = VERTEX.y;
 	v_world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	v_world_nrm = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
 }
@@ -71,16 +82,18 @@ float patch_noise(vec2 xz) {
 }
 
 // layer_t_for_r: Gaussian-weighted blend of four ridge layers → scalar in [0,1].
-// Layer distances and widths are set as uniforms by apply_terrain_shader (HillsFogTint.gd)
+// Layer distances and widths are set as uniforms by apply_terrain_shader (hills_tint.gd)
 // so they stay in sync with GDScript HillsParams without hardcoded literals.
-// Weights match HillsFogTint.layer_t_for_radius: 0.0 / 0.35 / 0.70 / 1.0.
-float layer_t_for_r(float planar_r) {
+// Weights match HillsTint.layer_t_for_radius: 0.0 / 0.35 / 0.70 / 1.0.
+float layer_t_for_r(float r_in) {
+	float planar_r = min(r_in, u_r_outer);
+	float fade = 1.0 - smoothstep(u_r_outer, u_r_outer + u_skirt_ease, r_in);
 	float t0 = exp(-0.5 * pow((planar_r - u_layer_dist_0) / max(u_layer_width_0, 0.01), 2.0));
 	float t1 = exp(-0.5 * pow((planar_r - u_layer_dist_1) / max(u_layer_width_1, 0.01), 2.0));
 	float t2 = exp(-0.5 * pow((planar_r - u_layer_dist_2) / max(u_layer_width_2, 0.01), 2.0));
 	float t3 = exp(-0.5 * pow((planar_r - u_layer_dist_3) / max(u_layer_width_3, 0.01), 2.0));
 	float s = t0 + t1 + t2 + t3 + 1e-4;
-	return clamp((t0 * 0.0 + t1 * u_layer_weight_1 + t2 * u_layer_weight_2 + t3 * u_layer_weight_3) / s, 0.0, 1.0);
+	return clamp((t0 * 0.0 + t1 * u_layer_weight_1 + t2 * u_layer_weight_2 + t3 * u_layer_weight_3) / s, 0.0, 1.0) * fade;
 }
 
 // azimuth_wedge_weight: 1.0 inside the north wedge, 0.0 outside, smooth taper at edges.
@@ -109,25 +122,15 @@ void fragment() {
 
 	// Azimuth wedge: hill colouring is only valid inside the north wedge.
 	// Outside the wedge the heightfield is flat (azimuth_weight=0 in GDScript),
-	// so the terrain should render as plain meadow fading to haze — not
-	// hill-green layered ridges. We scale layer_t by the wedge weight so
-	// outside the wedge eff_layer_t=0 → u_meadow_near (plain meadow tone).
+	// so the terrain renders as plain meadow, not hill-green layered ridges.
+	// We scale layer_t by the wedge weight so outside the wedge eff_layer_t=0 →
+	// u_meadow_near (plain meadow tone).
 	float wedge_w = azimuth_wedge_weight(world_xz);
 	float eff_layer_t = layer_t * wedge_w;
+	float flat_sector = 1.0 - wedge_w;
 
 	// --- Hill base colour (varies with ridge distance, wedge-gated) ---
 	vec3 layer_col = mix(u_meadow_near, u_meadow_mid, smoothstep(0.12, 0.52, eff_layer_t));
-	// East/west flat sectors: ink toward horizon tone from the lawn edge so a green
-	// ridge never meets the sky (north wedge keeps hill-green layers).
-	float flat_sector = 1.0 - wedge_w;
-	vec3 flat_tone = mix(u_horizon_rgb * 0.62, u_horizon_rgb * 0.90,
-		smoothstep(u_lawn_radius + 22.0, 105.0, planar_r));
-	float flat_far = smoothstep(u_lawn_radius + 8.0, u_lawn_radius + 28.0, planar_r);
-	layer_col = mix(layer_col, flat_tone, flat_sector * flat_far * 0.92);
-
-	// Far-ridge cap: blend toward washed-out sky at the outermost ring.
-	vec3 far_cap = u_horizon_rgb * 0.86;
-	layer_col = mix(layer_col, far_cap, smoothstep(0.42, 1.0, eff_layer_t));
 
 	// Patch noise for meadow variation; attenuated near the lawn seam.
 	float meadow_ring = 1.0 - smoothstep(u_lawn_radius, u_lawn_radius + 50.0, planar_r);
@@ -149,18 +152,16 @@ void fragment() {
 	col *= mix(cool, warm, ndl);
 	col *= mix(1.0, 0.78, u_twilight * (0.35 + flat_sector * 0.65));
 
-	// Luminance cap: hills must not outshine the sky horizon.
-	float hor_lum = dot(u_horizon_rgb, vec3(0.299, 0.587, 0.114));
-	float lum     = dot(col, vec3(0.299, 0.587, 0.114));
-	if (lum > hor_lum * 0.94) {
-		col *= (hor_lum * 0.90) / max(lum, 1e-4);
-	}
-
 	// Seam calibration (applied AFTER lighting):
 	// Override with the measured rendered lawn colour at r = lawn_radius,
 	// smoothly releasing to the lit hill colour by r = lawn_radius + 50 m.
 	// This closes the razor-line seam visible between the grass disc and the hill terrain.
-	col = mix(col, u_lawn_colour, meadow_ring);
+	vec3 lawn_c = u_lawn_colour;
+	if (u_terrain_tint_on) {
+		float ny_t = clamp(normalize(v_world_nrm).y, 0.0, 1.0);
+		lawn_c = u_lawn_colour * terrain_slope_dim(ny_t) * terrain_height_factor(v_local_y);
+	}
+	col = mix(col, lawn_c, meadow_ring);
 
 	ALBEDO    = col;
 	ROUGHNESS = 0.96;

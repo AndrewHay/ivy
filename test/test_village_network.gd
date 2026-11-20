@@ -362,6 +362,7 @@ func test_probe_eleven_seeds_no_fallback_zero_crossings() -> void:
 				"probe seed %d: ≥90%% spurs meander (got %d/%d)" % [seed, meander_ok, spurs.size()])
 		else:
 			var long_paths: Array = []
+			var long_kinds: Array = []
 			for pi: int in range(layout.path_kinds.size()):
 				var kind: String = str(layout.path_kinds[pi])
 				if kind != "primary" and kind != "secondary":
@@ -370,14 +371,21 @@ func test_probe_eleven_seeds_no_fallback_zero_crossings() -> void:
 				if VillageLayout._polyline_length(poly) < 15.0:
 					continue
 				long_paths.append(poly)
+				long_kinds.append(kind)
 			if long_paths.is_empty():
 				continue
+			# ivy-82zn.14.35 (human 2026-11-19): meander is judged by the generator's own V5 gate
+			# (VillageLayoutValidate.v5_shape, len/chord 1.03-1.3 and lateral >= 0.8 with its
+			# tolerances), so the test and the validator cannot disagree on a 1e-4 shortfall.
 			var v3_meander_ok := 0
-			for poly_raw in long_paths:
-				var poly := poly_raw as Array
-				var loc := VillageLayout.polyline_len_over_chord(poly)
-				if VillageLayout.polyline_max_lateral_deviation(poly) >= 0.8 \
-						and loc >= 1.03 and loc <= 1.3:
+			for li: int in range(long_paths.size()):
+				var poly := long_paths[li] as Array
+				var v5: Array[String] = VillageLayoutValidate.v5_shape([poly], [long_kinds[li]])
+				var meander_viol := false
+				for msg: String in v5:
+					if msg.contains("len/chord") or msg.contains("lateral dev"):
+						meander_viol = true
+				if not meander_viol:
 					v3_meander_ok += 1
 			var min_v3 := int(ceilf(float(long_paths.size()) * 0.9))
 			assert_gte(v3_meander_ok, min_v3,

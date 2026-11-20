@@ -1,117 +1,150 @@
-## VillageTerrainParams — resource schema for the in-village lawn heightfield.
-## Mirrors HillsParams / ForestParams API (SD-VILLAGE-TERRAIN-2 / AR-VT-FILES).
-## Production playground and VillageBackdrop both call the same static builders
-## with this resource — no demo fork (SD-VILLAGE-TERRAIN-2 §production-parity).
+## VillageTerrainParams — resource schema for the generated-village terrain (landscape-first, v2).
+## SD-VILLAGE-TERRAIN-22 / AR-LF-PLAYGROUND: every knob here has its production default, and both
+## VillageLayout.generate(seed, params) and the terrain playground read this one resource — no
+## demo fork (G7). Removed v1 fields (village hill, knolls, swell, rim, caps, fades, skirts) are
+## gone; from_dict ignores them so v1 JSON still loads.
 class_name VillageTerrainParams
 extends Resource
 
-const SCHEMA := "village_terrain_playground.v1"
+const SCHEMA := "village_terrain_playground.v2"
+const SCHEMA_V1 := "village_terrain_playground.v1"
 const PRESET_PRODUCTION := "Production"
+const PRESET_FLAT := "Flat (A/B)"
 const CUSTOM_PRESET := "Custom"
 
+## landform_offset_mode values (SD-VILLAGE-TERRAIN-18).
+const OFFSET_AUTO := 0
+const OFFSET_MANUAL := 1
+
+## Knobs that only change uniforms / consumers; field_signature() leaves them out (AR-LF-D11).
+const NON_FIELD_KEYS := [
+	"layout_seed",
+	"wanderer_follow_terrain", "camera_ground_clearance_m",
+	"ground_slope_dark", "ground_slope_full_deg", "ground_height_tint", "ground_height_range_m",
+]
+
 # ── Stage ──────────────────────────────────────────────────────────────────────
-## 0 = rolling (production), 1 = flat legacy (sample_y ≡ 0, INV-15), 2 = high relief (A/B only).
+## 0 = Landscape (production), 1 = Flat (A/B): sample_y ≡ 0, hills flat legacy (INV-15).
 @export var variant: int = 0
-## VillageLayout.generate(seed); drives terrain + knoll LCG. Used when layout.generation_seed == 0.
+## Playground layout seed (VillageLayout.generate). Used when layout.generation_seed == 0.
 @export var layout_seed: int = 7
 
-# ── Base noise (SD-VILLAGE-TERRAIN-2 §Base) ────────────────────────────────────
-## Peak magnitude of zero-mean base noise h ∈ ≈[−a,+a]. 0.0 ⇒ flat base.
-@export var base_amplitude_m: float = 0.64
-## Primary wavelength of fbm_height_01.
-@export var base_feature_m: float = 48.0
-## fBm octaves.
+# ── Landform L (SD-VILLAGE-TERRAIN-17 §1) ─────────────────────────────────────
+## Noise type: 0 fbm (production), 1 billow, 2 derivative-damped, 3 ridged (comparison only).
+@export var landform_noise: int = 0
+@export var landform_wavelength_m: float = 260.0
+## Full 0..1 noise scale (m). 0 = no landform (detail + far ridges only).
+@export var landform_height_m: float = 16.0
+@export var landform_octaves: int = 2
+@export var landform_persistence: float = 0.5
+@export var landform_warp: float = 0.10
+## Derivative-damped noise only (Quilez k).
+@export var landform_ddf_k: float = 0.5
+
+# ── Placement / offset search (SD-VILLAGE-TERRAIN-18) ─────────────────────────
+@export var landform_offset_mode: int = OFFSET_AUTO
+## Manual mode offset; auto mode writes the chosen value back in the playground for copy-out.
+@export var landform_offset_x: float = 0.0
+@export var landform_offset_z: float = 0.0
+@export var landform_rot_deg: float = 0.0
+## SD-VILLAGE-TERRAIN-28 §2 (2026-11-18): 64 -> 128 so the storey rule finds candidates.
+@export var landform_offset_candidates: int = 128
+## Storey rule (SD-28 §2): height off the hero pad that counts as storey ground (m), and the share of
+## buildable ground that must reach it for a candidate to be ordered first. 0 = rule off.
+@export var storey_ground_m: float = 3.5
+@export var storey_ground_frac_min: float = 0.10
+@export var hero_site_slope_min_deg: float = 2.0
+@export var hero_site_slope_max_deg: float = 9.0
+@export var hero_not_crest_m: float = 1.5
+@export var hero_not_hollow_m: float = 1.5
+@export var relief_span_min_m: float = 5.0
+@export var relief_span_target_m: float = 6.5
+@export var relief_span_max_m: float = 8.0
+@export var village_slope_p95_max_deg: float = 14.0
+
+# ── Detail D (SD-VILLAGE-TERRAIN-17 §2) ───────────────────────────────────────
+@export var base_amplitude_m: float = 0.25
+@export var base_feature_m: float = 40.0
 @export var noise_octaves: int = 2
-## fBm persistence.
 @export var noise_persistence: float = 0.40
-## Domain warp strength (breaks grid feel).
 @export var warp_strength: float = 0.16
-## >1 lifts relief toward G (knoll-y green), <1 dishes toward G.
-@export var center_bias_gain: float = 1.10
-## Optional azimuthal lift (independent of outer-hill north retune).
-@export var dir_bias_gain: float = 0.0
-## Azimuth of directional lift (compass: 0=north, 90=east).
-@export var dir_bias_phi_deg: float = 0.0
 
-# ── Seam (SD-VILLAGE-TERRAIN-2 §Seam) ─────────────────────────────────────────
-## Radial width over which base h → 0 at r = lawn_radius (C0 rim). SD-VILLAGE-TERRAIN-6.
-@export var rim_blend_m: float = 5.0
-## Mechanical rim tolerance vs outer HillsHeightfield.sample_y (AC-VT8). SD-VILLAGE-TERRAIN-6.
-@export var rim_eps_m: float = 0.05
+# ── Far ridges Rg (SD-VILLAGE-TERRAIN-17 §3) ──────────────────────────────────
+@export var far_ridge_start_m: float = 70.0
+@export var far_ridge_full_m: float = 100.0
 
-# ── Caps (SD-VILLAGE-TERRAIN-2 §Caps) ─────────────────────────────────────────
-## Hard clamp on positive h (A2).
-@export var max_rise_m: float = 0.8
-## Hard clamp on negative h; covers pond basin (A2).
-@export var max_depression_m: float = 0.6
-## Mechanical ceiling on sample_slope_deg along every path polyline (A2).
-@export var max_path_slope_deg: float = 8.0
+# ── Sun corridor soft cap (SD-VILLAGE-TERRAIN-17 §4) ──────────────────────────
+@export var sun_corridor_half_deg: float = 25.0
+@export var sun_corridor_fade_deg: float = 10.0
+@export var sun_clear_deg: float = 1.5
+@export var sun_eye_height_m: float = 2.0
+@export var sun_cap_soft_m: float = 2.0
 
-# ── Hero sanctum (SD-VILLAGE-TERRAIN-2 §Hero) ─────────────────────────────────
-## Flat-disc radius about HERO_DOOR_STOOP; h_target = 0 (ivy sim / planting sanctity).
+# ── Fit (SD-VILLAGE-TERRAIN-19) ───────────────────────────────────────────────
+@export var ring_max_slope_deg: float = 22.0
+## Cottage site rejection (used by the plot sampler from WP2).
+@export var max_site_slope_deg: float = 10.0
 @export var hero_flat_r_m: float = 7.0
-## Smooth blend from flat disc to surrounding field.
-@export var hero_skirt_m: float = 3.0
-
-# ── Cottage pads (SD-VILLAGE-TERRAIN-2 §Pads) ─────────────────────────────────
-## Grow cottage_exterior_rect before flattening.
+@export var hero_ring_min_m: float = 4.0
+@export var hero_ring_max_m: float = 10.0
 @export var pad_margin_m: float = 0.6
-## Pad-edge blend width.
-@export var pad_skirt_m: float = 2.0
-## Mechanical cap on pad skirt slope (foundation readability).
-@export var pad_edge_slope_max_deg: float = 8.0
-
-# ── Pond basin (SD-VILLAGE-TERRAIN-2 §Pond) ────────────────────────────────────
-## Basin floor relative to local field (negative). AR-VT-GAP-1.
+@export var pad_ring_min_m: float = 3.0
+@export var pad_ring_max_m: float = 9.0
+@export var pond_max_site_slope_deg: float = 6.0
+## Water level = lowest bank point (r = BANK_OUTER_M) of the capped field − this.
+@export var pond_freeboard_m: float = 0.15
+## Basin floor relative to the bank level (negative).
 @export var pond_depth_m: float = -0.6
-## Floor radius = MEAN_WATER_RADIUS_M × scale.
 @export var pond_floor_scale: float = 1.0
-## Rim radius = BANK_OUTER_M + extra (where basin returns to field).
 @export var pond_rim_extra_m: float = 1.5
-## Raised lip at rim for bank scatter read.
 @export var pond_lip_rise_m: float = 0.12
-## Lip Gaussian width.
 @export var pond_lip_sigma_m: float = 1.2
-## Blend of basin stamp into base beyond rim.
 @export var pond_skirt_m: float = 2.0
-## Water surface sits this far below the lip (water below lip, above floor).
+## Kept from v1 (SD-22 "as today"); the water level now comes from pond_freeboard_m.
 @export var pond_water_inset_m: float = 0.10
+@export var plaza_max_tilt_deg: float = 6.0
+## Plaza ring ladder [plaza_ring_m, plaza_ring_max_m] (SD-18 plaza_ring_ok, ivy-82zn.14.23).
+@export var plaza_ring_m: float = 5.0
+@export var plaza_ring_max_m: float = 10.0
 
-# ── Plaza (SD-VILLAGE-TERRAIN-2 §Plaza) ───────────────────────────────────────
-## Plaza plateau offset vs local field. 0 = gentle flattening that never blocks CamSun.
-@export var plaza_relief_m: float = 0.0
-## Plaza blend width.
-@export var plaza_skirt_m: float = 2.0
+# ── Paths (SD-VILLAGE-TERRAIN-20) ─────────────────────────────────────────────
+## Open-land cap (fit zones follow the ring rule; SD-20 restated ivy-82zn.14.23).
+@export var max_path_slope_deg: float = 14.0
+@export var door_approach_m: float = 3.0
+## A rank's best path-only layout at or under this open-land max is kept with path_cap_fallback.
+@export var path_steep_accept_deg: float = 18.0
+## Open-land max ≤ cap + this is accepted at once with path_cap_fallback (AR-LF-PERF P4; 0 = SD-20).
+@export var path_near_miss_deg: float = 1.0
 
-# ── Knolls (SD-VILLAGE-TERRAIN-2 §Knoll) ─────────────────────────────────────
-## Seeded additive mounds (A3 relief character).
-@export var knoll_count: int = 2
-## Peak per mound (clamped by max_rise_m).
-@export var knoll_height_m: float = 0.70
-## Mound footprint radius.
-@export var knoll_radius_m: float = 12.0
-## Min centre-to-centre spacing.
-@export var knoll_min_sep_m: float = 10.0
-## No mound centre within this of HERO_DOOR_STOOP.
-@export var knoll_hero_clear_m: float = 12.0
-## Reject mound centres whose azimuth-from-G is within this of the sun E/W azimuths.
-@export var knoll_sun_corridor_half_deg: float = 35.0
+# ── Village (SD-VILLAGE-TERRAIN-21 restated 2026-11-18, human option B; generator, WP3) ───────
+## Pair centre floor (exterior-rect centres) in PlotSampler and v1.
+@export var cottage_min_sep_m: float = 16.0
+@export var village_centre_r_max_m: float = 46.0
+## Relax-ladder floor (1 m steps below cottage_min_sep_m, every attempt); clamped to ≤ the spacing.
+@export var sep_ladder_floor_m: float = 14.0
+## Multiplies the SD-21 primary / branch / capacity-branch lengths (1.0 = production table).
+@export var path_len_scale: float = 1.0
 
-# ── Mesh (SD-VILLAGE-TERRAIN-2 §Mesh) ─────────────────────────────────────────
-## Lawn mesh cell size (resolution vs tri budget).
+
+## sep_ladder_floor_m clamped to ≤ cottage_min_sep_m (SD-22 restated 2026-11-18).
+func effective_sep_ladder_floor_m() -> float:
+	return minf(sep_ladder_floor_m, cottage_min_sep_m)
+
+# ── Mesh ──────────────────────────────────────────────────────────────────────
 @export var terrain_mesh_step_m: float = 2.0
-## Central-difference step for sample_normal.
 @export var normal_eps_m: float = 0.35
 
-# ── Consumer toggles (SD-VILLAGE-TERRAIN-2 §Consumer) ────────────────────────
-## A1 — path-polyline vertices use sample_y; off-path figure Y stays datum.
+# ── Consumer toggles ──────────────────────────────────────────────────────────
 @export var wanderer_follow_terrain: bool = true
-## Free/orbit eye y floored at sample_y(eye.xz) + clearance (anti-knoll-clip). AR-VT-GAP-5.
+## Camera eye y floored at sample_y(eye.xz) + clearance.
 @export var camera_ground_clearance_m: float = 0.35
 
-# ── Material (SD-VILLAGE-TERRAIN-2 §Material) ─────────────────────────────────
-## Lawn shader matches outer-hill rim albedo (fuzzy, pairs with ivy-ska0.1 tint tokens).
-@export var rim_tint_match_on: bool = true
+# ── Material (shared terrain_tint.gdshaderinc, AR-LF-D9) ──────────────────────
+@export var ground_slope_dark: float = 0.35
+@export var ground_slope_full_deg: float = 30.0
+@export var ground_height_tint: float = 0.12
+## Height (m) above / below y_hero where the height tint saturates (village span).
+@export var ground_height_range_m: float = 8.0
 
 
 # ── Constructor helpers ────────────────────────────────────────────────────────
@@ -122,7 +155,7 @@ static func _fresh() -> VillageTerrainParams:
 
 
 static func production() -> VillageTerrainParams:
-	## Returns a fresh resource with every field at production default (parity target).
+	## Fresh resource with every field at its production default (parity target).
 	return _fresh()
 
 
@@ -133,34 +166,36 @@ func duplicate_params() -> VillageTerrainParams:
 
 
 func reset_to_production() -> void:
-	## Restore all fields to production defaults; preserve layout_seed and variant=0.
+	## Restore all fields to production defaults; keep layout_seed; variant = 0.
 	var fresh := _fresh()
 	var keep_seed := layout_seed
-	for prop in fresh.get_property_list():
-		if prop.name == "resource_path" or prop.name.begins_with("_"):
-			continue
-		if prop.name in ["layout_seed", "variant"]:
-			continue
-		set(prop.name, fresh.get(prop.name))
+	var vals := fresh.to_dict()
+	for key in vals:
+		set(key, vals[key])
 	variant = 0
 	layout_seed = keep_seed
 
 
 func to_dict() -> Dictionary:
+	## Script knobs only. (v1 also emitted script / resource_* storage props; loading such a copy-out
+	## with from_dict set `script` and stripped the resource, ivy-82zn.14.14.)
 	var d := {}
 	for prop in get_property_list():
-		if prop.name == "resource_path" or prop.name.begins_with("_"):
+		if prop.name.begins_with("_"):
 			continue
-		if prop.usage & PROPERTY_USAGE_STORAGE:
+		if prop.usage & PROPERTY_USAGE_SCRIPT_VARIABLE:
 			d[prop.name] = get(prop.name)
 	return d
 
 
 func from_dict(d: Dictionary) -> void:
+	## Loads v2 and v1 JSON payloads. Keys this schema does not have (the removed v1 fields) are
+	## ignored (AR-LF-PLAYGROUND copy-out).
+	var known := to_dict()
 	for key in d.keys():
 		if key == "schema" or key == "knobs":
 			continue
-		if key in to_dict():
+		if key in known:
 			set(key, d[key])
 	if d.has("knobs"):
 		from_dict(d["knobs"])
@@ -176,8 +211,27 @@ func to_json_block() -> String:
 	return JSON.stringify(payload, "\t")
 
 
+func field_signature() -> int:
+	## Hash of every knob that changes VillageTerrainField (AR-LF-D10). Material and consumer
+	## knobs and layout_seed are left out, so a tint edit never rebuilds the field.
+	## In auto mode the manual offset fields are only a copy-out of the search result (the
+	## playground writes them back), so they do not change the field either.
+	var auto := landform_offset_mode == OFFSET_AUTO
+	var vals: Array = []
+	for prop in get_property_list():
+		if not (prop.usage & PROPERTY_USAGE_SCRIPT_VARIABLE):
+			continue
+		if prop.name in NON_FIELD_KEYS:
+			continue
+		if auto and prop.name in ["landform_offset_x", "landform_offset_z", "landform_rot_deg"]:
+			continue
+		vals.append(get(prop.name))
+	return hash(vals)
+
+
 func matches_preset(other: VillageTerrainParams, eps: float = 1e-5) -> bool:
-	var skip := ["layout_seed"]
+	## Manual-mode offsets are written back from the auto search; they are not part of a preset.
+	var skip := ["layout_seed", "landform_offset_x", "landform_offset_z"]
 	var a := to_dict()
 	var b := other.to_dict()
 	for key in a.keys():
@@ -193,35 +247,40 @@ func matches_preset(other: VillageTerrainParams, eps: float = 1e-5) -> bool:
 	return true
 
 
-# ── Presets ───────────────────────────────────────────────────────────────────
+# ── Presets (SD-VILLAGE-TERRAIN-22; no "Village on a hill (old)", AR-LF-D2) ──────
 
 static func preset_tips() -> Dictionary:
 	return {
-		PRESET_PRODUCTION: "Gentle rolling lawn with knolls, pond basin, and cottage pads.",
-		"Flat legacy": "Pre-terrain flat lawn — byte-parity with classic (INV-15).",
-		"High relief": "Taller amplitude and more knolls — A/B playground only.",
+		PRESET_PRODUCTION: "Landscape-first rolling hills: broad landform, village fitted into it.",
+		PRESET_FLAT: "Flat lawn (sample_y ≡ 0) and flat legacy hills — A/B against production.",
+		"Gentle": "Lower, longer hills (height 10 m, wavelength 300 m).",
+		"Bold": "Taller, tighter hills (height 22 m, wavelength 220 m).",
+		"Billow": "Billow noise: rounder lumps (soft-abs valleys).",
+		"Derivative-damped": "Derivative-damped noise: smooth hollows, rougher crests.",
+		"Ridged (comparison)": "Ridged noise — comparison only, expected to fail the slope ACs.",
+		"Tight village (old spacing)": "Cottage spacing 8 m (only the 4 m wall gap binds), short paths (0.8), reach 37 m — the pre-WP3 village.",
 	}
 
 
 static func ordered_preset_names() -> Array:
-	var names: Array = presets().keys()
-	names.sort()
-	names.erase(PRESET_PRODUCTION)
-	names.insert(0, PRESET_PRODUCTION)
-	return names
+	return [
+		PRESET_PRODUCTION, PRESET_FLAT, "Gentle", "Bold", "Billow", "Derivative-damped",
+		"Ridged (comparison)", "Tight village (old spacing)",
+	]
 
 
 static func presets() -> Dictionary:
-	## SD-VILLAGE-TERRAIN-2 §Presets.
 	return {
 		PRESET_PRODUCTION: {"variant": 0},
-		"Flat legacy": {"variant": 1},
-		"High relief": {
-			"variant": 2,
-			"base_amplitude_m": 0.80,
-			"knoll_count": 4,
-			"knoll_height_m": 0.80,
-			"center_bias_gain": 1.25,
+		PRESET_FLAT: {"variant": 1},
+		"Gentle": {"variant": 0, "landform_height_m": 10.0, "landform_wavelength_m": 300.0},
+		"Bold": {"variant": 0, "landform_height_m": 22.0, "landform_wavelength_m": 220.0},
+		"Billow": {"variant": 0, "landform_noise": 1},
+		"Derivative-damped": {"variant": 0, "landform_noise": 2},
+		"Ridged (comparison)": {"variant": 0, "landform_noise": 3},
+		"Tight village (old spacing)": {
+			"variant": 0, "cottage_min_sep_m": 8.0, "sep_ladder_floor_m": 8.0, "path_len_scale": 0.8,
+			"village_centre_r_max_m": 37.0,
 		},
 	}
 
@@ -229,9 +288,6 @@ static func presets() -> Dictionary:
 func apply_preset(name: String) -> void:
 	var table := presets()
 	assert(table.has(name), "Unknown preset: %s" % name)
-	if name == PRESET_PRODUCTION:
-		reset_to_production()
-		return
 	var keep_seed := layout_seed
 	reset_to_production()
 	layout_seed = keep_seed
@@ -243,7 +299,6 @@ func apply_preset(name: String) -> void:
 static func detect_preset_name(p: VillageTerrainParams) -> String:
 	for name in ordered_preset_names():
 		var ref := _fresh()
-		ref.variant = p.variant
 		ref.apply_preset(name)
 		if p.matches_preset(ref):
 			return name

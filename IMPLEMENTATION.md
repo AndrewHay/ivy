@@ -4122,6 +4122,9 @@ Each is individually testable; unless noted, "cottage rect" = `cottage_exterior_
 | INV-19 | House-to-house edges | `≥ 6` edges not incident to node `7` | count edges with both endpoints `< 7` |
 | INV-20 | World-scale params (generated) | layout carries `lawn 30`, `hill_inner 30`, `pine_inner 28.5`, `pine_outer 42`, `pine_count 33`, `fog 14.0/95`, `bush_filler 8/22`; `pine_inner (28.5) ≥ max outer grown corner` | field asserts + corner scan |
 
+> **Superseded in part by AR-NOFOG (ivy-82zn.14.32):** the fog half of INV-20 is gone — `VillageLayout`
+> has no `fog_begin` / `fog_end` and `GENERATED_FOG_BEGIN` is deleted. The rest of INV-20 stands.
+
 The sweep test loops seeds `1..200`, instantiating the layout (not the full scene) per seed and asserting
 INV-1..INV-10, INV-13, INV-14, INV-16..INV-20; INV-11/INV-12 are whole-sweep assertions; INV-15 is
 seed-independent. `layout.fallback` must be `false` for all 200 seeds (acceptance "no placement failure").
@@ -4164,7 +4167,7 @@ seed-independent. `layout.fallback` must be `false` for all 200 seeds (acceptanc
   | flower/petal/plant layers | keep | keep | petals already ride generated path stones; flowers/plants are hero-garden dressing |
   | fauna garden ring `5.5–12` (`FaunaConstants`) | keep | keep | hero band; out of scope for the bigger world |
   | World/`Ground` plane `512×512` (`main.tscn`) | keep | keep | already huge |
-  | fog `fog_depth_begin / end` (`main.tscn` WorldEnvironment) | `9.5 / 95.0` | **`14.0 / 95.0`** | **scale begin** (runtime override, below); keep `end` (`95 > 42` pine outer) |
+  | fog `fog_depth_begin / end` (`main.tscn` WorldEnvironment) | `9.5 / 95.0` | **`14.0 / 95.0`** | **scale begin** (runtime override, below); keep `end` (`95 > 42` pine outer). *Superseded by AR-NOFOG (ivy-82zn.14.32): no fog in either mode; World/Ground is now 6000 × 6000 m.* |
 
 - **Fog is a runtime override, not a `main.tscn` edit.** The WorldEnvironment is a shared global; editing
   its `.tscn` value would break classic byte-for-byte and the `fog_depth_begin ≥ 9.5` test. Instead carry
@@ -5406,6 +5409,9 @@ backdrop_trees_xz: Array[Vector2]) -> Array[Transform3D]`
 
 ### SD-HILLS-6 — Ridge-band and fog tinting rules
 
+> **Superseded 2026-11-19 by AR-NOFOG (ivy-82zn.14.31):** the human removed all fog. No fog, no haze
+> blend toward the horizon colour; the meadow layer colours stay.
+
 **Goal (fuzzy):** nearer ridges read **darker/clearer**; farther crests **paler/bluer** through
 existing hero-centred volumetric fog — tint **supports** fog, does not replace it.
 
@@ -5583,6 +5589,9 @@ RefCounted helpers** under `src/playground/`; `VillageBackdrop` only orchestrate
 This matches GD epic scope (seeds **1 / 7 / 12**) without re-tuning classic cottage fog reads.
 
 ### AR-HILLS-3 — Decision 2: fog ridge tint = **CPU `HillsFogTint` + per-vertex COLOR + MultiMesh `use_colors`**
+
+> **Superseded 2026-11-19 by AR-NOFOG (ivy-82zn.14.31):** fog and haze tint removed; `HillsFogTint` becomes
+> `HillsTint` (meadow layers, seam colour and tree tint only).
 
 **Rejected: new globals or live volumetric in terrain shader.** `village_ground.gdshader` has no fog
 anchor; volumetric `WORLD_AROUND_HERO` cannot be replicated cheaply in GLSL without duplicating
@@ -7221,6 +7230,7 @@ func get_layout() -> VillageLayout                # ivy-80z.7: World reads fog_b
 #   _setup_multimesh_scatter: bush_common_positions(_layout.cottages, _layout.bush_filler_inner, _layout.bush_filler_outer)
 
 # src/world/sky_sun.gd  (addition — ivy-80z.7 fog-override seam)
+# SUPERSEDED by AR-NOFOG (ivy-82zn.14.32): set_fog_depth and every other SkySun fog call are deleted.
 func set_fog_depth(begin: float, end: float) -> void   # if _env/_env.environment: set fog_depth_begin/end
 
 # src/world/village_scatter_positions.gd  (signature extensions — default args preserve classic bytes)
@@ -7770,6 +7780,16 @@ equivalence evidence + the 200-seed sweep result + screenshot paths) to the Code
 
 ## SD-VILLAGE-TERRAIN — In-village lawn terrain height *(ivy-82zn)*
 
+> **2026-11-16 — Landscape-first rolling hills (ivy-82zn.14.12) supersedes parts of this section.**
+> The terrain model, village fitting, cottage spacing, knobs and acceptance metrics for generated
+> villages are now **SD-VILLAGE-TERRAIN-16 … -25** (below -15). Superseded here, kept for history:
+> the *Village hill* group and its composition paragraph (-2), the `r ≥ lawn_radius → Y_BASE` gate
+> (-3 step 1), knolls / swell / caps / rim taper (-2, -3, -4), the rim join (-6), and AC-VT8, AC-VT-HERO,
+> AC-VT7 and AC-VT12 as written in -10. Still in force: datum convention, `fer`/`smooth` primitives,
+> determinism (-5), consumer table (-7, read "lawn" as "landscape"), mesh-is-truth (-8), playground
+> shell (-9), Classic/flat parity (AC-VT1), pond water/bank contracts (AC-VT3), stones (AC-VT4),
+> wanderer (AC-VT10), camera (AC-VT11), budget (AC-VT9).
+
 **2026-11-13:** Production rolling relief ~2× original (`base_amplitude_m` **0.68**, `knoll_height_m` **0.72**; path quiet floor **0.72**; `_open_lawn_relief_scale` removed from compose; hero soft-edge skips pad skirts); path/pad/cap invariants unchanged.
 
 **Contracts:** G7 + `DESIGN.md` § *Algorithm playgrounds*, `.cursor/rules/algorithm-playgrounds.mdc`,
@@ -7872,6 +7892,46 @@ constant sub-surface offset below `sample_y`, not an independent plane.
 (variant 2: `base_amplitude_m` 0.92, `knoll_count` 4, `knoll_height_m` 0.88 — A/B only). Non-matching
 edits fall to a `Custom` preset name (`HillsParams` pattern).
 
+**Village hill — SUPERSEDED 2026-11-16 by SD-VILLAGE-TERRAIN-16 … -25 (ivy-82zn.14.12).** The group
+below, its changed defaults and the composition paragraph are history; do not use them as the model.
+Kept from this work: no C0 steps vs the slope shader (dark contour lines), relief-fade floor, pond bank
+draped on `mesh_surface_y`, datum option A (World lowers the backdrop by the hero pad height).
+
+**Village hill (ivy-82zn.14.10, plan ivy-82zn.14.9; human direction: "a height difference of at least a
+house between the centre and the edge of the village").** Group `Village hill`, production reads the
+same params; preset `No hill (A/B)` = production with `hill_rise_m` 0.
+
+| Group | Field | Default | Range | Meaning |
+|---|---|---|---|---|
+| Village hill | `hill_rise_m` | **8.5** | 0-17 | Hero crest above the rim datum; tallest cottage ridge 6.84 m (WALL_TOP 3.125 + roof 3.718). |
+| Village hill | `hill_shoulder` | **0.3** | 0-1 | Profile: 0 straight cone, 1 smoothstep. |
+| Village hill | `hill_falloff_pow` | **1.0** | 0.5-3 | u^pow on the normalised run. |
+| Village hill | `hill_centre_shift` | **0.0** | 0-0.6 | Hill centre moved from the stoop toward G. |
+| Village hill | `hill_crest_extra_m` | **0.0** | 0-15 | Flat crest beyond hero disc + skirt. |
+| Village hill | `hill_end_margin_m` | **2.0** | −10-20 | Fall ends this far past the farthest grown pad corner (or at the rim band, if nearer). |
+| Village hill | `plaza_hill_follow` | **1.0** | 0-1 | 1 plaza tilts with the hill; 0 level terrace. |
+| Village hill | `hill_bank_max_deg` | **30** | 10-45 | Terrace bank cone slope (pads, pond, level plaza). |
+
+Changed defaults with the hill: `max_path_slope_deg` 8 → **18**; `base_amplitude_m` 0.56 → **0.30**
+(ivy-sx7x path-quiet un-inverted, same open-lawn amplitude); `swell_amp_m` 0.5 → **0.25**;
+`ground_slope_full_deg` 10 → **30**; `ground_height_range_m` 1.2 → **8.5**. Relief fade knobs are
+floored at 1.0 m (slider and sampler, `VillageTerrain.RELIEF_FADE_FLOOR_M`). `wanderer_follow_terrain`
+false now holds the figure at the hero datum (debug); true (default) follows the terrain in every state.
+
+**Composition (supersedes SD-VILLAGE-TERRAIN-3's single field):** `sample_y = Y_BASE + hero(paths(L_t + R))`.
+P = `hill_y` (crest `hill_rise_m` to `hill_crest_r`, falling along rays to 0 at
+min(village edge, rim-band circle), eased C1 at both ends). L = P + swell. L_t = L clamped between the
+smooth/hard envelopes of slope-c cones (c = tan `hill_bank_max_deg`) on every terrace core (pads, pond,
+level plaza), the hero ring (tan 8° across the skirt, then a 28° flank cap) and the rim band (0); cones
+have a 0.3 m rounded foot; cores are exactly flat. Anchors = L(core centre), relaxed lower-only to
+pair budgets c × run(gap), with hero floors and rim caps. R = the pre-hill sampler minus swell and
+path corridor (caps clamp R only). Paths: one graded spine graph (junctions linked) applied as a
+correction faded over the 5 m corridor. Hero disc = `hero_datum_y` (= P at the stoop). Datum option A:
+World lowers `VillageBackdrop` and `World/Ground/GroundMesh` by `hero_datum_y` (collision stays at 0);
+camera floor adds the backdrop's world y; fauna hover above anchor ground; Garden_* props seated.
+Pond: water = `VillageTerrain.pond_water_y` (≤ lowest bank outline − 2 cm); bank ring draped on
+`mesh_surface_y` (the rendered 2 m triangles) + 2 cm, refined to 1.2 cm.
+
 ### SD-VILLAGE-TERRAIN-3 — Sampling API & height composition contract
 
 Static class `VillageTerrain` (`src/playground/village_terrain.gd`, mirrors `HillsHeightfield`):
@@ -7892,7 +7952,8 @@ to `variant == 0/2` on generated layouts.
 **`sample_y(xz)` composition** (polar `r = |xz − G|`, `φ = atan2(xz.x − G.x, xz.y − G.y)`):
 
 1. **Outside disc:** if `r ≥ lawn_radius` → return `Y_BASE` (rim datum; outside is the hills' domain,
-   SD-VILLAGE-TERRAIN-6).
+   SD-VILLAGE-TERRAIN-6). **SUPERSEDED for generated layouts (ivy-82zn.14.12):** no disc gate; the
+   composition is SD-VILLAGE-TERRAIN-17 and covers every `xz` out to the mesh edge.
 2. **Base field + knolls** (relative displacement `h`):
 
    ```
@@ -8001,7 +8062,11 @@ Production must not consume raw `layout.generation_seed` for terrain noise; use 
 12** (+ `240424020` to match `test_forest_parity.gd`). Same seed + `VillageTerrainParams.production()`
 ⇒ identical `sample_y` grid hash and identical `knoll_centres` in game and playground.
 
-### SD-VILLAGE-TERRAIN-6 — Rim join to outer hills (interface only)
+### SD-VILLAGE-TERRAIN-6 — Rim join to outer hills (interface only) — SUPERSEDED
+
+> **Superseded 2026-11-16 (ivy-82zn.14.12) by SD-VILLAGE-TERRAIN-16 and -23.** There is no rim any more:
+> lawn and outer hills are one sample function, and AC-VT8 is replaced by AC-LT-SEAM. The text below is
+> history.
 
 The lawn field owns `r < lawn_radius`; the outer `HillsHeightfield` owns `r ≥ lawn_radius`. The join is
 **C0 by construction and verified, never by editing hill internals**:
@@ -8041,7 +8106,7 @@ per-frame.
 | **Wanderer** (`wanderer_controller` figure root, path graph) | **A1:** path-polyline vertices `y = sample_y`; figure root interpolates `sample_y` along the segment it walks | **AC-VT10:** along any path, figure `y ≥ sample_y − 0.05 m` (no sinking) when `wanderer_follow_terrain`. Off-path stays datum. Interpolate Y linearly between polyline vertices to avoid foot-slide. |
 | **Camera** (`CameraBounds`) | free/orbit eye `y` floored at `sample_y(eye.xz) + camera_ground_clearance_m` | **AC-VT11:** `test_camera_rig_lawn_bounds` still passes; no eye below terrain. XZ clamp unchanged. |
 | **CamSun / sun horizons** | sun east/west azimuths from `SkySun` (GA wires exact constants) | **AC-VT12 (+ fuzzy):** `test_production_backdrop_visible_in_camsun` unchanged; no terrain silhouette within `knoll_sun_corridor_half_deg` of either sun-horizon azimuth rises enough to cross the sun sightline near the horizon. Knoll placement + `max_rise_m` enforce this. |
-| **HeroFog anchor** | unchanged (hero-centred) | Terrain does not move the fog anchor. |
+| **HeroFog anchor** | unchanged (hero-centred) | Terrain does not move the fog anchor. *(Superseded by AR-NOFOG, ivy-82zn.14.32: HeroFog is deleted; there is no fog anchor.)* |
 
 ### SD-VILLAGE-TERRAIN-8 — Mesh resolution, shader-vs-mesh truth, perf budget
 
@@ -8091,15 +8156,15 @@ save state; global state restored on exit).
 |----|-----------|------|--------------|
 | AC-VT1 | Classic / authored layout + `variant 1`: `sample_y ≡ 0.0`; generated byte-flat where flat today (INV-15) | Mechanical | `test_village_terrain_flat_parity.gd` |
 | AC-VT2 | Seeds 1/7/12: `sample_y` grid hash + `knoll_centres` deterministic game vs playground export | Mechanical | `test_village_terrain_parity.gd` |
-| AC-VT-HERO | `|sample_y| ≤ 0.02 m` for all samples with `r < hero_flat_r_m` (7 m) from stoop | Mechanical | `test_village_terrain_heightfield.gd` |
+| AC-VT-HERO | **Restated → AC-LT-HERO (SD-VILLAGE-TERRAIN-23):** `|sample_y − y_hero| ≤ 0.02 m` for `r < hero_flat_r_m`, relative to the hero pad height, not world 0 | Mechanical | `test_village_terrain_heightfield.gd` |
 | AC-VT5 | Each cottage pad interior `|h − h_centre| ≤ 0.05 m`; max pad-skirt slope ≤ `pad_edge_slope_max_deg` | Mechanical | `test_village_terrain_pads.gd` |
 | AC-VT3 | Pond water below lip; **0** grass blades in water volume | Mechanical | extend `test_no_grass_inside_pond_water.gd` |
 | AC-VT4 | Path stone origins within ±0.08 m of `sample_y`; no `> 0.15 m` air gap | Mechanical | `test_village_terrain_paths.gd` |
-| AC-VT7 | Max `sample_slope_deg` along every path polyline ≤ `max_path_slope_deg` (8°) | Mechanical | `test_village_terrain_stones.gd` |
+| AC-VT7 | **Restated → AC-LT-PATH (SD-VILLAGE-TERRAIN-23)**, cap 14°, door-approach exemption | Mechanical | `test_village_terrain_stones.gd` |
 | AC-VT6 | No cottage origin buried `> 0.1 m` / floating `> 0.15 m` vs pad target (per-cottage) | Mechanical | `test_village_terrain_intrusion.gd` |
-| AC-VT8 | Rim circle `r = lawn_radius`: `|Δ sample_y vs HillsHeightfield| ≤ 0.05 m`; inward gradient ≤ 0.12 m/m | Mechanical | `test_village_terrain_rim.gd` |
+| AC-VT8 | **SUPERSEDED → AC-LT-SEAM (SD-VILLAGE-TERRAIN-23).** ~~Rim circle `r = lawn_radius`: `|Δ sample_y vs HillsHeightfield| ≤ 0.05 m`; inward gradient ≤ 0.12 m/m~~ | — | `test_village_terrain_rim.gd` rewritten as the seam test |
 | AC-VT11 | `test_camera_rig_lawn_bounds` still passes; eye never below terrain | Mechanical | existing + clearance assert |
-| AC-VT12 | `test_production_backdrop_visible_in_camsun` unchanged; no mound crosses sun-horizon corridor sightline | Mechanical | existing + `test_village_terrain_sun_corridor.gd` |
+| AC-VT12 | **Restated → AC-LT-SUN (SD-VILLAGE-TERRAIN-23)**: elevation-angle sightline test replaces knoll azimuth rejection and the E/W `FLAT_EPS` flatness test | Mechanical | `test_village_terrain_sun_corridor.gd` |
 | AC-VT10 | Wanderer `y ≥ sample_y − 0.05 m` along paths when follow enabled | Mechanical | `test_village_terrain_wanderer.gd` |
 | AC-VT9 | Budget probe within SD-VILLAGE-TERRAIN-8 table (tris, surfaces, grass build Δ, frame Δ) | Mechanical | `tools/village_terrain_budget_probe.gd` |
 | AC-VT-CAP | Playground loads; live rebuild; copy-out JSON round-trips; production parity | Mechanical | `test_village_terrain_playground_scene.gd` |
@@ -8166,7 +8231,1008 @@ INV-15 flat classic/legacy parity, single-sampling-API truth, determinism via `_
 collision/sim coupling, `hills_*.gd` untouched. Build order and file map are the Architect's to detail
 (AR-VILLAGE-TERRAIN); this SD fixes the contracts, formulas, tolerances, and test IDs above.
 
+### SD-VILLAGE-TERRAIN-16 — Landscape-first rolling hills: system goal *(ivy-82zn.14.12)*
+
+**Consumes:** Game Director vision **ivy-82zn.14.11** (fantasy, look targets, ratified C1–C5, non-goals,
+knobs, risks R1–R3); `DESIGN.md` § *Village game modes (Classic / Generated)* → "Village on a hill —
+SUPERSEDED" and "Landscape-first rolling hills". **Next handoff:** Gameplay Architect **ivy-82zn.14.13**.
+This section specifies; it does not implement. Generated layouts only — Classic stays flat (AC-VT1).
+
+**Goal.** The land comes first and the village settles into it. One deterministic heightfield
+`VillageTerrain.sample_y(xz)` covers the whole generated world, from the hero stoop out to the far mesh
+edge (r ≈ 310 m from G). It is a broad rolling landform (hills bigger than the village), plus the
+existing north ridge backdrop, plus a soft cap that keeps the east/west sun horizons clear. The village
+is then fitted to that land: small level cores with soft blend rings for the hero, the cottages, the
+pond and the plaza; paths drape over it. No large flatten masks, no rim and no second heightfield.
+
+**What the player sees** (GD look targets made concrete): roughly a house of height (5–8 m) across
+the village disc; at least one cottage a storey (≥ 3 m) above or below the hero pad; paths that
+visibly climb and dip; no ring, plateau or colour step at the old r = 56 m lawn edge; a low, soft
+horizon in the sunrise and sunset directions.
+
+**Model in one line:**
+`sample_y = fit(cap_sun(L(xz) + D(xz) + Rg(xz)))`, where L = landform, D = detail, Rg = far north
+ridges, `cap_sun` = sun-corridor soft cap, `fit` = hero / cottage / pond / plaza level cores with blend
+rings (SD-VILLAGE-TERRAIN-17, -19). Heights are in the backdrop frame; datum option A is unchanged
+(World lowers the backdrop by `y_hero`, so the hero pad renders at world y = 0 and the sim is untouched).
+
+**Ownership.** `VillageTerrain.sample_y` is the single source of truth for every xz on generated layouts.
+For generated layouts `HillsHeightfield.sample_y` becomes a thin wrapper that returns
+`VillageTerrain.sample_y`, so forest placement, fog tint, slope probes and the far mesh all read the same
+land. `HillsParams` keeps the ridge, forest and fog fields; its toe/rim fields (`toe_width_m`,
+`toe_max_lift_m`, the `r < lawn_radius → y_lawn` branch) stop applying to generated layouts.
+
+### SD-VILLAGE-TERRAIN-17 — Terrain model (exact composition)
+
+Polar coordinates about G = `layout.hamlet_centre_xz`; `H0 = HERO_DOOR_STOOP` = (0, 2.59). Terrain seed
+`t_seed = _derive(norm_seed, VILLAGE_LANDFORM_SALT)` (new salt `0x7E44A2`, beside the existing terrain
+salts; SD-VILLAGE-TERRAIN-5 rules apply). All blend weights use the C1 `smooth` / `fer` primitives
+(SD-VILLAGE-TERRAIN-3). The field is **C1 everywhere** except inside the pond basin and the sun cap's
+soft-min, which are also C1 by construction. No term may introduce a C0 step (C5: dark contour lines).
+
+**1. Landform L** — broad rolling hills.
+
+```
+q      = R(landform_rot_deg) · (xz − H0) + H0 + landform_offset      // offset chosen by SD-VILLAGE-TERRAIN-18
+n01    = NOISE[landform_noise](q, t_seed, landform_wavelength_m, landform_octaves,
+                               landform_persistence, landform_warp)  // 0..1
+L(xz)  = landform_height_m · n01
+```
+
+`NOISE` variants (playground selector, all share the signature and the 0..1 range):
+
+| `landform_noise` | Formula | Notes |
+|---|---|---|
+| `0 fbm` (production) | `HillsNoise.fbm_height_01` (simplex fBm, lacunarity 2, domain warp) | Proven path; default. |
+| `1 billow` | octave term `1 − 2·sabs(s)`, `sabs(s) = sqrt(s² + 0.15²)` | Rounder lumps. The soft abs is required: a plain `abs` makes a gradient crease in every valley, which the slope shader draws as a dark line. |
+| `2 derivative-damped` | Quilez: `sum += a·s / (1 + k·|d|²)`, d = accumulated octave gradient, `k = landform_ddf_k` | Smooth hollows, rougher crests. Gradients must be analytic or well conditioned: a naive finite-difference build in the SD probe gave 40–70° slope spikes. Gated by the same slope ACs. |
+| `3 ridged` (comparison only) | `1 − sabs(s)`, squared | Never production; the preset is labelled "comparison". Expected to fail AC-LT-SLOPE. |
+
+**2. Detail D** — the existing gentle lawn undulation, kept for a lived-in look. Fields keep their
+names (`base_amplitude_m`, `base_feature_m`, `noise_octaves`, `noise_persistence`, `warp_strength`):
+`D = (fbm01(xz; base_feature_m …) − 0.5) · 2 · base_amplitude_m`, default amplitude **0.25 m**,
+wavelength **40 m**. Faded to 0 inside every fit core by the fit weights (step 5).
+
+**3. Far ridges Rg** — the current north-wedge hill core, moved into this sum. Rg =
+`HillsHeightfield._h_core(xz) · azimuth_weight(xz)` with `HillsParams.production()` (height 42 m,
+layers 155–260 m, wedge 55° half width), but its radial gate is now
+`smooth(clamp((r − far_ridge_start_m) / (far_ridge_full_m − far_ridge_start_m), 0, 1))` with
+**70 m / 100 m** (old: lawn_radius + 4 = 60 m → 86 m). Rg is ≥ 0 and adds on top of L; there is no
+toe and no flat pin.
+
+**4. Sun corridor soft cap.** Sunrise / sunset azimuths `A_rise`, `A_set` are taken from `Solar` at
+production `IvyParams` (lat 51.5°, day 105): about **75°** and **285°**. GA wires the exact values; a
+test pins them to ±1° of `Solar`. The old `_SUN_EAST_AZ_DEG = 90` / `_SUN_WEST_AZ_DEG = 270` constants
+are retired. For `d = |xz − H0|` and the azimuth φ_H of xz as seen from H0:
+
+```
+w_az   = max over A in {A_rise, A_set} of fer(|Δang(φ_H, A)|, sun_corridor_half_deg, sun_corridor_half_deg + sun_corridor_fade_deg)
+w_sun  = w_az · smooth(clamp((d − 12) / 8, 0, 1))                // ramps in over d = 12 → 20 m
+y_cap  = y_hero_raw + sun_eye_height_m + d · tan(sun_clear_deg)
+F      = L + D + Rg
+F      = lerp(F, smin(F, y_cap, sun_cap_soft_m), w_sun)
+smin(a, b, k) = min(a, b) − h²·k/4,  h = max(k − |a − b|, 0)/k  // C1 polynomial smooth-min
+```
+
+`y_hero_raw` is the mean of `L + D` over the hero core disc (step 5), computed once per build. The cap
+only lowers land, never raises it. It is invisible where the land is already low and turns would-be
+crests into rounded shoulders inside the corridor. Defaults: half width **25°**, fade **10°**, eye
+**2.0 m**, clear angle **1.5°**, soft-min **2.0 m**.
+
+**5. Fit** (village settling; SD-VILLAGE-TERRAIN-19 gives the targets and ring widths). Each fit site i
+has a core shape C_i, a level target T_i and a ring width w_i. Apply in ascending priority, last wins:
+`plaza < pond < cottage pads (layout order) < hero`, as `F = lerp(F, T_i, fer(sdf_i(xz), 0, w_i))` where
+`sdf_i` is the signed distance to C_i (negative inside). Inside every core `F ≡ T_i` exactly (the plaza is
+a plane, not a constant; see -19). Then `sample_y = F`.
+
+**6. Extent.** Defined for all xz. Meshes cover r ≤ `HillsParams.r_outer_m` (310 m); beyond that,
+`sample_y` returns F unchanged (no clamp), so probes past the mesh are still defined.
+
+**Defaults and ranges** (see -22 for the full knob table):
+
+| Field | Default | Range | Why |
+|---|---|---|---|
+| `landform_wavelength_m` | **260** | 120–400 | Hill footprints of about 130–260 m: bigger than the 92 m village disc, within drumlin widths (120–300 m). |
+| `landform_height_m` | **16** | 0–30 | Full 0..1 noise scale. Measured over the r ≤ 46 m village disc (60 random offsets, 2 octaves, warp 0.10): span p10 / p50 / p90 = **4.0 / 5.5 / 7.5 m**; slope p95 ≈ 12°; 13% of the disc steeper than 10°, 2% steeper than 14°. The offset search (-18) then picks a 5–8 m candidate. |
+| `landform_octaves` | **2** | 1–4 | 3 octaves raise slope p95 to ≈ 14° and cut the span (5.7 m) at the same height. |
+| `landform_persistence` | **0.5** | 0.3–0.7 | |
+| `landform_warp` | **0.10** | 0–0.4 | Warp 0.25 adds ≈ 2° to the max slope with no gain in span. |
+| `landform_ddf_k` | **0.5** | 0–2 | Derivative-damped only. |
+| `landform_rot_deg` | **0** | 0–360 | Manual override (playground). |
+| `landform_offset` | auto | ±2000 m per axis | Chosen by -18 unless `landform_offset_mode = manual`. |
+
+Probe evidence (SD stage, throwaway): `.tmp/sd_14_12/landform_probe.txt`, `.tmp/sd_14_12/landform_probe2.txt`.
+
+### SD-VILLAGE-TERRAIN-18 — Hero placement on the landform (offset search)
+
+The hero stays at the origin, because it is the gameplay structure. The landform moves instead.
+`landform_offset` (and the 0° rotation) is picked by a deterministic search, so that the hero stands on
+its own level patch **on a slope**, not on a crest and not in a hollow (C1).
+
+- *2026-11-18 (ivy-82zn.14.28):* K is now **128**, and passing candidates are ordered by the **storey
+  rule** first (SD-VILLAGE-TERRAIN-28 §2). Score, hard rules and verification are unchanged.
+- **Candidates:** K = `landform_offset_candidates` (~~64~~ **128** since 2026-11-18, range 16–256) offsets drawn from an LCG stream
+  seeded by `t_seed`, uniform in ±2000 m per axis. Candidate 0 is always (0, 0), for debugging.
+- **Raw measures per candidate** (on `L + D` only, before the sun cap and fit; ring R = 40 m around H0;
+  village disc = r ≤ 46 m about G, 4 m grid):
+  - `s_hero`: slope of the least-squares plane through `L + D` on the hero core disc (r ≤ 7 m, 1 m grid).
+  - `up_hero` = max over the R ring − `L(H0)`; `down_hero` = `L(H0)` − min over the R ring.
+  - `aspect`: downhill azimuth of that plane.
+  - `span_v`: max − min of `L + D` over the village disc.
+  - `p95_v`: 95th-percentile slope over the village disc.
+- **Hard rules (all must hold):**
+  `hero_site_slope_min_deg (2) ≤ s_hero ≤ hero_site_slope_max_deg (9)`;
+  `up_hero ≥ hero_not_crest_m (1.5)` (land rises somewhere nearby, so not a crest);
+  `down_hero ≥ hero_not_hollow_m (1.5)` (land falls somewhere nearby, so not a hollow);
+  `relief_span_min_m (5.0) ≤ span_v ≤ relief_span_max_m (8.0)`;
+  `p95_v ≤ village_slope_p95_max_deg (14)`;
+  **`hero_ring_ok`** *(added 2026-11-17, ivy-82zn.14.22)*: the measured hero ring (-19 steps 1–5,
+  on exact `cap_sun(L + D)` about H0, T = core mean of `L + D`) finds a w* ≤ `hero_ring_max_m` (10 m).
+  Because the hero never moves, this is the hero rule: an offset whose hero ring cannot meet
+  `ring_max_slope_deg` is rejected, and the search picks another place for the land.
+  - *Where it runs.* In the verify loop, after the exact p95 check, on passing candidates in rank order
+    until `VERIFY_RANKS` (3) candidates pass both checks. If one fails, it moves to the failing list with
+    `violation = (best ladder peak − ring_max_slope_deg) / 4`, and its best peak is kept in
+    `measures["hero_ring_peak_deg"]`. Passing candidates store `measures["hero_ring_w"]`. Manual mode
+    (`_evaluate_full`) runs the same check and reports it (pass = false if it fails, still used).
+  - *Effect, seeds 1–20* (`.tmp/sd_14_22/hero_search_probe.txt`): coarse-passing candidates drop from
+    418 to **356** (12–23 per seed, −15%); every seed keeps at least 11, so there are **0 fallbacks**.
+    Rank 0 changes on **3 / 20** seeds: **7** (idx 20 → 36; s_hero 4.3 → 5.5°, span 6.59 → 6.50 m),
+    11 (26 → 30) and 15 (63 → 18). The other 17 keep their offset. Seed 7 is a probe seed, so its
+    before/after PNG baseline moves.
+  - *Alternatives rejected.* Widening `hero_ring_max_m` to 12 m keeps 384 candidates, but it puts a
+    level blend out to r = 19 m around the hero on every seed, which flattens the village heart against
+    GD intent, and the hard rule already leaves enough candidates. Accepting a looser hero tolerance
+    would leave 24–37° rings beside the gameplay anchor (AC-LTF4).
+  - *Cost.* About 9.3 ms per check in the probe, or less with D cached. 3–4 checks per seed. If
+    AC-LT-PERF (≤ 150 ms) fails with the checks in the verify loop, check lazily instead: rank 0 inside
+    `rank_offsets`, and ranks 1–2 by the D5 loop just before it uses that rank. This needs no SD re-review.
+  - *Metric (2026-11-17, ivy-82zn.14.23).* The hero ladder uses the restated -19 step 3 slope (one-sided
+    1 m differences) and replays the plaza as a "before" site (step 2). On seeds 1–20 the chosen
+    candidate still passes on **20 / 20**; the hero ring widens by 0.5–1.0 m on 7 seeds (7, 8, 12, 13,
+    16, 17, 20). No rank 0 changes (`.tmp/sd_14_23/plaza_hero_ring_probe.txt`).
+  **`plaza_ring_ok`** *(added 2026-11-17, ivy-82zn.14.23)*: the measured plaza ring (-19 steps 1–5 on the
+  plaza rect, per-node target = the fitted, tilt-capped plaza plane, nothing replayed because the field
+  applies the plaza first) finds a w* in [`plaza_ring_m` **5**, `plaza_ring_max_m` **10**]. Paths leave the
+  plaza on every side, so its ring carries path slope (-20). It runs where `hero_ring_ok` runs (same lazy
+  verification), with `violation = (best peak − ring_max_slope_deg) / 4`; passing candidates store
+  `measures["plaza_ring_w"]`, which goes to `layout.landform["plaza_ring_w"]`. Probe, seeds 1–20 on today's
+  offsets: 19 / 20 pass (w* 5 m on 16 seeds, 8.0 / 8.5 / 10 m on seeds 2 / 5 / 10); seed **16** fails (best
+  24.9° at 10 m; its fixed 5 m ring peaks at 31.4° in the field today) and moves to its next candidate.
+  Cost: one ladder per verified candidate, about the hero check (≤ 10 ms).
+- **Score** (lower is better, among the passing candidates):
+  `|span_v − relief_span_target_m (6.5)| + 0.5·max(0, |Δang(aspect, 180°)| − 90°)/90°`.
+  This is a soft preference for a south-facing hero slope, which matches the north ridge backdrop and
+  keeps the sunrise and sunset sightlines along the contour. Ties break on the lower candidate index.
+- **No passing candidate:** pick the candidate with the smallest summed normalised violation, set
+  `layout.terrain_diag["offset_fallback"] = true`, and carry on. The build never fails.
+- **Downstream rejection:** if layout fitting later fails on every generator attempt for this offset
+  (v1–v6, plot capacity), move to the next-best candidate. Same seed ⇒ same sequence ⇒ same result.
+  *2026-11-17 (ivy-82zn.14.23):* a path-cap-only failure no longer moves the offset by itself; see the
+  -20 retry rule. ~~(path cap, -20)~~
+- **Manual mode** (playground): `landform_offset_mode = manual` uses `landform_offset_x/z` and
+  `landform_rot_deg` as given, skips the search, and still reports the measures in the HUD readout.
+- **Cost:** about 64 × 500 samples × 2 octaves; budget **≤ 150 ms** added to `generate(seed)`
+  (AC-LT-PERF).
+
+`hero_datum_y` keeps its name and meaning in code (the height the World lowers the backdrop by), but is
+now `y_hero` (the hero pad target, -19), not a crest height.
+
+### SD-VILLAGE-TERRAIN-19 — Village fitting rules (cores, rings, rejection)
+
+> **Ring width revised 2026-11-17 (ivy-82zn.14.22, review ivy-82zn.14.15 F2).** The plane-slope formula
+> below is **superseded** as the deciding rule by the *measured ring width*. The old text is kept, struck,
+> for history. Site slope `s` (core plane fit) still gates cottages (`max_site_slope_deg`) and the hero
+> (-18 `hero_site_slope_*`); it no longer sets the ring width.
+>
+> **Steps 2–4 revised 2026-11-17 (ivy-82zn.14.23, WP2 blocker).** With the measured widths, the field
+> still exceeded 25° in pad rings on 13 / 20 seeds (worst 30.1°, seed 17), and paths crossing those
+> rings reached 29.3°. The cause is selection fidelity, not the limit: the 25° overlap allowance left no
+> margin for the field's finer slope (eps 0.4 m vs the ladder's 2 m central difference), and the plaza
+> and pond were not replayed. Fix: replay every site the field applies before the candidate (step 2),
+> use one-sided 1 m differences (step 3), and hold every node to 22° at selection (step 4). The 3° is now
+> only the field test's fidelity margin (AC-LT-RING). Probe `.tmp/sd_14_23/ring_fidelity_probe2.txt`:
+> field pad-ring max ≤ 25° on **20 / 20** seeds (worst 23.9°), at the same grid cost, with 8 / 160 pads
+> (5%) newly rejected. The old step text is kept, struck.
+
+~~**Ring width (one rule for every level core).** A level core of half-extent `r_c` on ground of site
+slope `s` (degrees, plane fit of `L + D` over the core) needs a blend ring of width
+`w = 1.5 · tan(s) · r_c / (tan(ring_max_slope_deg) − 1.25 · tan(s))`, `w = clamp(w, ring_min_m, ring_max_m)`.
+This keeps the ring's peak slope at or below `ring_max_slope_deg`. The smoothstep blend has a peak
+weight slope of 1.5/w at mid-ring, and the residual natural slope adds about 1.25·tan(s). Rejection:
+if the denominator is ≤ 0, or the unclamped w is greater than `ring_max_m`, or `s > max_site_slope_deg`,
+the site is rejected. Worked numbers at defaults (ring max 22°): cottage `r_c` 4.6 m → s = 8°: w ≈ 4.2 m;
+s = 10°: w ≈ 6.6 m. Hero `r_c` 7 m, s = 9°: w ≈ 8.1 m.~~
+
+**Why no plane slope can feed the formula (probe evidence).** The formula assumes the ground under the
+ring is the same plane as the core. On the landform it is not, but the problem is **curvature, not a
+steeper plane**: over seeds 1–20 the plane fit over the hero annulus (7 < r ≤ 17 m) is 2–6°, the same
+as the core (2–8°), while the 90th-percentile point gradient in that annulus is 6–14°. The hero sits
+on a level patch of a curved slope, so the height gap `|F − T|` grows faster than any plane predicts.
+Isolated ring peak (only that site's lerp on the capped unfit field, 0.5 m grid), 19 hero rings and
+152 cottage rings, sites the rule accepts that still peak over 25°:
+
+| Slope fed to the formula | Hero over 25° (worst) | Cottage over 25° (worst) |
+|---|---|---|
+| core plane (WP1 code) | 10 / 19 (37.1°) | 24 / 146 (36.2°) |
+| plane over core + annulus | 13 / 19 (39.0°) | 35 / 146 (37.3°) |
+| max(core, annulus plane) | 10 / 19 (36.3°) | 24 / 146 (36.2°) |
+| two-slope (core in numerator, annulus in denominator) | 11 / 19 (37.1°) | 29 / 146 (37.3°) |
+| two-slope with annulus p90 point gradient | 4 / 17 (33.1°) | 10 / 141 (27.9°) |
+
+No variant is safe, so the width is **measured** instead. The cost is small (below).
+
+**Ring width (one rule for every level core: measured).** For a site with core C, target T and ring
+clamp `[w_min, w_max]`:
+
+1. **Grid.** 1 m nodes over the core's bounding box grown by `w_max + 1` m. `U(x)` = the capped raw
+   field `cap_sun(L + D)`. In the plot sampler that is the raw LUT (bilinear); in the offset search it is
+   exact `capped_raw_y`, with D cached per node because D does not depend on the offset. `Rg` is 0 inside
+   70 m, so this equals the field's `sample_unfit_y` there.
+2. **Candidate surface.** `y_w(x) = after(lerp(before(U)(x), T, fer(sdf(x), 0, w)))`. *(Restated
+   2026-11-17, ivy-82zn.14.23.)* **Replay every site the field applies around the candidate, in field
+   order:** before = plaza (per-node target: the field's fitted, tilt-capped plaza plane), then pond
+   (per-node target: the field's basin profile about the pond water level), then already-selected pads
+   (layout order); after = the hero. A per-node target is applied by baking the before-sites into the
+   node base (`base[k] = lerp(base[k], target_j(x_k), fer(sdf_j, 0, w_j))`), so `measured_ring` keeps one
+   scalar T for the candidate. The plaza plane and the pond profile must come from the **same helper the
+   field uses** (one function, no copy), evaluated on U. For the hero in the offset search, before =
+   plaza (a landform constant); the pond is not known yet and its keep-out holds it clear of the hero
+   core. For the plaza ring (-18 `plaza_ring_ok`), nothing is replayed (the field applies it first).
+   ~~First apply the sites the field will apply around it, in field priority order: already-selected pads
+   (layout order), then the candidate, then the hero (its width is known from the search). Plaza and pond
+   are not replayed. Their keep-outs already hold cottages clear, and the field test covers any residue.~~
+   Seed 12 (WP2 finding 3) is why: pads 1 and 2 sit 2 m off the plaza corner, and without the plaza
+   replayed their rings measured 22° at selection but 26.8° / 27.1° in the field.
+3. **Slope.** *(Restated 2026-11-17.)* `slope(x) = atan(sqrt(gx² + gz²))` with **one-sided** 1 m
+   differences, `gx = max(|y[i+1] − y[i]|, |y[i] − y[i−1]|)`, `gz` likewise, at the nodes with
+   −1 m < sdf(x) < w + 1 m. On the 1 m grid this tracks the field's eps 0.4 m slope where two blends
+   meet; central differences (2 m baseline) under-read those creases by up to 5°. Same nodes, same
+   lazy fill, so the cost does not change. ~~`slope(x) = atan(|∇y_w|)` by central differences, h = 1 m.~~
+4. **Pass(w).** *(Restated 2026-11-17.)* Every such node has slope ≤ `ring_max_slope_deg` (**22°**),
+   overlap nodes included. There is no overlap allowance at selection; `RING_OVERLAP_TOL_DEG` (3°) is
+   only the field test's fidelity margin (AC-LT-RING ≤ 25°). The candidate only changes nodes with
+   sdf < w, so this check covers every ring it touches. ~~A node that also lies inside another site's
+   ring or core (sdf_j < w_j) only needs ≤ `ring_max_slope_deg + RING_OVERLAP_TOL_DEG` (3°, so 25°).~~
+
+   **Variants probed** (seeds 1–20, pads re-measured in layout order on the exact base with plaza and
+   pond replayed, then the field rebuilt with the new widths; `.tmp/sd_14_23/ring_fidelity_probe*.txt`):
+
+   | Selection metric | Pads newly rejected | Seeds with field pad ring ≤ 25° | Worst field pad ring | Ladder cost |
+   |---|---|---|---|---|
+   | today (central 1 m, 22 / 25 overlap), no plaza replay | 0 | 7 / 20 | 30.1° | 1× |
+   | central 1 m, 22 / 25 overlap, plaza + pond replay | 0 | 7 / 20 | 30.1° | 1× |
+   | central 1 m, 22 everywhere | 2 / 160 | 14 / 20 | 25.9° | 1× |
+   | central 0.5 m, 22 / 25 overlap | 3 / 160 | 17 / 20 | 25.5° | ≈ 4× |
+   | central 0.5 m, 22 everywhere | 5 / 160 | 20 / 20 | 22.5° | ≈ 4× |
+   | central 1 m, 20 everywhere | 10 / 160 | 20 / 20 | 23.7° | 1× |
+   | **one-sided 1 m, 22 everywhere (chosen)** | **8 / 160** | **20 / 20** | **23.9°** | **1×** |
+
+   The chosen row is the cheapest that passes every seed. The 0.5 m grid is the more exact option (2.5°
+   to spare, 3% rejected) if the GA finds the cost acceptable; it is a drop-in swap of step 3.
+5. **Width.** `w*` = the first w on the ladder `w_min, w_min + 0.5, …, w_max` (`RING_LADDER_STEP_M` 0.5)
+   that passes. Search upward, not by bisection: peak(w) is not monotone on 143 of 171 sites by small
+   amounts, and bisection gave a different answer on 4. **No w passes ⇒ the ring fails.**
+6. **One decision, stored.** The search writes the hero's w* to `layout.landform["hero_ring_w"]`, and
+   the sampler writes each cottage's w* to its spec as `ring_w`. `VillageTerrainField` uses the stored
+   value. It recomputes with the same function (exact `sample_unfit_y`) only for layouts that have none
+   (hand-built test layouts, manual offset mode without a search entry).
+
+**Worked numbers at defaults** (ring max 22°; probe `.tmp/sd_14_22/measured_ring_probe.txt`):
+
+| Site | Core slope | Old formula w (isolated peak) | Measured w* (isolated peak) |
+|---|---|---|---|
+| Seed 1 hero | 6.9° | 4.99 m (22.1°) | **5.0 m** (21.2°) |
+| Seed 10 hero | 8.0° | 6.42 m (28.2°) | **8.5 m** (20.9°) |
+| Seed 17 hero | 6.0° | 4.08 m (29.9°) | **6.5 m** (21.4°) |
+| Seed 7 hero (today's offset idx 20) | 4.3° | 4.0 m (29.3°) | **none ≤ 10 m** (24.3° at best) ⇒ offset rejected by -18; the new rank 0 is idx 36, w* 6.5 m |
+| Hero, 16 accepted seeds | 2–8° | — | 4.0–8.5 m (median 4.5) |
+| Cottages, 141 accepted | ≤ 10° | — | p50 3.0 m, p90 5.0–5.5 m, max 8.0 m |
+
+**Field check of the measured widths** (all sites applied, `sample_slope_deg` eps 0.4, 96 × 24 samples
+per ring, nodes not shared with another ring): worst hero ring **23.0°**, worst cottage ring **24.5°**,
+both ≤ 25°. Where two rings overlapped, the WP1 layouts (old 8.6–15 m spacing) reached 32.6°. Step 2's
+neighbour replay and step 4's 25° limit exist to catch exactly that. *2026-11-17 (ivy-82zn.14.23):* this
+check left overlap nodes out. With them in, the WP2 layouts reached 30.1°, which is why steps 2–4 were
+restated above.
+
+**Cost.** One ladder step on the 1 m grid takes about 0.75 ms (exact field samples; less with the LUT).
+Ladders stop early: on average 2.4 steps for a cottage. A hero check in the search takes ≤ 9.3 ms per
+candidate (D not cached in the probe). See -18 for where that cost sits.
+
+| Site | Core C_i | Target T_i | Ring | Rejection / re-placement |
+|---|---|---|---|---|
+| **Hero** | disc r = `hero_flat_r_m` (**7 m**, 5–9) about H0 | `y_hero` = mean of `L + D` over the core (raw, pre-cap; the cap ramps in only beyond 12 m) | measured w*, ladder [`hero_ring_min_m` **4**, `hero_ring_max_m` **10**] (unchanged; widening to 12 m was probed and is not needed, see -18) | Hero is never moved. -18 guarantees `s_hero ≤ 9°` **and** that the hero ring passes (hard rule `hero_ring_ok`, 2026-11-17). The landform moves instead. |
+| **Cottage pads** | `cottage_exterior_rect(spec).grow(pad_margin_m 0.6)`; `r_c` = half diagonal (≈ 4.6 m for 4.2 × 6.2) | mean of capped F over the core (so pads settle into the land) | measured w*, ladder [`pad_ring_min_m` **3**, `pad_ring_max_m` **9**], with the neighbour replay of step 2 | A site with `s > max_site_slope_deg` (**10°**, 4–16) or a failing measured ring (overlaps included) is **rejected in the plot sampler** (`PlotSampler.select` / `append_to_selection` skip it like a wall-gap conflict); the sampler then takes the next candidate. Never bulldozed. ~~or a failing ring formula~~ (2026-11-17) |
+| **Pond** | water disc r = `MEAN_WATER_RADIUS_M · pond_floor_scale` | water level `y_w` = min of capped F on the circle r = `BANK_OUTER_M` (4.875 m) − `pond_freeboard_m` (**0.15**); the basin keeps the existing depth/lip shape relative to `y_w` (`pond_depth_m` −0.6, lip 0.12) | `pond_skirt_m` (2.0) beyond `BANK_OUTER_M + pond_rim_extra_m` | Pond centre site slope (plane fit over r ≤ `BANK_OUTER_M`) ≤ `pond_max_site_slope_deg` (**6°**, 2–10), else `VillagePondPlacement` takes its next candidate. *2026-11-18 (ivy-82zn.14.28):* a pond whose blend reaches the plaza ring must also pass **`pond_plaza_ring_ok`** (measured, 22°; SD-VILLAGE-TERRAIN-28 §3), else next candidate. Soft score: prefer sites below the village median of cottage targets (water sits low). Because `y_w` comes from the lowest bank point, the pond is cut into the slope on the uphill side and never dammed above the ground on the downhill side. |
+| **Plaza** | `layout.plaza_rect` (18 m square at G) | least-squares **plane** of capped F over the rect (2 m grid); its tilt is scaled down to at most `plaza_max_tilt_deg` (**6°**, 0–10). Removes bumps, keeps the hillside lean. | *(2026-11-17, ivy-82zn.14.23)* measured w*, ladder [`plaza_ring_m` **5**, `plaza_ring_max_m` **10**], stored as `layout.landform["plaza_ring_w"]` ~~`plaza_ring_m` (5, 2–8), fixed~~ | Not moved. If the raw plane tilt is over 10°, set `terrain_diag["plaza_steep"]` (feeds -18 scoring as a violation). A plaza ring that fails the ladder fails the offset (-18 `plaza_ring_ok`). |
+
+**Removed flatten masks** (C4): the path corridor stamp, the open-lawn quiet envelope, the hero relief
+fade beyond the hero ring, the plaza/pond relief fades, knolls, swell and the Village hill profile. Paths
+get **no** height stamp (-20).
+
+**Overlaps.** Rings may overlap. The lerp chain resolves them by priority and is C1. Where an overlap
+produces a slope above `ring_max_slope_deg` at selection (one-sided 1 m metric), the later cottage site
+(layout order) is rejected by the measured ring (step 2 replays plaza, pond and the selected neighbours;
+step 4 applies 22° everywhere), so the sampler re-places it. ~~Where an overlap produces a slope above
+`ring_max_slope_deg + 3°` … step 4 applies 25°~~ (2026-11-17). The AR pair rule (`|T_i − T_j| ≤ tan(25°) · gap / 1.5`, AR-LF-LAYOUT) may stay
+as a cheap pre-screen, but the measured ring is the binding test. With WP3 spacing (22 m centres,
+half-diagonals 4.6 m, so ≥ 12.8 m between cores, against a ring p90 of 5–5.5 m each), overlapping pad
+rings become rare. *2026-11-18 (ivy-82zn.14.27, 16 m rule):* at 16 m (14 m on a relaxed seed) the cores can be as close as
+about 6.8 m (4.8 m relaxed), so neighbouring pad rings (p90 5–5.5 m each) still overlap sometimes. The
+measured-ring rejection stays the binding test. It was active in every SD-21 spacing probe, so the
+16 m numbers already include it. ~~at the restated 12 m … about 2.8 m~~ *(12 m replaced 2026-11-18)*
+
+**Expected site rejection rate** (`.tmp/sd_14_22/pad_reject_probe.txt`: 1140 random 5.4 × 7.4 m cores
+on the chosen landform of seeds 1–20, outside the plaza / hero / pond keep-outs, isolated):
+
+| Centre radius from G | Site slope > 10° | Measured ring fails | Total rejected | Old formula rejected |
+|---|---|---|---|---|
+| 15–37 m (today's reach) | 4.5% | 3.1% | **7.5%** | 4.5% |
+| 37–46 m (WP3 reach) | 9.0% | 2.9% | **11.8%** | 9.0% |
+
+The measured ring adds about 3 points of rejection on top of the slope gate, at either radius. Over
+the whole disc out to 46 m, about 1 candidate in 10 is lost, so the sampler needs about 1.1× the
+candidates. The free-RSA capacity table in -21 (P(8 fit) = 1.00 at 22 m and 46 m) has that margin, so 8-cottage
+packing is not expected to get noticeably worse. AC-LT-SEP still counts `sep_relaxed_to` seeds, so a
+packing regression shows up there. *2026-11-17 (ivy-82zn.14.23):* the restated steps 2–4 reject about
+5% more of the sites the WP2 sampler had accepted (8 / 160 on seeds 1–20 at the old spacing, almost all
+in pad–pad or pad–plaza overlaps). With WP3 spacing most of those overlaps go away.
+
+**Consumers unchanged in shape:** cottage origin y = `T_i` (AC-VT6 vs `T_i`); pond water = `y_w`, bank
+draped on `mesh_surface_y` + 2 cm (C5); grass, scatter, stones, fauna, wanderer and camera floor all read
+`sample_y` (SD-VILLAGE-TERRAIN-7).
+
+### SD-VILLAGE-TERRAIN-20 — Paths on the landform
+
+> **Restated 2026-11-17 (ivy-82zn.14.23, WP2 blocker 1).** The cap as first written (≤ 14° everywhere,
+> 25° only within 3 m of a stoop) contradicted -19. The plot sampler puts each cottage 1.6–3.6 m from its
+> path, so paths run inside that cottage's 3–9 m blend ring, and they also cross the hero and plaza rings.
+> -19 allows those rings 22° by design (25° in the field test). WP2 probe, seeds 1–20 with the cap off:
+> the old rule passed **0 / 20**. Every over-cap sample on 16 / 20 seeds was inside a ring. With the cap
+> on, every probe seed used all 3 ranks × 4 attempts and ended on `path_cap_fallback` (about 5 s per seed).
+> Old text kept, struck, at the end of this section.
+
+- **Drape only.** Path polyline XZ comes from the existing generator unchanged; stone and vertex y =
+  `sample_y`; stones may tilt to `sample_normal`. No corridor stamp, no grading, no re-routing (GD
+  non-goal).
+- **Two zones, one metric.** Metric: `sample_slope_deg` (gradient magnitude, eps 0.4 m) at ≤ 1 m steps
+  along every polyline (door connectors included), as before.
+  - **Fit zone:** a sample with `sdf_j < w_j + 0.4 m` for any fit site j (hero, pad, plaza, pond; core or
+    ring, with the stored widths), or within `door_approach_m` (**3 m**) of a door stoop. Here the path
+    is the ground of a level pad's shoulder, so **the ring rule governs it**: the same ≤ 25° that
+    AC-LT-RING asserts on the field. The generator does **not** check these samples. They hold because
+    every ring is measured at selection (-19, -18 `hero_ring_ok` / `plaza_ring_ok`). The +0.4 m band
+    (the slope stencil) keeps every open-land stencil point outside all blends.
+  - **Open land:** every other sample. Cap `max_path_slope_deg` = **14°** (range 8–20). This is the
+    rule the generator checks. On open land the field equals `U = cap_sun(L + D)` exactly (no blend
+    reaches the stencil, and Rg = 0 inside 70 m), so the check reads `U` directly with the same eps 0.4
+    stencil and **needs no field build**. Probe: `|field − U| = 0.000°` on every open sample of seeds
+    1–20.
+  - **Why (a) and not (b) or (c).** (b) holding path nodes to 14° inside rings would fail 96 / 160 pad
+    rings (60%) at the 9 m clamp, so most sites would be rejected and the village would end up flattened
+    around its paths, against GD intent. (c) along-path grade is still 14.5–25.9° inside rings, so it
+    does not resolve the conflict, and on open land it would let 16–21° cross-slopes through (stones
+    tilt to the normal). Option (a), with the ring rule made exact, is the only rule consistent with -19.
+  - **Player read.** Steeper path (≤ 25°) appears only where the ground visibly shoulders up to a house
+    pad, the hero pad or the plaza. It is the same slope as the doorstep ramp the GD already accepted, and
+    it reads as "the path climbs up to the house". Between houses, on the open hillside, paths stay
+    ≤ 14°. No feel verdict here: the human judges the playground (-22 knobs `ring_max_slope_deg`,
+    `max_path_slope_deg`, `path_steep_accept_deg`).
+- **On an open-land violation (retry, then accept with flag).** *Path-only failures stay in the current
+  offset rank.* An attempt that passes v1–v6 but fails the open-land cap fails with reason
+  `terrain:path_cap`, and the next attempt of the **same** rank runs (new attempt seed, so new paths and
+  plots). At the end of the rank's 4 attempts:
+  1. if a path-only layout exists and its open-land max ≤ `path_steep_accept_deg` (**18°**, range 14–24),
+     keep the least-violating one (lowest open-land max) and set `terrain_diag["path_cap_fallback"] = true`
+     (no rank move);
+  2. otherwise (no attempt passed v1–v6, or the best path-only layout is over 18°), move to the next
+     rank as today (-18).
+  After the last rank: least-violating path-only layout over all ranks with `path_cap_fallback`; else
+  the authored fallback (unchanged). The flagged layout is a normal generated village. Its worst open path
+  is just over 14°.
+- **Expected attempts** (emulated D5 loop, seeds 1–20, `.tmp/sd_14_23/open_land_attempts_probe.txt`;
+  today's selection, so exact numbers will move with the -19 restatement): the open-land rule passes
+  on the first v1–v6-valid attempt on **16 / 20** seeds. Seeds 1 and 16 pass on a later attempt of rank 0
+  (attempt 3 and 4). Seeds 3 (14.2°) and 20 (14.8–16.3°) take the rank-0 flag (rule 1). **Pass outright
+  18 / 20, flagged 2 / 20, none needs a rank move for the path.** Attempts per seed: mean **2.25**, up
+  from 1.75 with the cap off; max 5 (seed 5, v1–v6 failures, not paths). No probe seed needs all 12.
+- **Cost.** Per v1–v6-valid attempt: classify samples against the stored sites (bounding-circle
+  pre-test, then `site_sdf`), 2.3 ms mean, and 4 exact `U` samples per open sample, 4.9 ms mean (max
+  10.2 ms). **About 7 ms per attempt, max 13 ms.** This replaces the field build plus full path scan in
+  `_validate_full` (30–82 ms per attempt). The generator builds no field. Consumers build it once, cached
+  on the layout (AR-LF-D10). The LUT (`VillageSiteTerrain.u_at`) is cheaper (2.6 ms cold) but reads up to
+  1.3° off the field. Use it only if the AC is evaluated with the same LUT.
+- *2026-11-17 (ivy-82zn.14.24, GA cost bound; see AR-LF-PERF P4/P5):* the retry rule above gains two
+  deterministic stops. (i) **Near miss:** open max ≤ `max_path_slope_deg` + `path_near_miss_deg`
+  (**1.0°**, range 0–4; 0 = the rule exactly as written above) is accepted at once with
+  `path_cap_fallback` (no retry). (ii) **Retry budget:** once the rank holds a path-only layout ≤
+  `path_steep_accept_deg`, at most **one** more attempt runs in that rank, then the best is kept with the
+  flag. Layouts over 18° keep retrying as above. On seeds 1–20 both stops ship the same layouts the rule
+  above ships (seeds 3 at 14.2°, 20 at 14.8° flagged; seed 1 passes on its next attempt) and save 3
+  attempts each on seeds 3 and 20.
+
+~~**Slope cap.** `max_path_slope_deg` = 14° (range 8–20; was 18° under the hill, 8° originally).
+Metric: `sample_slope_deg` (gradient magnitude, eps 0.4 m) at ≤ 1 m steps along every polyline.
+**Door approach exemption:** within `door_approach_m` (3 m) of a door stoop along the spur, the cap is
+`ring_max_slope_deg` + 3° (25°). This is the step up onto a pad and reads as a doorstep.
+**On violation:** the generator attempt fails (it uses the existing attempt loop with a new state). If
+every attempt fails for the current offset, -18 moves to the next-best offset. A seed that fails every
+offset sets `terrain_diag["path_cap_fallback"]` and keeps the least-violating attempt (AC-LT-PATH
+counts these).~~ *(superseded 2026-11-17, ivy-82zn.14.23)*
+
+### SD-VILLAGE-TERRAIN-21 — Cottage spacing and village extent
+
+> **Restated 2026-11-18 (ivy-82zn.14.27, WP3 blocker).** 22 m cannot be built by the path-first
+> generator. WP3 sweep (ivy-82zn.14.18): 0 / 20 seeds placed 8 cottages at 22 m / 46 m; all 12
+> attempts ran (mean 5977 / worst 7646 ms). The limit is the path network, not the terrain or the
+> spacing code. Cottage sites are offered only 1.6–3.6 m from a path, and the paths reach about
+> 30–40 m. The free-RSA capacity table below assumed sites anywhere, so it does not apply to this
+> sampler. Old rule kept, struck, at the end of this section.
+>
+> **Human decision 2026-11-18 ("16 m, longer paths"): `cottage_min_sep_m` = 16 m on a grown path
+> network. The sep ladder runs in every attempt, with its floor at 14 m. Generation timing limits are
+> raised to mean 3500 / worst 12000 ms.** The reach cap (46 m), corner cap (54 m) and all WP3 dressing
+> radii stay as written below. This is a parameter change in the existing generator: path-length
+> constants, the capacity anchor, one early-return condition and the ladder trigger. It is not a
+> structural change. See "Rule (16 m)" below.
+>
+> ~~**New rule: `cottage_min_sep_m` = 12 m. The sep-ladder floor is also 12 m, so at the default the
+> ladder does nothing.**~~ *(replaced 2026-11-18 by the human's choice of 16 m with longer paths; the
+> 12 m analysis below is kept for the record)*
+
+**Spacing options probed (2026-11-18, ivy-82zn.14.27).** Seeds 1–20, production landscape variant,
+WP3 sampler and validator (uncommitted tree at 9a24332), reach 46 m. Probes:
+`.tmp/sd_14_27/probe.gd` and the throwaway forks `gen_fork.gd` / `sampler_fork.gd`, which are
+byte-parity with production at default knobs. NN = nearest-neighbour centre distance. r = centre
+distance from G. Times are wall time per `generate()` on the dev Mac.
+
+| Option | Gen 8 / 20 | Authored fallback | Relaxed | Min NN per seed (min / med / max) | NN all pairs (p10 / med / p90) | r (med / p90 / max) | Mean / worst ms |
+|---|---|---|---|---|---|---|---|
+| Today (no centre floor; wall gap 4 m only) | 20 | 0 | – | 8.7 / 9.7 / 12.2 | 9.5 / 11.4 / 15.7 | 23.6 / 34.0 / 45.5 | 972 / 4816 |
+| 12 m, fixed (SD pick, replaced 2026-11-18) | 20 | 0 | 0 | 12.0 / 12.4 / 13.6 | 12.2 / 13.0 / 18.2 | 24.9 / 35.7 / 42.8 | 1381 / 5513 |
+| 13 m, ladder in every attempt to 12 | 20 | 0 | 1 | 12.3 / 13.2 / 14.4 | 13.2 / 14.4 / 19.3 | 25.6 / 38.0 / 44.7 | 1685 / 8687 |
+| 14 m, fixed | 19 | 1 (s15) | – | 14.0 / 14.4 / 16.2 | 14.1 / 16.0 / 20.9 | 26.1 / 37.7 / 44.7 | 2600 / 8727 |
+| 14 m, ladder in every attempt to 12 | 19 | 1 (s15) | 9 | 12.1 / 14.0 / 16.2 | 13.7 / 16.1 / 21.2 | 26.3 / 38.1 / 45.8 | 1799 / 9026 |
+| 14 m, ladder to 10 | 19 | 1 (s15) | 10 | 11.3 / 13.9 / 16.1 | 13.4 / 15.5 / 21.2 | 26.4 / 38.1 / 45.8 | 1773 / 9107 |
+| 14 m to 12, capacity growth always on, quadrant anchor 30 m | 19 | 1 (s15) | 4 | 12.1 / 14.1 / 16.2 | 14.0 / 15.7 / 20.7 | 25.9 / 38.3 / 45.7 | 2042 / 9136 |
+| 16 m, outer-sites-first selection order (score + 3·r/46), today's network | 16 | 4 | – | 16.1 / 16.2 / 18.0 | 16.2 / 17.7 / 21.7 | 26.4 / 39.7 / 45.2 | 4647 / 9716 |
+| 15 m, grown network¹ | 19 | 1 (s3) | – | 15.0 / 15.3 / 17.3 | 15.2 / 17.3 / 21.8 | 30.0 / 43.3 / 45.9 | 2580 / 8213 |
+| 16 m, grown network¹ | 20 | 0 | – | 16.0 / 16.6 / 17.7 | 16.4 / 17.9 / 21.6 | 30.4 / 42.1 / 45.8 | 3706 / 11550 |
+| **16 m, ladder in every attempt to 14, grown network¹ (production, 2026-11-18)** | **20** | **0** | **2 (s13, s15 → 15 m)** | **15.2 / 16.5 / 17.3** | **16.2 / 17.7 / 22.3** | **30.8 / 43.2 / 45.8** | **3031 / 9338** |
+| 18 m, grown network² (seeds 1–10) | 8 / 10 | 2 | – | 18.2 / 18.8 / 22.5 | 18.6 / 20.7 / 25.1 | 30.5 / 43.9 / 46.0 | 5941 / 17387 |
+| 22 m (WP3 as specified) | 0 | 20 | – | – | – | – | 5977 / 7646 |
+
+¹ Grown network: primary target length ×1.25 (30–45 m), stage-3 branch length ×1.3 (10–25 m),
+capacity branches ×1.3, capacity growth even when ≤ 2 sites are picked, quadrant anchor 30 m
+(was 24). ² Primaries ×1.4, branches ×1.5, capacity ×1.5, anchor 34 m, 2 extra branches.
+
+**What the numbers say.**
+- *Today's network holds about 12 m within the timing limits (mean 2000 / worst 6000 ms).* At 13 m and
+  above, the worst case goes past 6000 ms. Seed 15 is the hard seed: it took 4816 ms at today's
+  spacing, and it needs all 12 attempts from 13 m up. From 14 m, seed 15 falls back to the authored
+  village. Selection order is not the bottleneck: putting outer sites first made things worse
+  (16 / 20).
+- *Growing the network buys about 4 m more (16 m on 20 / 20 seeds), but it costs time.* Longer paths
+  fail the other checks more often (open-land `terrain:path_cap`, `stage7_v3_no_bundle`, v4, v5), and
+  each attempt costs about 0.7–1.0 s instead of 0.4–0.6 s. Mean 3.0–3.7 s, worst 9.3–11.6 s. That is
+  outside the limits. These are parameter changes (lengths, anchor, one early return), not a new
+  algorithm.
+- *18 m or more (the GD's 22–25 m) needs cottage sites that do not depend on the paths:* place the
+  sites first, then route the paths and door spurs to them. That is a structural generator change.
+  Even 18 m on a network grown ×1.4–1.5 fails 2 / 10 seeds and is 3× over the time limit.
+
+*Replaced 2026-11-18 (human chose 16 m with longer paths). The 12 m rationale is kept for the record.*
+
+**Why 12 m keeps the human's intent ("a little more distance between the cottages", 2026-11-16).**
+What looked crowded was the closest pairs. Today the closest pairs sit 8.7–10.2 m apart (centre to
+centre), which leaves about 3–4 m of grass between walls (the 4 m wall-gap floor). At 12 m every pair
+is at least 12.0 m apart, so the closest pairs have about 6–8 m of open ground between walls, roughly
+twice today's. The closest pair in each village moves out by about 28% (median 9.7 → 12.4 m), and the
+cluster of houses around the plaza loosens (plan views below). The village's overall extent barely
+changes (median r 23.6 → 24.9 m). That is the honest limit of "a little more" on today's generator.
+It does **not** reach the GD's 22–25 m, and it does not push cottages much further from the hero pad
+(AC-LT-RELIEF still depends on the landform). Whether 12 m is enough is the human's call (see
+"Human check" below).
+
+Plan views (top-down, 1 px = 0.25 m, 120 × 120 m around G; red ring r = 46 m, grey rings 10 / 20 /
+30 m; blue = hero, brown = paths): `.tmp/sd_14_27/plan_before_wp2_seed{1,7,12}.png` (today's
+spacing), `.tmp/sd_14_27/plan_sep12_seed{1,7,12}.png` (12 m, replaced),
+`.tmp/sd_14_27/plan_sep16_grown_seed{1,7,12}.png` (16 m, grown network, ladder to 14: **the
+production rule since 2026-11-18**).
+
+**Human check (for the orchestrator)** *(answered 2026-11-18: option B, 16 m on a grown network)*. If 12 m does not relieve the look enough, there are two paths.
+Neither is in WP3. (B) **16 m on a grown network**: a parameter change in the existing generator
+(about 6 constants plus one early-return condition, small), but it needs the timing limits relaxed to
+about mean 3.5 / worst 12 s, or a later optimisation pass. (C) **18–25 m with site-first placement**:
+a structural rework of stages 2–5. The architect must re-plan it (estimated as large as WP2). The free-RSA
+table below is the capacity reference for it.
+
+**Human decision (2026-11-18).** The human chose (B), "16 m, longer paths", and accepts generation
+timing of about mean 3.5 s / worst 12 s.
+
+**Rule (16 m, 2026-11-18).** Every cottage pair must have centre distance ≥ `cottage_min_sep_m` =
+**16 m** (knob 8–22). This is enforced in `PlotSampler.select` / `append_to_selection` next to the
+wall-gap test, and checked again in `village_validate` v1 against the floor actually used, as WP3 built
+it. `min_gap_wall_m` 4 m stays as a second floor. The hero is not in the pair set. **Count stays 8.**
+Centre reach `village_centre_r_max_m` = 46 m (observed max 45.8 m). The extent and dressing changes
+below (R1 table, grass fade) are unchanged.
+
+**Path growth (16 m, 2026-11-18).** All changes are in `src/world/village_gen/village_generator.gd`. Each
+becomes a named constant with a `## SD-VILLAGE-TERRAIN-21` comment. Values are today's literals ×
+the stated factor. These are the exact values the probe ran. Write them as the products, so a float
+difference cannot change the seed results.
+
+| Constant (new name) | Where | Today | New |
+|---|---|---|---|
+| `PRIMARY_LEN_MIN_M` / `PRIMARY_LEN_MAX_M` | `_stage2_primaries_hero`, `targ_len := lerpf(24.0, 36.0, …)` | 24 / 36 | **30 / 45** (×1.25) |
+| `BRANCH_LEN_MIN_M` / `BRANCH_LEN_MAX_M` | `_stage3_secondaries`, `blen := lerpf(8.0, 19.0, …)` | 8 / 19 | **10.4 / 24.7** (×1.3) |
+| `CAP_BRANCH_LEN_MIN_M` / `CAP_BRANCH_LEN_MAX_M` | `_grow_one_capacity_branch`, `blen := lerpf(8.0, 20.0, …)` | 8 / 20 | **10.4 / 26** (×1.3) |
+| `CAP_BRANCH_EMPTY_Q_LEN_MIN_M` / `_MAX_M` | same function, `min_q <= 0` branch `lerpf(14.0, 26.0, …)` | 14 / 26 | **18.2 / 33.8** (×1.3) |
+| `CAP_ENDPOINT_LEN_MIN_M` / `_MAX_M` | `_grow_capacity_from_endpoint`, `blen := lerpf(12.0, 24.0, …)` | 12 / 24 | **15.6 / 31.2** (×1.3) |
+| `CAP_ANCHOR_OFFSET_M` | `_quadrant_anchor`, the ±24 offsets | 24 | **30** (anchor at G ± (30, 30)) |
+| (condition) | `_stage5_select_with_capacity`: the `if picked.size() <= 2: return` early exit | present | **removed**: capacity growth runs whenever fewer than 8 are picked. The `picked.is_empty()` return stays. |
+
+Unchanged: the primary-fallback lengths `lerpf(22.0, 32.0, …)` (the `n_prim_added < 2` branch), the number
+of stage-3 branches (4–5), the capacity loop's 4 branches × 10 sub-tries, the grow params, and every path
+check. "Extra branches always grown" means the early-exit removal above. It does not mean extra stage-3
+branches.
+
+**Fallback ladder (16 m, 2026-11-18).** `SEP_LADDER_FLOOR_M` = **14 m** (was 18). The ladder runs in
+**every** attempt (`rules["sep_ladder"] = true` for all attempts; WP3 ran it only in attempt 3 of each
+rank, AR-LF-GAP-6). If fewer than 8 are picked at 16 m after the capacity growth, the attempt tops up
+from the same candidate pool at 15 m, then 14 m, and records `sep_relaxed_to`. It grows no extra
+network, so its cost is one extra `append_to_selection` per step. `sep_ladder_steps(16)` = [15, 14].
+The count is never reduced. *Why every attempt:* with the ladder only in the last attempt, the probe
+(16 m, grown, no ladder) ran mean 3706 / worst 11550 ms, which is over the 3500 mean. With the ladder
+in every attempt it ran 3031 / 9338 ms, and only 2 / 20 seeds relaxed, to 15 m.
+
+**Timing (16 m, 2026-11-18).** `test_village_gen_v3` sweep limits are **mean ≤ 3500 ms, worst ≤ 12000
+ms** per `generate()` over seeds 1–20 (were 2000 / 6000). The probe ran 3031 / 9338 ms on the dev Mac,
+which is 15% headroom on the mean and 28% on the worst. That is enough for the dev Mac; no more is
+requested. If the GUT runner or a slower machine puts the mean over 3500, send it back to the SD. Do not
+widen the limits silently. The optimisation pass the human allowed is the place to win time back:
+`PlotSampler.candidates` is 180–280 ms of each 0.7–1.0 s attempt.
+
+**Playground knobs (G7).** `cottage_min_sep_m` (16, range 8–22) as before. Add **`sep_ladder_floor_m`**
+(14, range 8–22, clamped to ≤ `cottage_min_sep_m`) and **`path_len_scale`** (1.0 = the new table
+above, range 0.8–1.5; it multiplies the primary, branch and capacity lengths together). Defaults equal
+production. The anchor and the early exit stay as code constants.
+
+~~**Rule (2026-11-18).** Every cottage pair must have centre distance ≥ `cottage_min_sep_m` = **12 m**
+(knob 8–30) … Centre reach 46 m (cap; at 12 m it is never binding, observed max 42.8 m).~~
+~~**Fallback ladder (2026-11-18).** `SEP_LADDER_FLOOR_M` = **12 m** (was 18); ladder steps empty at the
+default.~~ *(replaced 2026-11-18 by the 16 m rule above)*
+
+---
+
+*Superseded 2026-11-18 (ivy-82zn.14.27): the 22 m rule and its rationale, kept for the record.*
+
+**Measured today** (`.tmp/sd_14_12/spacing_probe.txt`, seeds 1/7/12/3/42): the production generator
+(`village_gen/village_generator.gd` + `plot_sampler.gd`) does **not** use `_MIN_CENTRE_SEP_M` (15 m; only
+the legacy lattice reads it). Spacing comes from `min_gap_wall_m` = 4 m. Nearest-neighbour centre
+distances are **8.6–15.1 m** (minimum per seed 8.6–10.2 m), centres sit at r ≤ 36.9 m from G and corners
+at ≤ 40.6 m. 8 cottages, footprints 4.2 × 6.2 m (one 8.2 × 4.2).
+
+~~**Rule.** Every cottage pair must have centre distance ≥ `cottage_min_sep_m` = **22 m** (knob 15–30).
+This is enforced in `PlotSampler.select` / `append_to_selection` next to the wall-gap test, and checked
+again in `village_validate`. `min_gap_wall_m` 4 m stays as a second floor. The hero is not in the pair
+set; the existing hero keep-out still applies. **Count stays 8** (`GENERATED_HAMLET_COUNT`, GD non-goal).~~
+*(superseded 2026-11-18: 12 m, see the restated rule above)*
+
+**Why 22 m (low end of the GD's 22–25 m)** *(superseded 2026-11-18: free RSA, not the path-first
+sampler; still the capacity reference for a site-first rework).* A random-sequential-addition capacity probe with the plaza,
+hero and pond keep-outs (`.tmp/sd_14_12/capacity_probe.txt`, 300 trials) gives P(8 fit):
+
+| centre r_max from G | 20 m | 22 m | 23 m | 24 m | 25 m | 28 m |
+|---|---|---|---|---|---|---|
+| 37 m (today's reach) | 0.90 | 0.38 | 0.17 | 0.03 | 0.00 | 0.00 |
+| 42 m | 1.00 | 0.99 | 0.95 | 0.81 | 0.58 | 0.01 |
+| **46 m (new)** | 1.00 | **1.00** | 1.00 | 1.00 | 0.98 | 0.58 |
+| 50 m | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 0.94 |
+
+The path-first generator packs less efficiently than free RSA, so 22 m at 46 m keeps margin for the
+slope rejections in -19. The human can push to 25 m in the playground (still about 0.98 in free RSA at
+46 m).
+
+**Extent changes (R1).** Cottage centres may sit at r ≤ `village_centre_r_max_m` = **46 m** (knob 37–50).
+`HAMLET_MAX_CORNER_FROM_G` stays at 54 m. The occupancy grid circle stays `lawn_radius − 8`, which is
+56 m with the new lawn radius. Dressing radii move out to keep the pines clear of the cottages:
+
+| Constant | Old | New | Rule |
+|---|---|---|---|
+| `GENERATED_LAWN_RADIUS` (grass/scatter disc, camera XZ clamp) | 56 | **64** | ≥ max corner (≤ 54) + 10 m |
+| `GENERATED_PINE_INNER` / `_OUTER` | 41.8 / 61.6 | **56 / 76** | inner ≥ max corner (≤ 54) + 2 m; same 20 m band |
+| `GENERATED_BUSH_FILLER_OUTER` | 32.3 | **44** | scaled with the village reach |
+| `GENERATED_HILL_INNER` | 56 | retired | no separate hills inner edge |
+| fog (`fog_begin` 20.5, `fog_end` 95) | — | unchanged | hero-centred; a human call if framing suffers |
+
+**Grass at the new edge.** Blade density stays at today's 4.9 /m² for r ≤ 56 m and fades smoothly to 0
+over r 56 → 64 m, so the lawn edge is a soft fade into meadow shading, not a ring. ~~Total blades ≤
+**56k**~~ *(2026-11-18, ivy-82zn.14.28: the 4.9 /m² and 56k figures were wrong; production was already
+about 137k blades at 56 m. Today's density is kept; the bound is ≤ 150k blades, see -28 §5)* (AC-VT9
+build-time budget stays +15%).
+
+~~**Fallback ladder.** If 8 cottages cannot be placed at `cottage_min_sep_m` after all generator attempts
+for the chosen offset, relax by 1 m steps down to a floor of **18 m**, and record
+`terrain_diag["sep_relaxed_to"]`. The count is never reduced.~~ *(superseded 2026-11-18: floor 12 m,
+see the restated ladder above)*
+
+### SD-VILLAGE-TERRAIN-22 — Playground knobs (G7; defaults == production)
+
+Same playground (`village_terrain_playground`), schema bumped to **`village_terrain_playground.v2`**.
+Production `VillageBackdrop` and `VillageLayout.generate` read `VillageTerrainParams.production()`;
+the playground edits the same resource and regenerates layout + terrain on change. There is no demo
+fork. Changes to layout knobs (spacing, reach) regenerate the layout; changes to terrain knobs rebuild
+the terrain.
+
+**Algorithm variants (`variant`):** `0` Landscape (production) · `1` Flat (A/B): `sample_y ≡ 0`
+everywhere, hills flat · `2` Village on a hill (old, ivy-82zn.14.10): kept only if the old composition can
+sit behind the switch without duplicating consumer code. If not, drop it and record that in the AR.
+Noise type is a separate selector inside variant 0 (`landform_noise`).
+
+| Group | Field | Default | Range | Notes |
+|---|---|---|---|---|
+| Landform | `landform_noise` | `0 fbm` | 0–3 | 3 = ridged, comparison only |
+| Landform | `landform_wavelength_m` | **260** | 120–400 | |
+| Landform | `landform_height_m` | **16** | 0–30 | 0 = flat landform (detail + ridges only) |
+| Landform | `landform_octaves` | **2** | 1–4 | |
+| Landform | `landform_persistence` | **0.5** | 0.3–0.7 | |
+| Landform | `landform_warp` | **0.10** | 0–0.4 | |
+| Landform | `landform_ddf_k` | **0.5** | 0–2 | derivative-damped only |
+| Placement | `landform_offset_mode` | `auto` | auto / manual | |
+| Placement | `landform_offset_x`, `_z` | (search result) | ±2000 | manual mode; auto writes the chosen value back for copy-out |
+| Placement | `landform_rot_deg` | **0** | 0–360 | |
+| Placement | `landform_offset_candidates` | **128** (was 64) | 16–256 | *2026-11-18 (ivy-82zn.14.28)*: more candidates for the storey rule (-28 §2) |
+| Placement | `storey_ground_m` | **3.5** | 2–6 | *added 2026-11-18 (ivy-82zn.14.28)*: height off the hero pad that counts as storey ground (-28 §2) |
+| Placement | `storey_ground_frac_min` | **0.10** | 0–0.4 | *added 2026-11-18 (ivy-82zn.14.28)*: storey-rule threshold; **0 = off** (ordering identical to the pre-28 search) |
+| Placement | `hero_site_slope_min_deg` / `_max_deg` | **2 / 9** | 0–6 / 4–14 | |
+| Placement | `hero_not_crest_m` / `hero_not_hollow_m` | **1.5 / 1.5** | 0–5 | |
+| Placement | `relief_span_min_m` / `_target_m` / `_max_m` | **5.0 / 6.5 / 8.0** | 0–15 | |
+| Placement | `village_slope_p95_max_deg` | **14** | 8–20 | |
+| Detail | `base_amplitude_m` | **0.25** | 0–0.8 | existing field, new default |
+| Detail | `base_feature_m` | **40** | 12–80 | |
+| Detail | `noise_octaves`, `noise_persistence`, `warp_strength` | 2 / 0.40 / 0.16 | as today | |
+| Far ridges | `far_ridge_start_m` / `far_ridge_full_m` | **70 / 100** | 56–120 / 80–160 | ridge shape stays in `HillsParams` (hills playground) |
+| Sun | `sun_corridor_half_deg` | **25** | 10–45 | about the `Solar` rise/set azimuths |
+| Sun | `sun_corridor_fade_deg` | **10** | 5–20 | |
+| Sun | `sun_clear_deg` | **1.5** | 0–4 | |
+| Sun | `sun_eye_height_m` | **2.0** | 1–4 | matches CamSun eye height |
+| Sun | `sun_cap_soft_m` | **2.0** | 0.5–5 | |
+| Fit | `ring_max_slope_deg` | **22** | 12–35 | shared by pads and the hero |
+| Fit | `max_site_slope_deg` | **10** | 4–16 | cottage site rejection |
+| Fit | `hero_flat_r_m` | **7** | 5–9 | existing |
+| Fit | `hero_ring_min_m` / `_max_m` | **4 / 10** | 2–8 / 6–14 | replaces `hero_skirt_m` |
+| Fit | `pad_margin_m` | **0.6** | 0.2–1.5 | existing |
+| Fit | `pad_ring_min_m` / `_max_m` | **3 / 9** | 2–6 / 6–14 | replaces `pad_skirt_m`, `pad_edge_slope_max_deg` |
+| Fit | `pond_max_site_slope_deg` | **6** | 2–10 | |
+| Fit | `pond_freeboard_m` | **0.15** | 0.05–0.4 | |
+| Fit | pond basin fields (`pond_depth_m` … `pond_water_inset_m`) | as today | as today | |
+| Fit | `plaza_max_tilt_deg` | **6** | 0–10 | |
+| Fit | `plaza_ring_m` | **5** | 2–8 | replaces `plaza_skirt_m`, `plaza_relief_m`; *2026-11-17:* the plaza ladder minimum |
+| Fit | `plaza_ring_max_m` | **10** | 6–14 | *added 2026-11-17 (ivy-82zn.14.23)*: plaza ladder maximum (-18 `plaza_ring_ok`) |
+| Paths | `max_path_slope_deg` | **14** | 8–20 | *2026-11-17:* open-land cap only (-20); fit zones follow `ring_max_slope_deg` |
+| Paths | `door_approach_m` | **3** | 1–5 | counts as fit zone (-20) |
+| Paths | `path_steep_accept_deg` | **18** | 14–24 | *added 2026-11-17 (ivy-82zn.14.23)*: a rank's best path-only layout at or under this open-land max is kept with `path_cap_fallback` instead of moving rank (-20) |
+| Village | `cottage_min_sep_m` | **16** | 8–22 | layout knob; regenerates layout. *2026-11-18 (ivy-82zn.14.27, human chose 16 m with longer paths):* was 22 / 15–30, then briefly 12 / 8–30 (replaced the same day). Above about 17 m even the grown network falls back on some seeds (SD-21 table) |
+| Village | `sep_ladder_floor_m` | **14** | 8–22 | *added 2026-11-18:* `SEP_LADDER_FLOOR_M`; clamped to ≤ `cottage_min_sep_m`; the ladder runs in every attempt (SD-21) |
+| Village | `path_len_scale` | **1.0** | 0.8–1.5 | *added 2026-11-18:* multiplies the SD-21 primary, branch and capacity-branch lengths (1.0 = the 16 m production table) |
+| Village | `village_centre_r_max_m` | **46** | 37–50 | layout knob |
+| Mesh / consumer / material | `terrain_mesh_step_m`, `normal_eps_m`, `wanderer_follow_terrain`, `camera_ground_clearance_m`, `ground_slope_dark`, `ground_slope_full_deg` (30), `ground_height_tint`, `ground_height_range_m` | as today | as today | `ground_height_range_m` default → **8** (village span) |
+
+**Removed fields** (superseded; delete from the knob spec and from `to_dict`, and let `from_dict` ignore
+them for v1 JSON): Village hill group (8 fields), knoll group (9), swell group (5), `rim_blend_m`,
+`rim_eps_m`, `max_rise_m`, `max_depression_m`, `center_bias_gain`, `dir_bias_gain`, `dir_bias_phi_deg`,
+`hero_skirt_m`, `pad_skirt_m`, `pad_edge_slope_max_deg`, `open_lawn_pad_quiet_m`, `open_lawn_pad_fade_m`,
+`hero_relief_fade_m`, `plaza_relief_fade_m`, `pond_relief_fade_m`, `plaza_relief_m`, `plaza_skirt_m`,
+`rim_tint_match_on` (no rim; colour continuity is a shader requirement, AC-LT-SEAM).
+
+**Presets:** `Production` · `Flat (A/B)` (variant 1) · `Village on a hill (old)` (variant 2, only if kept) ·
+`Gentle` (height 10, wavelength 300) · `Bold` (height 22, wavelength 220) · `Billow` (noise 1) ·
+`Derivative-damped` (noise 2) · `Ridged (comparison)` (noise 3) · `Tight village (old spacing)`
+(`cottage_min_sep_m` 8, `sep_ladder_floor_m` 8, `path_len_scale` 0.8, `village_centre_r_max_m` 37;
+*2026-11-18:* 8 m leaves only the 4 m wall gap binding, and 0.8 × the new lengths is close to the
+pre-WP3 network, as before WP3). Edits that match no preset fall to `Custom`.
+
+**Readout (HUD, read-only):** chosen offset and candidate index, `s_hero`, `up/down_hero`, `span_v`,
+`p95_v`, hero ring w* and its peak (`hero_ring_w`, `hero_ring_peak_deg`; 2026-11-17), plaza ring w* and
+its peak (`plaza_ring_w`, `plaza_ring_peak_deg`; 2026-11-17, ivy-82zn.14.23), max path slope split into
+open land and fit zone (`max_path_slope_open_deg`, `max_path_slope_zone_deg`), number of rejected
+cottage sites (split slope / ring), `sep_relaxed_to`, and the fallback flags (`path_cap_fallback`
+included). *2026-11-18 (ivy-82zn.14.28):* also `storey_frac`, `storey_soft`, the realised storey
+(max |T_i − y_hero|) and `pond_plaza_rejects`.
+These are the numbers the mechanical ACs test, shown beside the view the human judges.
+
+**Camera presets (add to -9):** Default gameplay cam, CamSun, East horizon and West horizon (eye at H0 +
+2 m looking at A_rise / A_set), Wide overview (eye about 120 m up and 160 m south of G, looking at G),
+Old-rim seam (low eye at r = 50 m looking out across r = 56 m), CamTop, Free orbit.
+
+### SD-VILLAGE-TERRAIN-23 — Acceptance metrics (mechanical; replaces AC-VT8, restates AC-VT-HERO/VT7/VT12)
+
+Probe seeds: **1, 7, 12** (must pass every row) plus a **20-seed sweep** (seeds 1–20) where a row says
+so. Every probe reads `VillageTerrain.sample_y` with `VillageTerrainParams.production()`.
+
+| ID | Statement (pass / fail) | Test / probe |
+|---|---|---|
+| **AC-LT-DET** | Same seed ⇒ identical `sample_y` grid hash (4 m grid over r ≤ 310 m) and identical chosen offset, game vs playground; two runs equal. | extend `test_village_terrain_parity.gd` |
+| **AC-LT-SEAM** (replaces AC-VT8) | One function: for generated layouts `HillsHeightfield.sample_y(xz) == VillageTerrain.sample_y(xz)` exactly at 1000 random xz. On circles r ∈ {56, 64, join ring of the near/far meshes} × 360 azimuths: **step** `|y(r+0.05) − y(r−0.05)| ≤ 0.07 m`; **kink** `|y(r+1) − 2y(r) + y(r−1)| ≤ 0.15 m`. Rendered meshes: on the join ring at 256 azimuths, `|near_mesh_y − far_mesh_y| ≤ 0.02 m` (no crack). Ground albedo (CPU mirror of the shader) `L1(albedo(r−0.5), albedo(r+0.5)) ≤ 0.02` on the same circles. | rewrite `test_village_terrain_rim.gd` → seam test |
+| **AC-LT-HERO** (restates AC-VT-HERO) | `|sample_y − y_hero| ≤ 0.02 m` for `|xz − H0| < hero_flat_r_m`; World renders the hero pad at world y = 0 ± 0.02. | `test_village_terrain_heightfield.gd` |
+| **AC-LT-SITE** | For seeds 1/7/12 the chosen offset passes every hard rule in -18, `hero_ring_ok` included (`offset_fallback` false). In the 20-seed sweep, ≤ 2 seeds fall back (SD probe with the hero ring rule: 0). | new `test_village_landform_offset.gd` |
+| **AC-LT-RELIEF** *(storey part restated 2026-11-18, ivy-82zn.14.28; -28 §2)* | Fitted field span over the village disc (r ≤ 46 m about G, 2 m grid, pond basin excluded) is in **[5.0, 9.0] m**: seeds 1/7/12 pass, sweep ≥ 18/20. **Storey:** max |T_i − y_hero| ≥ 3.0 m over the cottages on seeds 1/7/12 (probe 3.58 / 4.39 / 5.16) and on **≥ 17 / 20** sweep seeds (probe 18 / 20; misses 9 and 20 have storey ground the path-first sampler does not reach); `storey_soft` on ≤ 3 / 20 (probe 2). Fewer than 17 sends it back to the SD; do not tune the knobs to pass. ~~Seeds 1/7/12 all pass; sweep ≥ 18/20 (storey and span).~~ | new `test_village_landform_relief.gd` |
+| **AC-LT-SLOPE** | Over the village disc outside pad and hero rings and the pond basin: slope p95 ≤ **14°** (*human decision 2026-11-18, option A, stopgap: ≤ **14.1°** to accept seed 7's measured 14.06° on its SD-28 storey offset; proper fix ivy-82zn.14.29*), max ≤ **24°**. | same file |
+| **AC-LT-PAD** (restates AC-VT5) | Every pad core `|y − T_i| ≤ 0.02 m`; every cottage site plane slope ≤ `max_site_slope_deg` (10°); no rejected site used. | `test_village_terrain_pads.gd` |
+| **AC-LT-RING** *(restated again 2026-11-17, ivy-82zn.14.23; supersedes the row below)* | Metric: `field.sample_slope_deg` (eps 0.4 m) on the generated field with every site applied, on a ≤ 0.5 m grid (or ≥ 96 azimuths × ≥ 16 radii) over each ring `0 < sdf < w`, **overlap nodes included**. **Hero:** max ≤ **25°**; `w_hero` ∈ [4, 10] and equals `layout.landform["hero_ring_w"]`. **Pads:** max ≤ **25°**; `w_i` ∈ [3, 9] and equals the spec's `ring_w`. **Plaza (new):** max ≤ **25°**; `w_plaza` ∈ [5, 10] and equals `layout.landform["plaza_ring_w"]`. The selection holds every node to 22° (-19 step 4, one-sided 1 m metric, plaza + pond replayed), so the 3° is only the fidelity margin. Seeds 1/7/12: **0** exceptions; 20-seed sweep: **0** exceptions. If a seed exceeds 25°, fix the selection fidelity (step 2 replay, step 3 metric). Do **not** raise the tolerance. SD probe with the restated selection: pad worst **23.9°** on 20 / 20 seeds (`.tmp/sd_14_23/ring_fidelity_probe2.txt`); hero ≤ 24.1° today; plaza 19 / 20 isolated pass, seed 16 moves offset (-18 `plaza_ring_ok`). WP2 finding 3 (seed 12 pads 26.8 / 27.1° at the plaza corner): 23.9° with the plaza replayed. *2026-11-18 (ivy-82zn.14.28):* WP3 seed 13 plaza ring 28.9° was the **pond** blend over the plaza ring (no pad reaches that node; without the pond 19.6°). The pond overlaps the plaza ring on 9 / 20 seeds; only seed 13 goes over 25°. Fix: measured `pond_plaza_ring_ok` at pond placement (-28 §3). Tolerance unchanged. | same file (`test_ac_lt_ring_report` asserting); plaza ring added |
+| ~~**AC-LT-RING** *(restated 2026-11-17, ivy-82zn.14.22)*~~ *(superseded by the row above: it left the plaza ring out and relied on the selection's 25° overlap allowance, which the field exceeded on 13 / 20 seeds)* | Metric: `field.sample_slope_deg` (eps 0.4 m) on the generated field with every site applied, at ≥ 96 azimuths × ≥ 16 radii (or a ≤ 0.5 m grid) over the ring `0 < sdf < w`. **Hero:** max ≤ **25°** (`ring_max_slope_deg` 22 + 3); `w_hero` ∈ [4, 10] and equals `layout.landform["hero_ring_w"]`. **Pads:** max ≤ **25°**, overlap nodes included (no extra allowance); `w_i` ∈ [3, 9] and equals the spec's `ring_w`. Seeds 1/7/12 must pass with **0** exceptions; the 20-seed sweep (generated seeds) ≤ 0 exceptions too, because the rule is measured. If a seed exceeds 25° anyway, fix the selection fidelity (LUT vs exact, grid). Do **not** raise the tolerance. SD probe: hero worst 23.0°, pad worst 24.5° (`.tmp/sd_14_22/measured_ring_probe.txt`). The 3° covers selection-vs-field differences (raw LUT vs exact, 1 m FD vs eps 0.4, plaza/pond rings not replayed). ~~Max slope inside every hero/pad ring ≤ 25°; ring widths within their [min, max].~~ | same file (`test_ac_lt_ring_report` becomes an asserting test) |
+| **AC-LT-SEP** | *Restated 2026-11-18 (ivy-82zn.14.27, 16 m with longer paths).* Every cottage pair centre distance ≥ the floor used − 0.01: 16 m, or `sep_relaxed_to` on a relaxed seed, never below **14 m**. Count = 8; all centres r ≤ 46 m; corners ≤ 54 m. Seeds 1/7/12: generated (not authored fallback); seeds 1 and 12 `sep_relaxed_to` unset, so min pair ≥ 16 m; seed 7 may relax, never below 14 m (option A). Sweep seeds 1–20: **20 / 20 generated** (no authored fallback); **≤ 6 seeds relaxed** (option A; measured 6); every seed's closest pair ≥ **14.0 m**; unrelaxed seeds ≥ 16.0 m. Timing on the same sweep (`test_village_gen_v3`): **mean ≤ 3700 / worst ≤ 12000 ms** (option A; review 3 probe-set 3606 / 10758). More than 6 relaxed, any fallback, or a timing miss sends it back to the SD. ~~Seeds 1/7/12 all unrelaxed; ≤ 3 relaxed (probe 2, seeds 13 and 15, to 15 m; min 15.2); mean ≤ 3500 ms (probe 3031 / 9338)~~ *(pre-option-A values, replaced 2026-11-18)* *Human decision 2026-11-18 (option A, "Accept, optimize later", stopgap; proper fix ivy-82zn.14.29): with the SD-28 storey rule, **≤ 6 relaxed** (measured 6: seeds 7, 8, 9, 11 → 14 m, 14, 16 → 15 m), floor 14 m; seed 7 may relax (measured 14.38 m); seeds 1 and 12 stay unrelaxed (≥ 16 m).* ~~12 m; 20 / 20, 0 relaxed, ≥ 12.0 m; 2000 / 6000 ms~~ *(replaced 2026-11-18)* ~~22 m; ≤ 1 relaxed seed, never below 18 m.~~ | extend `test_village_generator*.gd` |
+| **AC-LT-DRESS** *(restated 2026-11-18, ivy-82zn.14.28; -28 §4–5)* | **Pines (generated production, `FarTreeline` = ForestParams variant 0, the CamSun backdrop clump):** every pine ≥ **2 m** from every cottage exterior rect, and y = `sample_y` (± 0.01 m). The r ≥ 56 m rule is dropped for this clump; `GENERATED_PINE_INNER/OUTER` (56 / 76) stay as the constants for any ring-style pine band (none is built for generated layouts today). **Grass:** density 0 at r ≥ 64 m and monotone non-increasing over r 56–64 m. ~~Every pine at r ≥ 56 m from G~~ | extend backdrop tests |
+| **AC-LT-PATH** *(counts restated again 2026-11-18, ivy-82zn.14.28; -28 §1; the per-sample rule is unchanged)* | Same metric and zones as the row below. **Seeds 1/7/12 and the 20-seed sweep:** every seed's open-land max ≤ `path_steep_accept_deg` (**18°**), whether flagged or not; fit-zone max ≤ 25° on every seed; `path_cap_fallback` on ≤ **9 / 20** seeds (*human decision 2026-11-18, option A, stopgap, as measured with the storey rule; proper fix ivy-82zn.14.29*); **at most one seed** uses all 12 attempts (option A; measured seed 10); mean `attempts_used` ≤ **4.0** (review 3: 3.50). Generation timing (AC-LT-SEP: mean ≤ 3700 / worst ≤ 12000 ms, option A) is the binding cost limit. ~~≤ 8 / 20 flagged (probe 6, production 7); no seed uses all 12 attempts; timing mean ≤ 3500 ms~~ *(pre-option-A values, replaced 2026-11-18)* The generator's open-land value equals the field value within 0.01°. ~~Seeds 1/7/12 unflagged; ≤ 2 flagged; mean attempts ≤ 3~~ | `test_village_terrain_stones.gd`; attempts in `test_village_gen_v3.gd` |
+| ~~**AC-LT-PATH** (restates AC-VT7; *restated 2026-11-17, ivy-82zn.14.23*)~~ *(counts superseded 2026-11-18 by the row above; the metric and zone definitions here still apply)* | Along every polyline (door connectors included) at ≤ 1 m steps, `field.sample_slope_deg` (eps 0.4): **open land** (every fit site j has `sdf_j ≥ w_j + 0.4 m` and the sample is > `door_approach_m` from every stoop) ≤ **14°**; **fit zone** (any other sample: hero / pad / plaza / pond core or ring + 0.4 m band, or the door approach) ≤ **25°**. The generator's open-land value (`terrain_diag["max_path_slope_open_deg"]`, from `U`) equals the field value within 0.01°. Seeds 1/7/12: `path_cap_fallback` unset. 20-seed sweep: ≤ **2** seeds flagged, every flagged seed's open-land max ≤ `path_steep_accept_deg` (**18°**), fit-zone max ≤ 25° on every seed, no seed uses all 12 attempts, and mean `attempts_used` ≤ 3. SD probe (today's selection, emulated): 18 / 20 pass, 2 flagged (seeds 3, 20), attempts mean 2.25, max 5. ~~Along every polyline at ≤ 1 m steps, `sample_slope_deg ≤ 14°`, except within 3 m of a door stoop where ≤ 25°.~~ | `test_village_terrain_stones.gd`; attempts in `test_village_gen_v3.gd` |
+| **AC-LT-POND** (adds to AC-VT3) | Pond site slope ≤ 6°; `water_y ≤` min bank-outline `mesh_surface_y` − 0.02; 0 grass in water. | extend `test_no_grass_inside_pond_water.gd` |
+| **AC-LT-PLAZA** | Plaza core matches its fitted plane within 0.02 m; plane tilt ≤ 6°. | new, small |
+| **AC-LT-SUN** (restates AC-VT12; replaces `test_east_horizon_is_flat_production` `FLAT_EPS`) | From eye `(H0.x, y_hero + 2.0, H0.y)`, for every 1° azimuth within ±(`sun_corridor_half_deg`) of `A_rise` and `A_set`, and for d ∈ [20, 310] m in 2 m steps: terrain elevation angle `atan((sample_y − eye_y)/d) ≤ sun_clear_deg + 0.5°` (**2.0°**). `A_rise`/`A_set` within ±1° of `Solar`. `test_production_backdrop_visible_in_camsun` still passes. | rewrite `test_village_terrain_sun_corridor.gd`; retire the E/W flat asserts in `test_hills_north_wedge.gd` (keep its north-wedge and colour asserts) |
+| **AC-LT-NORTH** | North edge-outward max elevation angle still > 8° (`test_hills_horizon_probe`): the ridge backdrop survives. | existing |
+| AC-VT1 | Classic / authored and `variant 1`: unchanged (flat). | existing |
+| AC-VT4, VT6, VT10, VT11 | Stones, cottage seat (vs `T_i`), wanderer, camera floor: unchanged tolerances against the new field. | existing |
+| **AC-LT-PERF** (with AC-VT9) *(restated 2026-11-18, ivy-82zn.14.28; -28 §2, §5)* | Offset search (ranking + storey measure + rank-0 verification) ≤ **300 ms** per `generate` (probe at K = 128: ranking 130–186 ms plus about 64 ms uncached storey measure); near mesh (2 m, r ≤ 64 m) ≤ 8k tris target / 16k hard; total backdrop still under `test_triangle_budget_under_120k`; grass build ≤ +15% vs pre-change at **today's production density** (≤ **150k** blades; measured 142.5k–144.4k, +8.8%). ~~Offset search ≤ 150 ms; ≤ 56k blades~~ | `tools/village_terrain_budget_probe.gd` |
+| **AC-LT-CAP** | Playground: every -22 knob present with default == production; variant/preset switch; copy-out v2 JSON round-trips; v1 JSON loads (removed fields ignored); parity with production build. | `test_village_terrain_playground_scene.gd` |
+| AC-LT-PNG | Before/after PNGs under `.tmp/` for seeds 1/7/12: default cam, CamSun, East/West horizon, Wide overview, Old-rim seam (non-headless). | run-ui-script / capture tool |
+
+**Fuzzy (human, playground and stills; agents give no verdict):** AC-LTF1 reads as one rolling landscape
+with hills bigger than the village; AC-LTF2 about a house of height across the village is visible from
+the default cam; AC-LTF3 cottages feel less crowded; AC-LTF4 hero, door, paths and pond still read at a
+glance; AC-LTF5 soft sunrise/sunset horizon; AC-LTF6 no dark contour lines, no pond shards, no seam at
+the old rim. AC-VTF1 ("gentle, not ski slopes") is replaced by AC-LTF1/2; AC-VTF4 by AC-LTF6.
+
+### SD-VILLAGE-TERRAIN-24 — Failure modes, scenarios, non-goals
+
+**Failure modes and expected behaviour**
+
+| Failure | Behaviour |
+|---|---|
+| No offset passes the -18 rules | Least-violation candidate; `offset_fallback`; build continues; AC-LT-SITE counts it. |
+| Cottage site too steep / measured ring fails (overlaps included) | Plot sampler skips the site and takes the next one; never bulldoze. Expected rate is about 7.5% (r ≤ 37 m) to 12% (37–46 m) of candidates. |
+| Hero ring cannot meet 22° within `hero_ring_max_m` | The offset fails `hero_ring_ok` in -18 and the next candidate is used. If no candidate passes: least violation, `offset_fallback`, hero ring at the ladder's best w (AC-LT-SITE counts it). |
+| Fewer than 8 cottages at the min sep | *2026-11-18 (16 m rule):* first the capacity branches grow (no early exit at ≤ 2 picks). Then, in every attempt, top up at 15 m, then 14 m, from the same candidates (`sep_relaxed_to`). If still short, the attempt fails and the next attempt / rank runs. The count never drops. ~~12 m default, ladder to 12~~ ~~down to 18 m~~ |
+| Grown paths fail other checks more often *(2026-11-18)* | Longer paths cross more open land and fail `terrain:path_cap`, `stage7_v3_no_bundle`, v4 or v5 more often. These are normal attempt failures; the timing limits (3500 / 12000 ms) absorb them. Do not shorten paths to save time without an SD restatement. |
+| Path over the 14° cap on open land *(restated 2026-11-17, ivy-82zn.14.23)* | Retry within the same rank. At rank end, keep the best path-only layout if its open max ≤ 18° (`path_cap_fallback`), else next rank. ~~Attempt retry → next offset → `path_cap_fallback`, least violation kept.~~ |
+| Path over 25° inside a fit zone | Not a generator state. It means the ring selection is not exact (AC-LT-RING fails too). Fix -19 steps 2–3; do not add a path check. |
+| Plaza ring cannot meet 22° within 10 m | Offset fails `plaza_ring_ok` (-18), next candidate. |
+| Pond blend over the plaza ring too steep *(2026-11-18)* | Pond candidate fails `pond_plaza_ring_ok` (-28 §3), next pond candidate; counted in `terrain_diag["pond_plaza_rejects"]`. If no pond candidate passes, the attempt fails with `terrain:pond_plaza` and the next attempt runs (no steep-pond style fallback here, because the result would fail AC-LT-RING). |
+| No offset has storey ground *(2026-11-18)* | Storey rule is soft: the passing candidate with the most storey ground is used, `terrain_diag["storey_soft"]`; build continues (-28 §2). |
+| Pond site over 6° | Next pond candidate; if none, the flattest candidate plus a diag flag. |
+| Sun cap makes a visible flat-topped plateau | `smin` softness knob; AC-LT-SUN still binds; human judges AC-LTF5. |
+| Crest hides the hero from the default cam (R2) | The not-crest rule puts the hero mid-slope; `village_slope_p95` limits steepness; a human call via the offset knobs. |
+| Ring overlap too steep | Later cottage site rejected (AC-LT-RING). |
+| Camera inside a hill | Existing floor `sample_y + 0.35` (AC-VT11). |
+| Classic layout | Flat, unchanged (AC-VT1). |
+
+**Example scenarios**
+
+1. *Seed 7, default cam.* The search picks a candidate where the hero stands on a south-facing slope at
+   about 5°. Land rises 3–4 m behind the hero to the north and falls toward the pond on the south-west.
+   The farthest uphill cottage pad sits about 4 m above the hero pad, on a 4 m blend ring. The door spur
+   climbs at about 9° and steps up the last metre to the door.
+2. *Seed 1, CamSun / East horizon.* Raw landform crests about 140 m east-north-east of the hero would
+   stand 9 m above the eye. Inside the 75° ± 25° corridor the soft cap lowers them to a rounded shoulder
+   under the 1.5° line. North of the corridor the full ridge backdrop stays; the sun rises over a low
+   soft horizon.
+3. *Playground.* The human raises `cottage_min_sep_m` 16 → 18 and `path_len_scale` 1.0 → 1.2 on seed 12
+   (*2026-11-18:* was 12 → 14, before that 22 → 25), watches the paths reach further and the houses
+   spread toward r 46 m (generation slows; at 18 m some seeds fall back), then switches `landform_offset_mode` to manual and slides the
+   village onto a saddle. The readout shows `span_v` 7.1 m and max path slope 12.4°. They copy out the
+   JSON for sign-off.
+4. *(2026-11-17, ivy-82zn.14.23) Seed 12, path past a house by the plaza.* The primary path leaves the
+   plaza's north-west corner and passes 1.7 m in front of cottage 4. Both pads and the plaza are replayed
+   at selection, so the two pad rings and the plaza ring meet at ≤ 22° on the selection metric (≤ 25° in
+   the field). In the probe the path climbs that shoulder at up to 20.2° for a few metres (it was 26.2°
+   before the restatement), then runs on across open hillside at ≤ 12.4°. No retry is needed.
+5. *Seed 3, flagged.* Rank 0's only valid attempt has one secondary path crossing a 14.2° open slope.
+   Attempts 2–4 fail v1–v6, the rank ends, and 14.2° ≤ 18°, so the layout is kept with
+   `path_cap_fallback`. The readout shows open 14.2°, and the human can judge it in the playground.
+
+**Non-goals:** no gameplay, sim, growth or light change from terrain (sun corridor is visual only; the
+lawn mesh keeps `cast_shadow = OFF`); no erosion, rivers, cliffs, rock outcrops or ridged-mountain
+production look; no path re-routing or grading (drape + reject only); no change to the cottage count or
+building types; Classic untouched; no runtime terrain edits; no LOD/streaming system; no new fog design
+(fog radii unchanged; flag if framing suffers); no change to `HillsParams` ridge shape or forest
+tuning; no agent feel verdict.
+
+**Non-goals of the 2026-11-17 restatement (ivy-82zn.14.23):** no change to `ring_max_slope_deg` (22),
+`max_path_slope_deg` (14), the ring ladder ranges for hero and pads, the landform noise, cottage spacing
+or reach (WP3), the generator timing limits (GA, ivy-82zn.14.24), path routing or grading; no measured
+pond ring (paths stay out of the pond; its samples count as fit zone).
+
+### SD-VILLAGE-TERRAIN-25 — Handoff to Gameplay Architect (ivy-82zn.14.13)
+
+Plan the following against current code (`src/playground/village_terrain.gd`, `village_terrain_params.gd`,
+`village_terrain_knob_spec.gd`, `village_terrain_playground.gd`, `hills_heightfield.gd`,
+`src/world/village_layout.gd`, `village_gen/village_generator.gd`, `village_gen/plot_sampler.gd`,
+`village_gen/village_validate.gd`, `village_pond_placement.gd`, `village_backdrop.gd`, `world.gd`):
+
+(a) replace the `VillageTerrain.sample_y` composition with -17, keeping the API and datum option A;
+(b) make `HillsHeightfield.sample_y` delegate for generated layouts, and stitch the near and far meshes on
+a shared join ring; (c) the offset search (-18) and where it runs relative to `generate(seed)`, because
+the layout now depends on terrain for site rejection; (d) site-slope, ring and spacing rejection in the
+plot sampler and validator (-19, -21); (e) dressing radii, grass fade and camera clamp (-21); (f) the
+params v2 schema, knob spec, presets and readout (-22); (g) restated and new tests (-23), including
+retiring the E/W `FLAT_EPS` flatness asserts. Open GA decisions: whether variant 2 (old hill) survives;
+how the near/far meshes are stitched; the exact `Solar` hook for `A_rise` / `A_set`; the order of the
+offset search vs the layout attempt loop within the 150 ms budget.
+
+### SD-VILLAGE-TERRAIN-28 — WP3 send-backs at 16 m: path counts, storey relief, pond vs plaza ring, pines, grass *(ivy-82zn.14.28, 2026-11-18)*
+
+**Consumes:** the WP3 programmer handoff 2 and addendum on ivy-82zn.14.18 (16 m spacing, grown paths,
+uncommitted tree); -18 to -24 as restated above. **Next handoff:** Gameplay Programmer, ivy-82zn.14.18
+resumes (no GA stage needed: every change below is inside an existing function and pattern).
+
+**Probes** (throwaway, `.tmp/sd_14_28/`): `relief_probe.gd` (production storey and storey ground per
+seed), `storey_search_probe.gd` (storey rule emulated: production ranking, re-ordered, then the chosen
+offsets generated in manual mode with up to 3 ranks of 4 attempts), `gen_fork.gd` / `sampler_fork.gd`
+(sampler storey-first variant, rejected), `plaza_ring_probe.gd` and `pond_plaza_probe.gd` (seed 13
+diagnosis and the 20-seed pond/plaza sweep). Emulation caveat: manual mode re-uses attempt seeds 0–3 for
+every rank and accepts a path-only layout over 18° after its 4 attempts, so it differs from production on
+about 6 / 20 seeds. Its no-rule baseline is storey 10 / 20, 10 flagged, attempts mean 3.80, mean / worst
+3174 / 11285 ms. Production today is 11 / 20, 7 flagged, 3.65, 3046 / 9606 ms. Compare rows against the
+emulated baseline, not against production.
+
+#### 1. AC-LT-PATH: counts restated, rule unchanged
+
+**Finding.** Retrying does not make the open-land paths gentler. On seeds 1–20 with the storey rule
+(K = 128), these three settings ship the same open-land max on every seed (identical per-seed values,
+same storey, same offsets). Only the flag and the attempt count change:
+
+| Setting | Flagged | Open-land max range | Attempts mean | Mean / worst ms |
+|---|---|---|---|---|
+| A. Today's rule (cap 14, near miss 1°, accept 18) | 6 / 20 | 7.9–18.0° | 3.10 | 2891 / 10645 |
+| B. Cap 16 (a relabel) | 2 / 20 | 7.9–18.0° | 3.00 | 2843 / 10801 |
+| C. Cap 14, near miss 0 (more retries) | 6 / 20 | 7.9–18.0° | 3.20 | 3033 / 10865 |
+
+The steep open stretches come from the landform under a longer network. The human chose that network
+("16 m, longer paths"), and -24 already lists the effect. The only lever that changes the look is less
+relief, which works against the storey target (§2), or path re-routing, which is a GD non-goal. So this
+is not a look trade-off. It is a count restatement. **Decision: A**, with AC-LT-PATH counts restated in
+-23: open-land max ≤ 18° on every seed (probe seeds included), ≤ 8 / 20 flagged, mean attempts ≤ 4.0,
+and the AC-LT-SEP timing as the binding cost. B is rejected because it hides which seeds have steep
+stretches. C is rejected because it costs time for nothing. The human can still try `max_path_slope_deg`
+in the playground.
+
+#### 2. AC-LT-RELIEF storey: storey rule in the offset search
+
+**Finding.** The landform under the chosen offset seldom has ground a storey away from the hero pad.
+Over the cottage ground (centre r ≤ 42 m from G, ≥ 14 m from H0, outside the plaza keep, U slope ≤ 10°),
+the max |U − y_hero| is 2.8–4.5 m. The share of that ground ≥ 3.5 m off is **0%** on 9 / 20 seeds
+(1, 2, 7, 8, 9, 10, 11, 12, 14); 8 of them fail the storey (12 just passes at 3.15 m), and the ninth
+failure is seed 4 (1%, 2.98 m). Every seed with ≥ 3% storey ground passes. Spacing cannot help (as -27 predicted). The offset search scores only the
+span, and a 6.5 m span with the hero mid-slope leaves about 3 m on each side.
+
+**Rule (added to -18).**
+- **Storey nodes:** the search's own 4 m nodes with |p − G| ≤ 42 m, |p − H0| ≥ 14 m, outside
+  `plaza_cottage_keep_clear_rect(G, PLAZA_SIDE_L)`, and 1 m forward-difference slope of `L + D` ≤
+  `max_site_slope_deg` (10°). These are a subset of the `in_v` nodes, so `_exact_p95`'s offset-independent
+  `d_fd` cache (D at +x / +z) serves them. Compute it once per search.
+- **Measure** (coarse-passing candidates only, after `_grid_measures`): `storey_frac` = share of storey
+  nodes with |L + D − y_hero_raw| ≥ `storey_ground_m` (**3.5 m**); also `storey_max`. Store both in
+  `measures`.
+- **Order** (replaces "passing by score" in `rank_offsets`): passing candidates with `storey_frac ≥
+  storey_ground_frac_min` (**0.10**) first, by score (ties: lower index); then the rest by `storey_frac`
+  descending (ties: lower index). Verification, lazy rank checks, the failing list and the D5 rank loop
+  are unchanged. They just walk this order.
+- **Soft:** if the rank used has `storey_frac` < the minimum, set `terrain_diag["storey_soft"] = true`.
+  This is not an `offset_fallback`, and the build continues.
+- **K** = `landform_offset_candidates` **128** (was 64). With 64, only 0–6 passing candidates per seed
+  meet the rule, and 3 seeds have none.
+- `storey_ground_frac_min` = 0 turns the rule off and must reproduce today's ranking exactly (parity test).
+
+**Probe** (`storey_search_probe.gd`, seeds 1–20, emulated):
+
+| Variant | Storey ≥ 3 m | Misses | Seeds 1 / 7 / 12 | Soft | Flagged | Attempts | Mean / worst ms | Ranking ms |
+|---|---|---|---|---|---|---|---|---|
+| Baseline (no rule, K 64) | 10 / 20 | 1, 3, 4, 7, 8, 9, 10, 11, 12, 14 | 2.43 / 0.60 / 2.91 | – | 10 | 3.80 | 3174 / 11285 | 73–103 |
+| Rule 10% @ 3.5 m, K 64 | 17 / 20 | 7, 9, 20 | 3.84 / 2.89 / 5.16 | 4 | 9 | 3.15 | 2875 / 6952 | 73–103 |
+| **Rule 10% @ 3.5 m, K 128 (chosen)** | **18 / 20** | **9 (2.62), 20 (2.77)** | **3.58 / 4.39 / 5.16** | **2** | **6** | **3.10** | **2891 / 10645** | **130–186** |
+| Rule 10% @ 3.5 m, K 192 | 17 / 20 | 1, 12, 20 | 2.76 / 4.39 / 2.34 | 2 | 5 | 2.60 | 2468 / 9173 | 192–261 |
+| Rule 10% @ 4.0 m, K 128 | 18 / 20 | 9, 20 | 3.58 / 5.17 / 5.16 | 4 | 8 | 3.25 | 2977 / 8729 | 134–183 |
+| K 64 rule + sampler storey-first (fork) | 17 / 20 | 7, 9, 20 | 3.84 / 2.89 / 4.65 | 4 | 9 | 3.15 | 3017 / 7825 | 73–103 |
+
+The storey measure added about 64 ms per seed in the probe (uncached L at 3 points per node); with the
+shared `d_fd` cache it is about 2 L samples per node per coarse-passing candidate. Chosen offsets move on
+18 / 20 seeds; their spans are 6.03–7.94 m (inside -18's 5–8 m), and the score is unchanged. The two
+remaining misses have 10–20% storey ground, but no path-side candidate reaches it. The sampler
+storey-first variant (candidates on storey ground moved to the front until one is picked) did not
+recover them. That needs site-first placement (the -21 option C), which is out of scope. Hence the
+restated sweep floor of **17 / 20** (AC-LT-RELIEF in -23). Seeds 1/7/12 must pass.
+
+*Not a feel call:* this delivers the GD look target ("at least one cottage a storey above or below the
+hero pad", -16) within the existing span limits. It does change which hill each probe seed sits on, so
+the WP3 AFTER PNGs must be re-captured.
+
+#### 3. AC-LT-RING seed 13: pond vs plaza ring (fix spec)
+
+**Diagnosis** (`plaza_ring_probe.gd`): the 28.9° node (−11.5, −27.0) is 2.5 m into the 5 m plaza ring
+and 4.45 m into the **pond's** 5.75 m blend. No pad reaches it (nearest pad sdf 11.6 m). Without the pond
+the slope there is 19.6°, and without the plaza it is 15.4°. The selection never checks this pair:
+`plaza_ring_ok` runs in the search, before the pond exists; the pond is checked only for its 6° site
+slope; and pads replay both but do not cover nodes outside their own rings. `pond_plaza_probe.gd`: the
+pond blend overlaps the plaza ring on **9 / 20** seeds. At the overlap nodes the field reads 28.9° on
+seed 13, 20.2° on seed 1, and ≤ 14.7° elsewhere.
+
+**Fix (programmer):** `pond_plaza_ring_ok(centre)` on `VillageSiteTerrain`, the same pattern as the pad
+ring (-19 steps 1–4):
+1. Grid: 1 m lattice nodes over the intersection of the pond bound box (centre ± (r_core + w_pond + 1))
+   and the plaza ring box (rect grown by `plaza_ring_w` + 1). If the intersection is empty, pass.
+2. Surface: base = exact U at the nodes; apply the plaza with the **field's helpers**
+   (`VillageTerrainField.plaza_site` / `apply_site`, per-node plane target, stored `plaza_ring_w`), then
+   the pond (`VillageTerrainField.pond_site` / `apply_site`, basin profile, its w). Field order, one
+   function, no copy.
+3. Slope: one-sided 1 m differences (-19 step 3) at nodes with 0 < sdf_plaza < w_plaza + 1 **and**
+   sdf_pond < w_pond + 1.
+4. Pass iff every such node is ≤ `ring_max_slope_deg` (22°).
+
+Use it in the pond candidate loop (`_reserve_stage1` / `_choose_pond`, after the 6° site slope; a fail
+means take the next candidate, counted in `terrain_diag["pond_plaza_rejects"]`) and in `_check_moved_pond`
+(a moved pond that fails sets `pond_moved_fail = "plaza_ring"`). If no candidate passes, the attempt fails
+with `terrain:pond_plaza`. Expected effect: seed 13's pond moves; seed 1 may move (20.2° in the field can
+read over 22° on the one-sided metric); the other seeds keep their ponds. Note: with §2 the seed 13 offset
+changes anyway, so the regression test must be the forced repro, not seed 13 alone.
+
+**Tests:** a hand-built repro (plaza plus a pond placed 2.5 m off the plaza's SW corner on a slope, the
+seed 13 geometry) where the pond candidate is rejected; AC-LT-RING plaza 0 exceptions on the 20-seed
+sweep; `pond_plaza_rejects` reported. The 25° tolerance is not raised.
+
+#### 4. AC-LT-DRESS pines: restated
+
+The generated production `FarTreeline` is ForestParams variant 0, the CamSun backdrop clump 14–27 m from
+G, framed for the sunrise view. There is no 56–76 m pine collar for generated layouts. `pine_inner/outer`
+feed only the classic ring. Moving the clump out to r ≥ 56 m would be forest tuning (a -24 non-goal) and
+would empty the CamSun frame. **Restated** (-23 AC-LT-DRESS): every pine ≥ 2 m from every cottage
+exterior rect (measured 2.38 / 2.25 / 4.58 m on seeds 1/7/12 with `BACKDROP_COTTAGE_CLEAR_M` 2.0) and
+y = `sample_y` (measured 0.0000 m). The 56 / 76 constants stay for any ring band. No look change.
+
+#### 5. Grass budget: restated
+
+The SD's "4.9 /m², ≤ 56k blades" was a wrong reading. Production already ran about 137k blades out to
+56 m before WP3. WP3 kept today's density and added the 56→64 m fade: 142.5k–144.4k blades, build
+1219–1226 ms vs 1111–1135 ms (+8.8%, ≤ +15%). Cutting to 56k would thin the lawn by about 60%, a look
+change nobody asked for. **Restated** (-21 grass paragraph, -23 AC-LT-PERF): ≤ 150k blades at today's
+density, build ≤ +15%. No look change.
+
+#### Human decision 2026-11-18 (option A, "Accept, optimize later")
+
+Measured after implementing §2 and §3 (ivy-82zn.14.18 handoff 3): the storey rule meets AC-LT-RELIEF
+(17 / 20, seeds 1/7/12 3.58 / 3.26 / 5.16 m) and AC-LT-RING (0 exceptions), but its steeper offsets
+reject more cottage sites and cross more open slope: 6 / 20 seeds relax (7, 8, 9, 11 → 14 m;
+14, 16 → 15 m; 3 with the rule off), 9 / 20 path-flagged, and seed 7's open-land slope p95 reads
+14.06°. The human accepted these as a **stopgap**: AC-LT-SEP ≤ 6 relaxed (floor 14 m; seed 7 may
+relax, seeds 1 and 12 stay unrelaxed), AC-LT-PATH ≤ 9 / 20 flagged (open-land max ≤ 18° on every seed
+unchanged), AC-LT-SLOPE p95 ≤ 14.1°. The programmer's extension of §3 to the **hero ring**
+(`pond_hero_ring_ok`, field order plaza < pond < hero, 22°; seed 7's moved pond read 27.5° in the hero
+ring) is **kept**. Proper fix: **ivy-82zn.14.29** (P3).
+*Also 2026-11-18 ("Yes, 3.7 s for now"):* generate timing mean limit **3700 ms** (was 3500; the probe set
+measured 3601 ms with the storey rule), worst stays 12000 ms. AC-LT-PATH "no seed uses all 12
+attempts" becomes **at most one of seeds 1–20 may use all 12 attempts** (measured: seed 10; the 3.7 s
+mean comes from it). The CamSun backdrop tree floor in the forest keep-clear test becomes **≥ 22 trees**
+(was 24; measured 22–23 on seeds 9, 10, 12 and 240424020 with the storey layouts and the 2 m cottage
+clearance; no forest tuning).
+
+#### Human items
+
+None blocks the programmer. For the human's awareness (judged on the re-captured AFTER PNGs and in the
+playground, not decided here): the storey rule puts the village on a different part of the hill on
+18 / 20 seeds. Open-land path stretches of 14–18° remain on about a third of seeds (the cost of the longer
+paths the human chose). Playground knobs: `storey_ground_m`, `storey_ground_frac_min`,
+`max_path_slope_deg`.
+
+**Non-goals:** no site-first placement, path re-routing or grading; no change to the cottage count,
+16 m spacing, ladder, reach, path lengths, ring limits (22 / 25°), span limits (5–8 m search, 5–9 m
+field), `path_steep_accept_deg` or the timing limits; no forest tuning or pine collar; no grass density
+change; no sampler storey preference; no agent feel verdict.
+
 ## AR-VILLAGE-TERRAIN — In-village lawn terrain height architecture *(ivy-82zn)*
+
+> **2026-11-16 — partly superseded by AR-LANDSCAPE-FIRST (ivy-82zn.14.13, below).** The hard boundary
+> "`hills_*.gd` internals are not edited", AR-VT-SEAM (rim join), the knoll / caps / rim parts of
+> AR-VT-FILES and AR-VT-TESTS, and the `World/Ground` disc radius = `lawn_radius` rule no longer apply to
+> generated layouts. Classic / `variant 1` rules (INV-15) are unchanged.
 
 **Consumes:** SD-VILLAGE-TERRAIN-1..15, Game Director handoff on bead **ivy-82zn**
 (`.tmp/ivy-82zn-gd-handoff.md`), G7 / `.cursor/rules/algorithm-playgrounds.mdc`. **Builds on (verified
@@ -8372,6 +9438,9 @@ static builders (no fork); **no** sim clock / HUD / save state; global state res
 | extend `test/test_camera_rig_lawn_bounds.gd` | AC-VT11 | eye never below terrain floor; XZ clamp unchanged. |
 | `tools/village_terrain_budget_probe.gd` | AC-VT9 | tris/surfaces/grass-build-Δ/frame-Δ within SD-VILLAGE-TERRAIN-8; still passes `test_triangle_budget_under_120k`. |
 | **run-ui-script** (AC-VT-PNG) | capture | before/after PNGs (CamSun + edge_outward + hero approach + pond) seeds 1/7/12 under `.tmp/` — **non-headless** (macOS `--headless` yields no PNG). |
+| `test/test_village_terrain_hill.gd` *(ivy-82zn.14.10)* | hill AC 2-6 | knobs/ranges/preset; P crest flat, monotone, 0 in rim band, rise 0 ⇒ 0; hero datum; fall to outermost cottage ≥ 6.84 m on seeds 1-30 (−19); no C0 step at the 5 m corridor line / feature rings (fades 0); ivy-sx7x; pond bank draped on the rendered lawn [0, 0.05] m; water rules; hero ring ≤ 8°, rim band ≤ 8°, flank ≤ 30°, rendered cell ≤ 40°, lane grade ≤ 18°, total pad bank ≤ 35°. |
+| `test/test_village_terrain_hill_world.gd` *(ivy-82zn.14.10)* | hill AC 1, 7 | World lowers backdrop + ground mesh by `hero_datum_y` (hero ground world 0); camera floor world-space; Garden_* seated; fauna hover above anchor ground; classic offsets 0. |
+| `tools/probe_village_hill.gd` | evidence | `--geom` profile, `--diag` seams, `--fall`, `--limits` (fall / hero ring / pad bank / lane / cell per seed), `--steep`, `--luterr`, `--at=x,z`. |
 
 Headless note: `_add_multimesh` writes `mm.buffer` with **16 floats/instance when `use_colors`**, 12
 otherwise (`:470`); grass/scatter here add **no** instance colors, so stride stays 12 — do not regress
@@ -8451,4 +9520,648 @@ classic/`variant 1`, single-sampling-API truth, determinism via `_derive`, no co
 `hills_*.gd` untouched, the `_add_multimesh` stride-12 buffer for colorless scatter, and the playground
 `_capture_done_fn` quit seam. Fuzzy acceptance (AC-VTF1..4) is QA + human in the playground — agents
 supply screenshots and the parity/budget probes, not the verdict.
+
+## AR-LANDSCAPE-FIRST — Landscape-first rolling hills architecture *(ivy-82zn.14.13)*
+
+**Consumes:** SD-VILLAGE-TERRAIN-16..25 (the contract; formulas, defaults and AC ids are not repeated
+here), GD vision ivy-82zn.14.11 (C1–C5), the uncommitted ivy-82zn.14.1/.14.5/.14.7/.14.8/.14.10 working
+tree, and these sources read directly: `src/playground/village_terrain.gd`, `hills_heightfield.gd`,
+`hills_noise.gd`, `village_terrain_params.gd`, `village_terrain_knob_spec.gd`,
+`village_terrain_playground.gd`, `village_terrain_village_host.gd`, `src/world/village_backdrop.gd`,
+`world.gd`, `village_layout.gd`, `village_gen/village_generator.gd`, `village_gen/plot_sampler.gd`,
+`village_gen/village_validate.gd`, `village_pond_placement.gd`, `village_scatter_positions.gd`,
+`src/render/shaders/village_ground.gdshader`, `village_ground_hills.gdshader`, `src/env/solar.gd`.
+**GA probes (throwaway, `.tmp/ga_14_13/`):** `offset_search_probe.txt` (brute-force -18 search, seeds
+1–20: 0 fallbacks, 12–25 passing candidates per seed, 400 ms with FD slopes), `offset_search_probe2.txt`
+(optimised search per AR-LF-D4: same chosen candidate on all 20 seeds, **76–88 ms**),
+`capacity_wedge_probe.txt` (SD capacity probe plus the production forest wedge: P(8 at 22 m, r ≤ 46) =
+0.95), `solar_azimuth_probe.txt` (production sunrise / sunset azimuth **74.70° / 285.42°**).
+**Next handoff:** Gameplay Programmer, ivy-82zn.14.14 → .14.16 → .14.18 (each followed by its review).
+This section plans; it does not implement.
+
+### AR-LF-GOAL — Goal in implementation terms
+
+One resolved field object per (generated layout, terrain params, hills params) answers every height
+query in the generated world: lawn mesh, far hills mesh, forest, pines, cottages, pond, plaza, stones,
+grass, scatter, fauna, wanderer, camera floor and shaders. The generator reads the raw landform while it
+places cottages and the pond, so the village is fitted to the land rather than the land to the village.
+Datum option A stays (World lowers the backdrop by `hero_datum_y()` = `y_hero`). Classic and
+`variant 1` stay flat and byte-identical (INV-15).
+
+### AR-LF-DECIDE — Decisions (the open GA items from SD-VILLAGE-TERRAIN-25, plus what the code forced)
+
+| Id | Decision | Why |
+|---|---|---|
+| **D1 Baseline** | Before ivy-82zn.14.14 starts, the orchestrator commits the current uncommitted .14.1/.14.5/.14.7/.14.8/.14.10 tree as one baseline commit (`ivy-82zn.14.10: village-on-a-hill baseline (superseded by landscape-first)`), including the one-line camera-floor test frame fix (AR-LF-TESTS row `test_camera_rig_lawn_bounds`). Do **not** fold it into WP1. | None of that work (several closed beads) is committed; the WP1 diff must be reviewable on its own; the old hill stays reachable for A/B by commit hash (see D2); BEFORE PNGs are reproducible from the hash. |
+| **D2 Variant 2** | **Drop** "Village on a hill (old)". Variants are `0 Landscape (production)` and `1 Flat (A/B)`; the structurally different algorithms live in `landform_noise` (fbm / billow / derivative-damped / ridged-comparison). | The old composition is ~1500 lines (terraces, path spine, pad relax, knolls, swell, signature caches) and 22+ params; keeping it means keeping that code and its params beside the new field, which the SD forbids (duplicated consumer code). The baseline commit preserves it. |
+| **D3 One field** | New `VillageLandform` (static, pure: noise, raw `L + D`, offset ranking, site plane, ring width, raw LUT) and `VillageTerrainField` (RefCounted, resolved per layout: offset, seeds, `y_hero`, sun azimuths, fit sites, pond water, `sample_y`). `VillageTerrain` keeps its static API as a façade: `sample_y(xz, layout, params, t_seed)` → `field(layout, params).sample_y(xz)` (`t_seed` ignored for generated layouts; the field owns its seeds). `HillsHeightfield.sample_y` / `build_mesh` delegate for generated `variant 0`. | Kills the static signature caches and `_sig_batch_*` of the hill code; one implementation for game and playground (G7); every existing consumer call site keeps compiling. |
+| **D4 Search placement** | `VillageLandform.rank_offsets(norm_seed, params)` runs **once at the top of `VillageGeneratorV3.generate`, before the attempt loop**: G, H0 and the plaza are constants, so the search needs no layout. Optimisation (probe 2): D does not depend on the offset, so D is sampled once per grid node; per candidate, the hero plane (149 samples, 1 m) runs first and rejects early; then the 4 m village / ring grid (≈ 474 nodes) gives span, up/down, plaza tilt and a coarse p95; passing candidates are sorted by score and the exact FD-1 m p95 is verified in rank order until one passes. Measured 76–88 ms (budget 150). | Layout depends on the landform for site rejection, never the other way round, so this order has no cycle. |
+| **D5 Attempt loop** | `for rank in 0..min(3, ranked.size())-1: for attempt in 0..3: _attempt_generate(…, landform_ctx, params, sep_ladder = attempt == 3)`. Failure reasons from the terrain carry the prefix `terrain:`. After every rank fails: if the best failing attempt failed only on `terrain:path_cap`, return it with `terrain_diag.path_cap_fallback = true`; otherwise the existing authored fallback. Manual offset mode: `ranked = [manual]`. | Bounded (≤ 12 attempts), deterministic, and the common case (rank 0, attempt 0) adds only the search + one field build + path check. |
+| **D6 Stitch** | `VillageTerrain.join_loop(layout, params)` = the points where the lawn mesh's grid lines (`terrain_mesh_step_m`, origin `G − lawn_radius`) cross the circle `r_j = lawn_radius`, sorted by azimuth (≈ 4·r_j/step points: ≈ 224 at 56 m, ≈ 256 at 64 m with a 2 m step; see note). **Near mesh:** interior cells as today; boundary cells clipped to the polygon of inside corners + their edge crossings (convex, fan). **Far mesh** (`VillageTerrain.build_far_mesh`, called by `HillsHeightfield.build_mesh`): indexed polar mesh, 192 azimuth segments, ring radii growing geometrically from `r_j` (Δr = r·2π/192) to `r_outer_m` (≈ 49 rings, ≈ 19k tris); its inner boundary **is** the join loop, zippered to its first regular ring by azimuth. Join-loop vertices on both meshes get `y = field.sample_y(p)` and `n = field.sample_normal(p, 0.35)`, so position and normal are bit-identical. Far interior normals: central differences on the polar grid. No `TERRAIN_BASE_LIFT` on this path. | Shared vertices make cracks impossible by construction; no overlap and no depth bias. (Note: the exact loop count is whatever the crossings give; tests read it, never hard-code it.) |
+| **D7 World/Ground** | Generated `variant 0`: `World/Ground` disc-discard radius = `HillsParams.r_outer_m` (310) about G, and `GroundMesh.position.y = backdrop_y() + backdrop.terrain_mesh_min_y() − 0.5`. `GroundCollision` unchanged (world y 0). Classic / `variant 1`: unchanged. | Valleys now sit below the hero datum; a plane at the old datum would cover them. |
+| **D8 Sun hook** | `VillageTerrain.sun_corridor_azimuths() -> Vector2` = `Solar.new(IvyParams.new())` `azimuth_deg(sunrise_hour())`, `azimuth_deg(sunset_hour())`, computed once (static, immutable inputs). `_SUN_EAST_AZ_DEG` / `_SUN_WEST_AZ_DEG` deleted. | Production IvyParams defaults (51.5°, day 105) are the game's; measured 74.70° / 285.42°. |
+| **D9 Shading continuity** | New `src/render/shaders/terrain_tint.gdshaderinc` with `terrain_slope_dim(ny)` and `terrain_height_factor(local_y)` (the .14.1/.14.5 formulas, unchanged) included by `village_ground.gdshader` **and** `village_ground_hills.gdshader`; the hills shader multiplies its `u_lawn_colour` seam override by both factors, weighted by `meadow_ring`. New uniform `terrain_height_ref_y` (= `y_hero`, backdrop-local) on both: tint uses `local_y − ref`. `VillageTerrain.apply_ground_material(mat, params, field)` and `HillsFogTint.apply_terrain_shader` set the same uniforms. | One formula on both sides of the join ring. |
+| **D10 Layout owns params** | `VillageLayout` gains `terrain_params` (null = production), `landform: Dictionary` (`index, offset, rot_deg, rank, measures, fallback`), `terrain_diag: Dictionary`, and an untyped `terrain_field` cache slot. `VillageTerrain.field(layout, params, hills_params := null)` returns `layout.terrain_field` when its `(params.field_signature(), hills signature)` match, else builds and stores a new one. | Generation depends on terrain params now; the layout must remember which. No global caches. |
+| **D11 Regen classes** | Each knob row gets `regen`: `"material"` (`ground_*`; uniforms only), `"consumer"` (`wanderer_follow_terrain`, `camera_ground_clearance_m`; nothing rebuilt), `"terrain"` (`far_ridge_*`, `terrain_mesh_step_m`, `normal_eps_m`, pond basin shape fields; field + meshes rebuilt, same layout), `"layout"` (everything else: they can change offset, rejection or targets; `VillageLayout.generate(seed, params)` again, debounced). | Correct by construction; generation is now cheap enough (≈ 100–300 ms) for a debounced playground. |
+
+### AR-LF-API — Module layout and signatures
+
+```gdscript
+# src/playground/village_landform.gd  (new, static, pure)
+class_name VillageLandform
+const NOISE_FBM := 0, NOISE_BILLOW := 1, NOISE_DDF := 2, NOISE_RIDGED := 3
+static func landform_seed(norm_seed: int) -> int              # _derive(norm, VillageLayout.VILLAGE_LANDFORM_SALT = 0x7E44A2)
+static func detail_seed(norm_seed: int) -> int                # _derive(norm, VILLAGE_TERRAIN_SALT) — existing stream
+static func make_ctx(norm_seed: int, params, offset: Vector2, rot_deg: float) -> Dictionary  # {l_seed, d_seed, offset, rot, params, y_hero_raw}
+static func noise01(q: Vector2, ctx: Dictionary) -> float     # SD-17 table; 0..1
+static func L(xz: Vector2, ctx: Dictionary) -> float
+static func D(xz: Vector2, ctx: Dictionary) -> float
+static func raw_y(xz: Vector2, ctx: Dictionary) -> float      # L + D
+static func capped_raw_y(xz: Vector2, ctx: Dictionary, sun_az: Vector2) -> float  # cap_sun(L + D) (Rg = 0 inside 70 m)
+static func rank_offsets(norm_seed: int, params) -> Array[Dictionary]  # passing by score, then failing by violation (AR-LF-D4)
+static func raw_lut(ctx: Dictionary, sun_az: Vector2, cell_m := 2.0) -> Dictionary  # capped raw over r <= 62 m about G; VillageTerrain.lut_sample format
+static func site_plane(lut: Dictionary, core: Rect2) -> Dictionary     # {slope_deg, aspect_deg, mean}; 1 m sample grid over core
+static func ring_width(r_c: float, s_deg: float, ring_max_deg: float, w_min: float, w_max: float) -> Dictionary  # {w, ok} — 2026-11-17: no longer decides (SD-19 measured ring); readout estimate only, or delete
+```
+
+*2026-11-17 (ivy-82zn.14.22):* WP2 adds a measured-ring helper to `VillageLandform` (name is up to the
+programmer). It takes the sample fn or precomputed U grid, the core sdf, T, `[w_min, w_max]`, the
+already-applied neighbour sites and `ring_max_deg`, and returns `{ok, w, peak_deg, best_w, best_peak_deg}`.
+The search (hero), the plot sampler (pads) and the field (fallback recompute) all use this one helper.
+
+```gdscript
+# src/playground/village_terrain_field.gd  (new)
+class_name VillageTerrainField extends RefCounted
+var layout; var params; var hills_params; var ctx: Dictionary; var sun_az: Vector2
+var y_hero: float; var sites: Array[Dictionary]   # {kind, core, r_c, target | plane, w, bound_r}; ascending priority
+var pond_water_y: float; var mesh_min_y: float; var diag: Dictionary
+static func build(layout, params, hills_params) -> VillageTerrainField
+func sample_y(xz: Vector2) -> float          # fit(cap_sun(L + D + Rg)); flat variant → 0.0
+func sample_unfit_y(xz: Vector2) -> float    # cap_sun(L + D + Rg)
+func sample_normal(xz: Vector2, eps := 0.35) -> Vector3
+func max_path_slope(layout) -> Dictionary    # {deg, at, door_exempt_deg}
+```
+
+`VillageTerrain` (rewritten in place, façade + mesh/LUT/pond helpers): `terrain_seed`, `sample_y`,
+`sample_normal`, `sample_slope_deg`, `field`, `hero_datum_y` (= `field.y_hero`), `build_mesh` (near,
+D6 clip), `build_far_mesh`, `join_loop`, `build_sample_lut` / `lut_job_*` / `lut_sample*` (kept, LUT
+extent `lawn_radius + cell`), `mesh_from_lut`, `mesh_surface_lut` / `mesh_surface_y_from_lut` /
+`max_mesh_cell_slope_deg` (kept), `pond_bank_outline_min_y`, `pond_water_y` (now returns
+`field.pond_water_y`), `apply_ground_material(mat, params, field)`, `sun_corridor_azimuths`.
+`HillsHeightfield`: new `ridge_core(xz, r, layout, hp, t_seed)` = today's `_h_core` without its
+`rise_gate` (the field applies the 70/100 m gate and `azimuth_weight`); `sample_y` / `build_mesh`
+delegate for generated `variant 0`; `_build_cartesian_annulus` / `_append_cartesian_quads` deleted (no
+caller left); flat-legacy paths unchanged. Generated `sample_y` performance target: ≤ 15 µs mean in
+the village disc (sites tested only when `xz` is inside their `bound_r`).
+
+### AR-LF-KEEP — What of the ivy-82zn.14.10 tree is kept vs removed (AC 1)
+
+| Kept (move/adapt, do not rewrite) | Removed |
+|---|---|
+| **Contour-line fix (C5):** the C1-only rule and its tests' "no C0 step" probes; `village_ground.gdshader` normal renormalise + `terrain_slope_full_deg` acos ramp (.14.5) and slope/height tint (.14.1) → moved verbatim into `terrain_tint.gdshaderinc`; `RELIEF_FADE_FLOOR_M` retired (no fades remain). | `village_terrain.gd`: `hill_y`, `hill_centre`, `hill_crest_r`, `village_edge_r`, `_ray_to_circle`, `_large_raw`, `_terrace*`, `_large_terraced`, `_env_add`, `_cone_run`, `_soft_clamp`, `_hero_cone_drop`, `_hill_flank_slope`, `detail_y` / `_detail` / `_total_*` / `_apply_hero`, path spine (`_ensure_path_spine`, `_join_path_spine_chains`, `_clamp_path_spine_chain`, `_height_on_polyline_chain`, `_path_spine_delta`, `_path_correction`, `path_quiet_gain`, `_closest_on_paths` if unused), knolls (`knoll_centres`, `_knoll_*`, `clear_knoll_centres_cache`), swell (`_swell_*`), pad relax (`_cottage_pad_*`, `_blended_cottage_pad_height`, `_clamp_h_to_pad_owner_grade`, `_compose_lowpass_for_pad`, `_pad_*`, `in_any_pad_terrace`, `pad_terrace_reach_m`, `pond_terrace_outer_m`, `pad_skirt_outer_m`), `_sig_batch_*`, `_params_sig*`, relief scales, `_rim_taper`, caps, `_compose_base*`, `_apply_stamps`, `_SUN_*_AZ_DEG`, all `static var` caches except the LUT/mesh caches (now keyed by `field_signature`). |
+| **Pond-bank drape (C5):** `mesh_surface_lut`, `mesh_surface_y_from_lut`, `max_mesh_cell_slope_deg`, `pond_bank_outline_min_y`, `POND_WATER_BANK_CLEAR_M`, backdrop `build_pond_ring_mesh` / `_emit_draped_tri` / `POND_BANK_DRAPE_M`, the village host's sliced `pond_heights` step. | Params: Village hill group (8), knoll group (9), swell group (5), and every field in SD-22 "Removed fields". |
+| **Datum plumbing:** `VillageBackdrop.hero_datum_y()` / `sample_terrain_y()` / `_seat_authored_props()`, `World.backdrop_y()`, GroundMesh lowered, world-space camera floor, wanderer terrain y in every state, fauna hover above the anchor ground (`fauna_controller.gd`, `fauna_motion.gd`). New: `VillageBackdrop.sample_terrain_world_y(world_xz)` (one place for the local↔world conversion; `world.gd` floor fn and the camera test use it), `terrain_field()`, `terrain_mesh_min_y()`. | Tools: `tools/probe_village_hill.gd`, `tools/ui_scripts/qa_village_hill.txt` → replaced by `tools/probe_village_landscape.gd` (`--seeds=`, offset/measures/span/slopes/path max/sep/timing) and `tools/ui_scripts/qa_village_landscape.txt`. `tools/probe_village_relief.gd` / `tools/village_view_relief.gd`: kept, measured relative to `y_hero`. |
+| **Playground infrastructure (.14.7/.14.8):** time-sliced LUT job, `village_terrain_village_host.gd`, `village_terrain_grass_host.gd`, DebugCamera controls, Village checkbox, `EXPERIMENT_RANGES`, `_capture_done_fn` quit seam, CLI flags. | Tests: `test_village_terrain_hill.gd`, `test_village_terrain_rim.gd`, `test_hills_mesh_toe.gd` deleted (their surviving asserts move, AR-LF-TESTS). |
+
+### AR-LF-CONSUMERS — Every consumer of terrain height (AC 2)
+
+| Consumer | File | Reads | Change |
+|---|---|---|---|
+| Lawn mesh `LawnTerrain` | `village_backdrop.gd` `_add_lawn_terrain` → `VillageTerrain.build_mesh` | 2 m LUT of `field.sample_y`; join loop exact | D6 boundary clip; extent follows `lawn_radius` |
+| Far hills mesh `HillTerrain` | `_add_hill_terrain` → `HillsHeightfield.build_mesh` → `VillageTerrain.build_far_mesh` | `field.sample_y` | new polar builder; no base lift |
+| Hill forest `HillForest` | `hills_forest_placement.gd` | `HillsHeightfield.sample_y` / `sample_slope_deg` | none (delegation); watch `test_hills_forest_safety` counts |
+| Pines `FarTreeline` | `_pine_positions` | `field.sample_y` (exact; r up to 76 m is outside the LUT) | **new** y bake (WP3) |
+| Cottages | `_build_cottages` | `sample_y(centre)` (= T_i inside the core) | none |
+| Authored `Garden_*` | `_seat_authored_props` | `sample_y` | none |
+| Path stones | `_lift_transforms_y` | exact `sample_y` | none |
+| Pond water / bank | `_add_village_pond` | `field.pond_water_y`; bank on `mesh_surface_y_from_lut` + drape | water formula SD-19 |
+| Grass blades + accents | `_bake_grass_y_tilt`, `_bake_transforms_y_lut` | 1 m LUT + LUT normals | LUT extent to `lawn_radius + 1`; density fade 56→64 (WP3) |
+| Bush / flower / petal / plant / clover | `_bake_y_lut*` | 1 m LUT | none |
+| Fauna anchors + hover | `export_fauna_anchors`, `fauna_controller.gd`, `fauna_motion.gd` | `sample_y`, `sample_terrain_y` | none |
+| Wanderer | `wanderer_controller.gd` `_apply_figure` | `sample_terrain_y` | none |
+| Camera floor (rig + DebugCamera) | `world.gd` `_apply_village_camera_lawn_bounds` | `sample_terrain_world_y` + clearance | use the new helper |
+| Camera XZ clamp | `world.gd` `get_village_lawn_camera_bounds` | `layout.lawn_radius` | follows 64 (WP3) |
+| `World/Ground` plane | `world.gd` `_apply_village_ground_disc` | `terrain_mesh_min_y` | D7 |
+| Lawn shader | `village_ground.gdshader` | vertex y − `terrain_height_ref_y` | D9 |
+| Hills shader | `village_ground_hills.gdshader` | normal, y − ref, `u_lawn_radius` = `r_j` | D9 |
+| Hills fog tint (CPU) | `hills_fog_tint.gd` | tree origins | none |
+| Generator: offset search, cottage sites, pond site, path cap | `village_generator.gd`, `plot_sampler.gd`, `village_validate.gd` | `VillageLandform` raw LUT; field in validate | WP1 search, WP2 rejection |
+| Playground markers, readout, terrain pick | `village_terrain_playground.gd` | `field` | same field, no fork |
+| Probes / relief views | `tools/probe_village_landscape.gd`, `tools/village_view_relief.gd`, `tools/village_terrain_budget_probe.gd` | `field` | relative to `y_hero` |
+
+### AR-LF-LAYOUT — Layout / spacing changes and their test impact (AC 3)
+
+| Where | Change | WP |
+|---|---|---|
+| `village_layout.gd` | `VILLAGE_LANDFORM_SALT := 0x7E44A2`; `generate(seed, terrain_params := null)`; fields `terrain_params`, `landform`, `terrain_diag`, `terrain_field` (D10). | 1 |
+| `village_generator.gd` `generate` | Search before the loop; rank × attempt loop (D5); `last_diag` gains `landform`, `rank`. | 1 (search), 2 (retry, path cap) |
+| `village_generator.gd` `_reserve_stage1` | Pond loop: keep the 48-try fan; collect valid candidates whose raw-LUT plane slope over r ≤ `BANK_OUTER_M` ≤ `pond_max_site_slope_deg`; stop at 6; take the lowest raw mean (ties → lower try index). None → flattest valid + `pond_steep`. | 2 |
+| `village_generator.gd` samp/sel params | `terrain_site_fn: Callable(rect) -> {ok, s_deg, w, target, reason}` (null when flat), `min_centre_sep_m`, `centre_r_max_m`. | 2 (site fn), 3 (sep, reach) |
+| `plot_sampler.gd` `select` / `append_to_selection` | After the existing per-pair wall-gap/door checks: centre distance ≥ `min_centre_sep_m` (WP3); centre r ≤ `centre_r_max_m` (WP3); then `terrain_site_fn` (memoised in the candidate dict under `"_site"`), then pad-ring overlap with each picked pad: if `gap = exterior_separation_m(core_i, core_j) < w_i + w_j` require `|T_i − T_j| ≤ tan(ring_max_slope_deg + 3°) · gap / 1.5`. | 2, 3 |
+| `village_generator.gd` `_stage5_select_with_capacity` | On `sep_ladder`: try `min_centre_sep_m`, −1 m … down to `SEP_LADDER_FLOOR_M`; record `sep_relaxed_to`. *2026-11-18 (SD-21, 16 m rule):* floor **14 m** (was 18; briefly 12); the ladder runs in **every** attempt; the `picked.size() <= 2` early exit is removed; the path-length and anchor constants follow the SD-21 path-growth table. | 3 |
+| `village_validate.gd` | `v1_cottages(…, min_centre_sep_m := 0.0)`; `all()` reads `min_centre_sep_m`; new `v_terrain(layout, field)` (path cap with door exemption, rejected-site re-check) called from `_validate_full` with reason `terrain:path_cap` / `terrain:site`. | 2, 3 |
+| `village_layout.gd` constants | `GENERATED_LAWN_RADIUS` 56→64; `GENERATED_PINE_INNER/OUTER` 41.8/61.6→56/76; `GENERATED_BUSH_FILLER_OUTER` 32.3→44; `GENERATED_HILL_INNER` deleted (`layout.hill_inner` keeps its classic default; generated readers switch to `lawn_radius`); `HAMLET_MAX_CORNER_FROM_G` 54 unchanged; the occupancy circle `GENERATED_LAWN_RADIUS − 8` becomes 56 automatically. `_MIN_CENTRE_SEP_M` stays legacy-only (comment it). | 3 |
+| `village_scatter_positions.gd` | `GRASS_RADIAL_EDGE_GENERATED_M` = 64 with new `GRASS_FULL_EDGE_GENERATED_M := 56.0`; smoothstep density fade 56→64; `GRASS_MAX_INSTANCES_GENERATED` from the faded area integral, assert ≤ 56k. | 3 |
+
+**Test impact:** `test_village_world_scale.gd`, `test_generated_village_backdrop.gd`,
+`test_village_grass_scatter.gd`, `test_village_grass_mesh.gd`, `test_hills_heightfield.gd` (pin the
+radii constants) update in WP3. `test_village_gen_v3.gd` timing limits (**mean 2000 / worst 6000 ms**,
+user 2026-11-18; ~~mean 600 / worst 1500 ms~~ replaced 2026-11-18, see AR-LF-PERF) must hold in every WP
+and are never raised without the user's yes; `test_generated_village_sweep.gd` (50 seeds) invariants must hold; its
+diversity / crossing-free counts may move and may be re-baselined only with the sweep output in the
+bead notes. Any test that pins generated cottage centres for a seed is expected to change from WP2 on
+(the terrain rejects sites); re-pin from a run, never by hand.
+
+### AR-LF-PLAYGROUND — Playground changes (AC 4, G7)
+
+Same scene (`scenes/playground/village_terrain_playground.tscn`), `SCHEMA := "village_terrain_playground.v2"`.
+
+- **Variants:** `0 — Landscape (production)`, `1 — Flat (A/B)` (`sample_y ≡ 0`, hills flat). Noise selector
+  `landform_noise` inside variant 0: fbm (production) / billow / derivative-damped / ridged (comparison).
+- **Knobs:** exactly the SD-22 table, defaults == `production()`, each row with `regen` (D11). Keep
+  `EXPERIMENT_RANGES` for surviving knobs; drop rows for removed fields. Manual offset mode writes
+  `landform_offset_x/z` back from the auto result so copy-out reproduces it.
+- **Presets:** Production, Flat (A/B), Gentle, Bold, Billow, Derivative-damped, Ridged (comparison),
+  Tight village (old spacing). No "Village on a hill (old)" (D2).
+- **Stage:** `VillageLayout.generate(seed, _params)`; lawn mesh + **far terrain** (`build_far_mesh` with
+  the hills material, so the seam and Wide overview are judged here); village host; grass host; pond and
+  hero markers from the field. Far mesh may reuse the time-sliced job pattern if it exceeds a frame.
+- **Readout (HUD):** offset, candidate index, rank, `s_hero`, `up/down_hero`, `span_v`, `p95_v`, plaza tilt,
+  max path slope, rejected-site count, `sep_relaxed_to`, `offset_fallback`, `path_cap_fallback`,
+  `pond_steep`; generate ms and search ms.
+- **Cameras:** existing presets plus East horizon / West horizon (eye H0 + `y_hero + 2 m` looking along
+  `sun_corridor_azimuths()`), Wide overview (≈ 120 m up, 160 m south of G), Old-rim seam (low eye at r =
+  50 m looking out across r = 56 m); all reachable from `--camera=` for capture (covers ivy-82zn.15).
+- **Copy-out:** v2 JSON; `from_dict` ignores removed v1 fields. **Parity test:** playground layout +
+  field for seeds 1/7/12 equal `GeneratedVillageBackdrop`'s (grid hash, chosen offset, far mesh vertex
+  hash on the join loop).
+
+### AR-LF-TESTS — Test plan (AC 5)
+
+| Test file | Status | WP | Asserts / maps to |
+|---|---|---|---|
+| `test_village_landform_offset.gd` | **new** | 1 | noise variants in [0,1], billow soft-abs C1, DDF gradients finite; candidate 0 = (0,0); deterministic ranking; manual mode; AC-LT-SITE (seeds 1/7/12 pass, ≤ 2/20 fallback); search ≤ 150 ms (AC-LT-PERF part). |
+| `test_village_landform_relief.gd` | **new** | 1 | AC-LT-RELIEF, AC-LT-SLOPE. |
+| `test_village_terrain_seam.gd` | **new** (replaces `_rim.gd`, `test_hills_mesh_toe.gd`) | 1 | AC-LT-SEAM: `HillsHeightfield.sample_y == VillageTerrain.sample_y` at 1000 xz; step / kink on r ∈ {56, 64, r_j}; near vs far mesh y and normal equal on every join-loop vertex; shader factor parity via a GDScript mirror of `terrain_tint.gdshaderinc` (AR-LF-GAP-3). |
+| `test_village_terrain_sun_corridor.gd` | **new** | 1 | AC-LT-SUN; `sun_corridor_azimuths()` within ±1° of `Solar`. |
+| `test_village_landscape_world.gd` | **new** (from `_hill_world.gd`) | 1 | hero pad world y 0 ± 0.02; camera floor world-space via `sample_terrain_world_y`; `Garden_*` seated; fauna hover above anchor ground; World/Ground discard = 310 and plane below `terrain_mesh_min_y`; classic offsets 0. |
+| `test_village_terrain_heightfield.gd` | rewrite | 1 | AC-LT-HERO; near mesh ≤ 8k / 16k tris; `max_mesh_cell_slope_deg` ≤ 40° (from `_hill.gd`); relief views relative to `y_hero`. |
+| `test_village_terrain_params.gd` | rewrite | 1 | v2 defaults == SD-22; removed fields absent; v1 JSON loads; presets; `field_signature` ignores material/consumer fields. |
+| `test_village_terrain_parity.gd` | rewrite | 1 | AC-LT-DET (4 m grid r ≤ 310 hash, chosen offset, game vs playground, two runs). |
+| `test_village_terrain_flat_parity.gd` | adapt | 1 | AC-VT1 plus hills `sample_y` flat legacy for `variant 1`. |
+| `test_village_terrain_playground_scene.gd`, `_ux.gd`, `_village.gd`, `_camera.gd`, `_ranges.gd` | adapt | 1 | AC-LT-CAP; new camera presets; regen classes; ranges for surviving knobs; ivy-35zj characterisation replaced in WP2. |
+| `test_camera_rig_lawn_bounds.gd` | fix in D1 baseline, then adapt | 0/1 | `test_camera_rig_preset_eyes_above_terrain_floor`: compare world `eye.y` with world terrain (`sample_terrain_world_y`), not backdrop-local `sample_terrain_y`. |
+| `test_hills_heightfield.gd` | adapt | 1, 3 | `test_lawn_grid_sanctity` → delegation equality; determinism, variant 1 kept; radii in WP3. |
+| `test_hills_north_wedge.gd` | adapt | 1 | delete `test_east/west_horizon_is_flat_production` (replaced by AC-LT-SUN); keep north / azimuth / forest / colour. |
+| `test_hills_rolling.gd`, `test_hills_horizon_probe.gd` (AC-LT-NORTH), `test_hills_parity.gd`, `test_hills_generation_seed.gd`, `test_hills_forest_*` | keep; re-baseline only with probe output | 1 | the ridge now sits on top of L; peak-band numbers may move. |
+| `test_village_terrain_pads.gd`, `test_village_terrain_intrusion.gd` | rewrite | 1 (targets), 2 (rejection) | AC-LT-PAD, AC-LT-RING, AC-VT6 vs T_i. |
+| `test_village_terrain_stones.gd` | rewrite | 2 | AC-LT-PATH, AC-VT4. |
+| `test_no_grass_inside_pond_water.gd` | extend | 1, 2 | AC-LT-POND; bank drape [0, 0.05] m on the rendered lawn (from `_hill.gd`). |
+| `test_village_terrain_plaza.gd` | **new** | 2 | AC-LT-PLAZA; ivy-35zj AC under the new plaza fields. |
+| `test_village_gen_plots.gd`, `test_village_gen_validate.gd`, `test_village_pond_placement.gd` | extend | 2, 3 | site rejection, overlap rule, pond slope / low preference; centre sep + reach; v1 min centre sep. |
+| `test_village_gen_v3.gd` | extend | 3 | AC-LT-SEP (*2026-11-18:* seeds 1/7/12 unrelaxed at 16 m; 1–20: 20 / 20 generated, ≤ 3 relaxed, every closest pair ≥ 14 m); timing limits **raised to mean 3500 / worst 12000 ms** (SD-21). ~~≤ 1 relaxed, ≥ 18 m; timing limits unchanged~~ |
+| `test_generated_village_backdrop.gd`, `test_village_terrain_grass.gd`, `test_village_terrain_backdrop_wire.gd` | extend | 3 | AC-LT-DRESS (pines r ≥ 56, ≥ 2 m from rects, on terrain; grass 0 at r ≥ 64, monotone 56–64, ≤ 56k). |
+| `test_village_terrain_wanderer.gd`, `test_village_terrain_camera.gd`, `test_village_terrain_grass.gd` | keep | — | AC-VT10, AC-VT11 against the new field. |
+| `tools/village_terrain_budget_probe.gd` | update | 3 | AC-LT-PERF; `test_triangle_budget_under_120k` still passes. |
+| **run-ui-script** `tools/ui_scripts/qa_village_landscape.txt` | **new** | 3 / QA | seeds 1/7/12, default cam + CamSun, non-headless; multi-step flow (load generated mode, switch cameras) belongs here, not in GUT. Playground `--camera=` captures for East/West horizon, Wide overview, Old-rim seam. |
+
+**Parity tests (G7):** `test_village_terrain_params.gd` (defaults == production) and
+`test_village_terrain_parity.gd` (playground vs production layout + field + far mesh) are the two pins.
+
+### AR-LF-WP — Work packages and beads (AC 6)
+
+| WP | Bead | Scope | Depends on |
+|---|---|---|---|
+| D1 | orchestrator (no stage) | baseline commit of the .14.x tree + camera test frame fix | — |
+| **WP1** | **ivy-82zn.14.14** implement → **ivy-82zn.14.15** review | D3–D11, AR-LF-API, AR-LF-KEEP, all fit targets (no rejection), stitch, shaders, playground v2, WP1 test rows, early PNGs for a human look | ivy-82zn.14.13 |
+| **WP2** | **ivy-82zn.14.16** implement → **ivy-82zn.14.17** review | site / overlap rejection, pond site rule, plaza tilt in search, path cap + rank retry + fallback, WP2 test rows, ivy-35zj | review 1 |
+| **WP3** | **ivy-82zn.14.18** implement → **ivy-82zn.14.19** review | ~~22 m~~ ~~12 m~~ **16 m + grown paths** (SD-21 restated 2026-11-18, ivy-82zn.14.27, human choice) / 46 m, ladder every attempt (floor 14), timing 3500 / 12000 ms, radii, grass fade, pine y, WP3 test rows, budget probe, BEFORE/AFTER PNGs | review 2, ivy-82zn.14.27 |
+| Accept | **ivy-82zn.14.20** (QA, fuzzy) | AC-LT-* re-run, scenario script, stills, human AC-LTF1–6; verifies ivy-35zj and ivy-82zn.15 | review 3 |
+
+A fix bead (stage:gameplay-fixer) is filed only by a failing review, and the next bead in the chain then
+depends on it. Epic ivy-82zn.14 depends on ivy-82zn.14.20.
+
+### AR-LF-GAPS — SD points resolved here (cite the id in code comments)
+
+| Id | SD item | Resolution |
+|---|---|---|
+| **AR-LF-GAP-1** | -18 "ring R = 40 m around H0" | Read as the **disc** `|xz − H0| ≤ 40 m` sampled on the 4 m village grid (matches GD "within 40 m"). |
+| **AR-LF-GAP-2** | -19 pond soft score "below the village median of cottage targets" | Cottages are placed after the pond, so the median does not exist yet. Use: lowest raw mean among the first 6 slope-valid candidates (AR-LF-LAYOUT). |
+| **AR-LF-GAP-3** | -23 AC-LT-SEAM "ground albedo L1 ≤ 0.02 across the join ring" | Lawn is engine-lit, hills are unshaded with a calibrated `u_lawn_colour`, so a CPU albedo comparison is not like for like. Test instead that both sides apply identical slope/height factors (shared include, same uniforms) and that the hills shader returns `u_lawn_colour × factors` at `r_j`. The lit-vs-unshaded residue stays a human call (AC-LTF6); see R2. |
+| **AR-LF-GAP-4** | -19 plaza "raw tilt > 10° feeds -18 scoring as a violation" | The plaza is fixed at G, so its raw tilt is a **hard rule** in `rank_offsets` (computed only after the hero rules pass). |
+| **AR-LF-GAP-5** | -19 ring overlap "later cottage rejected" | *2026-11-17 (ivy-82zn.14.22): superseded. The binding rule is the measured ring of SD-19 with neighbour replay; the pair rule below may remain only as a pre-screen.* Estimated at selection time with the pair rule in AR-LF-LAYOUT (targets come from the capped raw LUT, identical helper to the field); the exact ring slope is asserted in tests (AC-LT-RING). Selection-vs-field target tolerance: ≤ 0.02 m. |
+| **AR-LF-GAP-6** | -21 relax ladder "after all generator attempts" | Runs inside stage 5 of the last attempt of each rank (D5), so the ladder costs no extra network growth. |
+| **AR-LF-GAP-7** | -19 pond basin "keeps the existing depth/lip shape relative to y_w" | Pond target `T(d) = y_w + pond_freeboard_m + basin_profile(d)` with the existing radial basin profile (0 at `BANK_OUTER_M`); `pond_water_y` stays clamped to ≤ min bank-mesh − 0.02. |
+
+### AR-LF-RISK — Technical risks and mitigations
+
+1. **Spacing capacity** (probe: P = 0.95 at 22 m / 46 m with the forest wedge, free RSA; the path-first
+   sampler packs worse) → ladder; WP3 decision rule: > 1 relaxed seed in 1–20 goes back to the SD (r_max
+   50 or sep 20 is a design call).
+2. **Lit lawn vs unshaded hills at the join ring** on sun-facing vs shaded slopes → D9 removes the factor
+   mismatch; if the human still sees a seam (AC-LTF6), file a follow-up to put the far mesh inside
+   r ≤ 100 m on the lit lawn shader. Not in scope now.
+3. **Generate timing** (search + field build + path check per attempt + site fn) → D4 numbers, raw LUT for
+   site checks, memoised site results; timing test limits are not raised. *2026-11-17 (ivy-82zn.14.24):
+   measured and planned in AR-LF-PERF; a new worst limit is recommended there, pending the user.*
+   *2026-11-18 (user, ivy-82zn.14.25): limits raised to mean ≤ 2000 / worst ≤ 6000 ms for the redesign
+   (~~600 / 1500~~ replaced); optimisation deferred to ivy-jbfw.*
+4. **Forest and ridge tests move** because Rg now sits on L → re-baseline only with probe output in notes.
+5. **E/W "flat sector" ink in the hills shader** was designed for flat east/west land; on capped shoulders
+   it may read as haze → human call (no fog redesign, SD non-goal).
+6. **Static caches go stale** in the playground → D10 cache lives on the layout and is keyed by
+   `field_signature`; the playground always regenerates the layout on `layout`-class knobs.
+7. **Pond drape assumes the Cartesian triangulation** → the pond is ≥ 20 m inside `r_j`; boundary clip
+   cells never touch it (assert in `test_no_grass_inside_pond_water.gd`).
+
+### AR-LF-PERF — Generate timing budget with terrain fitting *(ivy-82zn.14.24, 2026-11-17)*
+
+**Current limits (user, 2026-11-18, ivy-82zn.14.25): mean ≤ 2000 / worst ≤ 6000 ms** on the 11
+`PROBE_SEEDS` of `test_village_gen_v3.gd`. User: strong limits are unwelcome during the landscape-first
+redesign; optimise later (ivy-jbfw). The 600 / 1500 limits below and the GA's 650 / 2000 recommendation
+were **replaced on 2026-11-18**; the rest of this section is the history of that budget.
+
+**Where the limits come from.** DESIGN V7 set 300 / 700 ms (ivy-oan3). On 2026-11-07 the user relaxed
+it to ~~**mean ≤ 600 / worst ≤ 1500 ms**~~ (replaced 2026-11-18 by 2000 / 6000) on the 11 `PROBE_SEEDS`
+of `test_village_gen_v3.gd` (1–10 + 240424020), when retries made the path-first generator miss
+300 / 700 (ivy-oan3.6 notes). Only the user can change them again. `generate()` runs once, on the main thread, when a generated-village scenario
+loads (backdrop `_ready` → `_make_layout`), so the limit is a one-time load stall the player waits through.
+
+**Profile** (WP2 working tree, path cap off = `max_path_slope_deg` 90, seeds 1–20 + 240424020;
+`.tmp/ga_14_24/stage_profile_s1_10.txt`, `stage_profile_s11_20.txt`, `flat_stage_probe.txt`,
+`plots_split_probe.txt`). ms per seed unless marked per attempt:
+
+| Stage | Cost | Note |
+|---|---|---|
+| Offset search (`rank_offsets`) | 63–86 (mean 72) | once per seed; lazy rank 1–2 verify 0–10 |
+| Reserve (grid + pond), per attempt | 32–68 (flat: 19) | grid 16 (blocks 5.6 + clearance 10.3); pond **validate ≈ 1.9 ms per try** dominates; `pond_site` plane only 1.6–9 ms per attempt |
+| Network + branches, per attempt | 20–90 | not terrain |
+| Plots, per attempt | 86–450 (flat 60–380) | site `evaluate` 13–76 ms (8–52 calls, ~13 ms of it cold U-lattice misses on a rank's first attempt); the rest is the sampler, and capacity tries (25–256 ms each) after rejections starve selection |
+| Resample/smooth + build, per attempt | 35–118 | not terrain |
+| Validate, per v1–v6-valid attempt | 35–109 | **field build 13–15 + `max_path_slope` 18–65**; v1–v6 3–32 |
+| Attempts | 1–5 (mean 1.7) | cap off still fails on the **door cap** (25° within 3 m of a stoop): seeds 5, 6, 12, 15 had `terrain:path_cap` attempts with open max ≤ 13° |
+| **generate()** | **mean 761, worst 2288 (seed 5)** on 1–20 + 240424020; flat (no terrain) mean 494, worst 1635 (seed 19, falls back) | pre-WP2 probe set 480 / 753 |
+
+**Projection** (`.tmp/ga_14_24/projection_probe.gd`: real WP2 attempts re-costed, SD-20 restated loop
+with the production 14° cap emulated; `projection_prod_*.txt` = SD rule only, `projection_plan_*.txt` =
+this plan): SD-20 open-land check + pond reorder alone → probe set **688 / 1671**, seeds 1–20 mean 719,
+worst 2000 (seeds 3 and 20 burn 4 attempts on path retries). **This plan → probe set 585 / 1491,
+seeds 1–20 mean 587, worst 1491** (seed 5: two v1–v6 failures, not terrain paths), mean 1.45–1.60
+attempts, 2 flagged (3, 20), 0 authored. Not yet in the projection: SD-19/-18 additions (`plaza_ring_ok`
+≤ 10 ms in the search, plaza + pond replay in `evaluate`, +5% rejections; about +15–25 ms) and P6
+(about −10–15 ms). **Expected after WP2: mean ≈ 590–600, worst ≈ 1490 on the probe set.** WP3 proxy
+(`max_site_slope_deg` 8 → rejections 10.5 → 18.5 per seed, `projection_wp3proxy_*.txt`): +34 ms mean
+on the SD rule; WP3's 22 m spacing will add rejections and sep-ladder attempts on top.
+
+**Plan (one implementation; flat `variant 1` and classic stay byte-identical):**
+
+- **P1 (SD-20 / SD change 6) Open-land path check** replaces the field build + field path scan in
+  `_validate_full`: 2–14 ms instead of 35–80 per v1–v6-valid attempt. The generator builds no field; the
+  backdrop builds it once at load (≈ 14 ms, outside `generate`, same as the success path today, where the
+  field was cached on the layout). `VillageTerrainField.max_path_slope` stays for readout/tests only.
+- **P2 (SD-20) No door cap in the generator** removes the false `terrain:path_cap` failures above
+  (seed 6: 4 → 1 attempts, seed 5: 5 → 3).
+- **P3 Pond loop reorder** in `_reserve_stage1` (landscape only): plane first, `validate` only for flat
+  centres, steep ones validated lazily (ascending slope) only when no flat one exists; same tries, same
+  break index, so the RNG stream and the chosen centre are identical (probe: identical on every replayed
+  attempt of 21 seeds). Saves 0–28 ms per attempt (mean ≈ 8). Hoist the constant `trial` layout out of
+  the loop.
+- **P4 Near-miss accept** (`path_near_miss_deg` 1.0) and **P5 retry budget** (one more attempt once the
+  rank holds a path-only layout ≤ 18°): SD-20 note of 2026-11-17. Deterministic, no wall-clock rule.
+  Seeds 3 / 20: 1671 → 468 and 2000 → 310 ms with the same shipped layouts.
+- **P6 Headroom:** (a) build the attempt-independent occupancy-grid blocks once per `generate()` and
+  `copy()` them per attempt before the pond circle (−5 ms per attempt, identical grid, flat included);
+  (b) typed sdf grids in `VillageSiteTerrain.evaluate` (rect / disc loops instead of a `Callable` per
+  node in `grid_sdf`; same formula, bit-identical values).
+- **Instrumentation:** `stage_ms` gains `1a_pond`, `5x_site_eval`, `8a_validate_v`, `8b_open_path`, so
+  the next profile needs no replay probe.
+
+**Decision** *(superseded 2026-11-18: the user set 2000 / 6000 ms; the 600 / 1500 rule and the 650 / 2000
+recommendation in this paragraph no longer apply, and the SD fallback below is replaced by the ivy-jbfw
+optimisation pass).* WP2 proceeds with **600 / 1500 unchanged** (projected 590–600 / ≈ 1490: it should pass, with
+almost no headroom). The **worst** limit is the weak one: it is really an attempt-count limit (search +
+3 attempts ≈ 1.5 s), and the generator without any terrain already reaches 1635 ms on seed 19 and 1463
+on seed 15. Any probe seed that rolls a 4th attempt (v1–v6 failures are about 30% of attempts) fails
+the test, and WP3 raises that rate. **GA recommendation for the user: mean ≤ 650 / worst ≤ 2000 ms** on
+the probe set, from WP2 on. **Player cost:** the generated-village load stall grows by at most +50 ms
+on average (≤ 0.65 s) and by +0.5 s on the unluckiest seeds (≤ 2.0 s instead of 1.5 s); against the
+pre-WP2 actuals (480 / 753 ms), about +150 ms mean. Classic village load is unaffected. **Until the
+user says yes, 600 / 1500 stand**: if WP2 misses only the worst limit (mean ≤ 600, the worst seed
+fails on v1–v6 retries, not paths), the programmer records the numbers and stops for the user. If WP3
+goes over mean 650, it goes back to the SD (spacing / reach), not to a higher limit. If the user declines,
+the alternative is a generator perf bead before WP3 (plot capacity tries and `5a_candidates_initial`,
+50–146 ms per attempt), not terrain work.
+
+### AR-LF-COMPAT — Backward compatibility
+
+Classic / authored layouts and `variant 1`: byte-identical (INV-15, AC-VT1), including `HillsHeightfield`
+flat legacy paths, `LawnGround`, stride-12 scatter buffers and `World/Ground` discard off.
+`VillageLayout.generate(seed)` with one argument keeps working (production params). `VillageTerrain`
+static signatures keep compiling. Generated layouts for a given seed **change** (offset search, rejection,
+spacing): that is the feature.
+
+### AR-LF-NONGOAL — Non-goals (prevent redesign)
+
+No sim, growth, light or collision change (sun corridor is visual only; lawn `cast_shadow` OFF); no
+erosion, rivers, cliffs, outcrops or ridged production look; no path re-routing or grading; no cottage
+count or building type change; no runtime terrain edits; no LOD / streaming; no fog redesign; no change to
+`HillsParams` ridge shape, forest tuning or the hills shader beyond D9; no unified terrain shader; no
+variant 2; no agent feel verdict (human judges AC-LTF1–6 in the playground).
+
+### AR-LF-HANDOFF — Handoff to Gameplay Programmer
+
+Start with ivy-82zn.14.14 after the D1 baseline commit, test-first, citing `AR-LF-*` and
+`SD-VILLAGE-TERRAIN-*` ids in code comments and close notes. Preserve INV-15, one sampling function,
+determinism via `_derive`, the stride-12 buffer, the `_capture_done_fn` seam and the pond drape. After
+review 1, the orchestrator may hand the playground to the human for an early landform look (non-blocking).
+**Old chain (orchestrator to close or re-point; GA does not):** ivy-82zn.14.10 → close as superseded
+after the D1 commit; ivy-82zn.14.6 (swell + rim re-review) → close as superseded (swell and rim removed);
+ivy-82zn.14.1 → close as superseded (its slope shading survives in `terrain_tint.gdshaderinc`);
+ivy-82zn.14.3 (old accept) → close as superseded and remove the `ivy-82zn.14 → ivy-82zn.14.3`
+dependency (the epic now depends on ivy-82zn.14.20). ivy-35zj now depends on ivy-82zn.14.16 and
+ivy-82zn.15 on ivy-82zn.14.14; QA verifies and closes both.
+
+## AR-NOFOG — Remove all village fog *(ivy-82zn.14.31; implement ivy-82zn.14.32)*
+
+**Human decision 2026-11-19 (verbatim):** "They look good, but the FOG doesn't work now, do you agree? we
+should completely remove it". Evidence: `.tmp/landscape_first/after/seed7_east_horizon.png` (far hills
+flattened into uniform pink bands at eye level) and `.tmp/landscape_first/after/seed7_wide_overview.png`
+(grey-white wash over everything past the lawn). The haze colours were tuned for the old flat ring and do
+not match the landscape-first hills.
+
+**Supersedes:** SD-HILLS-6 (ridge-band and fog tinting), AR-HILLS-3 (fog ridge tint), the fog half of
+SD-VILLAGE-GEN-6 / INV-20 (`fog_begin/fog_end` on the layout), the HeroFog anchor row of
+SD-VILLAGE-TERRAIN-7, the ivy-jnee world-fog-around-hero model, and the ivy-80z.7 fog-override seam in
+AR-VILLAGE-GEN. Where those sections say fog, read "no fog".
+
+### AR-NOFOG-GOAL — Goal in implementation terms
+
+At runtime, in the game (classic and generated) and in every playground, the live `Environment` has
+`fog_enabled == false` and `volumetric_fog_enabled == false`, and no `FogVolume` node exists. No shader
+blends terrain or trees toward a horizon or haze colour by distance. The code that produced fog is
+**deleted**, not switched off: there is no fog toggle, model enum or knob left. The sky shader's own
+horizon gradient, twilight glow and cloud fade are not fog and stay.
+
+### AR-NOFOG-INV — Inventory of every fog source (file:line at commit 6e1b85a)
+
+**Production (game):**
+
+| # | Where | What |
+|---|---|---|
+| P1 | `src/world/sky_sun.gd:4-7` | preloads `HeroFog`, `HillsFogTint`, `WorldFogVolume`, `WorldFogParams` |
+| P1 | `sky_sun.gd:47-50` | `_FOG_DAY`, `_FOG_TWILIGHT`, `DEFAULT_HAZE_ALBEDO` |
+| P1 | `sky_sun.gd:61-69` | fog state: nominal begin/end, model, centre mode, anchor, params, volume, presentation key |
+| P1 | `sky_sun.gd:84-163` | public fog API: `set_fog_depth`, `set_fog_model`, `get_fog_model`, `get/set_world_fog_params`, `set/get_fog_centre_mode`, `get_fog_nominal_begin/end`, `set_fog_anchor`, `sync_depth_fog_from_active_camera`, `read_fog_environment_state` |
+| P1 | `sky_sun.gd:166-209` | `_fog_presentation_key_now`, `_apply_fog_presentation` (CAMERA_DEPTH and HERO_SHIFTED depth fog branches) |
+| P1 | `sky_sun.gd:212-225` | `_refresh_volumetric_tint` (also calls `HillsFogTint.refresh_horizon_on_world`) |
+| P1 | `sky_sun.gd:228-241` | `default_haze_albedo`, `pale_horizon_haze_color`, `world_fog_glow_strength` |
+| P1 | `sky_sun.gd:243-277` | `_apply_world_volumetric_fog`: **depth fog 200-520 m**, `fog_sky_affect 0.10`, **volumetric fog 768 m** + `WorldHeroFog` volume |
+| P1 | `sky_sun.gd:279-282` | `_teardown_world_fog_volume` |
+| P1 | `sky_sun.gd:310-316` | per-frame `fog_light_color`, `volumetric_fog_albedo`, presentation-key re-apply |
+| P1 | `sky_sun.gd:385-387` | `fog_color_for` |
+| P2 | `src/world/hero_fog.gd` (whole file) | `HeroFog`: `FogModel`, `DEFAULT_MODEL`, `effective_fog_model`, `fog_amount`, world density, `haze_along_view_ray`, `apply_depth_fog_to_environment:126`, `haze_at_world_point` |
+| P3 | `src/world/world_fog_params.gd` (whole file) | `WorldFogParams` (clear 20 m / thick 130 m / outer 300 m radii, density, sky cap) |
+| P4 | `src/world/world_fog_volume.gd` (whole file) + `assets/shaders/world_hero_fog.gdshader` (+ `.uid`) | `WorldFogVolume` and its fog shader |
+| P5 | `src/world/world.gd:16`, `:245-246` (doc), `:296-303`, `:479-480` | `HeroFog` preload; `rebuild_backdrop` applies `set_fog_depth(layout.fog_begin, layout.fog_end)`, `set_fog_model`, `set_fog_anchor`; `_hero_fog_anchor_world` |
+| P6 | `src/main/main.gd:739-740` | `sync_depth_fog_from_active_camera()` when there is no clock |
+| P7 | `src/main/main.tscn:56-62` | Environment `fog_*` properties (`fog_enabled = false` already; dead values 9.5 / 95 / 0.8 / 0.3) |
+| P8 | `src/world/village_layout.gd:246`, `:304-305`, `:405-406`; `src/world/village_gen/village_generator.gd:2049-2050` | `GENERATED_FOG_BEGIN`, `fog_begin`, `fog_end` (the only readers are P5, `forest_playground.gd`, `village_terrain_playground.gd`, `hills_params.gd`, tools and tests) |
+| P9 | `src/render/shaders/village_ground_hills.gdshader:4` (comment), `:30` `u_horizon_rgb`, `:127-133` **flat-sector tint** (east/west ink toward `u_horizon_rgb * 0.62..0.90`), `:135-137` **far-ridge cap** (`u_horizon_rgb * 0.86`), `:159-164` horizon luminance cap | baked haze in the far-hills shader — the pink bands at eye level |
+| P10 | `src/playground/hills_fog_tint.gd:25-27` `horizon_reference_color`, `:30-47` `refresh_horizon_on_world` (`u_horizon_rgb`), `:75-77` + `:84-87` far cap and luminance cap in the CPU mirror `terrain_albedo`, `:102-107` `haze_at`, `:110-127` fog params on `color_for_world` / `tree_instance_color` and the `ridge_fog_tint_on` early-out, `:132-135` `u_horizon_rgb` set in `apply_terrain_shader` | CPU mirror + uniform plumbing of P9 |
+| P11 | `src/world/village_backdrop.gd:23`, `:107` (doc), `:1187`, `:1228-1232` | `HillsFogTint` use; fog begin/end + camera passed to `tree_instance_color` |
+| P12 | `src/playground/hills_params.gd:76` `ridge_fog_tint_on`, `:91-95` `fog_begin_m/fog_end_m`, `:167-176` `effective_fog_begin/end`; `src/playground/hills_knob_spec.gd:66`, `:72-73` | hills fog knobs (production values too) |
+| P13 | `src/playground/hills_pine_mesh.gd:4`, `:17` `disable_fog = true`; `src/render/shaders/hill_pine.gdshader` (unreferenced: `fog_disabled`, `u_horizon_rgb`) | fog opt-outs; the shader is already dead |
+| P14 | `src/playground/hills_heightfield.gd:5` | unused `HillsFogTint` preload |
+
+Correction to AR-HILLS-3: the hill terrain no longer bakes haze into vertex `COLOR` (the far mesh writes
+white, `src/playground/village_terrain.gd:616`); the haze lives only in the P9 shader blends. The hill-forest
+instance colour (`hills_fog_tint.gd:95-99` `tree_albedo`) is a distance green boost, not haze, and stays.
+
+**Playgrounds:**
+
+| # | Where | What |
+|---|---|---|
+| V1 | `src/playground/village_terrain_playground.gd:6` (header), `:18-20` preloads, `:68`, `:87`, `:485`, `:577`, `:1690-1728` (`_apply_playground_fog`, `_disable_fog_for_top_view`), `:1747-1752` (per-preset fog switch) | village terrain playground fog (production model, plus camera-depth 500-1000 m for top/wide views) |
+| V2 | `src/playground/hills_playground.gd:7`, `:15-17`, `:34-35`, `:93`, `:151`, `:190`, `:225-226`, `:247-253`, `:355-377` | hills playground fog + ridge tint switch |
+| V3 | `src/playground/forest_playground.gd:11-13`, `:43-49`, `:97`, `:107-111` (fallback depth fog 14-95 m), `:115-172`, `:183-194` (`--fog-model/--fog-begin/--fog-end`), `:203`, `:208`, `:280-296` (fog anchor marker), `:407-488` (Fog panel) | forest playground fog variants and knobs |
+| V4 | `src/playground/forest_playground_camera.gd:4-5`, `:72-75` `hero_fog_anchor_world`, `:78-110` `count_trees_visible_in_camsun` (haze gate) | fog anchor + haze-gated tree count |
+| V5 | `src/playground/village_terrain_village_host.gd:5` | comment only |
+
+**Tools:** `tools/run_ui_script.gd:191-211` (`FOG_VOLUMETRIC` verb); `tools/hills_sector_probe.gd:77-89`;
+`tools/hills_seam_probe.gd:29`; `tools/hills_colour_strip_probe.gd:35`;
+`tools/forest_camsun_geometry_probe.gd:125-126`; `tools/camera_bounds_evidence_capture.gd`; evidence
+captures `tools/hills_{evidence,rework,rework2,rework3,rework5}_capture.gd`; fog-only tools
+`tools/fog_v2_evidence_capture.{gd,tscn}`, `tools/fog_forest_{evidence,v2,v3}_capture.{gd,tscn}`,
+`tools/fog_forest_visibility_probe.gd`; UI scripts `tools/ui_scripts/fog_seam_verify.txt`,
+`qa_vlr_accept.txt:20-26`, `qa_vlr_s4_seed7.txt`, `generated_village.txt:33` (comment).
+
+**Not fog (kept):** `src/render/sky/atmospheric_sky.gdshader:148` `far_haze` (cloud fade toward the
+horizon); SkySun sky top / horizon / twilight / rim colours and ambient; `scenes/` has no fog properties.
+
+### AR-NOFOG-KEEP — Deleted vs kept
+
+**Delete (files):** `src/world/hero_fog.gd`, `src/world/world_fog_params.gd`,
+`src/world/world_fog_volume.gd`, `assets/shaders/world_hero_fog.gdshader`, `src/render/shaders/hill_pine.gdshader`
+(each with its `.uid`); `tools/fog_v2_evidence_capture.*`, `tools/fog_forest_evidence_capture.*`,
+`tools/fog_forest_v2_capture.*`, `tools/fog_forest_v3_capture.*`, `tools/fog_forest_visibility_probe.gd`,
+`tools/ui_scripts/fog_seam_verify.txt`, `tools/ui_scripts/qa_vlr_s4_seed7.txt`; the historical evidence
+captures `tools/hills_{evidence,rework,rework2,rework3,rework5}_capture.gd` and
+`tools/camera_bounds_evidence_capture.gd` (they exist only to reproduce fogged evidence; delete rather than
+port — if the programmer finds a live caller, port the call to no-fog instead).
+
+**Delete (code):** every P1 row except the kept items below; P5 fog lines and `_hero_fog_anchor_world`; P6;
+P7 `fog_*` lines (leave `fog_enabled = false` out too — the default is false); P8 fields, constant and the
+two generator/layout assignments; P9 `u_horizon_rgb`, flat-sector tint, far cap, luminance cap; P10
+`horizon_reference_color`, `refresh_horizon_on_world`'s horizon write, the far/luminance caps in
+`terrain_albedo`, `haze_at`, the fog parameters of `color_for_world` / `tree_instance_color`, the
+`ridge_fog_tint_on` branch; P11 fog arguments; P12 all three knobs and their rows; P13 `disable_fog` line;
+P14 preload; V1-V4 fog code, the forest Fog panel, its CLI flags and anchor marker,
+`hero_fog_anchor_world`; the `FOG_VOLUMETRIC` verb.
+
+**Keep / rename:**
+- `HillsFogTint` → **`HillsTint`** (`src/playground/hills_tint.gd`, move the `.uid`). It keeps
+  `luminance`, `layer_t_for_radius`, `terrain_albedo` (CPU mirror without the caps), `tree_albedo`,
+  `color_for_world(world, params, layout, slope_deg, planar_r, ndl)`,
+  `tree_instance_color(world, params, layout)`, `apply_terrain_shader` (minus `u_horizon_rgb`), and
+  `refresh_hill_lighting_on_world(world, s_y, lit, sun_dir)` (renamed from `refresh_horizon_on_world`;
+  writes only `u_twilight` and `u_sun_dir`). One class, used by game and playground (G7).
+- SkySun keeps: sun, sky colours, twilight glow, ambient, sky shader uniforms, and the call to
+  `HillsTint.refresh_hill_lighting_on_world` inside `update()`. `SkySun.setup()` sets
+  `fog_enabled = false` and `volumetric_fog_enabled = false` once on its Environment (belt and braces for
+  the playgrounds that bring their own Environment); nothing else in the codebase writes fog properties.
+- `ForestPlaygroundCamera.count_trees_visible_in_camsun(trees_layout) -> Dictionary` keeps the FOV count
+  (`{"in_fov": n}`); the haze gate and `visible` / `mean_haze` keys go.
+- Hills shader keeps: meadow layers, azimuth wedge, patch noise, gust shimmer, manual sun lighting, the
+  twilight dim, the `u_lawn_colour` seam blend and the terrain tint include.
+- `u_meadow_mid` stays as the hills' mid-distance colour (a colour ramp, not fog); whether it still reads
+  right without fog is the human's call in the playground.
+
+**Parity (G7):** the village terrain playground already builds the far mesh with
+`VillageTerrain.build_far_mesh` and the material with `VillageBackdrop.make_hill_material` and installs the
+production `SkySun`; after this change it has no fog in any camera preset because there is no fog code left
+to call. Its "Current (production)" is therefore fog-free by construction. No playground fog knob remains.
+
+### AR-NOFOG-EDGE — What the fog was hiding, and how it is handled
+
+| Hidden thing | Cause | Handling |
+|---|---|---|
+| **Far-mesh outer edge** at `r_outer_m = 310 m` and the **sky gap** under it (**ivy-1vlg**) | Nothing is drawn past 310 m except `World/Ground` corners; rays just below eye level hit the sky shader, whose below-horizon band starts at `sky_horizon_color` (pale), so a pale band shows between the far silhouette and the ground. The 200-520 m depth fog painted the rim and the band the same pale colour. | **Horizon skirt** (recommended, Q2 option 1): `VillageTerrain.build_far_mesh` appends `SKIRT_RINGS` (about 10) coarse rings from `r_outer_m` to **`R_SKIRT_M = 3000.0`** (new const in `village_terrain.gd`, below the 4000 m camera far). Ring 0 of the skirt is the existing outer ring (same vertices, no crack). Skirt height eases from the field height at `r_outer_m` to a constant `y_skirt = min(rim ring y)` with `smoothstep(r_outer_m, r_outer_m + 600, r)`; normals from central differences on the coarse grid, up past the ease band. Same material, so beyond the layers it renders as plain meadow (`layer_t → 0`). `terrain_mesh_min_y()` is unchanged because `y_skirt` is the rim minimum. The signed-off hills inside 310 m do not change. The skirt lives in the shared mesh builder, so the playground gets it too. |
+| **`World/Ground` edge** past 310 m (dark green rectangle in the wide overview corners) | `main.tscn:65` PlaneMesh is 512 x 512 m (edges 256 m, corners 362 m); generated mode discards it inside 310 m (`world.gd:401`), leaving four corner patches. | Generated: discard radius becomes `VillageTerrain.R_SKIRT_M` (`world.gd:401`), so the plane is only drawn past 3 km. PlaneMesh size becomes **6000 x 6000 m** for classic, which otherwise ends at 256 m. `GroundCollision` is unchanged. |
+| Residual sliver below the skirt edge (eye 5-10 m above `y_skirt`: about 0.1-0.2 degrees at 3 km) and the skirt edge seen from the wide overview | Same sky-shader below-horizon band | `atmospheric_sky.gdshader` below-horizon colour: `ground_horizon_color` set to the far meadow tone (the hills shader output for `u_meadow_near` under the day sun; the programmer measures one value) in `main.tscn`'s sky material, and the pale `sky_horizon` start of the below-horizon blend (shader lines 76-82) is limited to a band of at most 0.5 degrees, so the sky meets the land in land colour. The ivy-cwk high-orbit seam fix is kept within that band. Verify in the wide overview capture. |
+| Playground camera clipping the skirt | `scenes/playground/village_terrain_playground.tscn:17` `far = 500.0` | Raise to `4000.0` (same as the game cameras' default). |
+| **Lit/unlit lawn-far seam** at the join loop | `LawnTerrain` is engine-lit; the far mesh is `unshaded` and blends to the constant `u_lawn_colour` at the join. The volumetric fog (density ramping from 20 m + 56 m pad) dimmed both sides equally, so it did not create the seam, but it lowered contrast there. | Re-run `tools/hills_seam_probe.gd` before and after (default sun and CamSun). If the delta at the join grows past the pre-change value, recalibrate the single `_LAWN_COLOUR` / `u_lawn_colour` constant (`hills_tint.gd`, applied by `apply_terrain_shader`). Making the far mesh lit is a non-goal; if the seam still shows at other sun angles, file a follow-up bug rather than redesign here. |
+
+### AR-NOFOG-Q — Open human choices (the plan proceeds with the recommendation)
+
+- **Q1 — Classic mode.** Classic uses the same SkySun fog path (`world.gd:301-303` applies it for every
+  layout). (1, recommended) Classic loses fog too: one code path, nothing kept alive for it, and the human
+  asked for "completely". Classic also gets the 6000 m ground plane, so its horizon is not cut at 256 m.
+  (2) Keep fog for classic only: keeps HeroFog / WorldFogVolume alive, contradicts "dead code should go",
+  and keeps the INV-15 "classic byte-identical" promise for fog. The implement bead follows (1); if the
+  human picks (2), the GA re-plans before review.
+- **Q2 — What replaces the edge the fog hid.** (1, recommended) The horizon skirt to 3 km + bigger
+  World/Ground + sky below-horizon colour matched to the meadow, as above; closes ivy-1vlg in the same
+  change and works in the playground. (2) Only enlarge World/Ground to 6000 m and keep the 310 m discard:
+  smallest change and closes the sky gap in the game, but leaves a colour and height step at 310 m and the
+  playground (no World/Ground) still shows sky past 310 m. (3) Remove fog only and leave the edges for
+  ivy-1vlg: the accept screenshots would show a hard rim and a pale band, so it fails ivy-82zn.14.34 AC 2-3.
+
+### AR-NOFOG-TEST — Test plan
+
+**Delete:** `test/test_hero_fog.gd` (includes the known pre-existing failures), `test/test_world_fog_render_contract.gd`,
+`test/test_fog_centre_live_environment.gd`, `test/test_hills_fog_seam.gd`.
+
+**Rewrite:**
+- `test/test_hills_fog_tint.gd` → `test/test_hills_tint.gd`: drop `test_ridge_tint_mid_band_not_fully_far_albedo`
+  and `test_ridge_tint_haze_monotone_with_hero_distance`; keep `test_shader_no_hardcoded_ridge_literals`,
+  `test_apply_terrain_shader_sets_ridge_uniforms`, `test_apply_terrain_shader_sets_wedge_uniforms` with the new API.
+- `test/test_hills_legibility.gd`: drop the far-ridge-vs-horizon luminance assertion (lines 34-39); keep the
+  near-darker-than-mid checks with the new `terrain_albedo` signature.
+- `test/test_hills_north_wedge.gd:84-96`, `test/test_hills_pine_mesh.gd:26` (rename to drop "fog_off",
+  assert the leaf alpha scissor only) and `:53-54` (new `tree_instance_color` signature).
+- `test/test_hills_params.gd:15` drop `ridge_fog_tint_on`; the knob-range test must still pass with the
+  three rows removed.
+- `test/test_world_backdrop_swap.gd:10`, `:79`, `:131`, `:151`: replace the fog-depth checks with
+  "after generated, classic, and generated → classic → generated swaps the Environment has fog and
+  volumetric fog off and no `FogVolume` exists".
+- `test/test_village_world_scale.gd:101-104`, `:190-193`, `:276-279`, `:350-358` and
+  `test/test_forest_camsun_geometry.gd:27-33`: drop `fog_begin/fog_end` asserts; call the new
+  `count_trees_visible_in_camsun(trees)` and assert on `in_fov` only (same thresholds).
+- `test/test_generated_village_backdrop.gd:260-261`: drop the INV-20 fog asserts.
+- `test/test_village_backdrop.gd:12-13`, `:564-601`: delete `test_fog_depth_begin_exceeds_max_camera_distance`
+  and `test_fog_sky_affect_in_range`; replace with one test that `main.tscn` contains no
+  `fog_enabled = true` and no `volumetric_fog_enabled = true`.
+- `test/test_sky_sun.gd:132`, `:149`: delete the two fog colour tests (no fog colour exists).
+- Any other test that fails to load once the files are gone (search for the deleted class names).
+
+**New — `test/test_no_fog.gd` (the pin):**
+1. Game, classic and generated seeds 1 / 7 / 12 (via `World.rebuild_backdrop`), after a few frames and after
+   `SkySun.update()` at noon and at twilight: `env.fog_enabled == false`, `env.volumetric_fog_enabled == false`,
+   no `FogVolume` in the tree.
+2. Village terrain playground scene, after each preset in its preset list (including `top`,
+   `wide_overview`, `camsun`, `east_horizon`, `west_horizon`, `old_rim_seam`): same three checks.
+3. Hills and forest playground scenes: same three checks.
+4. Source guard: walk `res://src`, `res://scenes`, `res://tools`, `res://assets/shaders` with `DirAccess`
+   and assert no `.gd` / `.tscn` / `.gdshader` / `.gdshaderinc` file contains `FogVolume`,
+   `fog_enabled = true`, `volumetric_fog_enabled = true`, `HeroFog`, `WorldFog`, `HillsFogTint`,
+   `u_horizon_rgb`, `fog_begin` or `fog_end`.
+
+**New — skirt / edge (in `test/test_no_fog.gd` or the existing far-mesh test file):**
+5. `build_far_mesh` max planar radius about G is `>= R_SKIRT_M - 1`; every outer-ring vertex of the old mesh
+   at `r_outer_m` is present unchanged (no crack, same y as before the skirt); skirt y is non-increasing toward
+   `y_skirt` and constant past the ease band; `terrain_mesh_min_y()` equals its pre-skirt value for seeds 1/7/12.
+6. Generated `World/Ground` discard radius `== VillageTerrain.R_SKIRT_M`; `main.tscn` PlaneMesh size is
+   6000 x 6000; village terrain playground camera `far >= 4000`.
+7. Production/playground parity: the far mesh built by the playground and by `VillageBackdrop` for the same
+   seed have the same vertex count and the same vertex hash (extend the existing parity test if there is one).
+
+**UI script:** add `tools/ui_scripts/no_fog.txt` (seed 7 generated: default, CamSun, east/west horizon, wide
+overview; then classic default) for the review and QA screenshot passes. This is the check for the visual
+result; the GUT tests above only pin the absence of fog and the geometry.
+
+### AR-NOFOG-DOCS — Doc updates
+
+- `DESIGN.md` § Village game modes: one paragraph on the no-fog decision (added with this plan).
+- `IMPLEMENTATION.md`: this section; superseded notes under SD-HILLS-6 and AR-HILLS-3 (added with this plan).
+  The programmer adds short "superseded by AR-NOFOG" notes where SD-VILLAGE-GEN-6 / INV-20,
+  SD-VILLAGE-TERRAIN-7 (HeroFog anchor row) and the AR-VILLAGE-GEN `sky_sun.gd` fog-override block describe fog.
+- `TECHNICAL_INDEX.md`: remove `hero_fog.gd`, `world_fog_params.gd`, `world_fog_volume.gd`,
+  `world_hero_fog.gdshader`, `hill_pine.gdshader`, the fog tools; rename `hills_fog_tint.gd` → `hills_tint.gd`;
+  add `test_no_fog.gd`.
+- `.claude/skills/run-ui-script` docs (and any verb list) drop `FOG_VOLUMETRIC` — the skill directory is
+  sandbox-protected, so the programmer tells the user the exact edit if it cannot be written.
+- `sync_project_memory` after the docs change.
+
+### AR-NOFOG-RISK — Risks and mitigations
+
+- **Hills read flat or too saturated without the haze.** Expected trade-off of the human's decision; judged in
+  the playground at accept. No compensating aerial-perspective tint is added (that would be fog again).
+- **Skirt visible as a lip from the wide overview.** Ease band 600 m and the matched sky ground colour; the
+  accept captures check it. If a lip shows, lengthen the ease band (constant), do not add fog.
+- **Depth precision at 3-4 km** with the existing near plane: the skirt is flat and far, z-fighting with
+  `World/Ground` is avoided because the plane is discarded inside `R_SKIRT_M` and sits below `y_skirt`.
+- **Mesh budget:** about 10 x 192 extra vertices; within the backdrop tri cap
+  (`test_triangle_budget_under_120k` must still pass).
+- **Deleting tools a human still uses.** Only fog-evidence tools are deleted; the programmer lists them in
+  the close notes so the human can object.
+
+### AR-NOFOG-COMPAT — Backward compatibility
+
+Classic loses fog (Q1 option 1) and its ground plane grows; otherwise classic geometry, scatter and camera are
+unchanged. Snapshot recipes and `VillageLayout` serialisation do not carry fog (no field to migrate). The
+`FOG_VOLUMETRIC` UI verb is removed; scripts using it must drop the line (the only users are deleted).
+
+### AR-NOFOG-NONGOAL — Non-goals
+
+No change to the hills' shape, heights, layer colours, wedge or forest placement inside 310 m; no lit far mesh;
+no new aerial-perspective or distance tint of any kind; no sky redesign beyond the below-horizon colour; no fog
+toggle, preset or playground knob; no fix for ivy-2qeq or ivy-3hl8 (unrelated); no camera retune.
+
+### AR-NOFOG-HANDOFF — Handoff to Gameplay Programmer (ivy-82zn.14.32)
+
+Capture the BEFORE set first (seeds 1/7/12: default, CamSun, east/west horizon, wide overview, old-rim seam;
+classic default + CamSun; playground seed 7) into `.tmp/no_fog/before/` and run `tools/hills_seam_probe.gd`
+for the baseline. Then test-first: write `test/test_no_fog.gd` (fails), delete fog code in this order —
+SkySun / World / main → HeroFog, WorldFog* files → layout fields → hills shader + `HillsTint` rename →
+playgrounds → tools — then the skirt, the plane, the sky colour, the playground camera far. Cite `AR-NOFOG-*`
+in comments and close notes. Review is ivy-82zn.14.33, accept ivy-82zn.14.34 (also verifies ivy-1vlg).
+
+### AR-NOFOG-IMPL — As built (ivy-82zn.14.32)
+
+Followed the plan; where it differs:
+
+- **Sky below the horizon follows the sun.** Instead of one measured constant in `main.tscn`, `SkySun.update()`
+  sets `ground_horizon_color` every frame to `HillsTint.far_meadow_colour(sun_dir, twilight)` — the hills
+  shader's plain-meadow output on flat ground (eff_layer_t 0, mean patch noise, same warm/cool sun lighting
+  and twilight dim). `ground_energy` is 1.0. The playgrounds (which never run `SkySun.update`) set it once from
+  `HillsTint.DEFAULT_SUN_DIR`, the far mesh's own `u_sun_dir` there. Reason: the game captures run at dawn and
+  noon, and a single noon constant would mismatch at the other. `atmospheric_sky.gdshader` keeps the pale
+  `sky_horizon` value only inside `ground_seam_band` = sin 0.5° below y = 0 (ivy-cwk seam).
+- **Skirt colour = plain meadow.** Past `r_outer` the shader (`u_r_outer`, `u_skirt_ease`) and
+  `HillsTint.layer_t_for_radius` read the ridge-layer weights at `r_outer` (the normalised Gaussians
+  would otherwise underflow near 430 m into a hard colour ring) and fade them to 0 over the 600 m ease
+  band, so the skirt is `u_meadow_near` everywhere, as the plan intended. A first build without the fade
+  showed the north-wedge `u_meadow_mid` (teal) carried as a wedge to 3 km. Nothing inside `r_outer` changes.
+- **World/Ground past 3 km** shows as a darker band from very high cameras (the 300 m-up `far_overview`
+  capture only; game cameras are clamped to the lawn): the plane is engine-lit `world_ground` while the
+  skirt is unshaded meadow. Left as is (discard radius = `R_SKIRT_M` per AC); flagged for review.
+- **Skirt rings:** `VillageTerrain.skirt_ring_radii` — 6 rings evenly through the 600 m ease band, then 4
+  geometric to `R_SKIRT_M` (10 in all). Rim vertices are the existing r_outer ring (no new vertices there,
+  rim normals unchanged); skirt normals by central differences, `UP` past the ease band.
+- **Hills playground** camera far also raised 500 → 4000 m: it builds the same far mesh (with skirt).
+- **Seam probe** (`tools/hills_seam_probe.gd`) gained `--view=camsun` and a join-loop metric (`SEAM_JOIN`:
+  5×5-pixel mean at r_join ∓ 4 m projected per azimuth) plus per-side means. Seed 7, default sun (dawn):
+  join L1 fogged baseline 0.1595 (seam view) / 0.1056 (CamSun); no fog with the old constant 0.2400 /
+  0.1839; after recalibrating `_LAWN_COLOUR` / `u_lawn_colour` (0.270, 0.350, 0.210) → (0.204, 0.261, 0.127)
+  from the per-side linear ratio, 0.1918 / 0.1363. Still above the fogged baseline: the fog pulled both
+  sides toward one colour, and only ~30% of the far-side pixel follows the constant (the rest is the
+  lit/unlit lawn vs far-mesh difference, plus occluders). Closing that gap is the lit-far-mesh question
+  (non-goal here); flagged for the human / a follow-up.
+- **Tests whose contract changed:** `test_village_world_scale` (far mesh reaches `R_SKIRT_M`; FOV count
+  without the haze gate), `test_village_landscape_world` (discard radius `R_SKIRT_M`),
+  `test_hills_legibility` (the mid-vs-far and far-vs-horizon orderings went with the far cap; the
+  eight-bearing near-vs-far ordering test was dropped for the same reason), `test_world_backdrop_swap`,
+  `test_village_backdrop`, `test_forest_camsun_geometry`, `test_generated_village_backdrop`,
+  `test_hills_params`, `test_hills_pine_mesh`, `test_sky_sun` (fog colour tests removed),
+  `test_hills_fog_tint` → `test_hills_tint`.
 

@@ -63,14 +63,11 @@ static func all_knobs() -> Array[Dictionary]:
 	_add_int(rows, "lcg_seed", "Forest LCG (−1=derive)", "Forest", -1, 999999, 1, ROLLING)
 	_add_float(rows, "scale_min", "Tree scale min", "Forest", 0.6, 2.5, 0.02, ROLLING)
 	_add_float(rows, "scale_max", "Tree scale max", "Forest", 0.8, 3.0, 0.02, ROLLING)
-	_add_bool(rows, "ridge_fog_tint_on", "Fog tint on", "Tint", ROLLING)
 	_add_float(rows, "ridge_near_albedo_mul", "Near albedo mul", "Tint", 0.7, 1.2, 0.02, ROLLING)
 	_add_float(rows, "ridge_near_green_bias", "Near green bias", "Tint", 0.0, 0.2, 0.005, ROLLING)
 	_add_float(rows, "ridge_far_albedo_mul", "Far albedo mul", "Tint", 0.5, 0.9, 0.02, ROLLING)
 	_add_float(rows, "ridge_far_tint_blue", "Far blue tint", "Tint", 0.0, 0.2, 0.005, ROLLING)
 	_add_float(rows, "sun_warmth", "Sun warmth", "Tint", 0.0, 0.45, 0.01, ROLLING)
-	_add_float(rows, "fog_begin_m", "Fog begin (−1=layout)", "Fog", -1.0, 150.0, 0.5, ROLLING)
-	_add_float(rows, "fog_end_m", "Fog end (−1=layout)", "Fog", 60.0, 400.0, 1.0, ROLLING)
 	_add_float(rows, "azimuth_centre_deg", "Wedge centre (°)", "Azimuth", 0.0, 360.0, 5.0, ROLLING,
 		"0=north(−Z), 90=east(+X). Hills only appear within ±half-width of this bearing.")
 	_add_float(rows, "azimuth_half_width_deg", "Wedge half-width (°)", "Azimuth", 10.0, 180.0, 5.0, ROLLING,

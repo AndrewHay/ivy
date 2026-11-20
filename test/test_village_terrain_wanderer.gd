@@ -85,9 +85,11 @@ func test_figure_y_follows_terrain_when_walking() -> void:
 		"figure y must be >= sample_y - %.2f during WALKING (sampled %d frames)" % [_EPS_Y, walking_frames])
 
 
-# ── Test 4: off-path states keep figure Y at datum ────────────────────────────
+# ── Test 4: off-path states keep the figure on the terrain ────────────────────
+# ivy-82zn.14.10 contract change (AC 7): was "datum y = 0 during DOOR_PAUSE". On the village hill
+# the door of a cottage is metres below the hero datum, so every state follows the terrain.
 
-func test_figure_y_is_datum_during_door_pause() -> void:
+func test_figure_y_on_terrain_during_door_pause() -> void:
 	WandererIntegration.set_gut_wanderer_test_active(true)
 	var bd: GeneratedVillageBackdrop = GeneratedBackdropScene.instantiate()
 	bd.set_village_seed(_GEN_SEED)
@@ -106,11 +108,17 @@ func test_figure_y_is_datum_during_door_pause() -> void:
 	if fig_root == null:
 		pending("FigurePivot node not found — skip")
 		return
-	assert_almost_eq(fig_root.position.y, 0.0, 0.02,
-		"figure y must be datum (0.0) during DOOR_PAUSE (off-path A1)")
+	var ground: float = bd.call("sample_terrain_y", brain.pos)
+	assert_almost_eq(fig_root.position.y, ground, 0.05,
+		"figure y on the terrain (backdrop-local %.3f) during DOOR_PAUSE" % ground)
+	# World space too: the controller carries the backdrop transform (lowered on the hill).
+	assert_almost_eq(fig_root.global_position.y, bd.global_position.y + ground, 0.05,
+		"figure world y = backdrop y + terrain")
 
 
-# ── Test 5: follow disabled → figure Y = datum even during WALKING ────────────
+# ── Test 5: follow disabled → figure Y = hero ground level ───────────────────
+# ivy-82zn.14.10: the off switch keeps the figure at the hero datum (the hero's ground level, local
+# hero_datum_y), the hill-frame equivalent of the old "datum 0" (debug only).
 
 func test_figure_y_datum_when_follow_terrain_disabled() -> void:
 	WandererIntegration.set_gut_wanderer_test_active(true)
@@ -137,8 +145,8 @@ func test_figure_y_datum_when_follow_terrain_disabled() -> void:
 		var brain: WandererBrain = ctrl.get_brain()
 		if brain.state == WandererBrain.State.WALKING:
 			var fig_pos: Vector3 = ctrl.get_figure_global_position()
-			assert_almost_eq(fig_pos.y, 0.0, 0.02,
-				"figure y must be 0.0 when wanderer_follow_terrain=false")
+			assert_almost_eq(fig_pos.y, bd.global_position.y + float(bd.call("hero_datum_y")), 0.02,
+				"figure y must be the hero datum when wanderer_follow_terrain=false")
 			checked = true
 			break
 	if not checked:

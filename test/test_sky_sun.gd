@@ -129,12 +129,6 @@ func test_sky_horizon_warmer_at_twilight_than_at_noon() -> void:
 		"horizon sky should read warmer at low sun")
 
 
-func test_fog_warmer_at_twilight() -> void:
-	var dawn_f := SkySun.fog_color_for(0.04, 1.0)
-	var noon_f := SkySun.fog_color_for(0.85, 1.0)
-	assert_gt(dawn_f.r, noon_f.r, "fog should pick up sunset warmth near the horizon")
-
-
 func test_ambient_light_color_uses_sky_gradient_not_clouds() -> void:
 	var c := SkySun.ambient_light_color_for(0.5, 1.0)
 	var top := SkySun.sky_top_color_for(0.5, 1.0)
@@ -144,12 +138,6 @@ func test_ambient_light_color_uses_sky_gradient_not_clouds() -> void:
 	assert_almost_eq(c.r, expected.r, 0.02)
 	assert_almost_eq(c.g, expected.g, 0.02)
 	assert_almost_eq(c.b, expected.b, 0.02)
-
-
-func test_fog_noon_reads_warm_not_blue_glass() -> void:
-	## ivy-1ui: plaster in fog must not pick up a blue-dominant fog tint.
-	var noon_f := SkySun.fog_color_for(0.85, 1.0)
-	assert_gte(noon_f.r, noon_f.b, "noon fog R should be >= B (warm cream, not blue-grey)")
 
 
 func test_twilight_rim_warm_at_low_sun() -> void:

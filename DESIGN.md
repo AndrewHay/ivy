@@ -300,6 +300,47 @@ yet.
 Contract: `IMPLEMENTATION.md` § SD-VILLAGE-GEN (numeric parameters, invariants, picker/snapshot seam).
 Tracking: epic `ivy-80z`.
 
+**Village on a hill — SUPERSEDED (human direction 2026-11-15, ivy-82zn.14.9 / .14.10; superseded
+2026-11-16 by the landscape-first decision below):** the generated village sat on a single hill with
+the hero structure at the crest (default rise 8.5 m, cottages/pond/plaza terraced into the slope, the
+village lowered around a hero at world y = 0). Superseded: the hero-on-the-crest requirement, the single
+radial hill centred on the stoop, terraced banks as the main way buildings meet the ground, and the
+lawn heightfield being pinned flat at the rim to meet a separate outer-hills field. Kept: the fixes for
+dark contour lines (no hard steps in path corridors, relief fades, or the hero edge blend against the
+slope shader) and for pond-bank shards (bank draped on the rendered mesh).
+
+**Landscape-first rolling hills (human direction 2026-11-16, ivy-82zn.14.11):** the village lives in a
+rolling landscape rather than on a stage. **Shape the land first, then fit the village to it.** One
+continuous, broad, low-frequency heightfield runs under the lawn **and** out through the outer hills, so
+the player reads one countryside with no seam, no flat disc and no ring where the lawn stops. Crests are
+round and hollows smooth (no ridges or spikes); the forms are bigger than the village, so the village
+sits on part of a slope, a shoulder or a shallow saddle rather than on top of one tidy mound. Across the
+village there is roughly a house of height difference (about 5-8 m), wherever the land puts it.
+
+- **Hero need not be on a crest.** The hero keeps a level, readable patch of ground around it; where
+  that patch sits on the landscape is free.
+- **Cottages further apart.** Minimum centre separation rises from 15 m to roughly **22-25 m**, so
+  ground shows between houses and the landform reads.
+- **The village fits the ground, it does not flatten it.** Each building gets a small level core and a
+  soft blend ring back into the landform; sites that are too steep are rejected, not bulldozed; paths
+  follow the ground within a slope cap. Large flatten masks are gone.
+- **Readability stays first.** The hero, its door, the paths and the pond still read at a glance from
+  the default camera; terrain never blocks the east/west sun sightline in CamSun.
+
+Feel (wavelength, height, octaves, noise type, spacing) is judged by the human in the village terrain
+playground (G7); agents supply captures and parity tests, not the verdict. Contract: to be written by
+the Systems Designer (ivy-82zn.14.12) and will replace `IMPLEMENTATION.md` § SD-VILLAGE-TERRAIN-2
+"Village hill" and SD-VILLAGE-TERRAIN-6 (rim pinned flat).
+
+**No fog (human direction 2026-11-19, ivy-82zn.14.31):** "the FOG doesn't work now ... we should
+completely remove it". Once the hills were landscape-first, the haze tuned for the old flat ring flattened
+the far hills into pale/pink bands at eye level and washed the wide view grey-white. The village (classic
+and generated) and every playground render with **no fog of any kind**: no depth or volumetric fog and no
+distance tint toward a horizon colour on the terrain or trees. The landscape carries the depth on its own:
+the ground runs out to the horizon (a flat far skirt past the hills), and the sky's own horizon gradient
+stays. Fog is not a knob, so there is nothing to tune back on; if distance ever needs help, that is a new
+design decision. Contract: `IMPLEMENTATION.md` § AR-NOFOG.
+
 Tracking: epic **`ivy-7ka`** (phase 2 lawn); prior **`ivy-qg7`** contracts in `IMPLEMENTATION.md`
 (SD-GRASS-1 / SD-WIND-1 superseded where noted).
 

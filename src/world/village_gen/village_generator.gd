@@ -32,39 +32,245 @@ static var last_diag: Dictionary = {}
 static var last_stage7_debug: Dictionary = {}
 
 
-static func generate(seed: int) -> VillageLayout:
+static func generate(seed: int, terrain_params: Resource = null) -> VillageLayout:
 	var norm: int = seed & 0x7FFFFFFF
 	last_diag = {}
 	var t_all := Time.get_ticks_usec()
 	var attempts_log: Array = []
-	for attempt: int in range(4):
-		var t_att := Time.get_ticks_usec()
-		var attempt_seed := _attempt_seed(norm, attempt)
-		var rec := _attempt_generate(norm, attempt_seed, attempt)
-		var att_ms := float(Time.get_ticks_usec() - t_att) / 1000.0
-		attempts_log.append({
-			"attempt": attempt,
-			"ok": bool(rec.get("ok", false)),
-			"fail_reason": str(rec.get("fail_reason", "")),
-			"stage_reached": str(rec.get("stage_reached", "")),
-			"ms": att_ms,
-		})
-		rec["attempts"] = attempts_log.duplicate(true)
-		rec["attempts_used"] = attempt + 1
-		rec["total_ms"] = float(Time.get_ticks_usec() - t_all) / 1000.0
-		last_diag = rec
-		if rec.get("ok", false):
-			return rec["layout"] as VillageLayout
-		if attempt >= 3:
-			break
+	# Landform offset search, once, before the attempt loop (AR-LF-D4): G, H0 and the plaza are
+	# constants, so it needs no layout.
+	var tp: VillageTerrainParams = terrain_params as VillageTerrainParams
+	if tp == null:
+		tp = VillageTerrainParams.production()
+	var ranked: Array[Dictionary] = []
+	var searches := 0
+	var t_search := Time.get_ticks_usec()
+	if tp.variant != 1:
+		ranked = VillageLandform.rank_offsets(norm, tp)
+		searches = 1
+	var search_ms := float(Time.get_ticks_usec() - t_search) / 1000.0
+	# AR-LF-D5 + SD-20 (restated ivy-82zn.14.23) + AR-LF-PERF P4/P5: up to VERIFY_RANKS offset ranks
+	# × 4 attempts. Ranks 1+ are verified lazily (exact p95, plaza_ring_ok, hero_ring_ok) when
+	# reached. Path-only failures stay in the rank: near miss (≤ cap + path_near_miss_deg) → keep it
+	# now, flagged; once the rank holds a path-only layout ≤ path_steep_accept_deg, one more attempt,
+	# then keep the best, flagged; at rank end keep the best if ≤ accept, else next rank. After the
+	# last rank: the overall least-violating path-only layout (flagged), else the authored fallback.
+	var n_ranks := 1 if ranked.is_empty() else VillageLandform.VERIFY_RANKS
+	var ptr := 0
+	var best_pc := {}
+	var attempts_total := 0
+	var base_grid := _reserve_base_grid(_Layout.VILLAGE_GREEN_G,
+		_Layout.plaza_cottage_keep_clear_rect(_Layout.VILLAGE_GREEN_G, _Layout.PLAZA_SIDE_L))
+	for rank_no: int in range(n_ranks):
+		var landform := {}
+		var site: VillageSiteTerrain = null
+		if not ranked.is_empty():
+			if rank_no > 0:
+				ptr = _next_usable_rank(norm, tp, ranked, ptr + 1)
+				if ptr < 0:
+					break
+			landform = landform_for_rank(norm, tp, ranked, ptr, rank_no)
+			site = VillageSiteTerrain.for_landform(norm, tp, landform)
+		var terrain := {} if site == null else {"params": tp, "landform": landform, "site": site}
+		var rank_best := {}
+		var stop_after := -1
+		for attempt: int in range(ATTEMPTS_PER_RANK):
+			var t_att := Time.get_ticks_usec()
+			# Rank 0 keeps the WP1 attempt seeds; later ranks continue the stream (attempts 4..11).
+			var attempt_seed := _attempt_seed(norm, attempt + 4 * rank_no)
+			if site != null:
+				site.reset_stats()
+			# SD-VILLAGE-TERRAIN-21 (restated 2026-11-18): spacing / reach, the relax ladder in EVERY
+			# attempt (replaces AR-LF-GAP-6's last-attempt-only ladder) and the path length scale.
+			var rules := {
+				"min_centre_sep_m": tp.cottage_min_sep_m,
+				"centre_r_max_m": tp.village_centre_r_max_m,
+				"sep_ladder": true,
+				"sep_ladder_floor_m": tp.effective_sep_ladder_floor_m(),
+				"path_len_scale": tp.path_len_scale,
+			}
+			var rec := _attempt_generate(norm, attempt_seed, attempt, terrain, base_grid, rules)
+			var att_ms := float(Time.get_ticks_usec() - t_att) / 1000.0
+			attempts_total += 1
+			attempts_log.append({
+				"attempt": attempt,
+				"rank": rank_no,
+				"sep_ladder": bool(rules["sep_ladder"]),
+				"sep_relaxed_to": (rec.get("terrain_diag", {}) as Dictionary).get("sep_relaxed_to", null),
+				"ok": bool(rec.get("ok", false)),
+				"fail_reason": str(rec.get("fail_reason", "")),
+				"stage_reached": str(rec.get("stage_reached", "")),
+				"ms": att_ms,
+				"max_path_slope_deg": float(rec.get("path_open_deg", NAN)),
+				## terrain:pond_moved detail ("steep" / "ring:<cottage>"), "" otherwise.
+				"pond_moved_fail": str((rec.get("terrain_diag", {}) as Dictionary).get("pond_moved_fail", "")),
+			})
+			rec["attempts"] = attempts_log.duplicate(true)
+			rec["attempts_used"] = attempts_total
+			rec["total_ms"] = float(Time.get_ticks_usec() - t_all) / 1000.0
+			rec["landform"] = landform
+			rec["rank"] = rank_no
+			rec["landform_searches"] = searches
+			rec["search_ms"] = search_ms
+			last_diag = rec
+			if rec.get("ok", false):
+				var layout := rec["layout"] as VillageLayout
+				_finish_terrain_layout(layout, terrain_params, landform, rec, search_ms)
+				return layout
+			if bool(rec.get("path_cap_only", false)):
+				var open_deg := float(rec["path_open_deg"])
+				if _path_outcome(open_deg, tp) == PATH_NEAR_MISS:
+					return _accept_path_only(rec, terrain_params, search_ms, attempts_log, attempts_total, true)
+				if rank_best.is_empty() or open_deg < float(rank_best["path_open_deg"]):
+					rank_best = rec
+				if best_pc.is_empty() or open_deg < float(best_pc["path_open_deg"]):
+					best_pc = rec
+				if stop_after < 0 and float(rank_best["path_open_deg"]) <= tp.path_steep_accept_deg:
+					stop_after = attempt + 1  # AR-LF-PERF P5: one more attempt in this rank
+			if stop_after >= 0 and attempt >= stop_after:
+				break
+		if not rank_best.is_empty() and float(rank_best["path_open_deg"]) <= tp.path_steep_accept_deg:
+			return _accept_path_only(rank_best, terrain_params, search_ms, attempts_log, attempts_total, false)
+	if not best_pc.is_empty():
+		# After the last rank: the overall least-violating path-only layout, flagged.
+		return _accept_path_only(best_pc, terrain_params, search_ms, attempts_log, attempts_total, false)
 	push_warning("VillageGeneratorV3: falling back to authored() after failed attempts")
 	var fb := _Layout.authored()
 	fb.fallback = true
 	fb.is_generated = false
+	last_diag["landform_searches"] = searches
 	last_diag["fallback_layout"] = true
 	last_diag["attempts"] = attempts_log
 	last_diag["attempts_used"] = attempts_log.size()
 	return fb
+
+
+## AR-LF-D5: attempts per offset rank.
+const ATTEMPTS_PER_RANK := 4
+## SD-VILLAGE-TERRAIN-21 (restated 2026-11-18): fallback ladder floor (m), playground knob
+## sep_ladder_floor_m; the ladder runs in every attempt and the count never drops below 8.
+const SEP_LADDER_FLOOR_M := 14.0
+
+## SD-VILLAGE-TERRAIN-21 (16 m, human option B 2026-11-18): path growth sized to the 46 m reach.
+## Written as the probed products (today's literal × factor); path_len_scale multiplies them.
+const PRIMARY_LEN_MIN_M := 30.0  ## 24 × 1.25 (_stage2_primaries_hero)
+const PRIMARY_LEN_MAX_M := 45.0  ## 36 × 1.25
+const BRANCH_LEN_MIN_M := 10.4  ## 8 × 1.3 (_stage3_secondaries)
+const BRANCH_LEN_MAX_M := 24.7  ## 19 × 1.3
+const CAP_BRANCH_LEN_MIN_M := 10.4  ## 8 × 1.3 (_grow_one_capacity_branch)
+const CAP_BRANCH_LEN_MAX_M := 26.0  ## 20 × 1.3
+const CAP_BRANCH_EMPTY_Q_LEN_MIN_M := 18.2  ## 14 × 1.3 (same, an empty quadrant)
+const CAP_BRANCH_EMPTY_Q_LEN_MAX_M := 33.8  ## 26 × 1.3
+const CAP_ENDPOINT_LEN_MIN_M := 15.6  ## 12 × 1.3 (_grow_capacity_from_endpoint)
+const CAP_ENDPOINT_LEN_MAX_M := 31.2  ## 24 × 1.3
+const CAP_ANCHOR_OFFSET_M := 30.0  ## was 24 (_quadrant_anchor: G ± (30, 30))
+
+
+## Relaxed centre-separation values tried after `sep_m` fails: 1 m steps down to `floor_m`
+## (clamped to ≤ sep_m).
+static func sep_ladder_steps(sep_m: float, floor_m: float = SEP_LADDER_FLOOR_M) -> Array:
+	var out: Array = []
+	var fl := minf(floor_m, sep_m)
+	var s := ceilf(sep_m - 1e-6) - 1.0
+	while s >= fl - 1e-6:
+		out.append(s)
+		s -= 1.0
+	return out
+
+
+static func _path_len_scale(diag: Dictionary) -> float:
+	return float(diag.get("path_len_scale", 1.0))
+
+
+## SD-20 path outcome of a v1–v6-valid attempt (AR-LF-PERF P4).
+const PATH_PASS := 0
+const PATH_NEAR_MISS := 1
+const PATH_RETRY := 2
+
+
+static func _path_outcome(open_deg: float, tp: VillageTerrainParams) -> int:
+	## PASS (≤ cap) / NEAR_MISS (≤ cap + path_near_miss_deg, only when that is > 0) / RETRY.
+	if open_deg <= tp.max_path_slope_deg:
+		return PATH_PASS
+	if tp.path_near_miss_deg > 0.0 and open_deg <= tp.max_path_slope_deg + tp.path_near_miss_deg:
+		return PATH_NEAR_MISS
+	return PATH_RETRY
+
+
+static func _accept_path_only(rec: Dictionary, terrain_params: Resource, search_ms: float,
+		attempts_log: Array, attempts_total: int, near_miss: bool) -> VillageLayout:
+	## Keep a path-only layout as a normal generated village with terrain_diag.path_cap_fallback.
+	var lay := rec["layout_on_fail"] as VillageLayout
+	_finish_terrain_layout(lay, terrain_params, rec["landform"], rec, search_ms)
+	lay.terrain_diag["path_cap_fallback"] = true
+	if near_miss:
+		lay.terrain_diag["path_near_miss"] = true
+	rec["attempts"] = attempts_log
+	rec["attempts_used"] = attempts_total
+	rec["path_cap_fallback"] = true
+	last_diag = rec
+	return lay
+
+
+static func landform_for_rank(norm: int, tp: VillageTerrainParams, ranked: Array, idx: int,
+		rank_no: int = -1) -> Dictionary:
+	## layout.landform for ranked[idx]: {index, offset, rot_deg, rank, measures, fallback,
+	## hero_ring_w}. hero_ring_w is the stored measured hero ring (SD-19 step 6); a candidate the
+	## search did not ring-check is measured here, a failing one at its best ladder width.
+	var c: Dictionary = ranked[idx]
+	var m: Dictionary = c["measures"]
+	if not m.has("plaza_ring_w"):
+		VillageLandform._store_plaza_ring(m, VillageLandform.plaza_ring(norm, tp, c["offset"], float(c["rot_deg"])))
+	if not m.has("hero_ring_w"):
+		var hr := VillageLandform.hero_ring(norm, tp, c["offset"], float(c["rot_deg"]))
+		VillageLandform._store_hero_ring(m, hr)
+	return {
+		"index": c["index"], "offset": c["offset"], "rot_deg": c["rot_deg"],
+		"rank": rank_no if rank_no >= 0 else idx,
+		"measures": m,
+		"fallback": not bool(c["pass"]) or not bool(m.get("hero_ring_ok", false))
+			or not bool(m.get("plaza_ring_ok", false)),
+		"hero_ring_w": float(m["hero_ring_w"]),
+		"plaza_ring_w": float(m["plaza_ring_w"]),
+	}
+
+
+static func _next_usable_rank(norm: int, tp: VillageTerrainParams, ranked: Array, from_idx: int) -> int:
+	## Next passing candidate at or after from_idx that passes the lazy verification (exact p95,
+	## plaza_ring_ok, hero_ring_ok); -1 when the passing candidates run out. When nothing passed the
+	## search (rank 0 is the least-violating fallback, SD-18), the ranks are simply the next
+	## least-violating candidates (AR-LF-D5), each still flagged offset_fallback.
+	if not ranked.is_empty() and not bool(ranked[0]["pass"]):
+		return from_idx if from_idx < ranked.size() else -1
+	for i in range(from_idx, ranked.size()):
+		var c: Dictionary = ranked[i]
+		if not bool(c["pass"]):
+			if not bool(c.get("verified", false)):
+				return -1  # coarse failures: the passing candidates are exhausted
+			continue  # failed its exact check (here or in the search)
+		if VillageLandform.verify_candidate(norm, tp, c):
+			return i
+	return -1
+
+
+static func _finish_terrain_layout(layout: VillageLayout, terrain_params: Resource, landform: Dictionary,
+		rec: Dictionary, search_ms: float) -> void:
+	layout.terrain_params = terrain_params
+	layout.landform = landform.duplicate(true)
+	var td: Dictionary = (rec.get("terrain_diag", {}) as Dictionary).duplicate(true)
+	td["offset_fallback"] = bool(landform.get("fallback", false))
+	# SD-VILLAGE-TERRAIN-28 §2: the rank used is below the storey minimum (soft; build continues).
+	var tp_s: VillageTerrainParams = terrain_params as VillageTerrainParams
+	if tp_s == null:
+		tp_s = VillageTerrainParams.production()
+	var lm: Dictionary = landform.get("measures", {})
+	if tp_s.storey_ground_frac_min > 0.0 and lm.has("storey_frac"):
+		td["storey_frac"] = float(lm["storey_frac"])
+		if float(lm["storey_frac"]) < tp_s.storey_ground_frac_min:
+			td["storey_soft"] = true
+	td["search_ms"] = search_ms
+	td["rank"] = int(rec.get("rank", 0))
+	layout.terrain_diag = td
 
 
 static func _attempt_seed(norm: int, attempt: int) -> int:
@@ -72,7 +278,12 @@ static func _attempt_seed(norm: int, attempt: int) -> int:
 	return _Layout._derive(norm ^ (attempt * 0x9E3779B1), _RETRY_SALT + attempt * 131)
 
 
-static func _attempt_generate(norm: int, st: int, attempt_idx: int) -> Dictionary:
+static func _attempt_generate(norm: int, st: int, attempt_idx: int, terrain: Dictionary = {},
+		base_grid: VillageOccupancyGrid = null, rules: Dictionary = {}) -> Dictionary:
+	## terrain: {params, landform, site: VillageSiteTerrain} for the landscape variant ({} = flat:
+	## no site rejection, no pond slope rule, no path cap; unchanged behaviour).
+	## rules: SD-VILLAGE-TERRAIN-21 layout rules {min_centre_sep_m, centre_r_max_m, sep_ladder}
+	## (both variants; {} = off).
 	var diag := {
 		"ok": false,
 		"attempt": attempt_idx,
@@ -88,6 +299,8 @@ static func _attempt_generate(norm: int, st: int, attempt_idx: int) -> Dictionar
 		"picked_n": 0,
 		"join_snap_splits_failed": 0,
 		"capacity_grow_failures": 0,
+		## SD-21 playground knob path_len_scale, read by the stage 2 / 3 / capacity growth.
+		"path_len_scale": float(rules.get("path_len_scale", 1.0)),
 	}
 	var t_stage := Time.get_ticks_usec()
 
@@ -99,11 +312,16 @@ static func _attempt_generate(norm: int, st: int, attempt_idx: int) -> Dictionar
 	var hero_rect := Rect2(-5.5, -5.0, 11.0, 8.5)
 	diag["hero_rect"] = hero_rect
 
-	st = _reserve_stage1(norm, st, g, plaza_rect, keep_clear, cottage_keep, diag)
+	var site: VillageSiteTerrain = terrain.get("site", null)
+	diag["terrain_diag"] = {}
+	st = _reserve_stage1(norm, st, g, plaza_rect, keep_clear, cottage_keep, diag, site, base_grid)
 	diag["stage_ms"]["1_reserve"] = _ms_since(t_stage)
 	t_stage = Time.get_ticks_usec()
 	if diag.has("abort"):
 		return diag
+	if site != null:
+		# SD-19 step 2: the attempt's pond is replayed under every cottage candidate.
+		site.set_pond(diag["pond_center"])
 
 	var net: Variant = _NetworkScr.new()
 	var pond_c: Vector2 = diag["pond_center"] as Vector2
@@ -119,6 +337,11 @@ static func _attempt_generate(norm: int, st: int, attempt_idx: int) -> Dictionar
 
 	st = _stage3_secondaries(norm, st, g, diag["grid"], net, pond_c, diag)
 	diag["stage_ms"]["3_branches"] = _ms_since(t_stage)
+	# Total primary + secondary length after stages 2-3 (SD-21 path_len_scale readout / test).
+	var net_len := 0.0
+	for pid_l: int in _collect_path_ids(net, ["primary", "secondary"]):
+		net_len += float(net.length(pid_l))
+	diag["network_len_m"] = net_len
 	t_stage = Time.get_ticks_usec()
 	if diag.has("abort"):
 		return diag
@@ -159,6 +382,13 @@ static func _attempt_generate(norm: int, st: int, attempt_idx: int) -> Dictionar
 		"hamlet_g": g,
 		"max_corner_m": _Layout.HAMLET_MAX_CORNER_FROM_G,
 		"quadrant_cap_max": 4,
+		## SD-VILLAGE-TERRAIN-19 site rejection (null when flat: unchanged behaviour).
+		"terrain_site_fn": site.site_fn() if site != null else null,
+		## SD-VILLAGE-TERRAIN-21: pair centre floor + centre reach (checked before the site fn).
+		"min_centre_sep_m": float(rules.get("min_centre_sep_m", 0.0)),
+		"centre_r_max_m": float(rules.get("centre_r_max_m", 0.0)),
+		"sep_ladder": bool(rules.get("sep_ladder", false)),
+		"sep_ladder_floor_m": float(rules.get("sep_ladder_floor_m", SEP_LADDER_FLOOR_M)),
 	}
 	var st5 := _stage5_select_with_capacity(
 		norm, kit_st, pick_st, st, g, pond_c, samp_params, sel_params, diag["grid"], net, diag)
@@ -174,6 +404,17 @@ static func _attempt_generate(norm: int, st: int, attempt_idx: int) -> Dictionar
 		diag["stage_ms"][str(k)] = plot_ms[k]
 	diag["stage_ms"]["4_5_plots"] = _ms_since(t_stage)
 	diag["quadrants"] = quadrant_counts_from_picked(picked, g)
+	# The floor the picks were selected with (nominal or relaxed); v1 re-checks it.
+	diag["min_centre_sep_used"] = float(st5.get("min_centre_sep_used", sel_params["min_centre_sep_m"]))
+	if st5.has("sep_relaxed_to"):
+		(diag["terrain_diag"] as Dictionary)["sep_relaxed_to"] = float(st5["sep_relaxed_to"])
+	if site != null:
+		var td: Dictionary = diag["terrain_diag"]
+		td["rejected_sites_slope"] = int(site.stats["rejected_slope"])
+		td["rejected_sites_ring"] = int(site.stats["rejected_ring"])
+		td["rejected_sites"] = int(site.stats["rejected_slope"]) + int(site.stats["rejected_ring"])
+		td["sites_evaluated"] = int(site.stats["evaluated"])
+		diag["stage_ms"]["5x_site_eval"] = float(site.stats.get("eval_us", 0)) / 1000.0
 	t_stage = Time.get_ticks_usec()
 	if not bool(st5.get("ok", false)):
 		diag["fail_reason"] = str(st5.get("fail_reason", "plot_select"))
@@ -212,17 +453,41 @@ static func _attempt_generate(norm: int, st: int, attempt_idx: int) -> Dictionar
 	var t_build := Time.get_ticks_usec()
 	var layout := _build_layout(norm, g, plaza_side, keep_clear, cottage_keep, net, picked, pond_c, diag)
 	diag["stage_ms"]["7_layout_build"] = _ms_since(t_build)
+	if site != null:
+		layout.landform = (terrain["landform"] as Dictionary).duplicate(true)
+		if layout.pond_center != pond_c:
+			# resolve_after_paths moved the pond (review 2 F1): re-check its site slope (SD-19 pond
+			# row) and the stored pad rings it reaches, on the final pond; failure = normal retry.
+			var t_re := Time.get_ticks_usec()
+			var td2: Dictionary = diag["terrain_diag"]
+			var moved_fail := _check_moved_pond(site, layout, pond_c, terrain["params"] as VillageTerrainParams,
+				bool(td2.get("pond_steep", false)), td2)
+			diag["stage_ms"]["7x_pond_recheck"] = _ms_since(t_re)
+			if moved_fail != "":
+				diag["fail_reason"] = moved_fail
+				diag["stage_reached"] = "pond_moved"
+				return diag
 	t_build = Time.get_ticks_usec()
 
-	var val := _validate_full(layout, picked, net)
+	var val := _validate_full(layout, picked, net, terrain, float(diag["min_centre_sep_used"]))
 	diag["stage_ms"]["8_validate"] = _ms_since(t_build)
 	diag["stage_ms"]["7_8_finalize"] = _ms_since(t_stage)
 	diag["v_counts"] = val["counts"]
 	diag["v_samples"] = val["samples"]
+	diag["stage_ms"]["8a_validate_v"] = float(val.get("ms_v", 0.0))
+	if val.has("path"):
+		diag["stage_ms"]["8b_open_path"] = float(val.get("ms_open_path", 0.0))
+		var td3: Dictionary = diag["terrain_diag"]
+		td3["max_path_slope_open_deg"] = float(val["path"]["deg"])
+		td3["max_path_slope_deg"] = float(val["path"]["deg"])  # alias (readout / older readers)
+		td3["path_open_samples"] = int(val["path"]["n_open"])
+		diag["path_open_deg"] = float(val["path"]["deg"])
 	if not val["ok"]:
 		diag["fail_reason"] = val["reason"]
 		diag["stage_reached"] = "validate"
 		diag["layout_on_fail"] = layout
+		diag["path_cap_only"] = bool(val.get("path_cap_only", false))
+		diag["path_cap_violation"] = float(val.get("path_cap_violation", 0.0))
 		var rs: String = str(val["reason"])
 		if rs.begins_with("v3:"):
 			var pair: Vector2i = _v3_path_pair_from_reason(rs)
@@ -246,6 +511,40 @@ static func _attempt_generate(norm: int, st: int, attempt_idx: int) -> Dictionar
 	return diag
 
 
+static func _check_moved_pond(site: VillageSiteTerrain, layout: VillageLayout, old_c: Vector2,
+		tp: VillageTerrainParams, stage1_steep: bool, td: Dictionary) -> String:
+	## Review 2 F1: the pond moved from old_c to layout.pond_center after the pads were selected.
+	## "" = keep; "terrain:pond_moved" = fail the attempt (normal retry, not path-only):
+	## - moved site slope > pond_max_site_slope_deg while stage 1 had a flat site (stage1_steep false);
+	##   with no flat alternative (stage1_steep) the move is kept, flagged pond_steep;
+	## - any stored pad ring reaching the old or new pond fails on the FINAL pond
+	##   (VillageSiteTerrain.recheck_pads_on_pond, the sampler's measured_ring helper).
+	td["pond_moved"] = true
+	td["pond_center_before_move"] = old_c
+	var ps := site.pond_site(layout.pond_center)
+	td["pond_site_slope_deg"] = float(ps["slope_deg"])
+	if float(ps["slope_deg"]) > tp.pond_max_site_slope_deg:
+		if not stage1_steep:
+			td["pond_moved_fail"] = "steep"
+			return "terrain:pond_moved"
+		td["pond_steep"] = true
+	# SD-VILLAGE-TERRAIN-28 §3 (+ hero ring, handoff 3): the moved pond must not steepen the plaza or
+	# hero ring past 22° either.
+	var pr := site.pond_rings_ok(layout.pond_center)
+	td["pond_moved_plaza_peak_deg"] = float((pr["plaza"] as Dictionary).get("peak_deg", 0.0))
+	td["pond_moved_hero_peak_deg"] = float((pr["hero"] as Dictionary).get("peak_deg", 0.0))
+	if not bool(pr["ok"]):
+		td["pond_moved_fail"] = String(pr["ring"])
+		return "terrain:pond_moved"
+	var r := site.recheck_pads_on_pond(layout, old_c)
+	td["pond_moved_rechecked"] = int(r["rechecked"])
+	td["pond_moved_peak_deg"] = float(r["peak_deg"])
+	if not bool(r["ok"]):
+		td["pond_moved_fail"] = "ring:%d" % int(r["failed"])
+		return "terrain:pond_moved"
+	return ""
+
+
 static func _ms_since(t0_us: int) -> float:
 	return float(Time.get_ticks_usec() - t0_us) / 1000.0
 
@@ -266,45 +565,31 @@ static func _reserve_stage1(
 		_keep_clear_unused: Rect2,
 		cottage_keep: Rect2,
 		diag: Dictionary,
+		site: VillageSiteTerrain = null,
+		base_grid: VillageOccupancyGrid = null,
 ) -> int:
 	var t0 := Time.get_ticks_usec()
-	var world := Rect2(g - Vector2(_WORLD_EXTENT_M, _WORLD_EXTENT_M), Vector2(_WORLD_EXTENT_M * 2.0, _WORLD_EXTENT_M * 2.0))
-	var grid: Variant = _GridScr.new(world, 1.0)
-	## Hero building footprint — stop below the door approach so stoop stays a valid A* endpoint.
-	grid.block_rect(Rect2(-5.5, -5.0, 11.0, 5.25), 1.0)
-	## Block only the inner cottage keep-clear (cobble/plaza loop runs outside this — see legacy lattice).
-	grid.block_rect(cottage_keep, 0.0)
-	## Primaries/secondaries stop before lawn R−8 (DESIGN §3 stage 2).
-	grid.block_outside_circle(g, _Layout.GENERATED_LAWN_RADIUS - 8.0)
-	## Forest wedge behind hero (+Z)
-	grid.block_rect(Rect2(world.position.x, 4.0, world.size.x, world.position.y + world.size.y - 4.0), 0.0)
+	## AR-LF-PERF P6a: the attempt-independent blocks are built once per generate() and copied here.
+	var grid: Variant = base_grid.copy() if base_grid != null else _reserve_base_grid(g, cottage_keep)
 
-	## Pond: try validated centres in fan until one passes.
-	var pond_center := Vector2.ZERO
-	var pond_ok := false
-	var try_st := _Layout._derive(st, _POND_SALT)
-	for _pi: int in range(48):
-		try_st = _Scatter.lcg_step(try_st ^ norm)
-		var r := lerpf(16.0, 34.0, _Scatter.lcg_f01(try_st))
-		try_st = _Scatter.lcg_step(try_st)
-		var phi_deg := lerpf(_Layout.FAN_PHI_MIN_DEG, _Layout.FAN_PHI_MAX_DEG, _Scatter.lcg_f01(try_st))
-		var phi := deg_to_rad(phi_deg)
-		var c := g + Vector2(r * sin(phi), -r * cos(phi))
-		var trial := VillageLayout.new()
-		trial.is_generated = true
-		trial.hamlet_centre_xz = g
-		trial.plaza_rect = plaza_rect
-		trial.lawn_radius = _Layout.GENERATED_LAWN_RADIUS
-		trial.pond_cottage_clearance_m = _Layout.GENERATED_POND_COTTAGE_CLEARANCE_M
-		trial.pond_path_clearance_m = _Layout.GENERATED_POND_PATH_CLEARANCE_M
-		trial.cottages = []
-		if _PondPlace.validate(c, trial, false):
-			pond_center = c
-			pond_ok = true
-			break
+	var t_pond := Time.get_ticks_usec()
+	var pc := _choose_pond(norm, st, g, plaza_rect, site)
+	diag["stage_ms"]["1a_pond"] = _ms_since(t_pond)
+	var try_st: int = pc["try_st"]
+	var pond_ok: bool = pc["ok"]
+	var pond_center: Vector2 = pc["centre"]
+	if site != null:
+		(diag["terrain_diag"] as Dictionary)["pond_plaza_rejects"] = int(pc.get("plaza_rejects", 0))
+		(diag["terrain_diag"] as Dictionary)["pond_hero_rejects"] = int(pc.get("hero_rejects", 0))
+	if site != null and pond_ok:
+		var td: Dictionary = diag["terrain_diag"]
+		td["pond_site_slope_deg"] = float(pc["slope_deg"])
+		if bool(pc["steep"]):
+			td["pond_steep"] = true
 	if not pond_ok:
 		diag["abort"] = true
-		diag["fail_reason"] = "pond_unresolved"
+		# SD-28 §3: every slope-valid candidate failed the plaza or hero ring check.
+		diag["fail_reason"] = _pond_fail_reason(pc)
 		diag["stage_reached"] = "reserve"
 		return st
 
@@ -329,6 +614,101 @@ static func _reserve_stage1(
 	diag["stage_ms"]["_sub_reserve_grid"] = _ms_since(t0)
 	st = _Scatter.lcg_step(st ^ try_st)
 	return st
+
+
+static func _reserve_base_grid(g: Vector2, cottage_keep: Rect2) -> VillageOccupancyGrid:
+	## The attempt-independent stage-1 blocks (AR-LF-PERF P6a); the pond circle is added per attempt.
+	var world := Rect2(g - Vector2(_WORLD_EXTENT_M, _WORLD_EXTENT_M), Vector2(_WORLD_EXTENT_M * 2.0, _WORLD_EXTENT_M * 2.0))
+	var grid: VillageOccupancyGrid = _GridScr.new(world, 1.0)
+	## Hero building footprint — stop below the door approach so stoop stays a valid A* endpoint.
+	grid.block_rect(Rect2(-5.5, -5.0, 11.0, 5.25), 1.0)
+	## Block only the inner cottage keep-clear (cobble/plaza loop runs outside this — see legacy lattice).
+	grid.block_rect(cottage_keep, 0.0)
+	## Primaries/secondaries stop before lawn R−8 (DESIGN §3 stage 2).
+	grid.block_outside_circle(g, _Layout.GENERATED_LAWN_RADIUS - 8.0)
+	## Forest wedge behind hero (+Z)
+	grid.block_rect(Rect2(world.position.x, 4.0, world.size.x, world.position.y + world.size.y - 4.0), 0.0)
+	return grid
+
+
+static func _pond_fail_reason(pc: Dictionary) -> String:
+	## Stage-1 pond failure reason (ivy-82zn.14.30 F3): any plaza ring reject → terrain:pond_plaza;
+	## hero ring rejects only → terrain:pond_hero; no ring rejects → pond_unresolved.
+	if int(pc.get("plaza_rejects", 0)) > 0:
+		return "terrain:pond_plaza"
+	if int(pc.get("hero_rejects", 0)) > 0:
+		return "terrain:pond_hero"
+	return "pond_unresolved"
+
+
+static func _choose_pond(norm: int, st: int, g: Vector2, plaza_rect: Rect2, site: VillageSiteTerrain) -> Dictionary:
+	## Stage-1 pond centre: {ok, centre, steep, slope_deg, try_st}. Flat (site null): the first valid
+	## fan try (unchanged). Landscape (SD-19 pond row, AR-LF-LAYOUT, AR-LF-PERF P3): per try the raw
+	## site plane FIRST; a flat site (≤ pond_max_site_slope_deg) is validated and kept, and the loop
+	## stops at POND_TERRAIN_CANDIDATES flat valid sites (same break index as validating every try, so
+	## try_st and the RNG stream are unchanged); steep tries are only listed. Then the lowest of the
+	## flat sites (choose_terrain_site); none → the steep list by ascending slope (stable), first that
+	## validates, steep = true (terrain_diag.pond_steep).
+	var trial := VillageLayout.new()
+	trial.is_generated = true
+	trial.hamlet_centre_xz = g
+	trial.plaza_rect = plaza_rect
+	trial.lawn_radius = _Layout.GENERATED_LAWN_RADIUS
+	trial.pond_cottage_clearance_m = _Layout.GENERATED_POND_COTTAGE_CLEARANCE_M
+	trial.pond_path_clearance_m = _Layout.GENERATED_POND_PATH_CLEARANCE_M
+	trial.cottages = []
+	var flat_list: Array = []
+	var steep_list: Array = []
+	## Ring rejects split by ring (ivy-82zn.14.30 F3): plaza_ring → plaza_rejects, hero_ring → hero_rejects.
+	var rejects := {"plaza_ring": 0, "hero_ring": 0}
+	var try_st := _Layout._derive(st, _POND_SALT)
+	for pi: int in range(48):
+		try_st = _Scatter.lcg_step(try_st ^ norm)
+		var r := lerpf(16.0, 34.0, _Scatter.lcg_f01(try_st))
+		try_st = _Scatter.lcg_step(try_st)
+		var phi_deg := lerpf(_Layout.FAN_PHI_MIN_DEG, _Layout.FAN_PHI_MAX_DEG, _Scatter.lcg_f01(try_st))
+		var phi := deg_to_rad(phi_deg)
+		var c := g + Vector2(r * sin(phi), -r * cos(phi))
+		if site == null:
+			if _PondPlace.validate(c, trial, false):
+				return {"ok": true, "centre": c, "steep": false, "slope_deg": 0.0, "try_st": try_st}
+			continue
+		var ps := site.pond_site(c)
+		var entry := {"centre": c, "slope_deg": ps["slope_deg"], "mean": ps["mean"], "i": pi}
+		if float(ps["slope_deg"]) <= site.params.pond_max_site_slope_deg:
+			if _PondPlace.validate(c, trial, false):
+				# SD-VILLAGE-TERRAIN-28 §3 (+ the hero ring, handoff 3): after the 6° site slope, the
+				# pond must not steepen the plaza or hero ring past 22° (measured); a failure takes the
+				# next candidate.
+				var rings := site.pond_rings_ok(c)
+				if not bool(rings["ok"]):
+					rejects[String(rings["ring"])] = int(rejects.get(String(rings["ring"]), 0)) + 1
+					continue
+				flat_list.append(entry)
+				if flat_list.size() >= _PondPlace.POND_TERRAIN_CANDIDATES:
+					break
+		else:
+			steep_list.append(entry)
+	if site == null:
+		return {"ok": false, "centre": Vector2.ZERO, "steep": false, "slope_deg": 0.0, "try_st": try_st}
+	if not flat_list.is_empty():
+		var ch := _PondPlace.choose_terrain_site(flat_list, site.params.pond_max_site_slope_deg)
+		return {"ok": true, "centre": ch["centre"], "steep": false, "slope_deg": ch["slope_deg"], "try_st": try_st,
+			"plaza_rejects": int(rejects["plaza_ring"]), "hero_rejects": int(rejects["hero_ring"])}
+	steep_list.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		if float(a["slope_deg"]) != float(b["slope_deg"]):
+			return float(a["slope_deg"]) < float(b["slope_deg"])
+		return int(a["i"]) < int(b["i"]))  # stable: earlier try wins a tie
+	for e: Dictionary in steep_list:
+		if _PondPlace.validate(e["centre"], trial, false):
+			var rings := site.pond_rings_ok(e["centre"])
+			if not bool(rings["ok"]):
+				rejects[String(rings["ring"])] = int(rejects.get(String(rings["ring"]), 0)) + 1
+				continue
+			return {"ok": true, "centre": e["centre"], "steep": true, "slope_deg": e["slope_deg"], "try_st": try_st,
+				"plaza_rejects": int(rejects["plaza_ring"]), "hero_rejects": int(rejects["hero_ring"])}
+	return {"ok": false, "centre": Vector2.ZERO, "steep": false, "slope_deg": 0.0, "try_st": try_st,
+		"plaza_rejects": int(rejects["plaza_ring"]), "hero_rejects": int(rejects["hero_ring"])}
 
 
 ## Quadrant counts around G: [nw, ne, sw, se] matching `VillagePlotSampler.quadrant_counts_for_centres`.
@@ -492,7 +872,8 @@ static func _stage2_primaries_hero(
 			bearing = atan2(pond_c.x - start.x, -(pond_c.y - start.y)) + deg_to_rad(lerpf(-18.0, 18.0, _Scatter.lcg_f01(st)))
 		else:
 			bearing = _outward_bearing_from_plaza_start(g, start, st)
-		var targ_len := lerpf(24.0, 36.0, _Scatter.lcg_f01(_Scatter.lcg_step(st)))
+		var targ_len := lerpf(PRIMARY_LEN_MIN_M, PRIMARY_LEN_MAX_M, _Scatter.lcg_f01(_Scatter.lcg_step(st))) \
+			* _path_len_scale(diag)
 		var p_st := _Layout._derive(st, _PATH_SALT + _k * 199)
 		st = _Scatter.lcg_step(st)
 		var js_plaza: int = plaza_jids[si]
@@ -947,7 +1328,8 @@ static func _stage3_secondaries(
 		if _Scatter.lcg_f01(st) < 0.5:
 			ang = -ang
 		var bearing := atan2(tan.y, tan.x) + ang
-		var blen := lerpf(8.0, 19.0, _Scatter.lcg_f01(_Scatter.lcg_step(st)))
+		var blen := lerpf(BRANCH_LEN_MIN_M, BRANCH_LEN_MAX_M, _Scatter.lcg_f01(_Scatter.lcg_step(st))) \
+			* _path_len_scale(diag)
 		var pst := _Layout._derive(st, 0xB000 + bi)
 		st = _Scatter.lcg_step(st)
 		var branch: PackedVector2Array = _Grower.grow_free(p0, bearing, blen, _grow_params(pst, 0.1, 8.0, 0.09), grid, null)
@@ -1033,16 +1415,8 @@ static func _stage5_select_with_capacity(
 	t0 = Time.get_ticks_usec()
 	var picked: Array = _Sampler.select(all_cands, need, pick_st, sel_params)
 	ms["5b_select_initial"] = _ms_since(t0)
-	if picked.size() <= 2:
-		return {
-			"ok": false,
-			"fail_reason": "plot_select_%d" % picked.size(),
-			"picked": picked,
-			"candidates_n": all_cands.size(),
-			"picked_n": picked.size(),
-			"capacity_branches": 0,
-			"stage_ms": ms,
-		}
+	# SD-VILLAGE-TERRAIN-21 (2026-11-18): the `picked.size() <= 2` early exit is removed; capacity
+	# growth runs whenever fewer than 8 are picked (at 16 m the initial pick is often 2).
 	if picked.is_empty():
 		return {
 			"ok": false,
@@ -1104,6 +1478,24 @@ static func _stage5_select_with_capacity(
 		t0 = Time.get_ticks_usec()
 		picked = _Sampler.append_to_selection(all_cands, picked, need, pick_st, sel_params)
 		ms["5g_append_after_full_refresh"] = _ms_since(t0)
+	var sep_used := float(sel_params.get("min_centre_sep_m", 0.0))
+	var relaxed_to := -1.0
+	if picked.size() < need and bool(sel_params.get("sep_ladder", false)):
+		# SD-VILLAGE-TERRAIN-21 fallback ladder (every attempt, 2026-11-18): keep the picks made at the stricter
+		# floor and top up with the same candidate pool, 1 m lower each step, down to
+		# effective_sep_ladder_floor_m (sep_ladder_floor_m knob, production 14 m).
+		t0 = Time.get_ticks_usec()
+		var sel_relax := sel_params.duplicate()
+		for s: float in sep_ladder_steps(sep_used, float(sel_params.get("sep_ladder_floor_m", SEP_LADDER_FLOOR_M))):
+			sel_relax["min_centre_sep_m"] = s
+			picked = _Sampler.append_to_selection(all_cands, picked, need,
+				_Layout._derive(pick_st ^ int(s * 16.0), _PATH_SALT + 211), sel_relax)
+			relaxed_to = s
+			if picked.size() >= need:
+				break
+		ms["5h_sep_ladder"] = _ms_since(t0)
+	if relaxed_to > 0.0:
+		sep_used = relaxed_to
 	if picked.size() < need:
 		return {
 			"ok": false,
@@ -1117,7 +1509,7 @@ static func _stage5_select_with_capacity(
 			"st": st,
 			"stage_ms": ms,
 		}
-	return {
+	var out := {
 		"ok": true,
 		"picked": picked,
 		"candidates_n": all_cands.size(),
@@ -1127,7 +1519,11 @@ static func _stage5_select_with_capacity(
 		"join_snap_splits_failed": int(diag.get("join_snap_splits_failed", 0)),
 		"st": st,
 		"stage_ms": ms,
+		"min_centre_sep_used": sep_used,
 	}
+	if relaxed_to > 0.0:
+		out["sep_relaxed_to"] = relaxed_to
+	return out
 
 
 static func _merge_candidate_lists(into: Array, more: Array) -> void:
@@ -1150,14 +1546,15 @@ static func _candidate_dedup_key(c: Dictionary) -> String:
 
 ## Emptiest quadrant anchor around hamlet G (nw/ne/sw/se).
 static func _quadrant_anchor(g: Vector2, qi: int) -> Vector2:
-	var off := Vector2(-24.0, -24.0)
+	var a := CAP_ANCHOR_OFFSET_M
+	var off := Vector2(-a, -a)
 	match qi:
 		1:
-			off = Vector2(24.0, -24.0)
+			off = Vector2(a, -a)
 		2:
-			off = Vector2(-24.0, 24.0)
+			off = Vector2(-a, a)
 		3:
-			off = Vector2(24.0, 24.0)
+			off = Vector2(a, a)
 	return g + off
 
 
@@ -1294,9 +1691,11 @@ static func _grow_one_capacity_branch(
 	var min_q: int = 99
 	for qc: Variant in q_counts:
 		min_q = mini(min_q, int(qc))
-	var blen := lerpf(8.0, 20.0, _Scatter.lcg_f01(_Scatter.lcg_step(st)))
+	var blen := lerpf(CAP_BRANCH_LEN_MIN_M, CAP_BRANCH_LEN_MAX_M, _Scatter.lcg_f01(_Scatter.lcg_step(st)))
 	if min_q <= 0:
-		blen = lerpf(14.0, 26.0, _Scatter.lcg_f01(_Scatter.lcg_step(st ^ 0x33)))
+		blen = lerpf(CAP_BRANCH_EMPTY_Q_LEN_MIN_M, CAP_BRANCH_EMPTY_Q_LEN_MAX_M,
+			_Scatter.lcg_f01(_Scatter.lcg_step(st ^ 0x33)))
+	blen *= _path_len_scale(diag)
 	var pst := _Layout._derive(br_st, 0xB100)
 	var branch: PackedVector2Array = _Grower.grow_free(
 		p_attach, bearing, blen, _grow_params(pst, 0.1, 8.0, 0.09), grid_eff, null)
@@ -1391,7 +1790,8 @@ static func _grow_capacity_from_endpoint(
 		return {"ok": false}
 	var bearing: float = atan2(grow_dir.y, grow_dir.x)
 	bearing += deg_to_rad(lerpf(-12.0, 12.0, _Scatter.lcg_f01(_Layout._derive(br_st, 0x90EB))))
-	var blen: float = lerpf(12.0, 24.0, _Scatter.lcg_f01(_Scatter.lcg_step(st)))
+	var blen: float = lerpf(CAP_ENDPOINT_LEN_MIN_M, CAP_ENDPOINT_LEN_MAX_M,
+		_Scatter.lcg_f01(_Scatter.lcg_step(st))) * _path_len_scale(diag)
 	var pst := _Layout._derive(br_st, 0xB200)
 	var branch: PackedVector2Array = _Grower.grow_free(
 		best_end, bearing, blen, _grow_params(pst, 0.1, 8.0, 0.09), grid_eff, null)
@@ -1643,12 +2043,9 @@ static func _build_layout(
 	layout.plaza_keep_clear = keep_clear
 	layout.cottage_rings = []
 	layout.lawn_radius = _Layout.GENERATED_LAWN_RADIUS
-	layout.hill_inner = _Layout.GENERATED_HILL_INNER
 	layout.pine_inner = _Layout.GENERATED_PINE_INNER
 	layout.pine_outer = _Layout.GENERATED_PINE_OUTER
 	layout.pine_count = _Layout.GENERATED_PINE_COUNT
-	layout.fog_begin = _Layout.GENERATED_FOG_BEGIN
-	layout.fog_end = 95.0
 	layout.bush_filler_inner = 8.0
 	layout.bush_filler_outer = _Layout.GENERATED_BUSH_FILLER_OUTER
 	layout.stone_seed = _Layout._derive(norm, _Layout.STONES_SALT)
@@ -1708,7 +2105,34 @@ static func _door_polylines_for_validate(layout: VillageLayout, picked: Array) -
 	return out
 
 
-static func _validate_full(layout: VillageLayout, picked: Array, net: Variant) -> Dictionary:
+static func _validate_full(layout: VillageLayout, picked: Array, net: Variant, terrain: Dictionary = {},
+		min_centre_sep_m: float = 0.0) -> Dictionary:
+	## v1–v6, then (landscape) the open-land path cap (SD-VILLAGE-TERRAIN-20 restated ivy-82zn.14.23,
+	## AR-LF-PERF P1/P2): VillageSiteTerrain.open_path_slope reads exact U on open land only, so no
+	## field is built and fit zones / door approaches are not checked here (the ring rule holds
+	## them). Reason "terrain:path_cap"; path_cap_only = failed on the path cap alone.
+	var t0 := Time.get_ticks_usec()
+	var res := _validate_v(layout, picked, net, min_centre_sep_m)
+	res["ms_v"] = _ms_since(t0)
+	if terrain.is_empty() or not bool(res["ok"]):
+		return res  # a v1–v6 failure is never a path-cap-only one
+	var tp: VillageTerrainParams = terrain["params"]
+	var t1 := Time.get_ticks_usec()
+	var m: Dictionary = (terrain["site"] as VillageSiteTerrain).open_path_slope(layout)
+	res["ms_open_path"] = _ms_since(t1)
+	res["path"] = m
+	var tv := _Validate.v_terrain_path(float(m["deg"]), tp.max_path_slope_deg)
+	(res["counts"] as Dictionary)["terrain"] = tv.size()
+	(res["samples"] as Dictionary)["terrain"] = tv
+	if not tv.is_empty():
+		res["path_cap_only"] = true
+		res["path_cap_violation"] = _Validate.path_cap_violation(float(m["deg"]), tp.max_path_slope_deg)
+		res["reason"] = "terrain:path_cap"
+		res["ok"] = false
+	return res
+
+
+static func _validate_v(layout: VillageLayout, picked: Array, net: Variant, min_centre_sep_m: float = 0.0) -> Dictionary:
 	var door_stoops: Array = []
 	var door_conns: Array = _door_polylines_for_validate(layout, picked)
 	for item: Variant in picked:
@@ -1731,6 +2155,7 @@ static func _validate_full(layout: VillageLayout, picked: Array, net: Variant) -
 		"g": layout.hamlet_centre_xz,
 		"max_corner_m": _Layout.HAMLET_MAX_CORNER_FROM_G,
 		"min_gap_m": 4.0,
+		"min_centre_sep_m": min_centre_sep_m,
 		"junction_points": layout.junction_points,
 		"junction_tol": 0.3,
 		"hero_stoop": _Layout.HERO_DOOR_STOOP,

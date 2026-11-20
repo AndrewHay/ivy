@@ -179,12 +179,15 @@ func test_seed_normalisation_zero() -> void:
 
 func test_seed_normalisation_negative() -> void:
 	## Negative seed normalised by & 0x7FFFFFFF. Must match positive normalised value.
+	## ivy-82zn.14.35 (human 2026-11-19): this test checks normalisation parity only, fallback flag
+	## included. Whether 2147483647 itself places without falling back is tracked in ivy-82zn.14.29.
 	var layout_neg := VillageLayout.generate(-1)
 	# In GDScript, -1 & 0x7FFFFFFF = 2147483647 (two's-complement low 31 bits).
 	var layout_pos := VillageLayout.generate(-1 & 0x7FFFFFFF)
-	assert_false(layout_neg.fallback, "generate(-1) must not fall back")
-	assert_eq(layout_neg.cottages.size(), VillageLayout.GENERATED_HAMLET_COUNT,
-		"generate(-1) must produce GENERATED_HAMLET_COUNT cottages")
+	assert_eq(layout_neg.fallback, layout_pos.fallback,
+		"generate(-1) fallback flag must equal generate(norm)")
+	assert_eq(layout_neg.cottages.size(), layout_pos.cottages.size(),
+		"generate(-1) cottage count must equal generate(norm)")
 	# Centres must match
 	for i: int in layout_neg.cottages.size():
 		var cn: Vector2 = layout_neg.cottages[i]["centre"]

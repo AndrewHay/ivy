@@ -1,8 +1,6 @@
 class_name ForestPlaygroundCamera
 extends RefCounted
 
-const HeroFog = preload("res://src/world/hero_fog.gd")
-const WorldFogParams = preload("res://src/world/world_fog_params.gd")
 const ForestCamRef = preload("res://src/world/forest_cam_ref.gd")
 
 ## Matches square-scenario generated village (capture QA / main.tscn).
@@ -69,29 +67,14 @@ static func count_trees_in_camsun_fov(trees_layout: Array[Vector2]) -> int:
 	return count
 
 
-static func hero_fog_anchor_world() -> Vector3:
-	var off := backdrop_origin()
-	var h := VillageLayout.HERO_DOOR_STOOP
-	return Vector3(h.x + off.x, 1.0, h.y + off.z)
-
-
-## Trees in horizontal CamSun FOV with fog amount <= max_haze (hero or camera centre).
-static func count_trees_visible_in_camsun(
-		trees_layout: Array[Vector2],
-		fog_begin: float,
-		fog_end: float,
-		fog_model: HeroFog.FogModel,
-		max_haze: float = 0.7,
-		world_params: WorldFogParams = null) -> Dictionary:
+## Trees in the horizontal CamSun FOV (trees at y 1 m, layout XZ in backdrop-local space).
+## AR-NOFOG: no haze gate any more; returns {"in_fov": n}.
+static func count_trees_visible_in_camsun(trees_layout: Array[Vector2]) -> Dictionary:
 	var cam_pos := camsun_position()
 	var off := backdrop_origin()
 	var fwd := camsun_forward()
 	var half_h := deg_to_rad(FOV_DEG * 0.5)
-	var anchor := hero_fog_anchor_world()
-	var params := world_params if world_params != null else WorldFogParams.new()
 	var in_fov := 0
-	var visible := 0
-	var haze_sum := 0.0
 	for p: Vector2 in trees_layout:
 		var wp := Vector3(p.x + off.x, 1.0, p.y + off.z)
 		var rel := Vector3(wp.x - cam_pos.x, 0.0, wp.z - cam_pos.z)
@@ -102,9 +85,4 @@ static func count_trees_visible_in_camsun(
 		if dot <= 0.0 or acos(clampf(dot, -1.0, 1.0)) > half_h:
 			continue
 		in_fov += 1
-		var haze := HeroFog.haze_at_world_point(
-			fog_model, cam_pos, wp, anchor, fog_begin, fog_end, params)
-		if haze <= max_haze:
-			visible += 1
-			haze_sum += haze
-	return {"in_fov": in_fov, "visible": visible, "mean_haze": haze_sum / maxf(visible, 1)}
+	return {"in_fov": in_fov}

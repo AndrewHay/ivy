@@ -10,6 +10,38 @@ const _REFINE_EVAL_CAP := 24
 const _REFINE_ANCHORS := 3
 
 
+## Landform pond rule (ivy-82zn.14.16, SD-VILLAGE-TERRAIN-19 pond row, AR-LF-LAYOUT / AR-LF-GAP-2):
+## the generator stops collecting slope-qualifying sites at this many.
+const POND_TERRAIN_CANDIDATES := 6
+
+
+static func choose_terrain_site(cands: Array, max_slope_deg: float) -> Dictionary:
+	## cands: valid pond centres in try order, each {centre, slope_deg, mean} (raw landform plane over
+	## r ≤ BANK_OUTER_M). The lowest raw mean of the first POND_TERRAIN_CANDIDATES with slope ≤
+	## max_slope_deg wins (ties → earlier try). None qualifies → the flattest valid site, steep = true.
+	## {centre, slope_deg, mean, steep}; {} when cands is empty.
+	var best: Dictionary = {}
+	var flattest: Dictionary = {}
+	var n_ok := 0
+	for c: Dictionary in cands:
+		if flattest.is_empty() or float(c["slope_deg"]) < float(flattest["slope_deg"]):
+			flattest = c
+		if float(c["slope_deg"]) > max_slope_deg or n_ok >= POND_TERRAIN_CANDIDATES:
+			continue
+		n_ok += 1
+		if best.is_empty() or float(c["mean"]) < float(best["mean"]):
+			best = c
+	if not best.is_empty():
+		var r := best.duplicate()
+		r["steep"] = false
+		return r
+	if flattest.is_empty():
+		return {}
+	var f := flattest.duplicate()
+	f["steep"] = true
+	return f
+
+
 static func resolve_center(layout: VillageLayout) -> Vector2:
 	if layout.pond_placed:
 		return layout.pond_center

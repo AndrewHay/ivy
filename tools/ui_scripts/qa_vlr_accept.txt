@@ -17,13 +17,13 @@ ORBIT 120 30 6
 SCREENSHOT s3_grass_orbit30m.png
 ORBIT 45 46 28
 SCREENSHOT s3_grass_high_oblique.png
-# S4 fog — village centre vs lawn edge
+# S4 village centre vs lawn edge (no fog since AR-NOFOG)
 CAMERA sun
 SCREENSHOT s4_camsun_clear.png
 ORBIT 0 48 4
 SCREENSHOT s4_edge_inward_village.png
 ORBIT_AIM_BACKDROP 0 52 8 5 0.5 0
-SCREENSHOT s4_edge_outward_haze.png
+SCREENSHOT s4_edge_outward.png
 ORBIT 180 48 4
 SCREENSHOT s4_edge_opposite_inward.png
 # S5 camera presets (bounds-clamped orbit radii)

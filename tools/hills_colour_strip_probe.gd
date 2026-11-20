@@ -9,7 +9,6 @@ extends Node
 const _MAIN := "res://src/main/main.tscn"
 const _SQUARE := "res://assets/structures/scenarios/square.tres"
 const GameModes = preload("res://src/world/game_modes.gd")
-const HeroFog = preload("res://src/world/hero_fog.gd")
 
 ## World positions sampled (relative to hamlet_centre_xz, +Z = south, -Z = north)
 const _NORTH_OFFSETS: Array[float] = [30.0, 55.0, 75.0, 110.0, 160.0, 195.0, 250.0]
@@ -30,9 +29,6 @@ func _ready() -> void:
 
 	var main := await _boot_generated(seed_val)
 	var world: Node3D = main.get_node("World")
-	var sky: SkySun = world.get_sky_sun()
-	sky.set_fog_model(HeroFog.FogModel.WORLD_AROUND_HERO)
-	sky.set_fog_anchor(world.call("_hero_fog_anchor_world"))
 	var bounds: Dictionary = world.get_village_lawn_camera_bounds()
 	var g := Vector2(bounds.get("centre_xz", Vector2.ZERO))
 

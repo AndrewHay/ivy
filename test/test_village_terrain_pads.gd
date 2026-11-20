@@ -1,176 +1,432 @@
-## AC-VT5: Cottage pad interior flatness and skirt slope probe.
-## Each pad interior |sample_y(p) − sample_y(centre)| ≤ 0.05 m (hard assertion).
-## Skirt slope ≤ tan(pad_edge_slope_max_deg) per SD AC-VT5 (8° default → 0.1405 m/m).
-## SD-VILLAGE-TERRAIN-4 §Cottage pads / AR-VT-TESTS / WP3.
+## ivy-82zn.14.14 (WP1) / ivy-82zn.14.16 (WP2) — cottage pad and hero fit (SD-VILLAGE-TERRAIN-19,
+## AC-LT-PAD / AC-LT-RING). WP2: sites are rejected in the plot sampler (site slope, measured ring
+## with neighbour replay), the widths are stored (spec.ring_w, layout.landform.hero_ring_w) and the
+## field uses them, so AC-LT-RING is asserted with 0 exceptions.
 extends GutTest
 
 const VillageTerrainParams = preload("res://src/playground/village_terrain_params.gd")
 const VillageTerrain = preload("res://src/playground/village_terrain.gd")
 
-const _PAD_INTERIOR_EPS_M := 0.05    # AC-VT5 flatness tolerance
-const _SLOPE_STEP_M := 0.25          # measurement step for skirt slope
-const _TEST_SEEDS: Array[int] = [1, 7, 12]
+const _SEEDS: Array[int] = [1, 7, 12]
+## AC-LT-RING sampling grid (SD-23: ≤ 0.5 m grid over 0 < sdf < w).
+const _RING_GRID_M := 0.5
 
 
-# ── helpers ───────────────────────────────────────────────────────────────────
-
-## Signed distance from p to the INSIDE of rect (negative = inside, positive = outside).
-static func _rect_sdf(p: Vector2, rect: Rect2) -> float:
-	var c := rect.get_center()
-	var half := rect.size * 0.5
-	var dx := absf(p.x - c.x) - half.x
-	var dz := absf(p.y - c.y) - half.y
-	return maxf(dx, dz)
-
-
-# ── AC-VT5 part 1: interior flatness ─────────────────────────────────────────
-
-func test_pad_interior_flat_seed1() -> void:
-	_check_interior_flat(1)
-
-func test_pad_interior_flat_seed7() -> void:
-	_check_interior_flat(7)
-
-func test_pad_interior_flat_seed12() -> void:
-	_check_interior_flat(12)
+func _covered_by_later(f, site: Dictionary, xz: Vector2) -> bool:
+	var after := false
+	for s: Dictionary in f.sites:
+		if s == site:
+			after = true
+			continue
+		if after and f.site_sdf(s, xz) < float(s["w"]):
+			return true
+	return false
 
 
-func _check_interior_flat(seed: int) -> void:
-	## For every cottage: sample a 3×3 grid inside the grown pad rect.
-	## |h − h_centre| must be ≤ 0.05 m at each interior point (AC-VT5).
-	var layout := VillageLayout.generate(seed)
-	if layout.fallback:
-		pass_test("fallback skip seed %d" % seed)
-		return
-	var params := VillageTerrainParams.production()
-	var t_seed := VillageTerrain.terrain_seed(layout, params)
-
-	for spec: Dictionary in layout.cottages:
-		var centre := spec["centre"] as Vector2
-		var h_centre := VillageTerrain.sample_y(centre, layout, params, t_seed)
-		var grown := VillageBackdrop.cottage_exterior_rect(spec).grow(params.pad_margin_m)
-
-		# 3×3 interior grid, 40% of half-size inward so we're well inside any skirt
-		var half := grown.size * 0.5 * 0.4
-		var offsets := [
-			Vector2(-half.x, -half.y), Vector2(0, -half.y), Vector2(half.x, -half.y),
-			Vector2(-half.x, 0),       Vector2(0, 0),        Vector2(half.x, 0),
-			Vector2(-half.x, half.y),  Vector2(0, half.y),   Vector2(half.x, half.y),
-		]
-
-		for off: Vector2 in offsets:
-			var p := centre + off
-			var h := VillageTerrain.sample_y(p, layout, params, t_seed)
-			var dev := absf(h - h_centre)
-			if dev > _PAD_INTERIOR_EPS_M:
-				fail_test(
-					"AC-VT5 seed=%d cottage@%s: interior p=%s h=%.4f vs h_centre=%.4f dev=%.4f > %.3f" % [
-					seed, str(centre), str(p), h, h_centre, dev, _PAD_INTERIOR_EPS_M])
-				return
-	pass_test("AC-VT5 pad interior flat: seed=%d, all cottages ≤ %.3f m dev" % [
-		seed, _PAD_INTERIOR_EPS_M])
+func test_pad_targets_are_core_means_of_the_capped_field() -> void:
+	var p := VillageTerrainParams.production()
+	for seed in _SEEDS:
+		var layout := VillageLayout.generate(seed)
+		var f = VillageTerrain.field(layout, p)
+		var n := 0
+		for s: Dictionary in f.sites:
+			if s["kind"] != "cottage":
+				continue
+			n += 1
+			var rect: Rect2 = s["rect"]
+			var spec: Dictionary = layout.cottages[int(s["index"])]
+			assert_eq(rect, VillageBackdrop.cottage_exterior_rect(spec).grow(p.pad_margin_m),
+				"core = exterior rect grown by pad_margin")
+			var sum := 0.0
+			var k := 0
+			for ix in range(11):
+				for iz in range(11):
+					sum += f.sample_unfit_y(rect.position + rect.size * Vector2(ix / 10.0, iz / 10.0))
+					k += 1
+			assert_almost_eq(float(s["target"]), sum / k, 0.05, "seed %d pad %d target = core mean" % [seed, s["index"]])
+			assert_between(float(s["w"]), p.pad_ring_min_m, p.pad_ring_max_m, "ring width in range")
+		assert_eq(n, layout.cottages.size(), "one site per cottage")
 
 
-# ── AC-VT5 part 2: skirt slope ───────────────────────────────────────────────
-
-func test_pad_skirt_slope_seed1() -> void:
-	_check_pad_skirt_slope(1)
-
-func test_pad_skirt_slope_seed7() -> void:
-	_check_pad_skirt_slope(7)
-
-func test_pad_skirt_slope_seed12() -> void:
-	_check_pad_skirt_slope(12)
-
-
-func test_cottage_pad_heights_relaxation_limits_neighbor_delta_seed1() -> void:
-	## Regression (bold relief): neighbour pad datums stay within gap*tan(8°) after relaxation.
-	var layout := VillageLayout.generate(1)
-	if layout.fallback:
-		pass_test("fallback skip")
-		return
-	var params := VillageTerrainParams.production()
-	var t_seed := VillageTerrain.terrain_seed(layout, params)
-	VillageTerrain.clear_knoll_centres_cache()
-	var grade_cap := tan(deg_to_rad(params.pad_edge_slope_max_deg)) * 0.90
-	for i in layout.cottages.size():
-		var ci: Vector2 = layout.cottages[i]["centre"]
-		for j in range(i + 1, layout.cottages.size()):
-			var cj: Vector2 = layout.cottages[j]["centre"]
-			var gap := maxf(ci.distance_to(cj) - 5.5, 2.0)
-			var hi := VillageTerrain.sample_y(ci, layout, params, t_seed)
-			var hj := VillageTerrain.sample_y(cj, layout, params, t_seed)
-			var allowed := grade_cap * gap + 0.05
-			assert_lte(absf(hi - hj), allowed,
-				"seed1 pads %d↔%d Δh=%.3f > gap*tan(8°)=%.3f" % [i, j, absf(hi - hj), allowed])
+func test_field_uses_the_stored_ring_widths() -> void:
+	## SD-19 step 6: one decision, stored. The field reads spec.ring_w and landform.hero_ring_w.
+	for seed in _SEEDS:
+		var layout := VillageLayout.generate(seed)
+		var f = VillageTerrain.field(layout, VillageTerrainParams.production())
+		for s: Dictionary in f.sites:
+			if s["kind"] == "cottage":
+				var spec: Dictionary = layout.cottages[int(s["index"])]
+				assert_true(spec.has("ring_w"), "seed %d cottage %d spec.ring_w stored" % [seed, s["index"]])
+				assert_eq(float(s["w"]), float(spec["ring_w"]), "field w = spec.ring_w")
+			elif s["kind"] == "hero":
+				assert_eq(float(s["w"]), float(layout.landform["hero_ring_w"]), "field hero w = stored")
 
 
-func test_pad_skirt_multi_pad_tail_reset_seed1() -> void:
-	## Regression ivy-82zn.8: sequential pad lerps let a later w≈0 cottage erase a
-	## high-weight neighbour; 0.25 m steps saw cliffs at this west-skirt probe pair.
-	var layout := VillageLayout.generate(1)
-	if layout.fallback:
-		pass_test("fallback skip")
-		return
-	var params := VillageTerrainParams.production()
-	var t_seed := VillageTerrain.terrain_seed(layout, params)
-	var slope_max := tan(deg_to_rad(params.pad_edge_slope_max_deg))
-	var p0 := Vector2(-23.90287, -21.1129)
-	var p1 := Vector2(-24.15287, -21.1129)
-	var grade := absf(
-		VillageTerrain.sample_y(p1, layout, params, t_seed)
-		- VillageTerrain.sample_y(p0, layout, params, t_seed)) / _SLOPE_STEP_M
-	assert_lte(grade, slope_max + 0.001,
-		"seed1 multi-pad tail-reset grade=%.4f" % grade)
-
-
-func _check_pad_skirt_slope(seed: int) -> void:
-	## Sample pairs across each pad skirt (just outside grown rect → skirt boundary).
-	var layout := VillageLayout.generate(seed)
-	if layout.fallback:
-		pass_test("fallback skip seed %d" % seed)
-		return
-	var params := VillageTerrainParams.production()
-	var t_seed := VillageTerrain.terrain_seed(layout, params)
-	# SD AC-VT5: measure grade across the widened fer skirt (≥ pad_skirt_m per edge-slope guarantee).
-	var skirt_m := VillageTerrain.pad_skirt_outer_m(params, layout, t_seed)
-	var slope_max := tan(deg_to_rad(params.pad_edge_slope_max_deg))
+func test_sampler_target_agrees_with_field_target_seeds_1_20() -> void:
+	## Review 2 F2 / AR-LF-GAP-5: the plot sampler's T_i (bilinear 1 m lattice, VillageSiteTerrain)
+	## and the field's T_i (exact sample_unfit_y) agree within 0.02 m for every cottage. The sampler
+	## value is stored on the spec as pad_target. Also records how many seeds kept a moved pond.
+	var p := VillageTerrainParams.production()
 	var worst := 0.0
+	var worst_at := ""
+	var n := 0
+	var moved := PackedStringArray()
+	for seed in range(1, 21):
+		var layout := VillageLayout.generate(seed)
+		if layout.fallback:
+			continue
+		if bool(layout.terrain_diag.get("pond_moved", false)):
+			moved.append(str(seed))
+		var f = VillageTerrain.field(layout, p)
+		for s: Dictionary in f.sites:
+			if s["kind"] != "cottage":
+				continue
+			var spec: Dictionary = layout.cottages[int(s["index"])]
+			assert_true(spec.has("pad_target"), "seed %d cottage %d spec.pad_target stored" % [seed, s["index"]])
+			if not spec.has("pad_target"):
+				continue
+			n += 1
+			var d := absf(float(spec["pad_target"]) - float(s["target"]))
+			if d > worst:
+				worst = d
+				worst_at = "%d/%d" % [seed, s["index"]]
+	gut.p("T_i sampler vs field: %d pads, worst %.4f m at %s; pond_moved kept on seeds [%s]" % [
+		n, worst, worst_at, ", ".join(moved)])
+	assert_gt(n, 0, "pads compared")
+	assert_lte(worst, 0.02, "sampler T_i vs field T_i worst %.4f m at %s (AR-LF-GAP-5)" % [worst, worst_at])
 
+
+func _site_for(layout: VillageLayout, p: VillageTerrainParams) -> VillageSiteTerrain:
+	return VillageSiteTerrain.for_landform(layout.generation_seed, p, layout.landform)
+
+
+func test_pond_recheck_without_a_move_passes_the_stored_widths() -> void:
+	## Review 2 F1: the re-check measures the STORED width with the sampler's helper and grid, so on
+	## an unmoved pond every stored pad passes (same decision the sampler made).
+	var p := VillageTerrainParams.production()
+	for seed in [7, 12]:
+		var layout := VillageLayout.generate(seed)
+		assert_false(bool(layout.terrain_diag.get("pond_moved", false)), "seed %d keeps its stage-1 pond" % seed)
+		var site := _site_for(layout, p)
+		site.set_pond(layout.pond_center)
+		var r := site.recheck_pads_on_pond(layout, layout.pond_center)
+		gut.p("seed %d unmoved re-check: %d pads, peak %.1f°" % [seed, r["rechecked"], r["peak_deg"]])
+		assert_true(bool(r["ok"]), "seed %d stored pad rings pass on their own pond (failed %d)" % [seed, r["failed"]])
+
+
+func test_forced_pond_move_onto_a_pad_fails_the_recheck() -> void:
+	## Review 2 F1 repro: move the pond after selection (as resolve_after_paths can) right beside a
+	## pad. The re-check must run on that pad with the FINAL pond and reject the stored ring.
+	## ivy-82zn.14.18: the WP3 layout of seed 7 moved pad 0, and a production-depth basin beside it now
+	## peaks at 21.7° (under 22), so the repro deepens the basin (as the site replay test does) to make
+	## the ring break independent of where the pads land.
+	var p := VillageTerrainParams.production()
+	var layout := VillageLayout.generate(7)
+	p.pond_depth_m = -3.0
+	var site := _site_for(layout, p)
+	var old_c := layout.pond_center
+	site.set_pond(old_c)
+	var spec: Dictionary = layout.cottages[0]
+	var core := site.pad_core(spec)
+	var far := Vector2(1e4, 1e4)
+	# A far-away pond reaches no pad: nothing to re-check.
+	layout.pond_center = far
+	var site_far := _site_for(layout, p)
+	site_far.set_pond(far)
+	var r_far := site_far.recheck_pads_on_pond(layout, far)
+	assert_eq(int(r_far["rechecked"]), 0, "pond reaching no pad: no re-check")
+	# The pond pressed against the pad's core edge.
+	layout.pond_center = Vector2(core.end.x + VillagePondSite.BANK_OUTER_M * 0.5, core.get_center().y)
+	var r := site.recheck_pads_on_pond(layout, old_c)
+	gut.p("forced move to %s: rechecked %d, failed %d, peak %.1f°" % [str(layout.pond_center), r["rechecked"],
+		r["failed"], r["peak_deg"]])
+	assert_gt(int(r["rechecked"]), 0, "the re-check ran on the pads the moved pond reaches")
+	assert_false(bool(r["ok"]), "a pond basin pressed against a pad breaks its stored ring")
+	assert_eq(site.pond["centre"], layout.pond_center, "the site now replays the FINAL pond")
+
+
+func test_moved_pond_decision_rejects_steep_moves_unless_no_flat_site() -> void:
+	## Review 2 F1: a moved pond over pond_max_site_slope_deg fails the attempt (terrain:pond_moved)
+	## when stage 1 found a flat site; when stage 1 had none (pond_steep) the move is kept, flagged.
+	var p := VillageTerrainParams.production()
+	var steep_u := func(xz: Vector2) -> float: return xz.x * 0.3  # ≈ 16.7° plane
+	var site := VillageSiteTerrain.from_fn(steep_u, p)
+	var layout := VillageLayout.new()
+	layout.is_generated = true
+	layout.cottages = []
+	layout.pond_placed = true
+	layout.pond_center = Vector2(10.0, -20.0)
+	var td := {}
+	var reason := VillageGeneratorV3._check_moved_pond(site, layout, Vector2(0.0, -20.0), p, false, td)
+	assert_eq(reason, "terrain:pond_moved", "steep moved pond with a flat stage-1 site fails the attempt")
+	assert_true(bool(td.get("pond_moved", false)), "pond_moved flagged")
+	var td2 := {}
+	var reason2 := VillageGeneratorV3._check_moved_pond(site, layout, Vector2(0.0, -20.0), p, true, td2)
+	assert_eq(reason2, "", "no flat alternative: kept")
+	assert_true(bool(td2.get("pond_steep", false)), "kept steep move is flagged pond_steep")
+	var flat_site := VillageSiteTerrain.from_fn(func(_xz: Vector2) -> float: return 0.0, p)
+	var td3 := {}
+	assert_eq(VillageGeneratorV3._check_moved_pond(flat_site, layout, Vector2(0.0, -20.0), p, false, td3), "",
+		"flat moved pond, no pads: ok")
+	assert_eq(int(td3.get("pond_moved_rechecked", -1)), 0, "re-check ran (0 pads reached)")
+
+
+func _moved_pond_layout(c: Vector2) -> VillageLayout:
+	var layout := VillageLayout.new()
+	layout.is_generated = true
+	layout.cottages = []
+	layout.pond_placed = true
+	layout.pond_center = c
+	return layout
+
+
+func test_moved_pond_decision_rejects_a_move_into_the_plaza_or_hero_ring() -> void:
+	## ivy-82zn.14.30 F4 (review 3): the SD-28 §3 ring branch of _check_moved_pond. A moved pond that
+	## steepens the plaza ring or the hero ring past 22° fails the attempt with pond_moved_fail
+	## naming the ring (stage1_steep true so the 16° site slope alone does not decide it).
+	var p := VillageTerrainParams.production()
+	var k := tan(deg_to_rad(16.0))
+	var fn := func(xz: Vector2) -> float: return -k * xz.x
+	var r_c: float = VillagePondSite.MEAN_WATER_RADIUS_M * p.pond_floor_scale
+	# Plaza ring: the SW-corner geometry of test_pond_plaza_ring_ok_rejects_a_pond_off_the_plaza_corner.
+	var ps := VillageSiteTerrain.from_fn(fn, p, {})
+	var rect := VillageLayout.plaza_rect_at(VillageLayout.VILLAGE_GREEN_G, VillageLayout.PLAZA_SIDE_L)
+	ps.plaza = VillageTerrainField.plaza_site(fn, rect, p, p.plaza_ring_m)
+	var pc: Vector2 = Vector2(rect.position.x, rect.end.y) + Vector2(-1.0, 1.0).normalized() * (2.5 + r_c)
+	var td := {}
+	var reason := VillageGeneratorV3._check_moved_pond(ps, _moved_pond_layout(pc), Vector2(1e4, 1e4), p, true, td)
+	gut.p("moved into plaza ring: %s %s plaza %.1f°" % [reason, td.get("pond_moved_fail", ""),
+		float(td.get("pond_moved_plaza_peak_deg", -1.0))])
+	assert_eq(reason, "terrain:pond_moved", "plaza ring: attempt fails")
+	assert_eq(String(td.get("pond_moved_fail", "")), "plaza_ring", "plaza ring named")
+	assert_gt(float(td.get("pond_moved_plaza_peak_deg", 0.0)), p.ring_max_slope_deg, "plaza peak recorded")
+	assert_false(td.has("pond_moved_rechecked"), "pad re-check not reached")
+	# Hero ring: the geometry of test_pond_hero_ring_ok_rejects_a_pond_in_the_hero_ring (no plaza).
+	var h0 := VillageLayout.HERO_DOOR_STOOP
+	var hs := VillageSiteTerrain.from_fn(fn, p, {"centre": h0, "r_c": p.hero_flat_r_m, "target": 0.0, "w": 9.5})
+	var hc := h0 + Vector2(-(p.hero_flat_r_m + 2.0 + r_c), 0.0)
+	var td2 := {}
+	var reason2 := VillageGeneratorV3._check_moved_pond(hs, _moved_pond_layout(hc), Vector2(1e4, 1e4), p, true, td2)
+	gut.p("moved into hero ring: %s %s hero %.1f°" % [reason2, td2.get("pond_moved_fail", ""),
+		float(td2.get("pond_moved_hero_peak_deg", -1.0))])
+	assert_eq(reason2, "terrain:pond_moved", "hero ring: attempt fails")
+	assert_eq(String(td2.get("pond_moved_fail", "")), "hero_ring", "hero ring named")
+	assert_gt(float(td2.get("pond_moved_hero_peak_deg", 0.0)), p.ring_max_slope_deg, "hero peak recorded")
+	assert_false(td2.has("pond_moved_rechecked"), "pad re-check not reached")
+
+
+func test_choose_pond_counts_hero_ring_rejects_apart_from_plaza() -> void:
+	## ivy-82zn.14.30 F3 (review 3): a candidate rejected only by the hero ring is not a plaza reject,
+	## and a stage-1 failure caused by the hero ring alone is not reported as terrain:pond_plaza.
+	var p := VillageTerrainParams.production()
+	p.pond_depth_m = -3.0
+	var k := tan(deg_to_rad(16.0))
+	var fn := func(xz: Vector2) -> float: return -k * xz.x
+	var g := VillageLayout.VILLAGE_GREEN_G
+	# A hero ring 14-28 m around G covers the stage-1 pond fan (16-34 m); no plaza site.
+	var st := VillageSiteTerrain.from_fn(fn, p, {"centre": g, "r_c": 14.0, "target": 0.0, "w": 14.0})
+	var rect := VillageLayout.plaza_rect_at(g, VillageLayout.PLAZA_SIDE_L)
+	var pc := VillageGeneratorV3._choose_pond(1, 12345, g, rect, st)
+	gut.p("hero-only pond rejects: ok %s plaza %d hero %d" % [pc["ok"], int(pc.get("plaza_rejects", -1)),
+		int(pc.get("hero_rejects", -1))])
+	assert_eq(int(pc.get("plaza_rejects", -1)), 0, "no plaza site: no plaza rejects")
+	assert_gt(int(pc.get("hero_rejects", 0)), 0, "hero ring rejects counted on their own")
+	assert_eq(VillageGeneratorV3._pond_fail_reason({"plaza_rejects": 0, "hero_rejects": 3}), "terrain:pond_hero",
+		"hero-only failure reason")
+	assert_eq(VillageGeneratorV3._pond_fail_reason({"plaza_rejects": 2, "hero_rejects": 3}), "terrain:pond_plaza",
+		"any plaza reject keeps pond_plaza")
+	assert_eq(VillageGeneratorV3._pond_fail_reason({}), "pond_unresolved", "no ring rejects")
+
+
+func test_generated_moved_ponds_were_rechecked_seeds_1_20() -> void:
+	## Review 2 F1: every generated village that kept a moved pond passed the re-check on its final
+	## pond (terrain_diag.pond_moved_rechecked), and re-running it here agrees.
+	var p := VillageTerrainParams.production()
+	var kept := PackedStringArray()
+	var failed_attempts := PackedStringArray()
+	for seed in range(1, 21):
+		var layout := VillageLayout.generate(seed)
+		for a: Dictionary in VillageGeneratorV3.last_diag.get("attempts", []):
+			if str(a["fail_reason"]) == "terrain:pond_moved":
+				failed_attempts.append("%d(%d.%d)" % [seed, a["rank"], a["attempt"]])
+		if layout.fallback or not bool(layout.terrain_diag.get("pond_moved", false)):
+			continue
+		var td := layout.terrain_diag
+		kept.append("%d:%d pads" % [seed, int(td.get("pond_moved_rechecked", -1))])
+		assert_true(td.has("pond_moved_rechecked"), "seed %d moved pond was re-checked" % seed)
+		assert_true(td.has("pond_center_before_move"), "seed %d records the pre-move centre" % seed)
+		# ivy-82zn.14.30 F4: a kept moved pond passed the SD-28 §3 plaza and hero ring checks.
+		assert_lte(float(td.get("pond_moved_plaza_peak_deg", INF)), p.ring_max_slope_deg,
+			"seed %d kept moved pond: plaza ring <= 22°" % seed)
+		assert_lte(float(td.get("pond_moved_hero_peak_deg", INF)), p.ring_max_slope_deg,
+			"seed %d kept moved pond: hero ring <= 22°" % seed)
+		if not td.has("pond_center_before_move"):
+			continue
+		var site := _site_for(layout, p)
+		site.set_pond(td["pond_center_before_move"])
+		var r := site.recheck_pads_on_pond(layout, td["pond_center_before_move"])
+		assert_true(bool(r["ok"]), "seed %d kept moved pond passes the re-check" % seed)
+		assert_eq(int(r["rechecked"]), int(td["pond_moved_rechecked"]), "seed %d same pads re-checked" % seed)
+		if float(td.get("pond_site_slope_deg", 0.0)) > p.pond_max_site_slope_deg:
+			assert_true(bool(td.get("pond_steep", false)), "seed %d kept steep moved pond is flagged" % seed)
+	gut.p("kept moved ponds: [%s]; attempts failed terrain:pond_moved: [%s]" % [", ".join(kept),
+		", ".join(failed_attempts)])
+
+
+func test_field_measures_missing_widths_with_the_shared_helper() -> void:
+	## Hand-built layouts (no stored widths) get the measured ring, not the superseded formula.
+	var p := VillageTerrainParams.production()
+	var src := VillageLayout.generate(1)
+	var layout := VillageLayout.generate(1)
 	for spec: Dictionary in layout.cottages:
-		var centre := spec["centre"] as Vector2
-		var grown := VillageBackdrop.cottage_exterior_rect(spec).grow(params.pad_margin_m)
-		var cardinals := [Vector2(1, 0), Vector2(-1, 0), Vector2(0, 1), Vector2(0, -1)]
-		for dir: Vector2 in cardinals:
-			var prev_p := centre
-			var prev_y := VillageTerrain.sample_y(centre, layout, params, t_seed)
-			var prev_sdf := _rect_sdf(centre, grown)
-			var guard := 0
-			var p := centre
-			while prev_sdf <= skirt_m + _SLOPE_STEP_M and guard < 400:
-				guard += 1
-				p += dir * _SLOPE_STEP_M
-				var sdf := _rect_sdf(p, grown)
-				if sdf < -_SLOPE_STEP_M:
-					prev_y = VillageTerrain.sample_y(p, layout, params, t_seed)
-					prev_p = p
-					prev_sdf = sdf
-					continue
-				if sdf > skirt_m + _SLOPE_STEP_M:
-					break
-				var h := VillageTerrain.sample_y(p, layout, params, t_seed)
-				var ds := sdf - prev_sdf
-				if ds < _SLOPE_STEP_M * 0.45:
-					prev_y = h
-					prev_p = p
-					prev_sdf = sdf
-					continue
-				var grade := absf(h - prev_y) / ds
-				worst = maxf(worst, grade)
-				prev_y = h
-				prev_p = p
-				prev_sdf = sdf
-	assert_lte(
-		worst, slope_max + 0.001,
-		"AC-VT5 seed=%d: worst pad-skirt grade=%.4f > tan(%.1f°)=%.4f" % [
-			seed, worst, params.pad_edge_slope_max_deg, slope_max])
+		spec.erase("ring_w")
+	layout.landform.erase("hero_ring_w")
+	var f = VillageTerrain.field(layout, p)
+	var hr := VillageLandform.hero_ring(1, p, src.landform["offset"])
+	for s: Dictionary in f.sites:
+		if s["kind"] == "hero":
+			assert_almost_eq(float(s["w"]), float(hr["w"]), 1e-6, "hero w measured (= search helper)")
+		elif s["kind"] == "cottage":
+			assert_between(float(s["w"]), p.pad_ring_min_m, p.pad_ring_max_m, "pad w measured in its clamp")
+			assert_almost_eq(fmod(float(s["w"]) - p.pad_ring_min_m, 0.5), 0.0, 1e-6, "on the ladder")
+
+
+func test_ac_lt_pad_cores_level_and_sites_not_steep() -> void:
+	## AC-LT-PAD: |y − T_i| ≤ 0.02 m over every core (where no later ring reaches), site plane slope
+	## ≤ max_site_slope_deg (no rejected site used).
+	var p := VillageTerrainParams.production()
+	var overlapped := PackedStringArray()
+	for seed in _SEEDS:
+		var layout := VillageLayout.generate(seed)
+		var f = VillageTerrain.field(layout, p)
+		for s: Dictionary in f.sites:
+			if s["kind"] != "cottage":
+				continue
+			assert_lte(float(s["s_deg"]), p.max_site_slope_deg, "seed %d pad %d site slope %.2f°" % [seed, s["index"], s["s_deg"]])
+			var rect: Rect2 = s["rect"]
+			var worst := 0.0
+			var touched := false
+			for ix in range(9):
+				for iz in range(9):
+					var xz: Vector2 = rect.position + rect.size * Vector2(ix / 8.0, iz / 8.0)
+					if _covered_by_later(f, s, xz):
+						touched = true
+						continue
+					worst = maxf(worst, absf(f.sample_y(xz) - float(s["target"])))
+			assert_lte(worst, 0.02, "seed %d pad %d core level (%.4f m)" % [seed, s["index"], worst])
+			if touched:
+				overlapped.append("%d/%d" % [seed, s["index"]])
+	if not overlapped.is_empty():
+		gut.p("cores reached by a later ring: %s" % ", ".join(overlapped))
+
+
+func test_ac_vt6_cottage_seats_on_its_pad() -> void:
+	## AC-VT6 vs T_i: the backdrop seats each cottage at sample_y(centre); where no later ring
+	## reaches the centre that is the pad target.
+	var p := VillageTerrainParams.production()
+	for seed in _SEEDS:
+		var layout := VillageLayout.generate(seed)
+		var f = VillageTerrain.field(layout, p)
+		for s: Dictionary in f.sites:
+			if s["kind"] != "cottage":
+				continue
+			var c: Vector2 = (layout.cottages[int(s["index"])] as Dictionary)["centre"]
+			if _covered_by_later(f, s, c):
+				continue
+			assert_almost_eq(VillageTerrain.sample_y(c, layout, p, 0), float(s["target"]), 0.02,
+				"seed %d cottage %d seat = T_i" % [seed, s["index"]])
+
+
+static func ring_report(layout: VillageLayout, p: VillageTerrainParams) -> Dictionary:
+	## AC-LT-RING metric: field.sample_slope_deg (eps 0.4) on a 0.5 m grid over 0 < sdf < w of every
+	## hero / pad ring, overlap nodes included. {worst_hero, worst_pad, over: [..], width_errors: [..]}.
+	var f = VillageTerrain.field(layout, p)
+	var out := {"worst_hero": 0.0, "worst_pad": 0.0, "over": PackedStringArray(), "width_errors": PackedStringArray()}
+	for s: Dictionary in f.sites:
+		var kind := String(s["kind"])
+		if kind != "hero" and kind != "cottage" and kind != "plaza":
+			continue
+		var hero := kind == "hero"
+		var w := float(s["w"])
+		var tag := kind if kind != "cottage" else "pad%d" % int(s["index"])
+		var lo_w: float
+		var hi_w: float
+		var stored: float
+		match kind:
+			"hero":
+				lo_w = p.hero_ring_min_m
+				hi_w = p.hero_ring_max_m
+				stored = float(layout.landform.get("hero_ring_w", NAN))
+			"plaza":
+				lo_w = p.plaza_ring_m
+				hi_w = p.plaza_ring_max_m
+				stored = float(layout.landform.get("plaza_ring_w", NAN))
+			_:
+				lo_w = p.pad_ring_min_m
+				hi_w = p.pad_ring_max_m
+				stored = float((layout.cottages[int(s["index"])] as Dictionary).get("ring_w", NAN))
+		if w < lo_w or w > hi_w or w != stored:
+			out["width_errors"].append("%s w %.2f stored %.2f" % [tag, w, stored])
+		var box: Rect2
+		if hero:
+			var hc: Vector2 = s["centre"]
+			var hh := float(s["r_c"]) + w
+			box = Rect2(hc - Vector2(hh, hh), Vector2(2.0 * hh, 2.0 * hh))
+		else:
+			box = (s["rect"] as Rect2).grow(w)
+		var worst := 0.0
+		var at := Vector2.ZERO
+		var x := box.position.x
+		while x <= box.end.x:
+			var z := box.position.y
+			while z <= box.end.y:
+				var xz := Vector2(x, z)
+				var d: float = f.site_sdf(s, xz)
+				if d > 0.0 and d < w:
+					var sl: float = f.sample_slope_deg(xz)
+					if sl > worst:
+						worst = sl
+						at = xz
+				z += _RING_GRID_M
+			x += _RING_GRID_M
+		var key := "worst_hero" if hero else ("worst_plaza" if kind == "plaza" else "worst_pad")
+		out[key] = maxf(float(out.get(key, 0.0)), worst)
+		if worst > p.ring_max_slope_deg + VillageLandform.RING_OVERLAP_TOL_DEG:
+			out["over"].append("%s %.1f° at %s" % [tag, worst, str(at)])
+	return out
+
+
+func test_ac_lt_ring_seeds_1_7_12() -> void:
+	## AC-LT-RING (restated 2026-11-17): hero and pads ≤ 25° measured on the full field, overlaps
+	## included; widths within their clamps and equal to the stored values; 0 exceptions.
+	var p := VillageTerrainParams.production()
+	for seed in _SEEDS:
+		var layout := VillageLayout.generate(seed)
+		assert_false(layout.fallback, "seed %d generated" % seed)
+		var r := ring_report(layout, p)
+		gut.p("seed %d ring worst hero %.1f° pad %.1f° plaza %.1f°" % [seed, r["worst_hero"], r["worst_pad"],
+			r.get("worst_plaza", 0.0)])
+		assert_eq((r["over"] as PackedStringArray).size(), 0, "seed %d rings over 25°: %s" % [seed, ", ".join(r["over"])])
+		assert_eq((r["width_errors"] as PackedStringArray).size(), 0,
+			"seed %d widths: %s" % [seed, ", ".join(r["width_errors"])])
+
+
+func test_ac_lt_ring_sweep_seeds_1_20() -> void:
+	## AC-LT-RING sweep (restated ivy-82zn.14.23): 0 exceptions on seeds 1–20 (generated seeds).
+	var p := VillageTerrainParams.production()
+	var over := PackedStringArray()
+	var worst := {"hero": 0.0, "pad": 0.0, "plaza": 0.0}
+	for seed in range(1, 21):
+		var layout := VillageLayout.generate(seed)
+		if layout.fallback:
+			continue
+		var r := ring_report(layout, p)
+		worst["hero"] = maxf(float(worst["hero"]), float(r["worst_hero"]))
+		worst["pad"] = maxf(float(worst["pad"]), float(r["worst_pad"]))
+		worst["plaza"] = maxf(float(worst["plaza"]), float(r.get("worst_plaza", 0.0)))
+		for e in r["over"]:
+			over.append("%d:%s" % [seed, e])
+		for e2 in r["width_errors"]:
+			over.append("%d:%s" % [seed, e2])
+	gut.p("sweep worst hero %.1f° pad %.1f° plaza %.1f°" % [worst["hero"], worst["pad"], worst["plaza"]])
+	assert_eq(over.size(), 0, "sweep exceptions: %s" % ", ".join(over))

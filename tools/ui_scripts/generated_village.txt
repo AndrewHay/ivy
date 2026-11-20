@@ -30,7 +30,7 @@ SCREENSHOT high.png
 ORBIT 0 12 2
 SCREENSHOT eye.png
 
-# Switch back to classic to prove two-way mode switching (fog restores to 9.5 m).
+# Switch back to classic to prove two-way mode switching.
 VILLAGE_MODE classic_village
 WAIT 200
 ORBIT 0 50 45

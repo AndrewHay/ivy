@@ -1,296 +1,287 @@
-## AC-VT-HERO: |sample_y| ≤ 0.02 for r < hero_flat_r_m from HERO_DOOR_STOOP.
-## Also: caps, mesh tri budget, sample_normal unit length, rim taper.
-## SD-VILLAGE-TERRAIN-3/4 / AR-VT-DECIDE-2/3 / AR-VT-TESTS.
+## ivy-82zn.14.14 (WP1) — VillageTerrain façade over the landscape-first field: AC-LT-HERO, near
+## mesh budgets, the C1 no-step rule (C5 contour lines), plaza / pond fit targets, flat gates.
+## SD-VILLAGE-TERRAIN-17 / -19 / -23, AR-LF-API.
 extends GutTest
 
-const VillageTerrainParams = preload("res://src/playground/village_terrain_params.gd")
 const VillageTerrain = preload("res://src/playground/village_terrain.gd")
-const VillagePondSite = preload("res://src/world/village_pond_site.gd")
+const VillageTerrainParams = preload("res://src/playground/village_terrain_params.gd")
+const HillsHeightfield = preload("res://src/playground/hills_heightfield.gd")
+const HillsParams = preload("res://src/playground/hills_params.gd")
 const VillageBackdrop = preload("res://src/world/village_backdrop.gd")
+const World = preload("res://src/world/world.gd")
+
+const _SEEDS: Array[int] = [1, 7, 12]
 
 
-func test_hero_stoop_exact_zero() -> void:
-	# AC-VT-HERO: exact stoop position must be flat = 0.0
-	var layout := VillageLayout.generate(7)
-	if layout.fallback:
-		pass_test("fallback skip")
-		return
-	var params := VillageTerrainParams.production()
-	var t_seed := VillageTerrain.terrain_seed(layout, params)
-	var y := VillageTerrain.sample_y(VillageLayout.HERO_DOOR_STOOP, layout, params, t_seed)
-	assert_almost_eq(y, 0.0, 0.001, "hero stoop exact: |y| ≤ 0.001")
+func _layout(seed: int) -> VillageLayout:
+	return VillageLayout.generate(seed)
 
 
-func test_hero_sanctum_flat_within_disc() -> void:
-	# AC-VT-HERO: |sample_y| ≤ 0.02 for r < hero_flat_r_m − 0.5 m
-	for seed: int in [1, 7, 12]:
-		var layout := VillageLayout.generate(seed)
-		if layout.fallback:
-			pass_test("fallback skip seed %d" % seed)
-			continue
-		var params := VillageTerrainParams.production()
-		var t_seed := VillageTerrain.terrain_seed(layout, params)
-		var stoop := VillageLayout.HERO_DOOR_STOOP
-		var test_r := params.hero_flat_r_m - 0.5
-		var angles := 16
-		for i in range(angles):
-			var phi := (float(i) / angles) * TAU
-			var xz := stoop + Vector2(sin(phi), cos(phi)) * test_r
-			var y := VillageTerrain.sample_y(xz, layout, params, t_seed)
-			if absf(y) > 0.02:
-				fail_test("seed=%d: hero sanctum at r=%.1f phi=%.2f: |y|=%.4f > 0.02" % [
-					seed, test_r, phi, absf(y)])
-				return
-	pass_test("hero sanctum flat for all seeds")
+func test_ac_lt_hero_pad_is_level_at_y_hero() -> void:
+	var p := VillageTerrainParams.production()
+	for seed in _SEEDS:
+		var layout := _layout(seed)
+		var f = VillageTerrain.field(layout, p)
+		var y_hero := VillageTerrain.hero_datum_y(layout, p)
+		assert_almost_eq(y_hero, float(f.y_hero), 1e-9, "hero_datum_y is the field's y_hero")
+		var worst := 0.0
+		var h0 := VillageLayout.HERO_DOOR_STOOP
+		for i in range(400):
+			var a := TAU * float(i) / 400.0
+			var r := p.hero_flat_r_m * 0.999 * sqrt(float(i % 20) / 19.0)
+			var xz := h0 + Vector2(cos(a), sin(a)) * r
+			worst = maxf(worst, absf(VillageTerrain.sample_y(xz, layout, p, 0) - y_hero))
+		assert_lte(worst, 0.02, "seed %d hero core within 2 cm of y_hero (%.4f)" % [seed, worst])
 
 
-func test_caps_respected_for_all_seeds() -> void:
-	# SD-VILLAGE-TERRAIN-3: h = clamp(h, -max_depression_m, max_rise_m) + 0.05 safety margin
-	for seed: int in [1, 7, 12]:
-		var layout := VillageLayout.generate(seed)
-		if layout.fallback:
-			pass_test("fallback skip seed %d" % seed)
-			continue
-		var params := VillageTerrainParams.production()
-		var t_seed := VillageTerrain.terrain_seed(layout, params)
-		var g := layout.hamlet_centre_xz
-		var step := 5.0
-		var half := 40.0
-		var x := -half
-		while x <= half:
-			var z := -half
-			while z <= half:
-				var xz := g + Vector2(x, z)
-				var y := VillageTerrain.sample_y(xz, layout, params, t_seed)
-				if y < -(params.max_depression_m + 0.06):
-					fail_test("seed=%d xz=%s: y=%.4f below -max_depression-0.06" % [seed, str(xz), y])
-					return
-				if y > params.max_rise_m + 0.06:
-					fail_test("seed=%d xz=%s: y=%.4f above max_rise+0.06" % [seed, str(xz), y])
-					return
-				z += step
-			x += step
-	pass_test("caps respected for all seeds")
-
-
-func test_build_mesh_seed_12345_under_15s() -> void:
-	## Regression: full displaced mesh must not re-sample every vertex (was ~130s hang).
-	var layout := VillageLayout.generate(12345)
-	if layout.fallback:
-		pass_test("fallback skip")
-		return
-	var params := VillageTerrainParams.production()
-	var t0 := Time.get_ticks_msec()
-	var mesh := VillageTerrain.build_mesh(layout, params)
-	var ms := Time.get_ticks_msec() - t0
-	assert_not_null(mesh, "build_mesh returns mesh")
-	assert_lt(ms, 15000, "build_mesh seed 12345 must finish <15s (got %d ms)" % ms)
-
-
-func test_build_mesh_tris_target_budget() -> void:
-	# AR-VT-DECIDE-3: ≤ 8k tris target (hard cap 16k)
-	var layout := VillageLayout.generate(7)
-	if layout.fallback:
-		pass_test("fallback skip")
-		return
-	var params := VillageTerrainParams.production()
-	var mesh := VillageTerrain.build_mesh(layout, params)
-	assert_not_null(mesh, "build_mesh returns non-null ArrayMesh")
-	assert_gt(mesh.get_surface_count(), 0, "mesh has at least one surface")
-	var verts: PackedVector3Array = mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
-	var tris := verts.size() / 3
-	assert_lte(tris, 8000, "mesh tris ≤ 8k target (got %d)" % tris)
-
-
-func test_build_mesh_tris_hard_cap() -> void:
-	# Hard cap 16k — even at 1 m cell size
-	var layout := VillageLayout.generate(7)
-	if layout.fallback:
-		pass_test("fallback skip")
-		return
-	var params := VillageTerrainParams.production()
-	params.terrain_mesh_step_m = 1.0
-	var mesh := VillageTerrain.build_mesh(layout, params)
-	assert_not_null(mesh, "build_mesh returns non-null at 1m step")
-	var verts: PackedVector3Array = mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
-	var tris := verts.size() / 3
-	assert_lte(tris, 16000, "mesh tris ≤ 16k hard cap at 1m step (got %d)" % tris)
-
-
-func test_sample_normal_is_unit_vector() -> void:
-	# sample_normal returns normalized Vector3
-	var layout := VillageLayout.generate(7)
-	if layout.fallback:
-		pass_test("fallback skip")
-		return
-	var params := VillageTerrainParams.production()
-	var t_seed := VillageTerrain.terrain_seed(layout, params)
+func test_field_is_defined_beyond_the_lawn() -> void:
+	var layout := _layout(7)
+	var p := VillageTerrainParams.production()
 	var g := layout.hamlet_centre_xz
-	var probes: Array[Vector2] = [g, g + Vector2(10, 5), g + Vector2(-15, 20), g + Vector2(0, -25)]
-	for xz: Vector2 in probes:
-		var n := VillageTerrain.sample_normal(xz, layout, params, t_seed)
-		assert_almost_eq(n.length(), 1.0, 0.001, "normal is unit at %s" % str(xz))
-		assert_gt(n.y, 0.0, "normal.y > 0 (upward-facing) at %s" % str(xz))
+	var spread := 0.0
+	var lo := INF
+	var hi := -INF
+	for r in [80.0, 150.0, 250.0, 330.0]:
+		for k in range(16):
+			var a := TAU * float(k) / 16.0
+			var y := VillageTerrain.sample_y(g + Vector2(cos(a), sin(a)) * r, layout, p, 0)
+			assert_true(is_finite(y), "finite at r %.0f" % r)
+			lo = minf(lo, y)
+			hi = maxf(hi, y)
+	spread = hi - lo
+	assert_gt(spread, 1.0, "the landform continues past the lawn (spread %.2f m)" % spread)
 
 
-func test_rim_taper_near_boundary() -> void:
-	# SD-VILLAGE-TERRAIN-3: rim_taper(r) → 0 at r = lawn_radius; sample_y ≈ 0 near rim
-	var layout := VillageLayout.generate(7)
-	if layout.fallback:
-		pass_test("fallback skip")
-		return
-	var params := VillageTerrainParams.production()
-	var t_seed := VillageTerrain.terrain_seed(layout, params)
+func test_flat_variant_and_classic_are_zero() -> void:
+	var p := VillageTerrainParams.production()
+	p.variant = 1
+	var gen := _layout(7)
+	var classic := VillageLayout.authored()
+	var prod := VillageTerrainParams.production()
+	for xz in [Vector2.ZERO, Vector2(10.0, -20.0), Vector2(60.0, 40.0)]:
+		assert_eq(VillageTerrain.sample_y(xz, gen, p, 0), 0.0, "variant 1 flat")
+		assert_eq(VillageTerrain.sample_y(xz, classic, prod, 0), 0.0, "classic flat")
+	assert_eq(VillageTerrain.hero_datum_y(classic, prod), 0.0, "classic datum 0")
+	assert_eq(VillageTerrain.hero_datum_y(gen, p), 0.0, "variant 1 datum 0")
+
+
+func test_no_c0_step_anywhere_in_the_village() -> void:
+	## C5: the field is C1, so no 10 cm-wide step anywhere (a step draws a dark contour line).
+	var layout := _layout(7)
+	var p := VillageTerrainParams.production()
 	var g := layout.hamlet_centre_xz
-	var angles := 16
-	# Just inside the rim blend zone: r = lawn_radius - 0.2
-	for i in range(angles):
-		var phi := (float(i) / angles) * TAU
-		var xz := g + Vector2(sin(phi), cos(phi)) * (layout.lawn_radius - 0.2)
-		var y := VillageTerrain.sample_y(xz, layout, params, t_seed)
-		assert_almost_eq(y, 0.0, 0.08, "near rim taper: |y| ≤ 0.08 at phi=%.1f" % phi)
+	var worst := 0.0
+	var at := Vector2.ZERO
+	for line in range(24):
+		var z := -60.0 + float(line) * 5.0
+		var x := -62.0
+		while x < 62.0:
+			var xz := g + Vector2(x, z)
+			var d := absf(VillageTerrain.sample_y(xz + Vector2(0.05, 0.0), layout, p, 0)
+				- VillageTerrain.sample_y(xz - Vector2(0.05, 0.0), layout, p, 0))
+			if d > worst:
+				worst = d
+				at = xz
+			x += 0.25
+	assert_lte(worst, 0.07, "max 10 cm step %.4f m at %s" % [worst, at])
 
 
-func test_build_mesh_variant1_is_not_null() -> void:
-	# Flat variant still returns a mesh (LawnGround fan; byte-parity)
-	var layout := VillageLayout.generate(7)
-	if layout.fallback:
-		pass_test("fallback skip")
-		return
-	var params := VillageTerrainParams.production()
-	params.variant = 1
-	var mesh := VillageTerrain.build_mesh(layout, params)
-	assert_not_null(mesh, "variant=1 build_mesh returns non-null")
+func test_near_mesh_triangle_budget() -> void:
+	var layout := _layout(7)
+	var p := VillageTerrainParams.production()
+	var mesh := VillageTerrain.build_mesh(layout, p)
+	var tris := mesh.surface_get_array_len(0) / 3
+	assert_lte(tris, 16000, "near mesh hard cap (%d tris)" % tris)
+	assert_lte(tris, 8000, "near mesh target (%d tris)" % tris)
 
 
-func test_knoll_centres_count_within_requested() -> void:
-	# knoll_centres returns at most knoll_count entries
-	for seed: int in [1, 7, 12]:
-		var layout := VillageLayout.generate(seed)
-		if layout.fallback:
-			pass_test("fallback skip seed %d" % seed)
+func test_mesh_cliff_guard() -> void:
+	## From the retired test_village_terrain_hill.gd: no lawn cell steeper than 40°.
+	var p := VillageTerrainParams.production()
+	for seed in _SEEDS:
+		var worst := VillageTerrain.max_mesh_cell_slope_deg(_layout(seed), p)
+		assert_lte(worst, 40.0, "seed %d steepest lawn cell %.1f°" % [seed, worst])
+
+
+func test_sample_normal_is_unit_and_up() -> void:
+	var layout := _layout(12)
+	var p := VillageTerrainParams.production()
+	for xz in [Vector2(0, -18), Vector2(20, -30), Vector2(-25, 0)]:
+		var n := VillageTerrain.sample_normal(xz, layout, p, 0)
+		assert_almost_eq(n.length(), 1.0, 1e-4, "unit normal")
+		assert_gt(n.y, 0.5, "normal points up")
+
+
+func test_plaza_core_is_its_fitted_plane() -> void:
+	## AC-LT-PLAZA core part (fit target, WP1): plaza core = fitted plane ± 2 cm, tilt ≤ 6°.
+	var p := VillageTerrainParams.production()
+	for seed in _SEEDS:
+		var layout := _layout(seed)
+		var f = VillageTerrain.field(layout, p)
+		var plaza: Dictionary = {}
+		for s: Dictionary in f.sites:
+			if s["kind"] == "plaza":
+				plaza = s
+		assert_false(plaza.is_empty(), "seed %d has a plaza site" % seed)
+		assert_lte(float(plaza["tilt_deg"]), p.plaza_max_tilt_deg + 1e-6, "seed %d plaza tilt" % seed)
+		var rect: Rect2 = plaza["rect"]
+		var worst := 0.0
+		var hero_ring: float = 0.0
+		for s: Dictionary in f.sites:
+			if s["kind"] == "hero":
+				hero_ring = float(s["r_c"]) + float(s["w"])
+		for ix in range(10):
+			for iz in range(10):
+				var xz := rect.position + Vector2(rect.size.x * ix / 9.0, rect.size.y * iz / 9.0)
+				if xz.distance_to(VillageLayout.HERO_DOOR_STOOP) < hero_ring:
+					continue  # hero ring has priority over the plaza (SD-17 §5)
+				if _covered_by_later_site(f, xz, "plaza"):
+					continue
+				worst = maxf(worst, absf(f.sample_y(xz) - f.site_target(plaza, xz)))
+		assert_lte(worst, 0.02, "seed %d plaza core on its plane (%.4f)" % [seed, worst])
+
+
+func _covered_by_later_site(f, xz: Vector2, kind: String) -> bool:
+	var after := false
+	for s: Dictionary in f.sites:
+		if s["kind"] == kind:
+			after = true
 			continue
-		var params := VillageTerrainParams.production()
-		var t_seed := VillageTerrain.terrain_seed(layout, params)
-		var centres := VillageTerrain.knoll_centres(layout, params, t_seed)
-		assert_lte(centres.size(), params.knoll_count,
-			"seed=%d: knoll_centres size ≤ knoll_count" % seed)
+		if after and f.site_sdf(s, xz) < float(s["w"]):
+			return true
+	return false
 
 
-func test_knoll_centres_hero_clearance() -> void:
-	# SD-VILLAGE-TERRAIN-4: no mound centre within knoll_hero_clear_m of HERO_DOOR_STOOP
-	for seed: int in [1, 7, 12]:
-		var layout := VillageLayout.generate(seed)
-		if layout.fallback:
-			pass_test("fallback skip seed %d" % seed)
-			continue
-		var params := VillageTerrainParams.production()
-		var t_seed := VillageTerrain.terrain_seed(layout, params)
-		var centres := VillageTerrain.knoll_centres(layout, params, t_seed)
-		var stoop := VillageLayout.HERO_DOOR_STOOP
-		for c: Vector2 in centres:
-			var dist := c.distance_to(stoop)
-			assert_gte(dist, params.knoll_hero_clear_m - 0.01,
-				"seed=%d: knoll at %s too close to hero stoop (dist=%.2f)" % [seed, str(c), dist])
-
-
-func test_knoll_centres_sun_corridor_respected() -> void:
-	# SD-VILLAGE-TERRAIN-4: no mound centre within knoll_sun_corridor_half_deg of sun E/W azimuths
-	for seed: int in [1, 7, 12]:
-		var layout := VillageLayout.generate(seed)
-		if layout.fallback:
-			pass_test("fallback skip seed %d" % seed)
-			continue
-		var params := VillageTerrainParams.production()
-		var t_seed := VillageTerrain.terrain_seed(layout, params)
-		var centres := VillageTerrain.knoll_centres(layout, params, t_seed)
-		var g := layout.hamlet_centre_xz
-		for c: Vector2 in centres:
-			var dx := c.x - g.x
-			var dz := c.y - g.y
-			# azimuth: 0=north(−Z/−dz), 90=east(+X/+dx)
-			var az := rad_to_deg(atan2(dx, -dz))
-			if az < 0.0:
-				az += 360.0
-			# Check not within half_deg of east (90°) or west (270°)
-			var d_east := minf(absf(az - 90.0), 360.0 - absf(az - 90.0))
-			var d_west := minf(absf(az - 270.0), 360.0 - absf(az - 270.0))
-			var half := params.knoll_sun_corridor_half_deg
-			assert_gte(d_east, half - 0.01,
-				"seed=%d knoll az=%.1f within %.0f° of east" % [seed, az, half])
-			assert_gte(d_west, half - 0.01,
-				"seed=%d knoll az=%.1f within %.0f° of west" % [seed, az, half])
-
-
-func test_production_open_lawn_relief_floor_seed7() -> void:
-	## Regression: open-lawn envelope must keep seed-7 relief visible (anti timid defaults).
-	var layout := VillageLayout.generate(7)
-	if layout.fallback:
-		pass_test("fallback skip")
-		return
-	var params := VillageTerrainParams.production()
-	VillageTerrain.clear_knoll_centres_cache()
-	var t_seed := VillageTerrain.terrain_seed(layout, params)
+func test_sample_y_cost_in_the_village() -> void:
+	## AR-LF-API target ≤ 15 µs mean in the village disc (asserted with slack: 40 µs).
+	var layout := _layout(7)
+	var p := VillageTerrainParams.production()
+	var f = VillageTerrain.field(layout, p)
 	var g := layout.hamlet_centre_xz
-	var r := layout.lawn_radius
-	var min_h := INF
-	var max_h := -INF
-	var min_open := INF
-	var max_open_h := -INF
-	var max_open_slope := 0.0
-	var step := 2.0
-	var x := g.x - r
-	while x <= g.x + r:
-		var z := g.y - r
-		while z <= g.y + r:
-			var xz := Vector2(x, z)
-			if xz.distance_to(g) < r:
-				var h := VillageTerrain.sample_y(xz, layout, params, t_seed)
-				min_h = minf(min_h, h)
-				max_h = maxf(max_h, h)
-				if _open_lawn_probe_point(xz, layout, params, t_seed, false):
-					min_open = minf(min_open, h)
-					max_open_h = maxf(max_open_h, h)
-				if _open_lawn_probe_point(xz, layout, params, t_seed, true):
-					max_open_slope = maxf(max_open_slope, VillageTerrain.sample_slope_deg(
-						xz, layout, params, t_seed))
-			z += step
-		x += step
-	var open_span := max_open_h - min_open if min_open < INF else 0.0
-	assert_gte(open_span, 0.48, "seed7 open-lawn h span ≥ 0.48 m")
-	assert_gte(max_h - min_h, 0.30, "seed7 production h span ≥ 0.30 m")
-	assert_gte(max_open_slope, 2.0, "seed7 open-lawn slope ≥ 2°")
-	assert_lte(max_open_slope, 8.01, "seed7 open-lawn slope ≤ 8° cap")
+	var t0 := Time.get_ticks_usec()
+	var n := 0
+	for i in range(2000):
+		var a := float(i) * 2.399
+		f.sample_y(g + Vector2(cos(a), sin(a)) * (46.0 * sqrt(float(i) / 2000.0)))
+		n += 1
+	var us := float(Time.get_ticks_usec() - t0) / float(n)
+	gut.p("field.sample_y mean %.2f µs" % us)
+	assert_lte(us, 40.0, "sample_y mean %.1f µs" % us)
 
 
-static func _open_lawn_probe_point(
-		xz: Vector2,
-		layout: VillageLayout,
-		params: VillageTerrainParams,
-		t_seed: int,
-		for_slope: bool) -> bool:
-	var g := layout.hamlet_centre_xz
-	if xz.distance_to(g) > layout.lawn_radius - params.rim_blend_m - 1.0:
-		return false
-	if for_slope:
-		var pond_r := VillagePondSite.BANK_OUTER_M + params.pond_rim_extra_m + params.pond_skirt_m + 1.0
-		if xz.distance_to(layout.pond_center) < pond_r:
-			return false
-	for polyline: Variant in layout.path_polylines():
-		var pts: Array = polyline
-		for i in range(pts.size() - 1):
-			var a: Vector2 = pts[i]
-			var b: Vector2 = pts[i + 1]
-			var ab := b - a
-			var t := clampf((xz - a).dot(ab) / maxf(ab.dot(ab), 1e-6), 0.0, 1.0)
-			if for_slope and xz.distance_to(a + ab * t) < 5.0:
-				return false
-	var skirt_outer := VillageTerrain.pad_skirt_outer_m(params, layout, t_seed) + 1.0
-	for spec: Dictionary in layout.cottages:
-		var rect := VillageBackdrop.cottage_exterior_rect(spec).grow(params.pad_margin_m)
-		var c := rect.get_center()
-		var half := rect.size * 0.5
-		var sdf := maxf(absf(xz.x - c.x) - half.x, absf(xz.y - c.y) - half.y)
-		if sdf <= skirt_outer:
-			return false
-	return true
+func test_field_is_cached_on_the_layout_and_rebuilt_on_edit() -> void:
+	var layout := _layout(7)
+	var p := VillageTerrainParams.production()
+	var f1 = VillageTerrain.field(layout, p)
+	assert_same(VillageTerrain.field(layout, p), f1, "same params → cached field")
+	p.ground_height_tint = 0.3
+	assert_same(VillageTerrain.field(layout, p), f1, "material knob does not rebuild")
+	p.landform_height_m = 10.0
+	var f2 = VillageTerrain.field(layout, p)
+	assert_ne(f2, f1, "terrain knob rebuilds the field")
+	assert_same(layout.terrain_field, f2, "cache lives on the layout")
+
+
+func _touch_all_callers(layout: VillageLayout, p: VillageTerrainParams, hp: HillsParams) -> Array:
+	## Every field consumer once, in game order; returns the field each façade call resolved.
+	var xz := layout.hamlet_centre_xz + Vector2(0.0, -150.0)
+	var out := []
+	VillageTerrain.sample_y(xz, layout, p)
+	out.append(VillageTerrain.field(layout, p))
+	HillsHeightfield.sample_y(xz, layout, hp)
+	out.append(VillageTerrain.field(layout, p))
+	VillageBackdrop.make_hill_material(layout, hp, p)
+	out.append(VillageTerrain.field(layout, p))
+	HillsHeightfield.build_mesh(layout, hp)
+	out.append(VillageTerrain.field(layout, p))
+	return out
+
+
+func test_field_cache_is_coherent_with_caller_hills_params() -> void:
+	## ivy-82zn.14.21 F5: the façade (production / layout hills) and HillsHeightfield (caller's
+	## HillsParams) used to share one slot keyed by both signatures, so a non-production
+	## HillsParams rebuilt the field back and forth and dropped mesh_min_y.
+	var p := VillageTerrainParams.production()
+	# (a) Value-equal copy: one instance for every caller, mesh_min_y kept.
+	var layout := _layout(7)
+	VillageTerrain.clear_caches()
+	VillageTerrain.build_mesh(layout, p)
+	var f0 = VillageTerrain.field(layout, p)
+	var copy := HillsParams.production().duplicate_params()
+	for f in _touch_all_callers(layout, p, copy):
+		assert_same(f, f0, "value-equal copy: façade resolves the one field")
+	assert_same(VillageTerrain.field(layout, p, copy), f0, "HillsHeightfield key == façade key")
+	assert_false(is_nan(float(f0.mesh_min_y)), "mesh_min_y survives")
+	# (b) Changed ridge knob, not registered on the layout: the caller gets its own field and the
+	# façade field is never rebuilt (no ping-pong) and keeps its mesh_min_y.
+	var ridge := copy.duplicate_params()
+	ridge.height_scale_m = copy.height_scale_m * 1.5
+	for f in _touch_all_callers(layout, p, ridge):
+		assert_same(f, f0, "changed ridge (unregistered): façade field not rebuilt")
+	var fr = VillageTerrain.field(layout, p, ridge)
+	assert_ne(fr, f0, "changed ridge knob resolves its own field")
+	assert_same(VillageTerrain.field(layout, p, ridge), fr, "and keeps it across calls")
+	assert_false(is_nan(float(fr.mesh_min_y)), "ridge field keeps its far-mesh min")
+	assert_false(is_nan(float(f0.mesh_min_y)), "façade field keeps mesh_min_y")
+	# (c) Changed ridge knob registered as the layout's hills (playground): every caller, façade
+	# included, resolves the same instance.
+	var layout2 := _layout(7)
+	layout2.hills_params = ridge
+	VillageTerrain.build_mesh(layout2, p)
+	var g0 = VillageTerrain.field(layout2, p)
+	for f in _touch_all_callers(layout2, p, ridge):
+		assert_same(f, g0, "registered ridge: one instance for façade and HillsHeightfield")
+	assert_same(VillageTerrain.field(layout2, p, ridge), g0, "HillsHeightfield key == façade key")
+	var xz := layout2.hamlet_centre_xz + Vector2(0.0, -150.0)
+	assert_eq(VillageTerrain.sample_y(xz, layout2, p), HillsHeightfield.sample_y(xz, layout2, ridge),
+		"façade and HillsHeightfield agree on the registered ridge")
+	VillageTerrain.clear_caches()
+
+
+func test_backdrop_terrain_field_survives_caller_hills_params() -> void:
+	## F5 through the game node: VillageBackdrop.terrain_field() is not rebuilt by a far caller.
+	var bd := (load("res://src/world/generated_village_backdrop.tscn") as PackedScene).instantiate()
+	bd.set_village_seed(7)
+	add_child_autofree(bd)
+	await get_tree().process_frame
+	var f0 = bd.terrain_field()
+	var min0 := float(f0.mesh_min_y)
+	assert_false(is_nan(min0), "backdrop built both meshes")
+	var ridge := HillsParams.production().duplicate_params()
+	ridge.height_scale_m *= 1.5
+	var layout: VillageLayout = bd.get_layout()
+	HillsHeightfield.sample_y(layout.hamlet_centre_xz + Vector2(0.0, -150.0), layout, ridge)
+	assert_same(bd.terrain_field(), f0, "backdrop field not rebuilt")
+	assert_eq(float(bd.terrain_field().mesh_min_y), min0, "mesh_min_y survives")
+
+
+func _mesh_min_y(mesh: ArrayMesh) -> float:
+	var lo := INF
+	for v: Vector3 in mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]:
+		lo = minf(lo, v.y)
+	return lo
+
+
+func test_ground_plane_sits_below_the_far_mesh_when_read_early() -> void:
+	## ivy-82zn.14.21 F6: terrain_min_y returned the lawn-only min once the lawn mesh had noted its
+	## vertices, so World/Ground (min − GROUND_BELOW_TERRAIN_M) could sit above far valleys.
+	var p := VillageTerrainParams.production()
+	for seed in _SEEDS:
+		VillageTerrain.clear_caches()
+		var layout := _layout(seed)
+		var near := VillageTerrain.build_mesh(layout, p)
+		var f = VillageTerrain.field(layout, p)
+		var t0 := Time.get_ticks_usec()
+		var early_min: float = float(f.terrain_min_y())
+		var early_ms := float(Time.get_ticks_usec() - t0) / 1000.0
+		var ground_early: float = early_min - World.GROUND_BELOW_TERRAIN_M
+		var far := VillageTerrain.build_far_mesh(layout, p)
+		var far_min := _mesh_min_y(far)
+		gut.p("seed %d: early min %.3f (%.1f ms), early ground %.3f, far min %.3f" % [
+			seed, early_min, early_ms, ground_early, far_min])
+		assert_lt(ground_early, far_min,
+			"seed %d: ground read before the far mesh (%.2f) below far min (%.2f)" % [seed, ground_early, far_min])
+		var both := minf(_mesh_min_y(near), far_min)
+		assert_almost_eq(float(f.terrain_min_y()), both, 1e-4,
+			"seed %d: once both meshes exist, terrain_min_y = min of both" % seed)
+	VillageTerrain.clear_caches()

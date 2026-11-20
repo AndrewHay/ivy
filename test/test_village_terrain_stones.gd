@@ -1,7 +1,8 @@
-## WP6: Path stones Y bake + path slope cap.
-## Tests: stone origin.y follows terrain within ±0.08m (AC-VT4); classic byte-identical (INV-15);
-## max path sample_slope_deg ≤ max_path_slope_deg (AC-VT7).
-## AR-VT-TESTS / SD-VILLAGE-TERRAIN-7.
+## Path stones Y bake (AC-VT4) and the path slope metric (AC-LT-PATH, SD-VILLAGE-TERRAIN-20).
+## Stone origin.y follows the field within ±0.08 m; classic byte-identical (INV-15).
+## ivy-82zn.14.14: paths drape on the landform with no corridor stamp; the 14° cap (with the 25°
+## door-approach exemption) is enforced by the generator retry in WP2 (ivy-82zn.14.16). WP1 measures
+## it with VillageTerrainField.max_path_slope and asserts it once WP2 lands.
 extends GutTest
 
 const GeneratedBackdropScene = preload("res://src/world/generated_village_backdrop.tscn")
@@ -12,6 +13,7 @@ const VillageTerrain = preload("res://src/playground/village_terrain.gd")
 const _TEST_SEED := 7
 ## AC-VT4: stone origins ±0.08m of sample_y.
 const _STONE_EPS := 0.08
+const _STONE_PREFIXES := ["Scatter_Path_0", "Scatter_Path_1", "Scatter_Path_2"]
 
 
 func _make_generated(seed: int) -> GeneratedVillageBackdrop:
@@ -27,7 +29,6 @@ func _make_classic() -> VillageBackdrop:
 	return bd
 
 
-## Parse origin.y from a MultiMesh buffer.
 static func _parse_origin_ys(mm: MultiMesh) -> PackedFloat32Array:
 	var out := PackedFloat32Array()
 	if mm == null or mm.instance_count == 0:
@@ -40,7 +41,6 @@ static func _parse_origin_ys(mm: MultiMesh) -> PackedFloat32Array:
 	return out
 
 
-## Parse origin XZ from a MultiMesh buffer.
 static func _parse_origin_xzs(mm: MultiMesh) -> Array[Vector2]:
 	var out: Array[Vector2] = []
 	if mm == null or mm.instance_count == 0:
@@ -53,184 +53,130 @@ static func _parse_origin_xzs(mm: MultiMesh) -> Array[Vector2]:
 	return out
 
 
-# ── 1. Path stone Y baked in generated village ────────────────────────────────
+static func _is_stone(mmi: MultiMeshInstance3D) -> bool:
+	for prefix: String in _STONE_PREFIXES:
+		if mmi.name.begins_with(prefix):
+			return true
+	return false
+
 
 func test_path_stone_y_baked_generated() -> void:
-	## AC-VT4: path stone origin.y must be within ±0.08m of sample_y(xz) in generated village.
+	## AC-VT4: path stone origin.y within ±0.08 m of sample_y(xz).
 	var bd := _make_generated(_TEST_SEED)
 	var layout := bd.get_layout()
-	if layout == null or not layout.is_generated:
-		fail_test("not generated"); return
 	var params := bd.get("_terrain_params") as VillageTerrainParams
-	var t_seed := bd.get("_terrain_seed") as int
-	if params == null:
-		fail_test("no terrain params"); return
-	var stone_prefixes := ["Scatter_Path_0", "Scatter_Path_1", "Scatter_Path_2"]
+	if layout == null or not layout.is_generated or params == null:
+		fail_test("not generated")
+		return
 	var checked := 0
 	var max_err := 0.0
 	for child in bd.get_children():
-		if not (child is MultiMeshInstance3D):
+		if not (child is MultiMeshInstance3D) or not _is_stone(child):
 			continue
-		var mmi := child as MultiMeshInstance3D
-		var is_stone := false
-		for prefix: String in stone_prefixes:
-			if mmi.name.begins_with(prefix):
-				is_stone = true
-				break
-		if not is_stone:
-			continue
-		var mm := mmi.multimesh
-		if mm == null or mm.instance_count == 0:
-			continue
+		var mm := (child as MultiMeshInstance3D).multimesh
 		var ys := _parse_origin_ys(mm)
 		var xzs := _parse_origin_xzs(mm)
 		for i in range(ys.size()):
-			var expected := VillageTerrain.sample_y(xzs[i], layout, params, t_seed)
-			var err := absf(ys[i] - expected)
+			var err := absf(ys[i] - VillageTerrain.sample_y(xzs[i], layout, params, 0))
 			max_err = maxf(max_err, err)
-			if err > _STONE_EPS:
-				fail_test("%s[%d] y=%.4f expected≈%.4f err=%.4f > %.3f" % [
-					mmi.name, i, ys[i], expected, err, _STONE_EPS])
-				return
-		checked += mm.instance_count
-	assert_gt(checked, 0, "must have found at least 1 path stone (got %d)" % checked)
-	pass_test("path stone Y baked: %d stones, max_err=%.4fm" % [checked, max_err])
+		checked += ys.size()
+	assert_gt(checked, 0, "found path stones (%d)" % checked)
+	assert_lte(max_err, _STONE_EPS, "stone y follows the field (max err %.4f m)" % max_err)
 
 
-func test_path_stone_y_nonzero_in_generated() -> void:
-	## Generated backdrop must show terrain lift: path spine is grade-limited (AC-VT7) and may
-	## sit near datum, so also check lifted cottages for visible relief.
+func test_path_stones_ride_the_landform() -> void:
+	## The paths drape over metres of relief (no corridor stamp): stone heights span > 1 m.
 	var bd := _make_generated(_TEST_SEED)
-	var stone_prefixes := ["Scatter_Path_0", "Scatter_Path_1", "Scatter_Path_2"]
-	var max_abs_y := 0.0
+	var lo := INF
+	var hi := -INF
 	for child in bd.get_children():
-		if child is MultiMeshInstance3D:
-			var mmi := child as MultiMeshInstance3D
-			var is_stone := false
-			for prefix: String in stone_prefixes:
-				if mmi.name.begins_with(prefix):
-					is_stone = true
-					break
-			if not is_stone:
-				continue
-			var mm := mmi.multimesh
-			if mm == null:
-				continue
-			var ys := _parse_origin_ys(mm)
-			for y in ys:
-				max_abs_y = maxf(max_abs_y, absf(y))
-	var layout := bd.get_layout()
-	var params := bd.get("_terrain_params") as VillageTerrainParams
-	var t_seed := bd.get("_terrain_seed") as int
-	if layout != null and params != null:
-		var g := layout.hamlet_centre_xz
-		var r := layout.lawn_radius - 1.0
-		var x := -r
-		while x <= r:
-			var z := -r
-			while z <= r:
-				var xz := g + Vector2(x, z)
-				if xz.distance_to(g) < r:
-					max_abs_y = maxf(max_abs_y, absf(
-						VillageTerrain.sample_y(xz, layout, params, t_seed)))
-				z += 5.0
-			x += 5.0
-	assert_gt(max_abs_y, 0.005,
-		"generated backdrop must show |y| > 5mm on grass or stones (terrain relief)")
+		if child is MultiMeshInstance3D and _is_stone(child):
+			for y in _parse_origin_ys((child as MultiMeshInstance3D).multimesh):
+				lo = minf(lo, y)
+				hi = maxf(hi, y)
+	assert_gt(hi - lo, 1.0, "path stones span %.2f m of height" % (hi - lo))
 
-
-# ── 2. Classic path stones: y must be 0 (INV-15) ────────────────────────────
 
 func test_path_stone_y_zero_in_classic() -> void:
-	## INV-15: classic backdrop path stones must remain at y=0 (byte-identical).
+	## INV-15: classic backdrop path stones stay at y = 0 (byte-identical).
 	var bd := _make_classic()
-	var stone_prefixes := ["Scatter_Path_0", "Scatter_Path_1", "Scatter_Path_2"]
 	for child in bd.get_children():
-		if not (child is MultiMeshInstance3D):
+		if not (child is MultiMeshInstance3D) or not _is_stone(child):
 			continue
-		var mmi := child as MultiMeshInstance3D
-		var is_stone := false
-		for prefix: String in stone_prefixes:
-			if mmi.name.begins_with(prefix):
-				is_stone = true
-				break
-		if not is_stone:
-			continue
-		var mm := mmi.multimesh
-		if mm == null:
-			continue
-		var ys := _parse_origin_ys(mm)
-		for i in range(ys.size()):
-			if not is_zero_approx(ys[i]):
-				fail_test("classic %s[%d] y=%.6f expected 0 (INV-15)" % [mmi.name, i, ys[i]])
+		for y in _parse_origin_ys((child as MultiMeshInstance3D).multimesh):
+			if not is_zero_approx(y):
+				fail_test("classic %s y=%.6f expected 0 (INV-15)" % [child.name, y])
 				return
 	pass_test("classic path stones: all y=0 (INV-15)")
 
 
-# ── 3. Path slope cap (AC-VT7) ────────────────────────────────────────────────
-
-const _PATH_SLOPE_STEP_M := 0.5
-
-
-static func _max_path_slope_deg(seed: int) -> float:
-	var layout := VillageLayout.generate(seed)
-	if layout.fallback:
-		return 0.0
-	var params := VillageTerrainParams.production()
-	var t_seed := VillageTerrain.terrain_seed(layout, params)
-	var cap := params.max_path_slope_deg
-	var max_slope := 0.0
-	for polyline: Variant in layout.path_polylines():
-		var pts: Array = polyline as Array
-		if pts.size() < 2:
-			continue
-		var seg_lens: Array[float] = []
-		var total := 0.0
-		for i in range(pts.size() - 1):
-			var a: Vector2 = pts[i] as Vector2
-			var b: Vector2 = pts[i + 1] as Vector2
-			var len := a.distance_to(b)
-			seg_lens.append(len)
-			total += len
-		var dist := 0.0
-		while dist <= total + 0.001:
-			var p := _point_along_polyline(pts, seg_lens, dist)
-			var slope := VillageTerrain.sample_slope_deg(p, layout, params, t_seed)
-			max_slope = maxf(max_slope, slope)
-			dist += _PATH_SLOPE_STEP_M
-	return max_slope
+func test_path_scan_skips_fit_zones_and_door_approaches() -> void:
+	## SD-20 restated (ivy-82zn.14.23): open land = sdf_j ≥ w_j + 0.4 for every fit site and more
+	## than door_approach_m from every door; only open samples are read by the open-land slope fn.
+	var p := VillageTerrainParams.production()
+	var layout := VillageLayout.new()
+	layout.paths = [[Vector2(-40.0, 0.0), Vector2(40.0, 0.0)]]
+	var hero := {"kind": "hero", "centre": Vector2.ZERO, "r_c": 7.0, "w": 4.0, "bound_c": Vector2.ZERO, "bound_r": 11.0}
+	var fn := func(xz: Vector2) -> float: return 99.0 if absf(xz.x) < 11.4 else 5.0
+	var m := VillageTerrainField.path_scan(layout, p, [hero], fn, fn)
+	assert_eq(float(m["deg"]), 5.0, "zone samples excluded from the open-land max")
+	assert_eq(float(m["zone_deg"]), 99.0, "zone samples reported separately")
+	assert_gt(int(m["n_open"]), 40, "open samples counted")
 
 
-static func _point_along_polyline(pts: Array, seg_lens: Array[float], dist: float) -> Vector2:
-	var remaining := dist
-	for i in range(seg_lens.size()):
-		var seg_len: float = seg_lens[i]
-		if remaining <= seg_len or i == seg_lens.size() - 1:
-			var t := clampf(remaining / maxf(seg_len, 1e-6), 0.0, 1.0)
-			var a: Vector2 = pts[i] as Vector2
-			var b: Vector2 = pts[i + 1] as Vector2
-			return a.lerp(b, t)
-		remaining -= seg_len
-	return pts[pts.size() - 1] as Vector2
-
-
-func test_path_slope_cap() -> void:
-	## AC-VT7: max terrain slope along any path ≤ max_path_slope_deg (8.0°).
-	var params := VillageTerrainParams.production()
-	var max_slope := _max_path_slope_deg(_TEST_SEED)
-	assert_lte(max_slope, params.max_path_slope_deg + 0.02,
-		"AC-VT7 seed %d: max path slope %.2f° must be ≤ %.1f°" % [
-			_TEST_SEED, max_slope, params.max_path_slope_deg])
-
-
-func test_path_slope_cap_multiple_seeds() -> void:
-	## AC-VT7: slope cap holds for seeds 1, 3, 5, 7, 12, 240424020.
-	var params := VillageTerrainParams.production()
-	for seed: int in [1, 3, 5, 7, 12, 240424020]:
+func test_ac_lt_path_sweep_seeds_1_20() -> void:
+	## AC-LT-PATH sweep (counts restated 2026-11-18, SD-VILLAGE-TERRAIN-28 §1, ivy-82zn.14.28):
+	## open-land max ≤ path_steep_accept_deg (18°) on every seed, ≤ 9 / 20 flagged and at most one seed
+	## uses all 12 attempts (option A, 2026-11-18), fit zone ≤ 25° on every seed, mean attempts_used
+	## ≤ 4.0. (Was ≤ 2 flagged, mean ≤ 3; then ≤ 8 flagged, no seed at 12.)
+	var p := VillageTerrainParams.production()
+	var flagged := PackedStringArray()
+	var attempts_sum := 0
+	var n := 0
+	var all_twelve := PackedStringArray()
+	for seed in range(1, 21):
 		var layout := VillageLayout.generate(seed)
+		var used := int(VillageGeneratorV3.last_diag.get("attempts_used", 0))
+		attempts_sum += used
+		n += 1
+		assert_lte(used, 12, "seed %d within the 12-attempt budget" % seed)
+		if used >= 12:
+			all_twelve.append(str(seed))
 		if layout.fallback:
 			continue
-		var max_slope := _max_path_slope_deg(seed)
-		assert_lte(max_slope, params.max_path_slope_deg + 0.02,
-			"AC-VT7 seed %d: max path slope %.2f° must be ≤ %.1f°" % [
-				seed, max_slope, params.max_path_slope_deg])
+		var m: Dictionary = VillageTerrain.field(layout, p).max_path_slope(layout)
+		assert_lte(float(m["zone_deg"]), p.ring_max_slope_deg + 3.0, "seed %d fit zone ≤ 25° (%.1f°)" % [seed, m["zone_deg"]])
+		if bool(layout.terrain_diag.get("path_cap_fallback", false)):
+			flagged.append("%d (%.2f°)" % [seed, m["deg"]])
+			assert_lte(float(m["deg"]), p.path_steep_accept_deg, "seed %d flagged open max ≤ 18°" % seed)
+		else:
+			assert_lte(float(m["deg"]), p.max_path_slope_deg, "seed %d open path ≤ 14°" % seed)
+	gut.p("flagged: %s; mean attempts %.2f" % [", ".join(flagged), float(attempts_sum) / float(n)])
+	## Human decision 2026-11-18 (option A, stopgap; proper fix ivy-82zn.14.29): <= 9 / 20 flagged as
+	## measured with the SD-28 storey rule (was <= 8). Open-land max <= 18° on every seed unchanged.
+	assert_lte(flagged.size(), 9, "≤ 9 / 20 flagged seeds (option A 2026-11-18)")
+	assert_lte(float(attempts_sum) / float(n), 4.0, "mean attempts ≤ 4.0 (SD-28)")
+	## Human decision 2026-11-18 (option A, stopgap; proper fix ivy-82zn.14.29): at most ONE of seeds
+	## 1-20 may use all 12 attempts (measured: seed 10; was "no seed uses 12"). The 3.7 s mean timing
+	## limit was accepted knowing it comes from this seed.
+	gut.p("seeds using all 12 attempts: [%s]" % ", ".join(all_twelve))
+	assert_lte(all_twelve.size(), 1, "at most one seed uses all 12 attempts (option A 2026-11-18)")
+
+
+func test_ac_lt_path_metric() -> void:
+	## AC-LT-PATH (restated ivy-82zn.14.23; counts restated 2026-11-18 SD-28 §1): on the probe seeds
+	## 1/7/12 the open-land max is ≤ 18° (path_steep_accept_deg; a flag is allowed), fit zone ≤ 25°,
+	## and the generator's open-land value equals the field's within 0.01°. (Was: unflagged, ≤ 14°.)
+	var p := VillageTerrainParams.production()
+	for seed in [1, 7, 12]:
+		var layout := VillageLayout.generate(seed)
+		assert_false(layout.fallback, "seed %d generated" % seed)
+		var m: Dictionary = VillageTerrain.field(layout, p).max_path_slope(layout)
+		gut.p("seed %d open path %.2f° zone %.1f° flagged %s" % [seed, m["deg"], m["zone_deg"],
+			str(layout.terrain_diag.get("path_cap_fallback", false))])
+		assert_lte(float(m["deg"]), p.path_steep_accept_deg, "seed %d open path ≤ 18°" % seed)
+		assert_lte(float(m["zone_deg"]), p.ring_max_slope_deg + 3.0, "seed %d fit zone ≤ 25°" % seed)
+		assert_almost_eq(float(layout.terrain_diag.get("max_path_slope_open_deg", -1.0)), float(m["deg"]), 0.01,
+			"seed %d generator open-land value = field" % seed)
+		assert_eq(layout.terrain_diag.get("max_path_slope_deg"), layout.terrain_diag.get("max_path_slope_open_deg"),
+			"alias kept")

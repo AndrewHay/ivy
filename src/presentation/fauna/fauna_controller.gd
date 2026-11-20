@@ -144,8 +144,8 @@ func spawn_at_hover_local(
 	agent.age = 0.0
 	agent.test_use_custom_hover = true
 	agent.test_hover_xz = hover_xz
-	var world: Vector3 = ctx.backdrop_global_transform * Vector3(hover_xz.x, 0.0, hover_xz.y)
-	world.y = FaunaMotionScript.anchor_hover_y(species)
+	var world: Vector3 = ctx.backdrop_global_transform * Vector3(hover_xz.x, _local_ground_y(hover_xz), hover_xz.y)
+	world.y += FaunaMotionScript.anchor_hover_y(species)
 	if species == FaunaConstants.Species.BEE:
 		agent.path_from = world
 		agent.path_to = world
@@ -160,6 +160,13 @@ func spawn_at_hover_local(
 	if agent.mesh != null:
 		agent.mesh.global_position = world
 	return true
+
+
+## Backdrop-local terrain height at a backdrop-local XZ (0 without a terrain-aware backdrop).
+func _local_ground_y(xz: Vector2) -> float:
+	if _backdrop != null and _backdrop.has_method("sample_terrain_y"):
+		return float(_backdrop.call("sample_terrain_y", xz))
+	return 0.0
 
 
 func despawn_one(species: FaunaConstants.Species) -> bool:
@@ -249,12 +256,15 @@ func _update_agents(ctx: FaunaPresentationContext, delta: float) -> void:
 
 func _advance_agent(a, ctx: FaunaPresentationContext, delta: float) -> void:
 	var base: Vector3
+	## ivy-82zn.14.10: hover above the ground (anchor terrain y in the backdrop frame), not at an
+	## absolute height — the generated village sits below world 0 on the hill.
 	if a.test_use_custom_hover:
-		base = ctx.backdrop_global_transform * Vector3(a.test_hover_xz.x, 0.0, a.test_hover_xz.y)
+		base = ctx.backdrop_global_transform * Vector3(
+			a.test_hover_xz.x, _local_ground_y(a.test_hover_xz), a.test_hover_xz.y)
 	else:
 		var anchor := _environment.anchors[a.anchor_index]
 		base = ctx.backdrop_global_transform * anchor.local_transform.origin
-	base.y = FaunaMotionScript.anchor_hover_y(a.species)
+	base.y += FaunaMotionScript.anchor_hover_y(a.species)
 	FaunaMotionScript.advance(
 		a, _environment, ctx, base, delta, _rng,
 		debug_spawn_near_pivot_only, debug_spawn_max_dist_from_pivot_m, _agents)
@@ -288,7 +298,7 @@ func _try_spawn(ctx: FaunaPresentationContext) -> void:
 		debug_fail_rng += 1
 		return
 	var spawn_pos: Vector3 = ctx.backdrop_global_transform * anchor.local_transform.origin
-	spawn_pos.y = FaunaMotionScript.anchor_hover_y(species)
+	spawn_pos.y += FaunaMotionScript.anchor_hover_y(species)
 	if not FaunaGating.spawn_distance_allowed(ctx.camera_global_position, spawn_pos):
 		debug_fail_distance += 1
 		return

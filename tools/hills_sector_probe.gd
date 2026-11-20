@@ -4,12 +4,10 @@ extends Node
 const HillsParams = preload("res://src/playground/hills_params.gd")
 const HillsHeightfield = preload("res://src/playground/hills_heightfield.gd")
 const HillsForestPlacement = preload("res://src/playground/hills_forest_placement.gd")
-const HillsFogTint = preload("res://src/playground/hills_fog_tint.gd")
-const HeroFog = preload("res://src/world/hero_fog.gd")
+const HillsTint = preload("res://src/playground/hills_tint.gd")
 const ForestPlaygroundCamera = preload("res://src/playground/forest_playground_camera.gd")
 const VillageScatterPositions = preload("res://src/world/village_scatter_positions.gd")
 const CameraBounds = preload("res://src/world/camera_bounds.gd")
-const WorldFogParams = preload("res://src/world/world_fog_params.gd")
 
 const SECTORS := 6
 const R_LO := 58.0
@@ -57,10 +55,11 @@ func _probe_seed(seed: int) -> void:
 		seed, xforms.size(), edge_sec, counts[edge_sec]])
 	for s in range(SECTORS):
 		print("  sector %d: %d" % [s, counts[s]])
-	_edge_haze(layout, params, seed)
+	_edge_colours(layout, params)
 
 
-func _edge_haze(layout: VillageLayout, params: HillsParams, seed: int) -> void:
+func _edge_colours(layout: VillageLayout, params: HillsParams) -> void:
+	## CPU hill colour along the edge-outward ray (AR-NOFOG: no haze any more).
 	var g := layout.hamlet_centre_xz
 	var hero := VillageLayout.HERO_DOOR_STOOP
 	var centre := g
@@ -72,21 +71,9 @@ func _edge_haze(layout: VillageLayout, params: HillsParams, seed: int) -> void:
 	var edge_out := CameraBounds.clamp_free_camera_eye(
 		Vector3(centre.x + dir_out.x * allowed, 5.0, centre.y + dir_out.y * allowed),
 		centre, lawn_r, margin)
-	var fog_b := layout.fog_begin
-	var fog_e := layout.fog_end
-	var anchor := ForestPlaygroundCamera.hero_fog_anchor_world()
-	var camsun := HillsFogTint.reference_camera_pos()
-	var edge_cam := edge_out
-	print("  haze along edge_out ray (cam=edge, WORLD_AROUND_HERO):")
+	print("  hill colour along edge_out ray:")
 	for dist in [62, 75, 88, 100, 115]:
 		var wp := Vector3(
 			edge_out.x + dir_out.x * dist, 2.0, edge_out.z + dir_out.y * dist)
-		var wf: WorldFogParams = WorldFogParams.production()
-		var h_edge := HeroFog.haze_at_world_point(
-			HeroFog.FogModel.WORLD_AROUND_HERO, edge_cam, wp, anchor, fog_b, fog_e, wf)
-		var h_sun := HeroFog.haze_at_world_point(
-			HeroFog.FogModel.WORLD_AROUND_HERO, camsun, wp, anchor, fog_b, fog_e, wf)
-		var col := HillsFogTint.color_for_world(wp, params, layout, fog_b, fog_e, camsun)
-		print(
-			"    d=%d haze_edge=%.3f haze_camsun=%.3f baked_rgb=(%.3f,%.3f,%.3f)" % [
-				dist, h_edge, h_sun, col.r, col.g, col.b])
+		var col := HillsTint.color_for_world(wp, params, layout)
+		print("    d=%d rgb=(%.3f,%.3f,%.3f)" % [dist, col.r, col.g, col.b])

@@ -22,7 +22,10 @@ const HILLS_TERRAIN_SALT := 0xB1175C3
 const HILLS_FOREST_SALT := 0xF0E557A
 ## Terrain salt streams for VillageTerrain (AR-VT-FILES / SD-VILLAGE-TERRAIN-5).
 const VILLAGE_TERRAIN_SALT := 0x7E44A1
+## Legacy knoll stream (knolls removed by AR-LANDSCAPE-FIRST; the constant stays reserved).
 const VILLAGE_TERRAIN_KNOLL_SALT := 0x7E44A1 ^ 0x5B
+## Landform L stream and offset-search candidates (SD-VILLAGE-TERRAIN-17 / -18).
+const VILLAGE_LANDFORM_SALT := 0x7E44A2
 ## Classic authored graph: 7 door nodes 0..6, hero stoop index 7 (INV-15; unchanged).
 const CLASSIC_HAMLET_COUNT := 7
 const CLASSIC_HERO_NODE := 7
@@ -39,7 +42,9 @@ const PAIR_JIGGLE_MAX_M := 4.0
 const OUTER_CORNER_MAX_M := 38.0
 ## Grown cottage corners must stay inside lawn R=44 re-centred on G (ivy-3l6 v2 / INV-36′).
 const HAMLET_MAX_CORNER_FROM_G := 54.0
-const GENERATED_LAWN_RADIUS := 56.0
+## SD-VILLAGE-TERRAIN-21 (WP3, ivy-82zn.14.18): ≥ max corner (54) + 10 m. Grass/scatter disc, camera
+## XZ clamp, near/far join ring; the generator's occupancy circle is this − 8 (56 m).
+const GENERATED_LAWN_RADIUS := 64.0
 const HOUSE_SPACING_M := 18.0
 const LATTICE_R_IN := 14.0
 const LATTICE_R_OUT := 50.0
@@ -77,7 +82,10 @@ const GENERATED_STONE_SPACING := 0.75
 ## Legacy dart path (classic tests only).
 
 # ── Placement constants (shared classic / generated) ───────────────────────────
-## Minimum centre-to-centre spacing floor (metres); pair jiggle adds up to PAIR_JIGGLE_MAX_M.
+## LEGACY ONLY (classic dart / hex-lattice placement below): centre floor (metres); pair jiggle adds up
+## to PAIR_JIGGLE_MAX_M. The production generator (VillageGeneratorV3 + PlotSampler) does NOT read it:
+## its single source of truth is VillageTerrainParams.cottage_min_sep_m (16 m, SD-VILLAGE-TERRAIN-21/-27),
+## enforced in PlotSampler.select / append_to_selection and re-checked by VillageLayoutValidate.v1.
 const _MIN_CENTRE_SEP_M := 15.0
 ## Hero keep-out distance: nearest grown-rect face must be ≥ this from origin (INV-1).
 const _KEEP_OUT := 5.9
@@ -228,13 +236,14 @@ const _BEZIER_BEND_STEP  := 0.35
 const _BEZIER_BEND_TRIES := 8
 ## Perpendicular waypoint push for MST edge reroute (m).
 const _WAYPOINT_PUSH     := 2.2
-## Generated world-scale preset (+20% vs ivy-80z S2b; scales with ring expansion).
-const GENERATED_HILL_INNER := 56.0
-const GENERATED_PINE_INNER := 41.8
-const GENERATED_PINE_OUTER := 61.6
+## Generated world-scale preset. SD-VILLAGE-TERRAIN-21 (WP3): pines inner ≥ max corner (54) + 2 m,
+## same 20 m band; bush filler scaled with the 46 m village reach; GENERATED_HILL_INNER retired (no
+## separate hills inner edge: generated readers use lawn_radius; layout.hill_inner keeps its classic
+## default).
+const GENERATED_PINE_INNER := 56.0
+const GENERATED_PINE_OUTER := 76.0
 const GENERATED_PINE_COUNT := 40
-const GENERATED_FOG_BEGIN := 20.5
-const GENERATED_BUSH_FILLER_OUTER := 32.3
+const GENERATED_BUSH_FILLER_OUTER := 44.0
 ## Generated-only pond bank clearances (classic uses VillagePondSite defaults via layout fields).
 const GENERATED_POND_COTTAGE_CLEARANCE_M := 3.0
 const GENERATED_POND_PATH_CLEARANCE_M := 2.0
@@ -291,8 +300,6 @@ var hill_inner: float = 20.0
 var pine_inner: float = 19.0
 var pine_outer: float = 28.0
 var pine_count: int = 22
-var fog_begin: float = 9.5
-var fog_end: float = 95.0
 var bush_filler_inner: float = 8.0
 var bush_filler_outer: float = 15.0
 ## Resolved pond centre (XZ). Set during layout build before paths are routed.
@@ -305,6 +312,19 @@ var pond_path_clearance_m: float = VillagePondSite.PATH_CLEARANCE_M
 var plaza_side_m: float = 0.0
 var plaza_rect: Rect2 = Rect2()
 var plaza_keep_clear: Rect2 = Rect2()
+## Terrain (AR-LF-D10): the VillageTerrainParams generate() ran with (null = production), the
+## chosen landform {index, offset, rot_deg, rank, measures, fallback}, terrain diagnostics, and an
+## untyped cache slot for the resolved VillageTerrainField (VillageTerrain.field).
+var terrain_params: Resource = null
+var landform: Dictionary = {}
+var terrain_diag: Dictionary = {}
+var terrain_field = null
+## The HillsParams this layout's terrain is drawn with (null = production). The façade
+## (VillageTerrain.sample_y / field(layout, params) / VillageBackdrop.terrain_field) resolves the
+## field for these; a caller passing other HillsParams gets its own cached field (ivy-82zn.14.21).
+var hills_params: Resource = null
+## Fields for HillsParams other than hills_params, keyed "field_sig|hills_sig" (VillageTerrain.field).
+var terrain_field_variants: Dictionary = {}
 
 
 # ── Constructors ──────────────────────────────────────────────────────────────
@@ -333,9 +353,10 @@ static func authored() -> VillageLayout:
 
 
 ## Returns a procedurally generated layout (v3 path-first via `VillageGeneratorV3`).
-static func generate(seed: int) -> VillageLayout:
+## terrain_params: VillageTerrainParams (null = production); the landform search reads it (AR-LF-D4).
+static func generate(seed: int, terrain_params: Resource = null) -> VillageLayout:
 	var gen_script: GDScript = load("res://src/world/village_gen/village_generator.gd") as GDScript
-	return gen_script.generate(seed) as VillageLayout
+	return gen_script.generate(seed, terrain_params) as VillageLayout
 
 ## Legacy lattice + fan-band placement + hex network (unused by `generate()`; retained until cleanup).
 static func _generate_legacy_lattice(seed: int) -> VillageLayout:
@@ -375,12 +396,9 @@ static func _generate_legacy_lattice(seed: int) -> VillageLayout:
 			layout.path_kinds = []
 			# World-scale preset (SD-VILLAGE-GEN-6 / INV-20): fixed values, not per-seed.
 			layout.lawn_radius = GENERATED_LAWN_RADIUS
-			layout.hill_inner = GENERATED_HILL_INNER
 			layout.pine_inner = GENERATED_PINE_INNER
 			layout.pine_outer = GENERATED_PINE_OUTER
 			layout.pine_count = GENERATED_PINE_COUNT
-			layout.fog_begin = GENERATED_FOG_BEGIN
-			layout.fog_end = 95.0
 			layout.bush_filler_inner = 8.0
 			layout.bush_filler_outer = GENERATED_BUSH_FILLER_OUTER
 			layout.stone_seed = _derive(norm, STONES_SALT)

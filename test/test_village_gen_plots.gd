@@ -139,6 +139,277 @@ func test_better_facing_wins_before_select() -> void:
 	assert_gt(cands[0]["score"], cands[cands.size() - 1]["score"])
 
 
+# ── Terrain site rejection (ivy-82zn.14.16, SD-VILLAGE-TERRAIN-19, AR-LF-LAYOUT) ──
+
+func _cand(name: String, x: float, score: float) -> Dictionary:
+	var spec := {"name": name, "centre": Vector2(x, -20.0), "bays": 3, "yaw_deg": 0, "door": "front:1"}
+	return {"spec": spec, "template": name, "score": score, "path_id": 1, "s": x,
+		"stoop": Vector2(x, -15.0), "door_connection_end": Vector2(x, -15.0)}
+
+
+func test_select_runs_terrain_site_fn_last_and_skips_rejected_sites() -> void:
+	## c2 overlaps c1 (wall gap): rejected before the terrain fn; c3 is rejected by the terrain fn;
+	## accepted picks carry the measured ring width on their spec.
+	var calls: Array[String] = []
+	var fn := func(cand: Dictionary, _picked: Array) -> Dictionary:
+		calls.append(String(cand["template"]))
+		if String(cand["template"]) == "C3":
+			return {"ok": false, "reason": "ring", "s_deg": 3.0, "w": 9.0, "target": 0.0}
+		return {"ok": true, "reason": "", "s_deg": 2.0, "w": 4.5, "target": 1.25}
+	var cands: Array = [_cand("C1", 0.0, 10.0), _cand("C2", 0.5, 9.0), _cand("C3", 30.0, 8.0), _cand("C4", 60.0, 7.0)]
+	var picked: Array = _PlotSampler.select(cands, 3, 1, {"min_gap_wall_m": 4.0, "max_corner_m": 0.0,
+		"terrain_site_fn": fn})
+	var names: Array[String] = []
+	for e: Dictionary in picked:
+		names.append(String(e["template"]))
+	assert_eq(names, ["C1", "C4"] as Array[String], "terrain-rejected C3 skipped, next site taken")
+	assert_eq(calls, ["C1", "C3", "C4"] as Array[String], "fn runs after the wall-gap check (never for C2)")
+	assert_almost_eq(float((picked[0]["spec"] as Dictionary)["ring_w"]), 4.5, 1e-6, "spec.ring_w stored")
+	assert_almost_eq(float((picked[0]["_pad"] as Dictionary)["target"]), 1.25, 1e-6, "pad target kept for replay")
+
+
+func test_select_with_null_terrain_fn_is_unchanged() -> void:
+	var cands: Array = [_cand("C1", 0.0, 10.0), _cand("C2", 0.5, 9.0), _cand("C3", 30.0, 8.0)]
+	var a: Array = _PlotSampler.select(cands, 3, 1, {"min_gap_wall_m": 4.0, "max_corner_m": 0.0})
+	var b: Array = _PlotSampler.select(cands, 3, 1, {"min_gap_wall_m": 4.0, "max_corner_m": 0.0,
+		"terrain_site_fn": null})
+	assert_eq(a.size(), b.size(), "same count")
+	for i in range(a.size()):
+		assert_eq(a[i]["template"], b[i]["template"], "same pick %d" % i)
+		assert_false((b[i]["spec"] as Dictionary).has("ring_w"), "flat variant writes no ring_w")
+
+
+func test_append_to_selection_applies_the_terrain_fn() -> void:
+	var fn := func(cand: Dictionary, picked: Array) -> Dictionary:
+		assert_eq(picked.size(), 1, "the existing pick is passed for neighbour replay")
+		return {"ok": String(cand["template"]) != "C3", "reason": "slope", "s_deg": 11.0, "w": 3.0, "target": 0.0}
+	var existing: Array = _PlotSampler.select([_cand("C1", 0.0, 10.0)], 1, 1, {"max_corner_m": 0.0})
+	var out: Array = _PlotSampler.append_to_selection([_cand("C3", 30.0, 8.0), _cand("C4", 60.0, 7.0)],
+		existing, 2, 1, {"max_corner_m": 0.0, "terrain_site_fn": fn})
+	assert_eq(out.size(), 2, "one appended")
+	assert_eq(String(out[1]["template"]), "C4", "C3 rejected by terrain")
+
+
+# ── Centre spacing and reach (ivy-82zn.14.18, SD-VILLAGE-TERRAIN-21, AR-LF-LAYOUT WP3) ──
+
+func _cand_at(name: String, c: Vector2, score: float) -> Dictionary:
+	var spec := {"name": name, "centre": c, "bays": 3, "yaw_deg": 0, "door": "front:1"}
+	return {"spec": spec, "template": name, "score": score, "path_id": 1, "s": c.x,
+		"stoop": c + Vector2(0.0, 5.0), "door_connection_end": c + Vector2(0.0, 5.0)}
+
+
+func _names(picked: Array) -> Array[String]:
+	var out: Array[String] = []
+	for e: Dictionary in picked:
+		out.append(String(e["template"]))
+	return out
+
+
+func test_select_rejects_centre_pairs_closer_than_min_centre_sep() -> void:
+	## C2 is 15 m from C1: wall gap (~11 m) passes the 4 m floor but the 22 m centre rule rejects it;
+	## C3 at 22.5 m is kept.
+	var g := Vector2(0.0, -18.0)
+	var cands: Array = [_cand_at("C1", g + Vector2(0.0, -20.0), 10.0),
+		_cand_at("C2", g + Vector2(15.0, -20.0), 9.0), _cand_at("C3", g + Vector2(-22.5, -20.0), 8.0)]
+	var p := {"min_gap_wall_m": 4.0, "max_corner_m": 0.0, "hamlet_g": g, "min_centre_sep_m": 22.0}
+	assert_eq(_names(_PlotSampler.select(cands, 3, 1, p)), ["C1", "C3"] as Array[String], "C2 under 22 m skipped")
+	p.erase("min_centre_sep_m")
+	assert_eq(_PlotSampler.select(cands, 3, 1, p).size(), 3, "no min_centre_sep_m key: unchanged (wall gap only)")
+
+
+func test_select_rejects_centres_beyond_centre_r_max() -> void:
+	var g := Vector2(0.0, -18.0)
+	var cands: Array = [_cand_at("NEAR", g + Vector2(0.0, -45.9), 10.0), _cand_at("FAR", g + Vector2(46.2, 0.0), 9.0)]
+	var p := {"min_gap_wall_m": 4.0, "max_corner_m": 0.0, "hamlet_g": g, "centre_r_max_m": 46.0}
+	assert_eq(_names(_PlotSampler.select(cands, 2, 1, p)), ["NEAR"] as Array[String], "centre r 46.2 > 46 skipped")
+
+
+func test_append_to_selection_applies_centre_sep_and_reach() -> void:
+	var g := Vector2(0.0, -18.0)
+	var p := {"min_gap_wall_m": 4.0, "max_corner_m": 0.0, "hamlet_g": g,
+		"min_centre_sep_m": 22.0, "centre_r_max_m": 46.0}
+	var existing: Array = _PlotSampler.select([_cand_at("C1", g + Vector2(0.0, -20.0), 10.0)], 1, 1, p)
+	var more: Array = [_cand_at("CLOSE", g + Vector2(18.0, -20.0), 9.0),
+		_cand_at("OUT", g + Vector2(0.0, 47.0), 8.5), _cand_at("OK", g + Vector2(0.0, 20.0), 8.0)]
+	var out: Array = _PlotSampler.append_to_selection(more, existing, 3, 1, p)
+	assert_eq(_names(out), ["C1", "OK"] as Array[String], "too close and too far both skipped")
+
+
+func test_centre_sep_runs_before_the_terrain_fn() -> void:
+	## The terrain fn is the costly check; spacing / reach rejections must never reach it.
+	var g := Vector2(0.0, -18.0)
+	var calls: Array[String] = []
+	var fn := func(cand: Dictionary, _picked: Array) -> Dictionary:
+		calls.append(String(cand["template"]))
+		return {"ok": true, "reason": "", "s_deg": 1.0, "w": 3.0, "target": 0.0}
+	var cands: Array = [_cand_at("C1", g + Vector2(0.0, -20.0), 10.0),
+		_cand_at("C2", g + Vector2(10.0, -20.0), 9.0), _cand_at("FAR", g + Vector2(0.0, 50.0), 8.0)]
+	_PlotSampler.select(cands, 3, 1, {"min_gap_wall_m": 4.0, "max_corner_m": 0.0, "hamlet_g": g,
+		"min_centre_sep_m": 22.0, "centre_r_max_m": 46.0, "terrain_site_fn": fn})
+	assert_eq(calls, ["C1"] as Array[String], "terrain fn only for the accepted candidate")
+
+
+func _site(u_fn: Callable, hero := {}) -> VillageSiteTerrain:
+	return VillageSiteTerrain.from_fn(u_fn, VillageTerrainParams.production(), hero)
+
+
+func test_site_terrain_rejects_a_steep_site() -> void:
+	var k := tan(deg_to_rad(12.0))
+	var st := _site(func(xz: Vector2) -> float: return k * xz.x)
+	var r := st.evaluate(_cand("S", 0.0, 1.0), [])
+	assert_false(bool(r["ok"]), "12° site rejected")
+	assert_eq(String(r["reason"]), "slope", "reason slope")
+	assert_almost_eq(float(r["s_deg"]), 12.0, 0.2, "plane slope measured")
+	assert_eq(int(st.stats["rejected_slope"]), 1, "counted")
+
+
+func test_site_terrain_rejects_a_level_core_whose_ring_peaks_over_22() -> void:
+	## SD-22 WP2 test: the core is level (site slope passes) but the land outside rises at 42°, so no
+	## ring ≤ 9 m meets 22°.
+	var c := _cand("S", 0.0, 1.0)
+	var core := VillageBackdrop.cottage_exterior_rect(c["spec"]).grow(VillageTerrainParams.production().pad_margin_m)
+	var st := _site(func(xz: Vector2) -> float:
+		return 0.9 * maxf(0.0, VillageTerrain.rect_sdf(xz, core) - 1.0))
+	var r := st.evaluate(c, [])
+	assert_lte(float(r["s_deg"]), 1.0, "core is level")
+	assert_false(bool(r["ok"]), "ring fails")
+	assert_eq(String(r["reason"]), "ring", "reason ring")
+	assert_eq(int(st.stats["rejected_ring"]), 1, "counted")
+
+
+func test_site_terrain_accepts_a_gentle_site_with_a_measured_ring() -> void:
+	var k := tan(deg_to_rad(5.0))
+	var st := _site(func(xz: Vector2) -> float: return k * xz.x + 2.0)
+	var c := _cand("S", 0.0, 1.0)
+	var r := st.evaluate(c, [])
+	var p := VillageTerrainParams.production()
+	assert_true(bool(r["ok"]), "5° site accepted")
+	assert_between(float(r["w"]), p.pad_ring_min_m, p.pad_ring_max_m, "w in the pad clamp")
+	assert_almost_eq(float(r["target"]), 2.0 + k * (c["spec"]["centre"] as Vector2).x, 0.05, "target = core mean")
+	assert_lte(float(r["peak_deg"]), p.ring_max_slope_deg, "peak at w*")
+
+
+func test_site_terrain_replays_selected_neighbours() -> void:
+	## A selected pad 3 m higher, 2 m away: the candidate's ring cannot meet even 25° once the
+	## neighbour is replayed; alone it is flat and passes.
+	var st := _site(func(_xz: Vector2) -> float: return 0.0)
+	var c := _cand("S", 0.0, 1.0)
+	var alone := st.evaluate(c, [])
+	assert_true(bool(alone["ok"]), "isolated flat site passes")
+	var core := VillageBackdrop.cottage_exterior_rect(c["spec"]).grow(VillageTerrainParams.production().pad_margin_m)
+	var n_rect := Rect2(core.end + Vector2(2.0, -core.size.y), core.size)
+	var nb := {"_pad": {"rect": n_rect, "target": 3.0, "w": 3.0}}
+	var with_nb := st.evaluate(c.duplicate(true), [nb])
+	assert_false(bool(with_nb["ok"]), "rejected with the neighbour replayed")
+	assert_eq(String(with_nb["reason"]), "ring", "reason ring")
+
+
+func test_site_terrain_replays_the_plaza_before_pads() -> void:
+	## SD-19 step 2 (restated): the plaza plane is replayed under the candidate. A plaza 3 m higher,
+	## 2 m away, makes the flat candidate's ring fail.
+	var p := VillageTerrainParams.production()
+	var st := _site(func(_xz: Vector2) -> float: return 0.0)
+	var c := _cand("S", 0.0, 1.0)
+	var core := st.pad_core(c["spec"])
+	var rect := Rect2(core.end + Vector2(2.0, -core.size.y), Vector2(18.0, 18.0))
+	st.plaza = {"kind": "plaza", "rect": rect, "a": 0.0, "b": 0.0, "c": 3.0, "w": 5.0,
+		"bound_c": rect.get_center(), "bound_r": rect.size.length() * 0.5 + 5.0}
+	var r := st.evaluate(c, [])
+	assert_false(bool(r["ok"]), "plaza replayed: ring fails")
+	assert_eq(String(r["reason"]), "ring", "reason ring")
+	assert_eq(p.ring_max_slope_deg, 22.0, "production ring max")
+
+
+func test_site_terrain_replays_the_pond_and_keys_the_memo_on_it() -> void:
+	## The pond basin (deepened here) is replayed under the candidate; moving the pond away gives a
+	## fresh evaluation (memo key includes the pond centre).
+	var p := VillageTerrainParams.production()
+	p.pond_depth_m = -3.0
+	var st := VillageSiteTerrain.from_fn(func(_xz: Vector2) -> float: return 0.0, p, {})
+	var c := _cand("S", 0.0, 1.0)
+	var core := st.pad_core(c["spec"])
+	st.set_pond(Vector2(core.end.x + 1.0 + VillagePondSite.BANK_OUTER_M, core.get_center().y))
+	var near := st.evaluate(c, [])
+	assert_false(bool(near["ok"]), "deep pond basin next to the pad: ring fails")
+	st.set_pond(Vector2(500.0, 500.0))
+	var far := st.evaluate(c, [])
+	assert_true(bool(far["ok"]), "pond moved away: re-evaluated and passes")
+
+
+## SD-VILLAGE-TERRAIN-28 §3 (seed 13 geometry): a plaza on a slope and a pond whose blend overlaps the
+## plaza ring just off its SW corner. The plaza plane is tilt-capped (6°) and the pond basin is cut in,
+## so the overlap nodes read steeper than the 22° ring limit.
+func _pond_plaza_site(k_deg: float) -> VillageSiteTerrain:
+	var p := VillageTerrainParams.production()
+	var k := tan(deg_to_rad(k_deg))
+	var fn := func(xz: Vector2) -> float: return -k * xz.x
+	var st := VillageSiteTerrain.from_fn(fn, p, {})
+	var rect := VillageLayout.plaza_rect_at(VillageLayout.VILLAGE_GREEN_G, VillageLayout.PLAZA_SIDE_L)
+	st.plaza = VillageTerrainField.plaza_site(fn, rect, p, p.plaza_ring_m)
+	return st
+
+
+func test_pond_plaza_ring_ok_rejects_a_pond_off_the_plaza_corner() -> void:
+	var st := _pond_plaza_site(16.0)
+	var rect: Rect2 = st.plaza["rect"]
+	## Pond core edge 2.5 m into the plaza ring off the SW corner (x min, z max).
+	var r_c: float = VillagePondSite.MEAN_WATER_RADIUS_M * float(st.params.pond_floor_scale)
+	var corner := Vector2(rect.position.x, rect.end.y)
+	var c: Vector2 = corner + Vector2(-1.0, 1.0).normalized() * (2.5 + r_c)
+	var r: Dictionary = st.pond_plaza_ring_ok(c)
+	gut.p("pond off the SW corner: ok %s peak %.1f° over %d nodes" % [r["ok"], r["peak_deg"], r["nodes"]])
+	assert_gt(int(r["nodes"]), 0, "the overlap is measured")
+	assert_false(bool(r["ok"]), "pond blend over the plaza ring is rejected (> 22°)")
+	assert_gt(float(r["peak_deg"]), st.params.ring_max_slope_deg, "peak recorded")
+
+
+func test_pond_plaza_ring_ok_passes_without_overlap() -> void:
+	var st := _pond_plaza_site(16.0)
+	var r: Dictionary = st.pond_plaza_ring_ok(Vector2(60.0, 40.0))
+	assert_true(bool(r["ok"]), "no overlap: pass")
+	assert_eq(int(r["nodes"]), 0, "nothing measured")
+	var flat := _pond_plaza_site(0.0)
+	var rect: Rect2 = flat.plaza["rect"]
+	var r_c: float = VillagePondSite.MEAN_WATER_RADIUS_M * float(flat.params.pond_floor_scale)
+	var c: Vector2 = Vector2(rect.position.x, rect.end.y) + Vector2(-1.0, 1.0).normalized() * (2.5 + r_c)
+	var r2: Dictionary = flat.pond_plaza_ring_ok(c)
+	assert_gt(int(r2["nodes"]), 0, "overlap measured on flat ground")
+	assert_true(bool(r2["ok"]), "flat ground: the shallow basin stays under 22° (%.1f°)" % r2["peak_deg"])
+
+
+func test_pond_hero_ring_ok_rejects_a_pond_in_the_hero_ring() -> void:
+	## Extension of SD-28 §3 to the hero ring (handoff 3; seed 7 repro: resolve_after_paths moved the
+	## pond into the hero ring, field 27.5°). Field order plaza < pond < hero; the hero ring nodes the
+	## pond blend reaches must stay <= 22°.
+	var p := VillageTerrainParams.production()
+	var k := tan(deg_to_rad(16.0))
+	var fn := func(xz: Vector2) -> float: return -k * xz.x
+	var h0 := VillageLayout.HERO_DOOR_STOOP
+	var st := VillageSiteTerrain.from_fn(fn, p, {"centre": h0, "r_c": p.hero_flat_r_m, "target": 0.0, "w": 9.5})
+	var r_c: float = VillagePondSite.MEAN_WATER_RADIUS_M * p.pond_floor_scale
+	var near: Dictionary = st.pond_hero_ring_ok(h0 + Vector2(-(p.hero_flat_r_m + 2.0 + r_c), 0.0))
+	gut.p("pond in the hero ring: ok %s peak %.1f° over %d nodes" % [near["ok"], near["peak_deg"], near["nodes"]])
+	assert_gt(int(near["nodes"]), 0, "overlap measured")
+	assert_false(bool(near["ok"]), "rejected")
+	var far: Dictionary = st.pond_hero_ring_ok(h0 + Vector2(0.0, -60.0))
+	assert_true(bool(far["ok"]), "no overlap: pass")
+	assert_eq(int(far["nodes"]), 0, "nothing measured")
+
+
+func test_site_terrain_memoises_per_candidate() -> void:
+	var calls := [0]
+	var st := _site(func(xz: Vector2) -> float:
+		calls[0] += 1
+		return 0.02 * xz.x)
+	var c := _cand("S", 0.0, 1.0)
+	var a := st.evaluate(c, [])
+	var n0: int = calls[0]
+	var b := st.evaluate(c, [])
+	assert_eq(calls[0], n0, "second evaluation of the same candidate samples nothing")
+	assert_eq(a, b, "same result")
+	assert_eq(int(st.stats["evaluated"]), 1, "evaluated once")
+
+
 func test_plot_debug_png_written() -> void:
 	## Optional sanity: draw paths + top candidate rects (headless Image).
 	var net = _PathNetwork.new()

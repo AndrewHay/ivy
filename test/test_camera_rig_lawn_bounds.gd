@@ -36,6 +36,8 @@ func test_all_camera_rig_presets_inside_lawn_after_presentation() -> void:
 	var centre: Vector2 = bounds["centre_xz"]
 	var radius: float = bounds["radius"]
 	var margin: float = bounds["margin"]
+	## ivy-82zn.14.18 (WP3): the XZ clamp follows layout.lawn_radius (64).
+	assert_almost_eq(radius, 64.0, 1e-6, "camera XZ clamp radius follows the 64 m lawn")
 	var allowed := maxf(radius - margin, 0.0) + 0.05
 	var rig: CameraRig = world.get_node("CameraRig") as CameraRig
 	var names := ["CamSun", "CamShade", "CamTop", "CamSilhouette"]
@@ -91,7 +93,8 @@ func test_camera_rig_preset_eyes_above_terrain_floor() -> void:
 		await get_tree().process_frame
 		var cam := rig.get_child(i) as Camera3D
 		var eye := cam.global_position
-		var terrain_y: float = backdrop.call("sample_terrain_y", Vector2(eye.x, eye.z))
+		# World-space terrain at the eye (AR-LF-KEEP: one place for the local ↔ world conversion).
+		var terrain_y: float = float(backdrop.call("sample_terrain_world_y", Vector2(eye.x, eye.z)))
 		var floor_y := terrain_y + clearance
 		# Preset cameras sit high (authored > 5 m) — they should always be above terrain floor.
 		assert_gte(eye.y, floor_y - 0.05,

@@ -4,11 +4,11 @@
 ##     - node named "VillageBackdrop" exists exactly once as a child of World
 ##     - it is a GeneratedVillageBackdrop
 ##     - it is still named "VillageBackdrop"
-##     - SkySun fog_depth_begin == layout GENERATED_FOG_BEGIN (ivy-l2x preset)
 ## (b) After rebuild_backdrop() with CLASSIC mode:
 ##     - node is a VillageBackdrop (base class, not GeneratedVillageBackdrop)
-##     - SkySun fog_depth_begin == 9.5 (layout.fog_begin for classic; restore proof)
-## (c) Classic → Generated → Classic round-trip: fog restores to 9.5 (AR-VG-DECIDE §2).
+## (c) Fog: AR-NOFOG (ivy-82zn.14.32) contract change. The old checks pinned the per-layout fog
+##     depth (generated 20.5 m, classic 9.5 m restored on swap); now every swap — generated, classic,
+##     and generated → classic → generated — leaves fog and volumetric fog off and no FogVolume.
 ## (d) Node named "VillageBackdrop" exists exactly once after each swap.
 extends GutTest
 
@@ -46,12 +46,18 @@ func _count_backdrop_children(world: Node) -> int:
 	return count
 
 
-## Layout fog begin stored on SkySun (nominal hero distances; runtime Environment is offset in HERO mode).
-func _fog_depth_begin(world: Node) -> float:
-	var sky_sun := world.get_node_or_null("SkySun") as SkySun
-	if sky_sun == null:
-		return -1.0
-	return sky_sun.get_fog_nominal_begin()
+func _count_fog_volumes(n: Node) -> int:
+	var c := 1 if n is FogVolume else 0
+	for ch in n.get_children():
+		c += _count_fog_volumes(ch)
+	return c
+
+
+func _assert_no_fog(world: Node, tag: String) -> void:
+	var we := world.get_node("SkySun/WorldEnvironment") as WorldEnvironment
+	assert_false(we.environment.fog_enabled, "%s: fog off" % tag)
+	assert_false(we.environment.volumetric_fog_enabled, "%s: volumetric fog off" % tag)
+	assert_eq(_count_fog_volumes(world), 0, "%s: no FogVolume" % tag)
 
 
 # ── (a) Generated mode swap ───────────────────────────────────────────────────
@@ -74,19 +80,6 @@ func test_generated_backdrop_class_and_name() -> void:
 		"Rebuilt backdrop must be named 'VillageBackdrop' (AR-VG-COMPAT)")
 	assert_true(backdrop is GeneratedVillageBackdrop,
 		"After GENERATED swap, VillageBackdrop must be a GeneratedVillageBackdrop")
-
-
-func test_generated_fog_depth_begin() -> void:
-	var main := await _boot_with_scenario()
-	var world := _world(main)
-
-	world.call("set_village_mode", GameModes.GENERATED, _GEN_SEED)
-	world.call("rebuild_backdrop")
-	await get_tree().process_frame
-
-	var fog := _fog_depth_begin(world)
-	assert_almost_eq(fog, VillageLayout.GENERATED_FOG_BEGIN, 0.01,
-		"fog_depth_begin must match GENERATED_FOG_BEGIN after generated swap")
 
 
 func test_generated_backdrop_exists_exactly_once() -> void:
@@ -128,46 +121,17 @@ func test_classic_restore_class() -> void:
 		"After CLASSIC restore, VillageBackdrop must be a VillageBackdrop")
 
 
-func test_classic_restore_fog_depth_begin() -> void:
+# ── (c) No fog after any swap (AR-NOFOG) ─────────────────────────────────────
+
+func test_no_fog_after_generated_classic_generated_swaps() -> void:
 	var main := await _boot_with_scenario()
 	var world := _world(main)
-
-	# Swap generated then classic.
-	world.call("set_village_mode", GameModes.GENERATED, _GEN_SEED)
-	world.call("rebuild_backdrop")
-	await get_tree().process_frame
-
-	world.call("set_village_mode", GameModes.CLASSIC, 0)
-	world.call("rebuild_backdrop")
-	await get_tree().process_frame
-
-	var fog := _fog_depth_begin(world)
-	assert_almost_eq(fog, 9.5, 0.01,
-		"fog_depth_begin must restore to 9.5 after classic swap (AR-VG-DECIDE §2 restore proof)")
-
-
-# ── (c) Round-trip: fog restores correctly ────────────────────────────────────
-
-func test_round_trip_fog_restore() -> void:
-	var main := await _boot_with_scenario()
-	var world := _world(main)
-
-	# Classic → Generated.
-	world.call("set_village_mode", GameModes.GENERATED, _GEN_SEED)
-	world.call("rebuild_backdrop")
-	await get_tree().process_frame
-	var fog_gen := _fog_depth_begin(world)
-
-	# Generated → Classic.
-	world.call("set_village_mode", GameModes.CLASSIC, 0)
-	world.call("rebuild_backdrop")
-	await get_tree().process_frame
-	var fog_classic := _fog_depth_begin(world)
-
-	assert_almost_eq(fog_gen, VillageLayout.GENERATED_FOG_BEGIN, 0.01,
-		"Generated fog_depth_begin must match GENERATED_FOG_BEGIN")
-	assert_almost_eq(fog_classic, 9.5, 0.01,
-		"Classic fog_depth_begin must restore to 9.5 (no stale generated fog)")
+	_assert_no_fog(world, "boot")
+	for step in [[GameModes.GENERATED, _GEN_SEED], [GameModes.CLASSIC, 0], [GameModes.GENERATED, _GEN_SEED]]:
+		world.call("set_village_mode", step[0], step[1])
+		world.call("rebuild_backdrop")
+		await get_tree().process_frame
+		_assert_no_fog(world, "after %s" % step[0])
 
 
 # ── (d) Exactly one backdrop after each swap ──────────────────────────────────

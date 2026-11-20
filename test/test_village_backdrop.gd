@@ -9,8 +9,7 @@
 ##  (f) VillageBackdrop is NOT referenced by BuildingCatalog
 ##  (g) planting-raycast: mask-1 ray at a backdrop mesh returns no hit (unplantable)
 ##  (h) no house wall face closer than 5.9 m from the pivot column in XZ
-##  (i) fog depth begin >= 9.5 m
-##  (j) fog sky affect in [0.3, 0.5]
+##  (i) AR-NOFOG: main.tscn turns no fog on (replaces the fog depth / sky affect checks)
 extends GutTest
 
 const VillageBackdropScene = preload("res://src/world/village_backdrop.tscn")
@@ -559,46 +558,14 @@ func test_no_house_face_inside_6m() -> void:
 			"Cottage '%s' nearest XZ face (%.3f m) must be >= 5.9 m from pivot" % [spec["name"], min_xz_dist])
 
 
-# ── (i) Fog depth begin >= 9.5 ───────────────────────────────────────────────
+# ── (i) AR-NOFOG: main.tscn turns no fog on ──────────────────────────────────
 
-func test_fog_depth_begin_exceeds_max_camera_distance() -> void:
-	# CamTop is the farthest canonical camera from the hero pivot:
-	# sqrt(7.407^2 + 5.657^2) ~= 9.32 m. fog_depth_begin must exceed this.
-	var f := FileAccess.open("res://src/main/main.tscn", FileAccess.READ)
-	if f == null:
-		pending("Could not open main.tscn -- skipping fog_depth_begin test")
-		return
-	var content := f.get_as_text()
-	f.close()
-	var regex := RegEx.new()
-	regex.compile("fog_depth_begin = ([0-9.]+)")
-	var hit := regex.search(content)
-	assert_not_null(hit, "fog_depth_begin property not found in main.tscn")
-	if hit == null:
-		return
-	var begin_val := hit.get_string(1).to_float()
-	assert_gte(begin_val, 9.5,
-		"fog_depth_begin must exceed max camera-to-hero distance (~9.32 m); got %.1f" % begin_val)
-
-
-# ── (j) Fog sky affect in [0.3, 0.5] ─────────────────────────────────────────
-
-func test_fog_sky_affect_in_range() -> void:
-	var f := FileAccess.open("res://src/main/main.tscn", FileAccess.READ)
-	if f == null:
-		pending("Could not open main.tscn -- skipping fog_sky_affect test")
-		return
-	var content := f.get_as_text()
-	f.close()
-	var regex := RegEx.new()
-	regex.compile("fog_sky_affect = ([0-9.]+)")
-	var hit := regex.search(content)
-	assert_not_null(hit, "fog_sky_affect property not found in main.tscn")
-	if hit == null:
-		return
-	var sky_val := hit.get_string(1).to_float()
-	assert_gte(sky_val, 0.3, "fog_sky_affect must be >= 0.3; got %.2f" % sky_val)
-	assert_lte(sky_val, 0.5, "fog_sky_affect must be <= 0.5; got %.2f" % sky_val)
+func test_main_scene_turns_no_fog_on() -> void:
+	## Contract change (ivy-82zn.14.32): replaces the fog depth-begin and sky-affect checks.
+	var content := FileAccess.get_file_as_string("res://src/main/main.tscn")
+	assert_false(content.is_empty(), "main.tscn readable")
+	assert_false(content.contains("fog_enabled = true"), "main.tscn: no depth fog")
+	assert_false(content.contains("volumetric_fog_enabled = true"), "main.tscn: no volumetric fog")
 
 
 # ── (k) glTF pieces have valid texture URI paths (Defect F) ──────────────────
