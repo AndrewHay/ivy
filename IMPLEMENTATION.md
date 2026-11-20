@@ -10169,6 +10169,18 @@ Followed the plan; where it differs:
   Seed 7 join L1, old → lit: dawn seam 0.1947 → 0.1176, dawn CamSun 0.1391 → 0.0613, noon north 0.2468 →
   0.0995, noon CamSun 0.1181 → 0.1042 (all under the fogged baseline). Probe: `--seam_lit=0|1`,
   `--seam_gain=<f>`, `--day=<game_day>`, `--view=north`.
+- **Ground look (ivy-82zn.17.1, production by owner ruling 2026-11-21):** `ground_look.gdshaderinc`, included
+  by the lawn and the hills shader, puts ambientCG Grass005 (open lawn) and Grass004 (under trees) on the
+  lawn and the lit meadow ring, with a rotated second tile sample against repeats, the procedural patches
+  kept as large-scale brightness (`ground_macro`), a normal map (world X/Z tangent frame) and
+  `ground_saturation` (also applied to the far hills' hand-lit colour). The under-tree blend reads an R8
+  tree-closeness mask baked by `GroundLook.tree_mask` from the FarTreeline pines (2.4 m canopy × scale,
+  reach 2 canopies, lawn_radius + 60 m square at 512 px), set by `VillageBackdrop._apply_ground_tree_mask`
+  and the terrain playground. Knobs: `VillageTerrainParams` "Ground look" group (material-only), preset
+  "Untextured ground (old)" (texture off, saturation 1 = the pre-17.1 ground, pixel-identical: dawn CamSun
+  join L1 0.0613). Production: texture on, saturation 0.8; seed 7: dawn CamSun 0.0583, noon CamSun 0.1100,
+  noon north 0.1411 (the 3D grass blades keep the procedural colour). Probe: `--ground=untextured`,
+  `--ground_set=<knob>=<value>`, `--view=trees`.
 - **Tests whose contract changed:** `test_village_world_scale` (far mesh reaches `R_SKIRT_M`; FOV count
   without the haze gate), `test_village_landscape_world` (discard radius `R_SKIRT_M`),
   `test_hills_legibility` (the mid-vs-far and far-vs-horizon orderings went with the far cap; the

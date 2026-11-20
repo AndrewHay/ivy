@@ -12,6 +12,8 @@ render_mode cull_back;
 // (weighted by meadow_ring), so at r_j the far mesh returns u_lawn_colour × the lawn's factors.
 // u_terrain_tint_on = false (default; classic / flat legacy) keeps the old output (INV-15).
 #include "res://src/render/shaders/terrain_tint.gdshaderinc"
+// The lawn's ground look (textures, under-tree texture, saturation) for the lit ring (ivy-82zn.17.1).
+#include "res://src/render/shaders/ground_look.gdshaderinc"
 uniform bool u_terrain_tint_on = false;
 
 // Calibrated rendered lawn colour — set by apply_terrain_shader to the measured
@@ -164,6 +166,8 @@ void fragment() {
 	vec3  cool    = vec3(0.78, 0.86, 0.94);
 	col *= mix(cool, warm, ndl);
 	col *= mix(1.0, 0.78, u_twilight * (0.35 + flat_sector * 0.65));
+	// Ground saturation applies to the hand-lit far colour too (ivy-82zn.17.1; 1 = unchanged).
+	col = ground_saturate(col);
 
 	// Seam calibration (applied AFTER lighting):
 	// Override with the measured rendered lawn colour at r = lawn_radius,
@@ -182,6 +186,12 @@ void fragment() {
 		vec3 lawn_alb = mix(u_lawn_base, mix(patch_lo, patch_hi, nl), u_lawn_patch_contrast);
 		float lg = ivy_gust_at(world_xz);
 		lawn_alb *= 1.0 + (lg - 0.5) * 0.10 * ivy_wind_strength;
+		vec3 n_ts;
+		lawn_alb = ground_albedo(world_xz, lawn_alb, u_lawn_base, n_ts);
+		if (u_ground_tex_on) {
+			n_ts.xy *= meadow_ring;
+			NORMAL = normalize((VIEW_MATRIX * vec4(ground_world_normal(v_world_nrm, normalize(n_ts)), 0.0)).xyz);
+		}
 		lawn_alb *= u_seam_albedo_gain * tint_f;
 		ALBEDO   = lawn_alb * meadow_ring;
 		EMISSION = col * (1.0 - meadow_ring);

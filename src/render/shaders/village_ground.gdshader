@@ -10,6 +10,8 @@ shader_type spatial;
 // Slope / height tint shared with the far hills (AR-LF-D9): terrain_slope_dark,
 // terrain_slope_full_deg, terrain_height_tint, terrain_height_range_m, terrain_height_ref_y.
 #include "res://src/render/shaders/terrain_tint.gdshaderinc"
+// Grass textures, under-tree texture and saturation shared with the far hills' lit ring (ivy-82zn.17.1).
+#include "res://src/render/shaders/ground_look.gdshaderinc"
 
 uniform vec3 base_color : source_color = vec3(0.30, 0.44, 0.22);
 uniform vec3 patch_hi : source_color = vec3(0.34, 0.46, 0.24);
@@ -52,6 +54,11 @@ void fragment() {
 	col = mix(base_color, col, patch_contrast);
 	float g = ivy_gust_at(world_xz);
 	col *= 1.0 + (g - 0.5) * 0.10 * ivy_wind_strength;
+	vec3 n_ts;
+	col = ground_albedo(world_xz, col, base_color, n_ts);
+	if (u_ground_tex_on) {
+		NORMAL = normalize((VIEW_MATRIX * vec4(ground_world_normal(v_world_normal, n_ts), 0.0)).xyz);
+	}
 
 	// Terrain slope shading + height tint (terrain_tint.gdshaderinc). Flat normals and the default
 	// tint 0 give factor 1 → byte-identical classic (INV-15). Interpolated varyings are shorter than

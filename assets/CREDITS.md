@@ -25,6 +25,8 @@ License: https://docs.ambientcg.com/license
 | `Bricks094` | **Primary tower material.** Old weathered red brick. Chosen for contrast — green ivy reads clearly against warm red. | `materials/brick/Bricks094/` |
 | `Bricks102` | **Alternate tower material.** Warm sandy medieval stonework, Cotswolds/cottagecore feel. Kept for in-engine A/B. | `materials/brick/Bricks102/` |
 | `RoofingTiles014B` | **Mesh structure roof cap.** Weathered round roofing tiles (~2.9 m patch); pairs with stone walls on square/tower hero meshes. | `materials/roof/RoofingTiles014B/` |
+| `Grass005` | **Open lawn ground** (ivy-82zn.17.1, `GroundLook`). Clean short lawn. Colour + NormalGL only, **downsized to 1K in-repo** (`tools/resize_ground_textures.gd`); archive SHA-256 `89183d8dceabc3c23a26978f426e1662143dd2f84f1dc3586a1592d101e5234b`, retrieved 2026-11-20. | `materials/ground/Grass005/` |
+| `Grass004` | **Ground under trees** (ivy-82zn.17.1). Dense garden grass with dry flecks, blended in by the tree-cover mask. Colour + NormalGL, 1K in-repo; archive SHA-256 `d7d3f08e8bb1e59aed0c3dbb85ea0b46d5308481f89b6a3fd62c0ec9e862245b`, retrieved 2026-11-20. | `materials/ground/Grass004/` |
 
 ### Re-downloading
 
@@ -34,8 +36,11 @@ ambientCG download URLs are deterministic:
 https://ambientcg.com/get?file=<AssetID>_2K-JPG.zip
 ```
 
-So the five archives above are `LeafSet017_2K-JPG.zip`, `LeafSet029_2K-JPG.zip`,
-`Bricks094_2K-JPG.zip`, `Bricks102_2K-JPG.zip`, and `RoofingTiles014B_2K-JPG.zip`. Asset metadata (including the full
+So the seven archives above are `LeafSet017_2K-JPG.zip`, `LeafSet029_2K-JPG.zip`,
+`Bricks094_2K-JPG.zip`, `Bricks102_2K-JPG.zip`, `RoofingTiles014B_2K-JPG.zip`, `Grass005_2K-JPG.zip` and
+`Grass004_2K-JPG.zip`. The two grass archives live untracked in `assets/_zips/` and unpack to
+`assets/_local/ambientcg/<id>/` (which carries a `.gdignore`); `tools/resize_ground_textures.gd` regenerates
+the committed 1K maps from there. Asset metadata (including the full
 map list and available resolutions) can be queried without downloading anything:
 
 ```

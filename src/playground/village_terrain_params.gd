@@ -21,7 +21,18 @@ const NON_FIELD_KEYS := [
 	"layout_seed",
 	"wanderer_follow_terrain", "camera_ground_clearance_m",
 	"ground_slope_dark", "ground_slope_full_deg", "ground_height_tint", "ground_height_range_m",
+	"ground_tex_on", "ground_tex_scale_m", "ground_tex_strength", "ground_tex_brightness", "ground_macro",
+	"ground_saturation", "ground_normal_strength", "ground_shade_strength", "ground_shade_edge_lo",
+	"ground_shade_edge_hi",
 ]
+
+## The ground-look knobs (material only; GroundLook.apply).
+const GROUND_LOOK_KEYS := [
+	"ground_tex_on", "ground_tex_scale_m", "ground_tex_strength", "ground_tex_brightness", "ground_macro",
+	"ground_saturation", "ground_normal_strength", "ground_shade_strength", "ground_shade_edge_lo",
+	"ground_shade_edge_hi",
+]
+const PRESET_UNTEXTURED := "Untextured ground (old)"
 
 # ── Stage ──────────────────────────────────────────────────────────────────────
 ## 0 = Landscape (production), 1 = Flat (A/B): sample_y ≡ 0, hills flat legacy (INV-15).
@@ -146,6 +157,27 @@ func effective_sep_ladder_floor_m() -> float:
 ## Height (m) above / below y_hero where the height tint saturates (village span).
 @export var ground_height_range_m: float = 8.0
 
+# ── Ground look (ground_look.gdshaderinc, ivy-82zn.17.1; lawn + lit meadow ring) ──────────────────
+## Grass textures: ambientCG Grass005 on open lawn, Grass004 under trees. Off = procedural colour only.
+@export var ground_tex_on: bool = true
+## Size of one texture tile on the ground (m).
+@export var ground_tex_scale_m: float = 3.0
+## 0 = procedural colour, 1 = texture colour.
+@export var ground_tex_strength: float = 1.0
+## Multiplies the texture colour (match the lawn's brightness).
+@export var ground_tex_brightness: float = 1.0
+## How much of the procedural large patches survives as brightness variation on the texture.
+@export var ground_macro: float = 0.6
+## 1 = as authored; < 1 desaturates the lawn, the lit ring and the far hills' hand-lit colour.
+@export var ground_saturation: float = 0.8
+## Normal-map strength of the grass texture.
+@export var ground_normal_strength: float = 0.6
+## Under-tree texture (Grass004) weight under a canopy.
+@export var ground_shade_strength: float = 1.0
+## Tree-closeness band (0 = open, 1 = trunk) over which Grass005 turns into Grass004.
+@export var ground_shade_edge_lo: float = 0.15
+@export var ground_shade_edge_hi: float = 0.55
+
 
 # ── Constructor helpers ────────────────────────────────────────────────────────
 
@@ -259,13 +291,14 @@ static func preset_tips() -> Dictionary:
 		"Derivative-damped": "Derivative-damped noise: smooth hollows, rougher crests.",
 		"Ridged (comparison)": "Ridged noise — comparison only, expected to fail the slope ACs.",
 		"Tight village (old spacing)": "Cottage spacing 8 m (only the 4 m wall gap binds), short paths (0.8), reach 37 m — the pre-WP3 village.",
+		PRESET_UNTEXTURED: "Production terrain with the pre-ivy-82zn.17.1 ground: procedural colour only, no grass textures, full saturation.",
 	}
 
 
 static func ordered_preset_names() -> Array:
 	return [
 		PRESET_PRODUCTION, PRESET_FLAT, "Gentle", "Bold", "Billow", "Derivative-damped",
-		"Ridged (comparison)", "Tight village (old spacing)",
+		"Ridged (comparison)", "Tight village (old spacing)", PRESET_UNTEXTURED,
 	]
 
 
@@ -282,7 +315,13 @@ static func presets() -> Dictionary:
 			"variant": 0, "cottage_min_sep_m": 8.0, "sep_ladder_floor_m": 8.0, "path_len_scale": 0.8,
 			"village_centre_r_max_m": 37.0,
 		},
+		PRESET_UNTEXTURED: untextured_ground_overrides(),
 	}
+
+
+## The ground before ivy-82zn.17.1 (owner picked the textured look as production, 2026-11-21).
+static func untextured_ground_overrides() -> Dictionary:
+	return {"variant": 0, "ground_tex_on": false, "ground_saturation": 1.0}
 
 
 func apply_preset(name: String) -> void:

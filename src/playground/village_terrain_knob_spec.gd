@@ -173,6 +173,28 @@ static func all_knobs() -> Array[Dictionary]:
 	_add_float(rows, "ground_height_range_m", "Height tint range (m)", "Material", 0.2, 20.0, 0.1, LANDSCAPE,
 		REGEN_MATERIAL, "Height above / below y_hero where the tint saturates.")
 
+	# Ground look (ground_look.gdshaderinc, lawn + lit meadow ring; ivy-82zn.17.1)
+	_add_bool(rows, "ground_tex_on", "Grass textures", "Ground look", LANDSCAPE, REGEN_MATERIAL,
+		"Off = procedural colour only (production today). On = Grass005 lawn, Grass004 under trees.")
+	_add_float(rows, "ground_tex_scale_m", "Texture tile (m)", "Ground look", 0.5, 12.0, 0.1, LANDSCAPE,
+		REGEN_MATERIAL, "Ground size of one texture tile.")
+	_add_float(rows, "ground_tex_strength", "Texture strength", "Ground look", 0.0, 1.0, 0.01, LANDSCAPE,
+		REGEN_MATERIAL, "0 = procedural colour, 1 = texture colour.")
+	_add_float(rows, "ground_tex_brightness", "Texture brightness", "Ground look", 0.3, 2.5, 0.01, LANDSCAPE,
+		REGEN_MATERIAL)
+	_add_float(rows, "ground_macro", "Large patches", "Ground look", 0.0, 1.5, 0.01, LANDSCAPE,
+		REGEN_MATERIAL, "Procedural large-scale patches kept as brightness variation on the texture.")
+	_add_float(rows, "ground_saturation", "Saturation", "Ground look", 0.0, 1.5, 0.01, LANDSCAPE,
+		REGEN_MATERIAL, "Lawn, lit ring and far hills. 1 = as authored.")
+	_add_float(rows, "ground_normal_strength", "Texture relief", "Ground look", 0.0, 2.0, 0.01, LANDSCAPE,
+		REGEN_MATERIAL, "Normal-map strength.")
+	_add_float(rows, "ground_shade_strength", "Under-tree texture", "Ground look", 0.0, 1.0, 0.01, LANDSCAPE,
+		REGEN_MATERIAL, "Grass004 weight under a canopy.")
+	_add_float(rows, "ground_shade_edge_lo", "Under-tree edge start", "Ground look", 0.0, 1.0, 0.01,
+		LANDSCAPE, REGEN_MATERIAL, "Tree closeness (0 open, 1 trunk) where Grass004 starts.")
+	_add_float(rows, "ground_shade_edge_hi", "Under-tree edge full", "Ground look", 0.0, 1.0, 0.01,
+		LANDSCAPE, REGEN_MATERIAL, "Tree closeness where Grass004 is full.")
+
 	_widen_experiment_ranges(rows)
 	return rows
 

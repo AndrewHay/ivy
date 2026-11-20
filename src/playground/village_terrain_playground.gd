@@ -38,6 +38,9 @@ const _SEAM_AZIMUTH_DEG := 150.0
 ## they update the material in place, never the mesh (ivy-82zn.14.7).
 const MATERIAL_ONLY_KNOBS := [
 	"ground_slope_dark", "ground_slope_full_deg", "ground_height_tint", "ground_height_range_m",
+	"ground_tex_on", "ground_tex_scale_m", "ground_tex_strength", "ground_tex_brightness", "ground_macro",
+	"ground_saturation", "ground_normal_strength", "ground_shade_strength", "ground_shade_edge_lo",
+	"ground_shade_edge_hi",
 ]
 ## Coarse preview LUT / mesh cell (m). ~1/4 of the full-step work; shown first after a shape edit.
 const _COARSE_STEP_M := 4.0
@@ -605,6 +608,7 @@ func _show_far_terrain() -> void:
 		mesh = VillageTerrain.build_far_mesh(_layout, _build_params, _hills_params)
 	mesh.surface_set_material(0, VillageBackdrop.make_hill_material(_layout, _hills_params, _build_params))
 	_far_mi.mesh = mesh
+	_apply_ground_tree_mask()
 
 
 func _clear_stage() -> void:
@@ -765,6 +769,7 @@ func _show_mesh(mesh: Mesh, step: float, lut: Dictionary) -> void:
 	_shown_step_m = step
 	_terrain_lut = lut
 	_apply_stage_datum(_build_params)
+	_apply_ground_tree_mask()
 
 
 func _apply_stage_datum(params: VillageTerrainParams) -> void:
@@ -1111,6 +1116,28 @@ func _apply_material_knobs() -> void:
 		var fm := _far_mi.mesh.surface_get_material(0) as ShaderMaterial
 		if fm != null:
 			VillageTerrain.apply_ground_material(fm, _params, _stage_field())
+	_apply_ground_tree_mask()
+
+
+var _tree_mask_layout: VillageLayout = null
+var _tree_mask_tex: ImageTexture = null
+
+
+func _apply_ground_tree_mask() -> void:
+	## The game's under-tree mask (GroundLook, ivy-82zn.17.1) on the stage's lawn and far materials.
+	## Baked once per layout; the stage offset maps it to world xz.
+	if _layout == null or _stage == null:
+		return
+	if _tree_mask_layout != _layout or _tree_mask_tex == null:
+		_tree_mask_tex = GroundLook.tree_mask(GroundLook.tree_canopies(_layout), GroundLook.mask_rect(_layout))
+		_tree_mask_layout = _layout
+	var off := Vector2(_stage.position.x, _stage.position.z)
+	var rect := GroundLook.mask_rect(_layout)
+	var tm := _terrain_material()
+	if tm != null and not _is_debug_material(tm):
+		GroundLook.apply_tree_mask(tm, _tree_mask_tex, rect, off)
+	if _far_mi != null and _far_mi.mesh != null:
+		GroundLook.apply_tree_mask(_far_mi.mesh.surface_get_material(0) as ShaderMaterial, _tree_mask_tex, rect, off)
 
 
 func _set_debug_relief(on: bool) -> void:

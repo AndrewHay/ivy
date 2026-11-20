@@ -188,6 +188,8 @@ static func apply_ground_material(mat: ShaderMaterial, params: VillageTerrainPar
 	if f != null and not f.flat:
 		ref = float(f.y_hero)
 	mat.set_shader_parameter("terrain_height_ref_y", ref)
+	# Grass textures + saturation (ground_look.gdshaderinc), same values on lawn and hills (ivy-82zn.17.1).
+	GroundLook.apply(mat, params)
 
 
 static func terrain_tint_factor(ny: float, local_y: float, params: VillageTerrainParams, ref_y: float) -> float:

@@ -29,6 +29,8 @@ func _ready() -> void:
 	var day_val := -1.0
 	var seam_lit := -1  # -1 = leave the material as built; 0 / 1 = force u_seam_lit
 	var seam_gain := -1.0
+	var ground := ""  # "" = as built; "untextured" = VillageTerrainParams.untextured_ground_overrides()
+	var ground_set: Array[String] = []  # extra knob=value overrides, e.g. ground_saturation=0.7
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--seed="): seed_val = int(arg.get_slice("=", 1))
 		elif arg.begins_with("--out="): out_path = arg.get_slice("=", 1)
@@ -36,6 +38,8 @@ func _ready() -> void:
 		elif arg.begins_with("--day="): day_val = float(arg.get_slice("=", 1))
 		elif arg.begins_with("--seam_lit="): seam_lit = int(arg.get_slice("=", 1))
 		elif arg.begins_with("--seam_gain="): seam_gain = float(arg.get_slice("=", 1))
+		elif arg.begins_with("--ground="): ground = arg.get_slice("=", 1)
+		elif arg.begins_with("--ground_set="): ground_set.append(arg.get_slice("=", 1))
 
 	var main := await _boot_generated(seed_val)
 	var world: Node3D = main.get_node("World")
@@ -50,6 +54,9 @@ func _ready() -> void:
 				hm.set_shader_parameter("u_seam_albedo_gain", seam_gain)
 			print("[seam-probe] u_seam_lit=", seam_lit == 1, " gain=", hm.get_shader_parameter("u_seam_albedo_gain"))
 
+	if ground != "" or not ground_set.is_empty():
+		_apply_ground(world, ground, ground_set)
+
 	var bounds: Dictionary = world.get_village_lawn_camera_bounds()
 	var centre: Vector2 = bounds.get("centre_xz", Vector2.ZERO)
 	var lawn_r: float = bounds.get("radius", 56.0)
@@ -59,6 +66,26 @@ func _ready() -> void:
 		var rig := world.get_node_or_null("CameraRig")
 		rig.call("select", 0)
 		cam = get_viewport().get_camera_3d()
+	elif view == "trees":
+		# Eye level beside the FarTreeline pine nearest G, looking at its trunk (under-tree ground).
+		var best := Vector3.ZERO
+		var best_d := INF
+		for t: Transform3D in VillageScatterPositions.forest_tree_positions(world.get("_village_backdrop").get("_layout")):
+			var d := Vector2(t.origin.x, t.origin.z).distance_to(centre)
+			if d < best_d:
+				best_d = d
+				best = t.origin
+		var bd: Node = world.get("_village_backdrop") as Node
+		var to_g := (centre - Vector2(best.x, best.z)).normalized()
+		var exz := Vector2(best.x, best.z) + to_g * 9.0
+		var ey := float(bd.call("sample_terrain_world_y", exz)) + 1.7
+		var gy := float(bd.call("sample_terrain_world_y", Vector2(best.x, best.z)))
+		var eye := Vector3(exz.x, ey, exz.y)
+		var tgt := Vector3(best.x, gy + 0.3, best.z)
+		cam = Camera3D.new()
+		world.add_child(cam)
+		cam.global_transform = Transform3D(Basis.looking_at(tgt - eye, Vector3.UP), eye)
+		cam.make_current()
 	elif view == "north":
 		# High overview from G looking north over the lawn edge into the far hill wedge.
 		var eye := Vector3(centre.x, 28.0, centre.y + 30.0)
@@ -167,6 +194,31 @@ static func _sample_region(img: Image, x0: int, x1: int, y0: int, y1: int) -> Co
 			sr += c.r; sg += c.g; sb += c.b; n += 1
 	if n == 0: return Color.BLACK
 	return Color(sr/n, sg/n, sb/n)
+
+
+## Ground look A/B (ivy-82zn.17.1): production params plus the named look and knob=value overrides,
+## applied to the built backdrop's lawn and far hills.
+func _apply_ground(world: Node3D, ground: String, sets: Array[String]) -> void:
+	var bd: Node = world.get("_village_backdrop") as Node
+	if bd == null or not bd.has_method("apply_ground_look"):
+		push_warning("hills_seam_probe: no backdrop; --ground ignored")
+		return
+	var p := VillageTerrainParams.production()
+	if ground == "untextured":
+		for k in VillageTerrainParams.untextured_ground_overrides():
+			p.set(k, VillageTerrainParams.untextured_ground_overrides()[k])
+	for kv in sets:
+		var k := kv.get_slice("=", 0)
+		var v := kv.get_slice("=", 1)
+		if typeof(p.get(k)) == TYPE_BOOL:
+			p.set(k, v == "1" or v == "true")
+		else:
+			p.set(k, float(v))
+	bd.call("apply_ground_look", p)
+	var parts: Array[String] = []
+	for k in VillageTerrainParams.GROUND_LOOK_KEYS:
+		parts.append("%s=%s" % [k, p.get(k)])
+	print("[seam-probe] ground ", " ".join(parts))
 
 
 ## Pause the sim clock at `day` (0.25 = local noon with start_hour 6) so SkySun.update lights that hour.

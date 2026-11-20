@@ -190,6 +190,43 @@ func _ready() -> void:
 	_add_hill_terrain(HillsParams.production())
 	_setup_multimesh_scatter(path_stones)
 	_add_hill_forest(HillsParams.production())
+	_apply_ground_tree_mask()
+
+
+## Under-tree grass mask (GroundLook, ivy-82zn.17.1) on the lawn and far-hills materials. Only baked
+## when the ground textures are on; the default material ignores it.
+func _apply_ground_tree_mask() -> void:
+	if _terrain_params == null or not _terrain_params.ground_tex_on:
+		return
+	var rect := GroundLook.mask_rect(_layout)
+	var tex := GroundLook.tree_mask(GroundLook.tree_canopies(_layout), rect)
+	var off := Vector2(global_position.x, global_position.z) if is_inside_tree() else Vector2(position.x, position.z)
+	for mat in _ground_look_materials():
+		GroundLook.apply_tree_mask(mat, tex, rect, off)
+
+
+## Lawn + far-hills materials that carry ground_look.gdshaderinc.
+func _ground_look_materials() -> Array[ShaderMaterial]:
+	var out: Array[ShaderMaterial] = []
+	for node_name in ["LawnTerrain", "LawnGround", "HillTerrain"]:
+		var mi := get_node_or_null(node_name) as MeshInstance3D
+		if mi != null and mi.mesh != null:
+			var m := mi.mesh.surface_get_material(0) as ShaderMaterial
+			if m != null:
+				out.append(m)
+	return out
+
+
+## Re-applies the ground look from [param p] on the built lawn and far hills, without a rebuild
+## (probe / A-B captures, ivy-82zn.17.1). Only the ground-look knobs are read.
+func apply_ground_look(p: VillageTerrainParams) -> void:
+	for mat in _ground_look_materials():
+		GroundLook.apply(mat, p)
+	if p.ground_tex_on:
+		var keep := _terrain_params
+		_terrain_params = p
+		_apply_ground_tree_mask()
+		_terrain_params = keep
 
 
 static func cottage_transform(spec: Dictionary) -> Transform3D:
