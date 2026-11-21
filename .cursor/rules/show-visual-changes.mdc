@@ -26,7 +26,9 @@ appearance in prose alone when a screenshot is possible.
   `take-screenshot` / `run-ui-script` skills or a purpose-built capture tool under
   `tools/` when neither skill's camera options fit.
 - `--headless` produces no image on macOS; screenshots need a real, non-headless
-  Godot run (see `.cursor/skills/take-screenshot/SKILL.md`).
+  Godot run (see `.cursor/skills/take-screenshot/SKILL.md`). On Linux, run the same
+  capture non-headless under Xvfb: `DISPLAY=:99 "$GODOT" --path . --display-driver x11
+  --rendering-driver vulkan …` (README → *Linux hosts*).
 - After capture, put **clickable markdown links** in the chat response for every
   PNG — use `[label](absolute-or-workspace path)` with the **full path string** (no
   elided prefixes). Do **not** rely on inline `![]()` embeds alone; the user compares

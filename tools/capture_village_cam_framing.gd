@@ -7,7 +7,7 @@ const GameModes = preload("res://src/world/game_modes.gd")
 
 
 func _ready() -> void:
-	var outdir := "/Users/andrewhay/github/ivy/.tmp/village_gen/ivy-0ka"
+	var outdir := ProjectSettings.globalize_path("res://.tmp/village_gen/ivy-0ka")
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--outdir="):
 			outdir = String(arg.get_slice("=", 1))

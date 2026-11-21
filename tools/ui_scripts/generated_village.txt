@@ -3,8 +3,8 @@
 # then switches to classic to prove two-way mode switching works.
 #
 # Run with seed 1:
-#   /Applications/Godot.app/Contents/MacOS/Godot res://tools/run_ui_script.tscn -- \
-#     --script=/Users/andrewhay/github/ivy/tools/ui_scripts/generated_village.txt \
+#   /Applications/Godot.app/Contents/MacOS/Godot --path . res://tools/run_ui_script.tscn -- \
+#     --script=res://tools/ui_scripts/generated_village.txt \
 #     --scenario=res://assets/structures/scenarios/square.tres \
 #     --village-mode=generated_village --village-seed=1 \
 #     --outdir=res://.tmp/village_gen/s5/seed1

@@ -4,12 +4,16 @@
 ## to switch to generated mode, then orbits three cameras per seed and saves PNGs.
 ## Seeds 1, 2, 3 are captured; S4 has no paths/stones (that's S3).
 ##
-## Non-headless only (--headless produces no image on macOS).
+## Non-headless only (--headless produces no image). On Linux, run it under Xvfb
+## (DISPLAY=:99) with --display-driver x11 --rendering-driver vulkan.
 ##
-## Usage:
-##   /Applications/Godot.app/Contents/MacOS/Godot \
+## Usage (from the project root; on Linux use "$GODOT" in place of the macOS binary):
+##   /Applications/Godot.app/Contents/MacOS/Godot --path . \
 ##     res://tools/capture_generated_village.tscn \
-##     -- --outdir=/Users/andrewhay/github/ivy/.tmp/village_gen/s4
+##     -- --outdir=res://.tmp/village_gen/s4
+##
+## --outdir takes a res:// or absolute path and defaults to res://.tmp/village_gen/s4.
+## Exit codes: 0 ok, 1 no frame / null image, 2 load failure, 4 save_png failure.
 ##
 ## Output:
 ##   gen_seed1_overview.png, gen_seed1_high.png, gen_seed1_eye.png
@@ -29,6 +33,7 @@ const _CAMERAS: Array = [
 ]
 
 const _PRESENT_TIMEOUT_MS := 4000
+const _DEFAULT_OUTDIR := "res://.tmp/village_gen/s4"
 
 
 func _present_fresh_frame() -> bool:
@@ -48,8 +53,14 @@ func _present_fresh_frame() -> bool:
 
 func _ready() -> void:
 	var args := _parse_args()
-	var outdir: String = args.get("outdir", "/Users/andrewhay/github/ivy/.tmp/village_gen/s4")
-	DirAccess.make_dir_recursive_absolute(outdir)
+	# globalize_path resolves res:// and passes absolute paths through unchanged.
+	var outdir: String = ProjectSettings.globalize_path(
+		String(args.get("outdir", _DEFAULT_OUTDIR)))
+	var mk_err := DirAccess.make_dir_recursive_absolute(outdir)
+	if mk_err != OK and not DirAccess.dir_exists_absolute(outdir):
+		printerr("[gen-capture] cannot create outdir: ", outdir, " err=", mk_err)
+		get_tree().quit(4)
+		return
 
 	var ps := load(_MAIN_SCENE) as PackedScene
 	if ps == null:
@@ -126,7 +137,11 @@ func _ready() -> void:
 				return
 			var fname := "gen_seed%d_%s.png" % [seed, label]
 			var path := outdir.path_join(fname)
-			img.save_png(path)
+			var save_err := img.save_png(path)
+			if save_err != OK:
+				printerr("[gen-capture] save_png failed: ", save_err, " path=", path)
+				get_tree().quit(4)
+				return
 			print("[gen-capture]   saved: ", path)
 
 	print("[gen-capture] done.")
@@ -135,7 +150,8 @@ func _ready() -> void:
 
 func _parse_args() -> Dictionary:
 	var out: Dictionary = {}
-	for arg in OS.get_cmdline_args():
+	# User args after `--` (Godot 4 leaves them out of get_cmdline_args()).
+	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--") and arg.contains("="):
 			var eq := arg.find("=")
 			var key := arg.substr(2, eq - 2)

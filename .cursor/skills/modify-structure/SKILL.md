@@ -44,6 +44,13 @@ Kit glTF dir (untracked): `assets/_local/medieval_village_megakit/glTF` — see 
 
 Blender: **4.2.1 LTS** at `/Applications/Blender.app`.
 
+**Binaries on Linux:** the commands below use the macOS paths, which the Mac sandbox exemption
+matches literally, so keep them as written on macOS. On a Linux host, replace
+`/Applications/Godot.app/Contents/MacOS/Godot` with `"$GODOT"` and
+`/Applications/Blender.app/Contents/MacOS/Blender` with `"$BLENDER"` (both set in `~/.ivy-env`).
+The Python tools that launch Blender themselves (`export_structures.py`, `rebuild_sim_from_hero.py`)
+read `$BLENDER` and fall back to the macOS path.
+
 ## Implementation status
 
 | Capability | Tool | Status |
