@@ -124,6 +124,22 @@ func test_presets_without_old_hill() -> void:
 	assert_eq(VillageTerrainParams.detect_preset_name(p), "Custom", "edit → Custom")
 
 
+func test_billow_preset_is_matched_relief_sd30() -> void:
+	## SD-VILLAGE-TERRAIN-30 rule 2: billow at wavelength 400 / height 14 so the -18 span rule picks a
+	## passing offset (production scale has none). Data only; production() unchanged.
+	var want := {"variant": 0, "landform_noise": 1, "landform_wavelength_m": 400.0, "landform_height_m": 14.0}
+	assert_eq(VillageTerrainParams.presets()["Billow"], want, "Billow preset dictionary")
+	var p := VillageTerrainParams.production()
+	p.apply_preset("Billow")
+	assert_eq(VillageTerrainParams.detect_preset_name(p), "Billow", "detect Billow")
+	var knob_help := ""
+	for row: Dictionary in KnobSpec.all_knobs():
+		if row["name"] == "landform_noise":
+			knob_help = String(row.get("tip", ""))
+	assert_true(knob_help.contains("1 billow: steep at production scale, use the Billow preset"),
+		"noise knob help points to the Billow preset: %s" % knob_help)
+
+
 func test_spacing_knobs_and_tight_preset_2026_11_18() -> void:
 	## SD-22 restated (ivy-82zn.14.27): ranges sep 8-22, floor 8-22, path scale 0.8-1.5; Tight preset
 	## = 8 / 8 / 0.8 / reach 37.

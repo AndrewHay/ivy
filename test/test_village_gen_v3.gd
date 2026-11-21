@@ -234,6 +234,17 @@ func test_offset_fallback_still_tries_three_ranks() -> void:
 	assert_true(layout.fallback, "plot-select failures (not path) end on the authored fallback")
 
 
+func test_billow_preset_seed_7_generates_sd30() -> void:
+	## SD-VILLAGE-TERRAIN-30 rule 2: the matched-relief Billow preset on the playground default seed
+	## generates a full village from a passing offset (no offset_fallback).
+	var p := VillageTerrainParams.production()
+	p.apply_preset("Billow")
+	var layout: VillageLayout = VillageLayout.generate(7, p)
+	assert_false(layout.fallback, "Billow seed 7 is not the authored fallback")
+	assert_eq(layout.cottages.size(), VillageLayout.GENERATED_HAMLET_COUNT, "8 cottages")
+	assert_false(bool(layout.terrain_diag.get("offset_fallback", true)), "offset_fallback false")
+
+
 func test_flat_variant_has_no_terrain_rules() -> void:
 	## Flat A/B: no site fn, no pond slope rule, no path cap (unchanged behaviour).
 	var p := VillageTerrainParams.production()

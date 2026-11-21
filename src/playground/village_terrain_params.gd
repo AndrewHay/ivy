@@ -289,7 +289,7 @@ static func preset_tips() -> Dictionary:
 		PRESET_FLAT: "Flat lawn (sample_y ≡ 0) and flat legacy hills — A/B against production.",
 		"Gentle": "Lower, longer hills (height 10 m, wavelength 300 m).",
 		"Bold": "Taller, tighter hills (height 22 m, wavelength 220 m).",
-		"Billow": "Billow noise: rounder lumps (soft-abs valleys).",
+		"Billow": "Billow noise: rounder lumps (soft-abs valleys), height 14 m, wavelength 400 m (matched relief).",
 		"Derivative-damped": "Derivative-damped noise: smooth hollows, rougher crests.",
 		"Ridged (comparison)": "Ridged noise — comparison only, expected to fail the slope ACs.",
 		"Tight village (old spacing)": "Cottage spacing 8 m (only the 4 m wall gap binds), short paths (0.8), reach 37 m — the pre-WP3 village.",
@@ -310,7 +310,9 @@ static func presets() -> Dictionary:
 		PRESET_FLAT: {"variant": 1},
 		"Gentle": {"variant": 0, "landform_height_m": 10.0, "landform_wavelength_m": 300.0},
 		"Bold": {"variant": 0, "landform_height_m": 22.0, "landform_wavelength_m": 220.0},
-		"Billow": {"variant": 0, "landform_noise": 1},
+		# SD-VILLAGE-TERRAIN-30: matched relief. At the production scale (16 m / 260 m) billow has no
+		# passing offset on any seed; 14 m / 400 m (knob max) passes on 20 / 20.
+		"Billow": {"variant": 0, "landform_noise": 1, "landform_wavelength_m": 400.0, "landform_height_m": 14.0},
 		"Derivative-damped": {"variant": 0, "landform_noise": 2},
 		"Ridged (comparison)": {"variant": 0, "landform_noise": 3},
 		"Tight village (old spacing)": {

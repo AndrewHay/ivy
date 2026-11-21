@@ -49,7 +49,8 @@ static func all_knobs() -> Array[Dictionary]:
 
 	# Landform (SD-17 §1)
 	_add_int(rows, "landform_noise", "Noise type", "Landform", 0, 3, 1, LANDSCAPE, L,
-		"0 fbm (production), 1 billow, 2 derivative-damped, 3 ridged (comparison only).")
+		"0 fbm (production), 1 billow: steep at production scale, use the Billow preset, "
+		+ "2 derivative-damped, 3 ridged (comparison only).")
 	_add_float(rows, "landform_wavelength_m", "Wavelength (m)", "Landform", 120.0, 400.0, 5.0, LANDSCAPE, L,
 		"Hill footprint; bigger than the 92 m village disc.")
 	_add_float(rows, "landform_height_m", "Height (m)", "Landform", 0.0, 30.0, 0.5, LANDSCAPE, L,

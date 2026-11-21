@@ -169,6 +169,11 @@ var _hills_params: HillsParams = HillsParams.production()
 var _relayout_pending := false
 ## Timing of the last VillageLayout.generate (ms) and its offset search (ms) for the readout.
 var _gen_ms := 0.0
+## SD-VILLAGE-TERRAIN-30: snapshot of the generate that made _layout (seed, variant and
+## VillageGeneratorV3.last_diag["attempts"]), so the fallback readout never reads a later generate.
+var _gen_seed := 0
+var _gen_variant := 0
+var _gen_attempts: Array = []
 var _noise_option: OptionButton
 ## Callable(err: int) invoked after a capture save. Tests replace this to avoid
 ## calling get_tree().quit() from inside the GUT runner (AR-VT-PLAYGROUND §quit-hook).
@@ -556,6 +561,9 @@ func _rebuild_layout_and_stage(sync_preview: bool = false) -> void:
 	# mesh / hills material resolve one field (ivy-82zn.14.21 F5).
 	_layout.hills_params = _hills_params
 	_gen_ms = float(Time.get_ticks_usec() - t_gen) / 1000.0
+	_gen_seed = _params.layout_seed
+	_gen_variant = _params.variant
+	_gen_attempts = (VillageGeneratorV3.last_diag.get("attempts", []) as Array).duplicate(true)
 	_write_back_auto_offset()
 	VillagePondShape.set_active(VillagePondShape.at(_layout.pond_center))
 	_apply_stage_datum(_params)
@@ -1285,12 +1293,57 @@ func landform_readout() -> Dictionary:
 				storey = maxf(storey, absf(float(s["target"]) - float(f.y_hero)))
 	out["storey_m"] = storey
 	out["pond_plaza_rejects"] = diag.get("pond_plaza_rejects", null)
+	# SD-VILLAGE-TERRAIN-30 rule 3: the generator gave up and the flat authored village is shown.
+	out["authored_fallback"] = _layout.fallback and _gen_variant == 0
 	return out
+
+
+## SD-VILLAGE-TERRAIN-30: "attempts N: reason count, ..." with reasons grouped by the text before
+## the first ':' or a trailing '_<n>' (plot_select_3 -> plot_select, terrain:path_cap -> terrain).
+## Most frequent first; ties keep first-seen order. Empty reasons count as "(none)".
+static func attempt_fail_summary(attempts: Array) -> String:
+	var counts := {}
+	var order: Array[String] = []
+	for a: Dictionary in attempts:
+		var key := _fail_reason_group(String(a.get("fail_reason", "")))
+		if not counts.has(key):
+			counts[key] = 0
+			order.append(key)
+		counts[key] += 1
+	var ranked := order.duplicate()
+	ranked.sort_custom(func(x: String, y: String) -> bool:
+		if counts[x] != counts[y]:
+			return counts[x] > counts[y]
+		return order.find(x) < order.find(y))
+	var parts := PackedStringArray()
+	for k: String in ranked:
+		parts.append("%s %d" % [k, counts[k]])
+	var head := "attempts %d" % attempts.size()
+	return head if parts.is_empty() else head + ": " + ", ".join(parts)
+
+
+static func _fail_reason_group(reason: String) -> String:
+	if reason.is_empty():
+		return "(none)"
+	var colon := reason.find(":")
+	if colon >= 0:
+		return reason.substr(0, colon)
+	var us := reason.rfind("_")
+	if us > 0:
+		var tail := reason.substr(us + 1)
+		if not tail.is_empty() and tail.is_valid_float():
+			return reason.substr(0, us)
+	return reason
 
 
 func landform_readout_lines() -> PackedStringArray:
 	var r := landform_readout()
 	var lines := PackedStringArray()
+	if not r.is_empty() and bool(r["authored_fallback"]):
+		lines.append(("NO VILLAGE GENERATED (seed %d): the flat authored fallback is shown, not this "
+			+ "landform. Change the seed or the landform knobs.") % _gen_seed)
+		lines.append(attempt_fail_summary(_gen_attempts))
+		return lines
 	if r.is_empty() or _layout.landform.is_empty():
 		lines.append("landform: (flat / classic)")
 		return lines

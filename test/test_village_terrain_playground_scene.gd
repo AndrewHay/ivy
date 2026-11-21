@@ -335,6 +335,44 @@ func test_variant_flat_and_noise_selector() -> void:
 	assert_eq(int(pg._build_params.landform_noise), 1, "billow noise applied")
 
 
+func test_authored_fallback_readout_flags_no_village_sd30() -> void:
+	## SD-VILLAGE-TERRAIN-30 rule 3: billow at the production scale (seed 7) ends on the authored
+	## fallback; the readout says so instead of "landform: (flat / classic)".
+	var pg = await _boot()
+	await pg._await_refined()
+	assert_false(bool(pg.landform_readout().get("authored_fallback", true)), "production seed 7 generates")
+	pg._on_knob_changed("landform_noise", 1)
+	await pg._await_refined()
+	var r: Dictionary = pg.landform_readout()
+	assert_true(bool(r.get("authored_fallback", false)), "noise 1 at production scale: authored fallback")
+	var lines: PackedStringArray = pg.landform_readout_lines()
+	gut.p("fallback readout: %s" % "\n".join(lines))
+	assert_gt(lines.size(), 1, "message + attempts line")
+	if lines.size() < 2:
+		return
+	assert_string_contains(lines[0], "NO VILLAGE GENERATED (seed 7)")
+	assert_string_contains(lines[0], "the flat authored fallback is shown, not this landform.")
+	assert_false("(flat / classic)" in lines[0], "replaces the flat / classic line")
+	assert_true(lines[1].begins_with("attempts 12: "), "attempt count line: %s" % lines[1])
+	pg._on_preset_selected("Billow")
+	await pg._await_refined()
+	assert_false(bool(pg.landform_readout().get("authored_fallback", true)), "Billow preset generates")
+	assert_false("NO VILLAGE GENERATED" in pg.landform_readout_lines()[0], "no warning on Billow")
+
+
+func test_attempt_fail_summary_groups_reasons_sd30() -> void:
+	var pg_script: GDScript = load("res://src/playground/village_terrain_playground.gd")
+	var attempts := [
+		{"fail_reason": "plot_select_3"}, {"fail_reason": "plot_select_5"},
+		{"fail_reason": "terrain:path_cap"}, {"fail_reason": "plot_select_2"},
+		{"fail_reason": "stage7_v3_no_bundle"}, {"fail_reason": "terrain:pond_moved"},
+		{"fail_reason": "plot_select"}, {"fail_reason": ""},
+	]
+	assert_eq(pg_script.attempt_fail_summary(attempts),
+		"attempts 8: plot_select 4, terrain 2, stage7_v3_no_bundle 1, (none) 1")
+	assert_eq(pg_script.attempt_fail_summary([]), "attempts 0")
+
+
 func test_camera_presets_include_horizons_overview_and_seam() -> void:
 	var pg = await _boot()
 	for name in ["east_horizon", "west_horizon", "wide_overview", "old_rim_seam"]:
