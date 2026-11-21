@@ -140,15 +140,18 @@ python3 tools/measure_structure_gates.py ivy tower
 
 `measure_structure_gates.py` on the cottage (`ivy-b1e.20`): gates 1 and 2 probe at half the wall
 height (`cottage_layout.WALL_TOP`), not the middle of the bounds, which is in the roof. For a
-structure with a `growth_surface` block gate 3 judges only hero vertices standing **proud** of the
+structure whose sim GLB is builder output (the builder's generator tag in the GLB asset block,
+`ivy-b1e.42`) gate 3 judges only hero vertices standing **proud** of the
 growth surface; vertices buried in a solid (interior faces inside wall slabs, parts under a shutter
 envelope) are counted and printed but not judged, because the tool has no visibility test: SG-9 (a)
 in the audit judges that side; the tower has a block (its fills) and is read this way since
 `ivy-b1e.8` installed its growth surface (gate 3 ivy-reachable max 0.0242 m, 224 buried vertices
-reported), and so is surface_wall (its `stones` block; gate 3 ivy-reachable max 0.0175 m, 660 buried
-vertices reported; `ivy-b1e.8`). The square keeps the two-sided read with the SD-OPEN-27(d) relief exemption: its growth
-surface needs no `growth_surface` block (defaults fit), so the gates tool still reads it that way
-(gate 3 ivy-reachable max 0.0495 m on the growth surface, `ivy-b1e.8`).
+reported), and so is surface_wall (its `stones` block; gate 3 ivy-reachable max 0.0175 m, 356 buried
+vertices reported since the `ivy-b1e.41` rebuild; `ivy-b1e.8`). The square is builder output too, built with defaults and no
+`growth_surface` block, and is read the same way since `ivy-b1e.42` (it used to keep the two-sided
+read with the SD-OPEN-27(d) relief exemption, max 0.0495 m): gate 3 ivy-reachable max 0.0214 m,
+226 buried vertices reported. The SD-OPEN-27(d) exemption now applies to no shipped structure; it
+stays for a Blender-exported proxy.
 
 ### Growth-surface builder (`tools/build_growth_surface.py`)
 

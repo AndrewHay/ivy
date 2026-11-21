@@ -277,14 +277,29 @@ def measure_interior(verts, tris, shells, mid_y=None):
     }
 
 
-def relief_exempt_for(name: str) -> bool:
-    """SD-OPEN-27(d) applies to Blender-built proxies only: a structure whose sim GLB is
-    tools/build_growth_surface.py output (a `growth_surface` block in structure_configs.json)
-    keeps the wall relief, so gate 3 judges it in full (ivy-b1e.7)."""
+def glb_generator(path: Path) -> str:
+    """The `asset.generator` string of a GLB's JSON chunk ("" when absent)."""
     import json  # noqa: WPS433
 
-    cfg = json.loads((Path(__file__).resolve().parent / "structure_configs.json").read_text())
-    return "growth_surface" not in cfg.get(name, {})
+    data = Path(path).read_bytes()
+    if data[:4] != b"glTF":
+        raise ValueError(f"not a GLB: {path}")
+    ln, tp = struct.unpack_from("<II", data, 12)
+    if tp != 0x4E4F534A:
+        raise ValueError(f"GLB whose first chunk is not JSON: {path}")
+    doc = json.loads(data[20:20 + ln].decode("utf-8"))
+    return str(doc.get("asset", {}).get("generator", ""))
+
+
+def relief_exempt_for(name: str) -> bool:
+    """SD-OPEN-27(d) applies to Blender-built proxies only: a structure whose sim GLB is
+    tools/build_growth_surface.py output keeps the wall relief, so gate 3 judges it in full
+    (ivy-b1e.7). Builder output is recognised by the builder's generator tag in the GLB asset
+    block, not by a `growth_surface` config block: a structure built with default settings
+    (the square) has no block (ivy-b1e.42)."""
+    from build_growth_surface import GENERATOR  # noqa: WPS433
+
+    return glb_generator(STRUCTURES / f"{name}_sim.glb") != GENERATOR
 
 
 def ivy_reachable_vertex(node_name: str, v, phi: float, relief_exempt: bool = True) -> bool:
