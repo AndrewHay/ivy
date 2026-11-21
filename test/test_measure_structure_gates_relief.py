@@ -4,7 +4,7 @@ the gates probe the cottage where its walls are (ivy-b1e.20).
 
 The exemption skipped wall-kit vertices more than 0.05 m off the proxy because the Blender sim
 proxies stripped wall relief. A structure whose sim GLB is tools/build_growth_surface.py output
-(it has a `growth_surface` block in tools/structure_configs.json) keeps the relief, so gate 3
+(the builder's generator tag in the GLB asset block, ivy-b1e.42) keeps the relief, so gate 3
 judges every ivy-reachable wall vertex that stands proud of the growth surface. Hero vertices
 buried in a growth-surface solid are counted and reported, not judged: this tool has no
 visibility test, and SG-9 (a) (tools/audit_growth_surface.tscn) judges them with one.
@@ -37,8 +37,22 @@ class ReliefExemptionTest(unittest.TestCase):
         self.assertFalse(gates.relief_exempt_for("ivy"))
         # ivy-b1e.8: the tower's sim is builder output with a growth_surface block (its fills).
         self.assertFalse(gates.relief_exempt_for("tower"))
-        # The square's sim is builder output too, but defaults fit: no block, so still exempt.
-        self.assertTrue(gates.relief_exempt_for("square"))
+        # ivy-b1e.42: the square's sim is builder output built with defaults (no config block);
+        # the builder's generator tag, not the block, decides.
+        self.assertFalse(gates.relief_exempt_for("square"))
+        self.assertFalse(gates.relief_exempt_for("surface_wall"))
+
+    def test_glb_generator_reads_a_blender_exporter_tag(self):
+        # A Blender-exported proxy carries the exporter's tag, not GENERATOR, so it stays exempt.
+        import tempfile  # noqa: WPS433
+
+        doc = b'{"asset":{"version":"2.0","generator":"Khronos glTF Blender I/O"}}  '
+        glb = b"glTF" + (2).to_bytes(4, "little") + (20 + len(doc)).to_bytes(4, "little")
+        glb += len(doc).to_bytes(4, "little") + (0x4E4F534A).to_bytes(4, "little") + doc
+        with tempfile.TemporaryDirectory(dir=_REPO / ".tmp") as d:
+            p = Path(d) / "blender_sim.glb"
+            p.write_bytes(glb)
+            self.assertEqual(gates.glb_generator(p), "Khronos glTF Blender I/O")
 
 
 class GroundTestUsesHeightTest(unittest.TestCase):
