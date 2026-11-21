@@ -8928,7 +8928,7 @@ them for v1 JSON): Village hill group (8 fields), knoll group (9), swell group (
 `rim_tint_match_on` (no rim; colour continuity is a shader requirement, AC-LT-SEAM).
 
 **Presets:** `Production` · `Flat (A/B)` (variant 1) · `Village on a hill (old)` (variant 2, only if kept) ·
-`Gentle` (height 10, wavelength 300) · `Bold` (height 22, wavelength 220) · `Billow` (noise 1) ·
+`Gentle` (height 10, wavelength 300) · `Bold` (height 22, wavelength 220) · `Billow` (noise 1; *2026-11-21:* plus wavelength 400, height 14, see -30) ·
 `Derivative-damped` (noise 2) · `Ridged (comparison)` (noise 3) · `Tight village (old spacing)`
 (`cottage_min_sep_m` 8, `sep_ladder_floor_m` 8, `path_len_scale` 0.8, `village_centre_r_max_m` 37;
 *2026-11-18:* 8 m leaves only the 4 m wall gap binding, and 0.8 × the new lengths is close to the
@@ -9226,6 +9226,204 @@ paths the human chose). Playground knobs: `storey_ground_m`, `storey_ground_frac
 16 m spacing, ladder, reach, path lengths, ring limits (22 / 25°), span limits (5–8 m search, 5–9 m
 field), `path_steep_accept_deg` or the timing limits; no forest tuning or pine collar; no grass density
 change; no sampler storey preference; no agent feel verdict.
+
+### SD-VILLAGE-TERRAIN-29 — Storey rule without losing 16 m spacing: repack before the ladder *(ivy-82zn.14.29, 2026-11-21)*
+
+**Consumes:** -28 (storey rule, option A stopgap limits), -21 (16 m, ladder in every attempt), AR-LF-PERF.
+**Status: decided 2026-11-21** — the human accepted the designer's recommendation on both points in §4
+("Yes, accept both"): `path_cap_fallback` **≤ 9 / 20** becomes the standing limit, and "at most one seed
+uses all 12 attempts" plus the parity-only `generate(-1)` tests stay (the pure-score last rank is not
+adopted). **Next handoff:** Gameplay Programmer (no GA stage: one block in `_stage5_select_with_capacity`, two
+knobs, test limits).
+
+**Probes** (throwaway, `.tmp/sd_14_29/`): `gen_fork.gd` (generator copy with hooks: repack, hold, rank
+order) and `probe.gd` (`--mode=cmp` runs every config on each seed in turn, so machine load hits them
+alike; `--mode=table` generates the first storey candidates one at a time). Timing is compared inside
+one run only: the same baseline measured 3539–3954 ms mean across runs on a shared machine.
+
+#### 1. Findings
+
+- **The offset is not what relaxes a village.** For the first 4 storey candidates of seeds 1–10
+  (`--mode=table`), the outcome (ok / relaxed / flagged / authored) does not follow any search measure
+  (buildable share 0.75–0.92, exact p95, score, span). It follows the attempt's path network. So the
+  option on file ("only rank a storey offset first if it can place 8 cottages at 16 m") cannot be a
+  search-time test; it can only be "try, then decide", which costs attempts.
+- **The selection is a plain greedy.** `PlotSampler.select` takes candidates in score order; its
+  `rng_state` only seeds a stored noise value and never changes the order. Picks made early (before the
+  capacity branches exist) are never revisited. When the attempt ends with 7 of 8 at 16 m, the ladder
+  relaxes at once, although the merged pool often does hold 8 at 16 m in another order.
+- **Where the time goes:** stage 4–5 is about 72% of `generate`; `PlotSampler.candidates` alone (5a + 5d
+  + 5f) is about 43%. Seed 10 (12 attempts) is 27% of the probe-set time.
+- **Structural limit (unchanged):** on seeds 21–40 the pool cannot hold 8 at 16 m on 4 seeds, whatever
+  the order (16 repack tries rescue 1). About 1 seed in 8 still relaxes. Site-first placement (-21
+  option C) is the fix for that and stays out of scope.
+
+#### 2. Rule: repack at the nominal floor before the ladder
+
+In `_stage5_select_with_capacity`, after the full-refresh append (5g) and before the ladder (5h):
+
+- **When:** `picked.size() == need − 1` (7 of 8), at least one capacity branch was grown, and
+  `sep_repack_tries > 0`. With fewer than 7 picks the probe found no usable rescue (one in 22 seeds, and
+  that attempt then failed v2), so those attempts skip the repack and cost nothing.
+- **What:** up to `sep_repack_tries` (**6**) fresh `PlotSampler.select` passes over the whole merged
+  pool `all_cands`, same rules and the **nominal** floor (16 m). Try `r = 0` uses the plain score order.
+  Tries `r ≥ 1` order by `score + u · sep_repack_jitter · (score_max − score_min)` with
+  `sep_repack_jitter` **0.5**, `u` in [−1, 1]: `js = _Layout._derive(pick_st ^ (r * 0x2F0B), _PATH_SALT + 307)`,
+  then per candidate in `all_cands` order `js = lcg_step(js)`, `u = lcg_f01(js) * 2 − 1`. The select's
+  own `rng_state` is `_Layout._derive(pick_st ^ r, _PATH_SALT + 311)`. `pick_st` is its value after 5g.
+- **Result:** the first try that returns `need` picks replaces `picked`; the attempt continues unrelaxed
+  (`sep_relaxed_to` unset) and `terrain_diag["sep_repacked"] = r`. If no try reaches `need`, `picked` is
+  untouched and the ladder runs exactly as today.
+- **Order key, not copies:** the jitter must not change a candidate's stored `score`, and the candidate
+  dicts must keep their `_site` memo across tries (the probe's first version lost the memo and cost 3×).
+- **Off switch:** `sep_repack_tries = 0` reproduces today's layouts exactly (parity test). An attempt
+  that never reaches "7 of 8 after 5g" is bit-identical with the rule on.
+- **Knobs** (-22, Placement group, defaults == production): `sep_repack_tries` 6 (0–16, step 1),
+  `sep_repack_jitter` 0.5 (0–1, step 0.05). `stage_ms["5h0_repack"]` for the profile.
+- Sensitivity (measured with the earlier `RandomNumberGenerator` stream, not re-run on the stream above):
+  jitter 0.25 rescues less (seed 7 stays relaxed); 0.5 and 1.0 give the same counts; 3 tries leave seed 9
+  relaxed; pool = full-refresh candidates only leaves seeds 7 and 9 relaxed.
+
+#### 3. Measured (seeds 1–20, rule as specified; baseline = today's production in the same run)
+
+| Acceptance line | Today | With the rule | Passes |
+|---|---|---|---|
+| Storey ≥ 3 m on ≥ 17 / 20 | 17 (miss 5, 9, 20) | 17 (miss 5: 2.84, 9: 2.62, 20: 1.96) | yes |
+| Storey seeds 1 / 7 / 12 | 3.58 / 3.26 / 5.16 | 3.32 / 4.35 / 5.16 | yes |
+| ≤ 3 seeds relax below 16 m | 6 (7, 8, 9, 11, 14, 16) | **1** (seed 11 → 14 m) | yes |
+| Seeds 1 / 7 / 12 unrelaxed | seed 7 at 14 m | all ≥ 16 m | yes |
+| `path_cap_fallback` ≤ 8 / 20 | 9 | **9** (1, 3, 4, 9, 11, 13, 15, 16, 17) | **no** |
+| Seed 7 open-land slope p95 ≤ 14° | 14.06 | 13.89 (seeds 1 / 12: 12.66 / 11.06) | yes |
+| Timing, probe set (same run) | 3609 ms | 3207 ms (−11%); worst 11.7 s (seed 10) | yes (see note) |
+| `storey_soft` ≤ 3 | 2 | 2 | yes |
+| Mean attempts ≤ 4.0 | 3.50 | 3.10 | yes |
+| At most one seed uses all 12 attempts | seed 10 | seed 10 | stopgap kept |
+| `generate(-1)` does not fall back | falls back | falls back (12 attempts) | **no** |
+| Backdrop trees ≥ 24 (seeds 1–12, 240424020) | min 25 | min 25 (seed 10); 240424020: 27 | yes |
+
+Timing note: the −11% is seed 7 going from 7 attempts to 1 (its rank-0 attempt 1 repacks and validates).
+The repack itself costs about 4% of `generate` (5h0 1.6 s of 36 s). With a different jitter stream
+(Godot `RandomNumberGenerator`, same rule) seed 7 took 8 attempts and the probe-set mean was +2% to +6%
+over the baseline. Per-seed results depend on the exact stream above, so implement it as written, then
+let `test_probe_seeds_timing_slack` decide: restore **3500 ms** if it measures ≤ 3500, else keep 3700
+and report.
+
+Seeds 21–40 (not an acceptance set): relaxed 4 today, 4 with the rule (27, 29, 31, 40). Over seeds 1–40:
+10 → 5. The rule is not a general cure; see the structural limit in §1.
+
+#### 4. Lines that do not pass (human decision 2026-11-21: accept items 1 and 2 as proposed)
+
+No ordering rule tried meets every line. Results are dominated by which attempt's network works, so more
+variants would only move the dice.
+
+1. **`path_cap_fallback` ≤ 8 / 20:** 9 with the rule (9 today). Retrying does not make paths gentler
+   (-28 §1). Proposal: keep **≤ 9** as the standing limit.
+2. **"No seed uses all 12 attempts" and `generate(-1)` not falling back:** unchanged (seed 10 uses 12;
+   seed 2147483647 falls back). Both are fixed by taking the **last rank from the pure score order**
+   (the pre-28 order) instead of the storey order: seed 10 generates in 10 attempts and seed 2147483647
+   in 10 (9.1 s). The price: seed 10 loses its storey (1.63 m), so the sweep is **16 / 20** (below the
+   17 floor), and seed 10 becomes flagged (10 flagged). Not recommended; listed because it is the only
+   variant found that restores those two expectations. Otherwise keep "at most one seed" and the
+   parity-only `-1` tests.
+3. Not adopted, for the record: **hold a relaxed layout and try 2 more attempts** (the option on file as
+   a loop rule). No effect on seeds 1–20 with the repack in place; 240424020 and seed 40 become
+   unrelaxed for one more attempt each (+1.3% probe-set time); seed 27 stays relaxed. **Cheap search
+   predictors** (buildable share, exact p95) do not predict the outcome.
+
+#### 5. Test expectations (after the decision; measured values in §3)
+
+- `test_village_gen_v3.gd`: relaxed seeds in 1–20 **≤ 3** (was ≤ 6; measured 1); seeds 1, 7 and 12
+  `sep_relaxed_to` unset and min pair ≥ 16 m (seed 7 restored); `TIMING_MEAN_MS_MAX` 3500 if measured,
+  worst 12000 unchanged. New: `sep_repack_tries = 0` parity on a repacking seed (7 or 16: the layout
+  differs with the rule on); a repacked layout has `sep_repacked` set, `sep_relaxed_to` unset and every
+  pair ≥ 16.0 m; determinism of the repacked layout.
+- `test_village_landform_relief.gd`: open-land slope p95 limit **14.0°** (was 14.1); storey ≥ 17 / 20 and
+  `storey_soft` ≤ 3 unchanged.
+- `test_village_terrain_stones.gd`: flagged limit **≤ 9** (decision 1, standing, no longer a stopgap);
+  "at most one seed uses all 12 attempts" stays (decision 2).
+- `test_village_world_scale.gd`: backdrop tree floor **24** (was 22).
+- `test_village_layout::test_seed_normalisation_negative`, `test_generated_village_sweep::
+  test_edge_seed_negative_one`: stay parity-only (decision 2).
+- -22 knob table and -23 rows (AC-LT-SEP, AC-LT-SLOPE, AC-LT-PATH, AC-LT-DRESS trees) follow the same
+  numbers. Layouts change on seeds 1, 7, 8, 9, 14, 16 (and any seed whose attempt repacks), so the WP3
+  AFTER PNGs for seeds 1 and 7 must be re-captured.
+
+**Non-goals:** no site-first placement; no change to the storey rule's ordering, K, the 16 m floor, the
+ladder or its floor, attempts per rank, rank count, path lengths or the path cap; no candidate-sampler
+speed work (flagged in §1 for a later perf bead); no feel verdict.
+
+### SD-VILLAGE-TERRAIN-30 — Billow variant: matched-relief preset and authored-fallback readout *(ivy-82zn.14.26, 2026-11-21)*
+
+(Number 29 is left free for the storey rule restatement, ivy-82zn.14.29.)
+
+**Problem.** In the playground, billow noise on seed 7 shows the flat authored village, so the variant
+cannot be compared with production (G7).
+
+**Finding (probe `.tmp/sd_14_26/`, seeds 1–20).** It is not a seed 7 problem. Billow at the production
+scale (height 16 m, wavelength 260 m) is too steep for a village on every seed:
+
+| Billow settings | Seeds with a passing offset | Rank 0 `p95_v` | Generated village | Authored fallback | Generate mean / worst |
+|---|---|---|---|---|---|
+| height 16, wavelength 260 (preset today) | **0 / 20** | best candidate 15.7–18.1°, median 20° (limit 14°) | 6 / 20, all `offset_fallback` + `path_cap_fallback`, paths 15–26° | **14 / 20** | about 17 s / 21 s |
+| height 16, wavelength 400 | 20 / 20 (7–15 verified candidates per seed) | 11.6–14.0° | 18 / 20 | 2 / 20 (13, 15) | 5.7 s / 12.6 s |
+| **height 14, wavelength 400 (chosen)** | **20 / 20** (11–27 per seed) | 11.0–14.0° | **19 / 20**, 0 `offset_fallback` | 1 / 20 (18) | 5.4 s / 13.2 s |
+
+Every coarse-passing billow candidate at the production scale fails the exact `p95_v` check; none fails
+on the hero or plaza ring. The cause is the fold: `1 − 2·sabs(s)` turns each zero crossing of the simplex
+into a crest, so billow hills are about half as wide as fBm hills at the same wavelength, and about 1.5×
+as steep at the same height.
+
+**Decision.**
+
+1. **Billow at the production scale is not a production candidate** (option a). No rule is relaxed for
+   it. Relaxing `max_site_slope_deg`, the ring ladder or `village_slope_p95_max_deg` for non-passing
+   offsets would put cottages and paths on 16–20° ground, which the -19 / -20 rules exist to prevent.
+2. **The `Billow` preset is restated at matched relief** so the variant can be judged:
+   `{"variant": 0, "landform_noise": 1, "landform_wavelength_m": 400.0, "landform_height_m": 14.0}`.
+   Wavelength 400 is the knob maximum. The -18 span rule (5–8 m) still picks the offset, so the Billow
+   village has the same relief as production and the comparison is of hill shape, not size. This is a
+   preset data change only. `production()`, the generator, the search and every limit are unchanged.
+   Seed 7 (playground default) generates at rank 0 in 1.4 s.
+3. **Authored-fallback readout** (any preset or knob setting, not only billow). When
+   `_layout.fallback` is true on variant 0:
+   - `landform_readout()` adds `authored_fallback: true` (false otherwise).
+   - `landform_readout_lines()` returns, in place of `landform: (flat / classic)`:
+     `NO VILLAGE GENERATED (seed N): the flat authored fallback is shown, not this landform. Change the seed or the landform knobs.`
+   - A second line gives the attempt count and the fail reasons from
+     `VillageGeneratorV3.last_diag["attempts"]`, grouped by the text before the first `:` or trailing
+     `_<n>` (for example `attempts 12: plot_select 10, terrain 2`).
+   - The `landform_noise` knob help reads: `1 billow: steep at production scale, use the Billow preset`.
+4. One seed in 20 (18) still ends on the authored fallback with the chosen preset. Its failures are the
+   generator's ordinary ones (`stage7_v3_no_bundle`, v4, v5), not slope. This is accepted: rule 3 says
+   so on screen. Forcing 20 / 20 needs more ranks or attempts, which costs time, or a noise-specific
+   branch in the generator, which is a demo fork.
+
+**Tests (mechanical).**
+
+| Test | Asserts |
+|---|---|
+| `test_village_terrain_params.gd` | `Billow` preset equals the dictionary in rule 2. |
+| `test_village_gen_v3.gd` (new case) | `Billow` preset, seed 7: not `fallback`, 8 cottages, `offset_fallback` false. |
+| `test/slow` (new case) | `Billow` preset, seeds 1–20: `rank_offsets(seed, p)[0]["pass"]` on 20 / 20; authored fallback on ≤ 2 / 20. |
+| `test_village_terrain_playground_scene.gd` | Noise knob 1 at production scale, seed 7: `authored_fallback` true and line 1 contains `NO VILLAGE GENERATED`. `Billow` preset: `authored_fallback` false. |
+| `test_offset_fallback_still_tries_three_ranks` | Unchanged (it sets noise 1 on `production()`, which still has no passing offset). |
+
+**Scenarios.**
+
+- Pick the `Billow` preset on seed 7: a generated 8-cottage village on rounder hills, readout as usual.
+- Set only the noise knob to 1 from `Production`: the flat authored village, and the HUD says no village
+  was generated and why.
+- `Billow` preset on seed 18: the same HUD message; change the seed.
+
+**For the human (G7, not decided here).** Compare `Billow` with `Production` in
+`scenes/playground/village_terrain_playground.tscn`. If billow should become a production candidate, that
+is a new SD bead: production defaults, a prepared billow sample path (generate is 5 s mean today because
+only fBm has `_fbm_prep`), and a re-run of the -23 acceptance metrics. `Derivative-damped` already has a
+passing offset on 20 / 20 seeds at the production scale (1–7 verified candidates per seed).
+
+**Non-goals:** no change to production simplex behaviour, `production()` values, timing limits, the
+offset search, site / ring / path rules, the rank or attempt budget; no speed-up of the billow path; no
+change to the `Derivative-damped` or `Ridged (comparison)` presets; no agent feel verdict.
 
 ## AR-VILLAGE-TERRAIN — In-village lawn terrain height architecture *(ivy-82zn)*
 
