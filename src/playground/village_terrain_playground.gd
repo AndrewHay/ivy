@@ -1754,6 +1754,7 @@ func _on_preset_selected(name: String) -> void:
 	if _knob_panel:
 		_knob_panel.set_variant(_params.variant)
 		_knob_panel.refresh_values()
+	_sync_noise_option()
 	_rebuild_layout_and_stage()
 
 
@@ -1764,7 +1765,15 @@ func _on_reset_production() -> void:
 	if _knob_panel:
 		_knob_panel.set_variant(0)
 		_knob_panel.refresh_values()
+	_sync_noise_option()
 	_rebuild_layout_and_stage()
+
+
+func _sync_noise_option() -> void:
+	## ivy-3zbe: the top-right selector mirrors _params.landform_noise after wholesale param changes.
+	## OptionButton.select() does not emit item_selected, so this never triggers a rebuild.
+	if _noise_option != null:
+		_noise_option.select(int(_params.landform_noise))
 
 
 func _on_copy_settings() -> void:

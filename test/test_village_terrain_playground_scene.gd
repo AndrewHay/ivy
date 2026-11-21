@@ -360,6 +360,26 @@ func test_authored_fallback_readout_flags_no_village_sd30() -> void:
 	assert_false("NO VILLAGE GENERATED" in pg.landform_readout_lines()[0], "no warning on Billow")
 
 
+func test_noise_selector_follows_preset_and_reset() -> void:
+	## ivy-3zbe: the top-right "Landform noise" selector must show _params.landform_noise after a
+	## preset pick and after Reset to production, not only after a knob edit.
+	var pg = await _boot()
+	pg._build_ui()
+	var sel: OptionButton = pg._noise_option
+	assert_not_null(sel, "noise selector built")
+	if sel == null:
+		return
+	assert_eq(sel.selected, 0, "starts on fbm (production)")
+	pg._on_preset_selected("Billow")
+	assert_eq(sel.selected, int(pg._params.landform_noise), "selector follows the Billow preset")
+	assert_eq(sel.selected, 1, "Billow = billow noise")
+	pg._on_preset_selected("Derivative-damped")
+	assert_eq(sel.selected, int(pg._params.landform_noise), "selector follows Derivative-damped")
+	pg._on_reset_production()
+	assert_eq(sel.selected, 0, "Reset to production puts the selector back on fbm")
+	await pg._await_refined()
+
+
 func test_attempt_fail_summary_groups_reasons_sd30() -> void:
 	var pg_script: GDScript = load("res://src/playground/village_terrain_playground.gd")
 	var attempts := [
