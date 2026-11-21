@@ -2397,6 +2397,17 @@ are reported (median, p95, max per seed) but stay outside gate (a) until a finer
 the AR-MESH-20 text first), then the surface_wall install under `ivy-b1e.8`.
 **Non-goals:** any threshold; exempting or bounding corner samples; leaf clipping; fillets.
 
+**2026-11-20 — SG-9(d) D0: M1 evidence counts the whole niche floor (orchestrator, `ivy-2laa`;
+`IMPLEMENTATION.md` SD-MESH-19.5 D0). DECIDED BY THE OWNER 2026-11-20.** After the `ivy-hfik`
+growth-step fix the sharp article's fixed run put 0 stems in M1's floor zone, against D0's minimum of
+1. M1's floor zone is only 0.01 m wide (0.16 m niche less 0.075 m from each side wall). A comparison
+run with the fix on and off showed more stems entering M1 with it (7 against 5, 106 nodes against
+100), so the miss was where the path happened to land, not lost reach.
+**Owner decided** ("Count whole M1 floor"): D0's M1 evidence is ≥ 1 stem with nodes anywhere on M1's
+floor (within effective contact, 0.045 m, of the floor plane). N1's ≥ 5 in its floor zone and D1–D4
+are unchanged.
+**Non-goals:** any other D0–D6 number; the floor zones used by D1.
+
 ---
 
 ## Developer debug snapshots (ivy-nrp)

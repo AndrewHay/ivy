@@ -37,6 +37,25 @@ static func _ray_end(from: Vector3, to: Vector3, extend: bool) -> Vector3:
 	return to + leg.normalized() * COLLISION_SKIN
 
 
+## Start of a collision ray: `from`, or a COLLISION_SKIN behind it when `extend` (mesh surfaces,
+## ivy-hfik). A tip can sit exactly in the plane of a one-sided face: pushed off one face of an
+## edge by the skin, it stays in the plane of the neighbouring face, and a ray cast from that
+## plane misses the face, so the stem walks into the solid. Backing the start off by a skin
+## catches it; a face the tip moves away from is never hit, because a ray only hits front faces.
+static func _ray_start(from: Vector3, to: Vector3, extend: bool) -> Vector3:
+	if not extend:
+		return from
+	var leg := to - from
+	if leg.length_squared() < 1e-12:
+		return from
+	return from - leg.normalized() * COLLISION_SKIN
+
+
+## Mesh collision ray from `from` to `to` with both ends reaching a skin further (ivy-9bt7, ivy-hfik).
+static func _cast(ctx: SimContext, from: Vector3, to: Vector3, mesh_reach: bool) -> SurfaceQuery.Hit:
+	return ctx.surface.raycast(_ray_start(from, to, mesh_reach), _ray_end(from, to, mesh_reach))
+
+
 static func step_tip(tip: Tip, ctx: SimContext) -> void:
 	var params := ctx.params
 	var traverse := params.eave_traversal_enabled and ctx.surface.backend_tag() == "WallSdf"
@@ -135,7 +154,7 @@ static func step_tip(tip: Tip, ctx: SimContext) -> void:
 	# On a mesh the ray reaches a skin past the trial point (ivy-9bt7): a trial that ended on a
 	# face to within float error was not a hit, and the next ray then started behind that face.
 	var mesh_reach := ctx.surface.backend_tag() == "MeshSdf"
-	var hit := ctx.surface.raycast(tip.position, _ray_end(tip.position, x_trial, mesh_reach))
+	var hit := _cast(ctx, tip.position, x_trial, mesh_reach)
 	var x_new := x_trial
 	var d_actual := d_dir
 	if hit.hit:
@@ -169,7 +188,7 @@ static func step_tip(tip: Tip, ctx: SimContext) -> void:
 			x_new.y = params.ground_y_min
 			grounded = true
 		# At a concave corner the reflected leg can pass through the adjacent face.
-		var hit2 := ctx.surface.raycast(bounce, _ray_end(bounce, x_new, mesh_reach))
+		var hit2 := _cast(ctx, bounce, x_new, mesh_reach)
 		if hit2.hit:
 			x_new = hit2.position + hit2.normal * COLLISION_SKIN
 		d_actual = (x_new - tip.position).normalized()
@@ -224,6 +243,12 @@ static func step_tip(tip: Tip, ctx: SimContext) -> void:
 			# mesh face cast its next ray from the face plane, missed it, and grew on inside.
 			if backend == "TowerSdf" or backend == "MeshSdf":
 				x_new += near_x.normal * COLLISION_SKIN
+			# The snap is a move like any other (ivy-hfik): the nearest face can lie past a tile
+			# lip or a verge, and an unchecked snap took the stem straight through it.
+			if mesh_reach:
+				var snap_hit := _cast(ctx, tip.position, x_new, mesh_reach)
+				if snap_hit.hit:
+					x_new = snap_hit.position + snap_hit.normal * COLLISION_SKIN
 			d_actual = (x_new - tip.position).normalized()
 	if d <= contact_thresh:
 		tip.floating_length = 0.0
@@ -270,7 +295,7 @@ static func step_tip(tip: Tip, ctx: SimContext) -> void:
 			var rot := Basis(tip.last_contact_normal, sign * angle)
 			var branch_dir := rot * tip.direction
 			var branch_pos := x_new + branch_dir * params.branch_offset
-			var branch_hit := ctx.surface.raycast(x_new, _ray_end(x_new, branch_pos, mesh_reach))
+			var branch_hit := _cast(ctx, x_new, branch_pos, mesh_reach)
 			if branch_hit.hit:
 				branch_pos = branch_hit.position + branch_hit.normal * COLLISION_SKIN
 			ctx.tips.queue_branch(tip, branch_pos, branch_dir, tip.last_contact_normal, tip.branch_index, params)
