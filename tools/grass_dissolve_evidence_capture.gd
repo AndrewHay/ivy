@@ -10,7 +10,7 @@ func _ready() -> void:
 	if DisplayServer.get_name() == "headless":
 		get_tree().quit(0)
 		return
-	var outdir := "/Users/andrewhay/github/ivy/.tmp/grass_density_60"
+	var outdir := ProjectSettings.globalize_path("res://.tmp/grass_density_60")
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--outdir="):
 			outdir = String(arg.get_slice("=", 1))

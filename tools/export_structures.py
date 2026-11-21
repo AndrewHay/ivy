@@ -17,12 +17,13 @@ Or via Blender directly::
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-BLENDER = "/Applications/Blender.app/Contents/MacOS/Blender"
+BLENDER = os.environ.get("BLENDER", "/Applications/Blender.app/Contents/MacOS/Blender")
 BUILD = ROOT / "tools" / "build_structures.py"
 DEFAULT_KIT = ROOT / "assets" / "_local" / "medieval_village_megakit" / "glTF"
 

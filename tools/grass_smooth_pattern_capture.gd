@@ -6,7 +6,7 @@ const _SQUARE := "res://assets/structures/scenarios/square.tres"
 
 
 func _ready() -> void:
-	var outdir := "/Users/andrewhay/github/ivy/.tmp/grass_density_60"
+	var outdir := ProjectSettings.globalize_path("res://.tmp/grass_density_60")
 	var tag := "before_smooth"
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--outdir="):

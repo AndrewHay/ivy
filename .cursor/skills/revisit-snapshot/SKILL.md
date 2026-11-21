@@ -60,6 +60,16 @@ Optional orbit shots around annotation **id** `n` (uses `world_anchors` centroid
 
 Writes `replay.png` and `orbit_highlight_<id>_<azimuth>.png` into the snapshot folder.
 
+**Linux (cloud containers):** use `$GODOT` (set in `~/.ivy-env`) instead of the macOS path, run
+from the project root, and render under Xvfb (`DISPLAY=:99`) with the X11 driver and Vulkan;
+this rendered on the GPU in the Phase 0 test. On macOS keep the literal `/Applications/...`
+path above, because the sandbox exemption matches only that prefix.
+
+```bash
+DISPLAY=:99 "$GODOT" --path . --display-driver x11 --rendering-driver vulkan \
+  res://tools/replay_snapshot.tscn -- --snapshot=latest
+```
+
 Set `block_until_ms` to at least **`120000`** (building bootstrap + replay).
 
 After the run:

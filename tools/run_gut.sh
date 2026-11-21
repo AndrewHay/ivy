@@ -20,6 +20,9 @@
 #   grep -E 'Ignoring script res://test/|SCRIPT ERROR: Parse Error:.*\(res://test/|Failed to load script "res://test/|\[ERROR\]:  Nothing was run\.' .tmp/gut.log
 #
 # The run is clean only if: godot exit is 0, the summary shows no failures, and step 3 prints nothing.
+#
+# On Linux, use "$GODOT" in place of the macOS binary. Exit 3 with "[gut-pre-run] ABORT" means
+# the import cache is incomplete (test/gut_pre_run.gd): import first (README -> Linux hosts).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

@@ -1,7 +1,7 @@
 extends Node
 
 const _SCENE := "res://scenes/playground/forest_playground.tscn"
-const _OUT_ROOT := "/Users/andrewhay/github/ivy/.tmp/vlr/forest/v2"
+var _OUT_ROOT := ProjectSettings.globalize_path("res://.tmp/vlr/forest/v2")
 const _SEEDS: Array[int] = [1, 7, 12]
 const _CAMERAS: Array = ["camsun", "wide"]
 

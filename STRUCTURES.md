@@ -120,6 +120,9 @@ These appear in the building picker (`BuildingCatalog`) or dev tooling. Each has
 
 ### Pipeline commands (ivy example)
 
+The commands use the macOS binaries. On Linux, use `"$BLENDER"` and `"$GODOT"` in their place
+(see README → *Linux hosts*); `rebuild_sim_from_hero.py` and `export_structures.py` read `$BLENDER`.
+
 ```bash
 # Regenerate from JSON + kit (or bootstrap blend)
 /Applications/Blender.app/Contents/MacOS/Blender --background --python tools/build_structures.py -- \

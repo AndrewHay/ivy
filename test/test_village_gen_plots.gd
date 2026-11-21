@@ -448,8 +448,10 @@ func test_plot_debug_png_written() -> void:
 		var ept := Vector2(en.x * xf + offs.x, en.y * yf + offs.y)
 		_draw_line_px(img, spt, ept, Color(0.95, 0.85, 0.2, 1.0))
 
-	var path_str := "/Users/andrewhay/github/ivy/.tmp/village-gen-v3/s2/plots_debug.png"
-	img.save_png(path_str)
+	# Project-relative so the test works in any checkout / worktree and on Linux.
+	var path_str := ProjectSettings.globalize_path("res://.tmp/village-gen-v3/s2/plots_debug.png")
+	DirAccess.make_dir_recursive_absolute(path_str.get_base_dir())
+	assert_eq(img.save_png(path_str), OK, "save_png must succeed: %s" % path_str)
 	assert_true(FileAccess.file_exists(path_str))
 
 

@@ -22,10 +22,20 @@ sys.path.insert(0, str(_REPO / "tools"))
 import cottage_layout as cl  # noqa: E402
 import kit_openings as ko  # noqa: E402
 
-_KIT = Path(os.environ.get(
-    "IVY_MEGAKIT_GLTF",
-    "/Users/andrewhay/github/ivy/assets/_local/medieval_village_megakit/glTF",
-))
+def _default_kit() -> Path:
+    """The gitignored megakit in this checkout, else in the main checkout of a worktree."""
+    rel = Path("assets/_local/medieval_village_megakit/glTF")
+    git = _REPO / ".git"
+    if not (_REPO / rel).exists() and git.is_file():
+        # Worktree: .git holds "gitdir: <main>/.git/worktrees/<name>".
+        gitdir = Path(git.read_text().split("gitdir:", 1)[-1].strip())
+        main = (_REPO / gitdir).resolve().parents[2] / rel
+        if main.exists():
+            return main
+    return _REPO / rel
+
+
+_KIT = Path(os.environ.get("IVY_MEGAKIT_GLTF", str(_default_kit())))
 
 
 def _aperture_specs():

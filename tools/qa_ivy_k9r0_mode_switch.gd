@@ -12,7 +12,7 @@ func _ready() -> void:
 		printerr("[qa-k9r0-mode] refuses headless")
 		get_tree().quit(2)
 		return
-	var outdir := "/Users/andrewhay/github/ivy/.tmp/qa_k9r0/mode_switch"
+	var outdir := ProjectSettings.globalize_path("res://.tmp/qa_k9r0/mode_switch")
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--outdir="):
 			outdir = String(arg.get_slice("=", 1))
